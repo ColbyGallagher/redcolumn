@@ -58,8 +58,12 @@ export interface GraphOptions {
   kinds?: readonly LinkKind[];
 }
 
-/** A sheet index lists at least this many sheets. */
+/** A sheet index lists at least this many sheets... */
 const INDEX_MIN_SHEETS = 10;
+/** ...or, in a small set, this many (never fewer)... */
+const INDEX_FLOOR_SHEETS = 5;
+/** ...as long as it points at this share of the other sheets. */
+const INDEX_SET_SHARE = 0.8;
 /** This share of the sheets a page points at must be listed the way an index lists them, and must not point back. */
 const INDEX_SHARE = 0.8;
 
@@ -70,25 +74,27 @@ const INDEX_SHARE = 0.8;
  * its references are bubbles, or repeat, or jump about. Neither is a key plan: it lists its
  * enlarged plans the way an index would, but each of them refers back to it.
  */
-function findIndexPages(links: readonly GraphLink[]): number[] {
-  const bySource = new Map<number, Map<number, { links: number; plain: boolean }>>();
+function findIndexPages(links: readonly GraphLink[], pageCount: number): number[] {
+  const minSheets = Math.min(INDEX_MIN_SHEETS, Math.max(INDEX_FLOOR_SHEETS, Math.ceil((pageCount - 1) * INDEX_SET_SHARE)));
+  // Per target: how many plain sheet links, and how many links of other kinds that are not waiting for review.
+  const bySource = new Map<number, Map<number, { sheet: number; other: number }>>();
   for (const l of links) {
     let targets = bySource.get(l.pageIndex);
     if (!targets) bySource.set(l.pageIndex, (targets = new Map()));
-    const t = targets.get(l.targetPage);
-    if (t) {
-      t.links++;
-      t.plain &&= l.kind === 'sheet';
-    } else targets.set(l.targetPage, { links: 1, plain: l.kind === 'sheet' });
+    let t = targets.get(l.targetPage);
+    if (!t) targets.set(l.targetPage, (t = { sheet: 0, other: 0 }));
+    // A station range or detail reference read out of an index's title column waits in review; it does not unmake the row.
+    if (l.kind === 'sheet') t.sheet++;
+    else if (l.status !== 'review') t.other++;
   }
   const pages: number[] = [];
   for (const [from, targets] of bySource) {
-    if (targets.size < INDEX_MIN_SHEETS) continue;
+    if (targets.size < minSheets) continue;
     const listedNextTo = (page: number) => page === from || targets.has(page);
     let listed = 0;
     let oneWay = 0;
     for (const [to, t] of targets) {
-      if (t.links === 1 && t.plain && (listedNextTo(to - 1) || listedNextTo(to + 1))) listed++;
+      if (t.sheet === 1 && t.other === 0 && (listedNextTo(to - 1) || listedNextTo(to + 1))) listed++;
       if (!bySource.get(to)?.has(from)) oneWay++;
     }
     if (listed >= targets.size * INDEX_SHARE && oneWay >= targets.size * INDEX_SHARE) pages.push(from);
@@ -119,7 +125,7 @@ export function buildSheetGraph(
   }
 
   const between = links.filter((l) => l.status !== 'rejected' && l.pageIndex !== l.targetPage && nodes[l.pageIndex] && nodes[l.targetPage]);
-  const indexPages = findIndexPages(between);
+  const indexPages = findIndexPages(between, pageCount);
 
   const kinds = options.kinds?.length ? new Set<LinkKind>(options.kinds) : null;
   const byPair = new Map<number, GraphEdge>();

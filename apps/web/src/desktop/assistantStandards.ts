@@ -122,6 +122,16 @@ function listSheetLinks(docs: readonly AssistantDocument[], params: unknown) {
  * together and where links are missing. A sheet index's edges are only listed for the index's own page:
  * anywhere else they are one row per sheet of the set, and say nothing.
  */
+function unlinkedRuns(pages: readonly number[]): [number, number][] {
+  const runs: [number, number][] = [];
+  for (const p of pages) {
+    const last = runs[runs.length - 1];
+    if (last && last[1] === p - 1) last[1] = p;
+    else runs.push([p, p]);
+  }
+  return runs;
+}
+
 function getSheetGraph(docs: readonly AssistantDocument[], params: unknown) {
   const args = record(params);
   const doc = findDocument(docs, args.document);
@@ -148,7 +158,8 @@ function getSheetGraph(docs: readonly AssistantDocument[], params: unknown) {
     ...(summary ? { disciplines: graph.groups.map((g) => ({ discipline: g.discipline, sheets: g.pages.length, unlinked: g.pages.filter((p) => unlinked.has(p)).length })) } : {}),
     ...(summary && graph.indexPages.length ? { indexSheets: graph.indexPages.map((p) => ({ page: p + 1, sheet: sheet(p), links: graph.nodes[p]!.out })) } : {}),
     edges: shown.map((e) => ({ fromPage: e.from + 1, fromSheet: sheet(e.from), toPage: e.to + 1, toSheet: sheet(e.to), links: e.links, kinds: e.byKind, ...(e.review ? { review: e.review } : {}) })),
-    ...(summary ? { unlinked: graph.unlinked.map((p) => ({ page: p + 1, sheet: sheet(p) })) } : {}),
+    // Unlinked sheets cluster by discipline, so they go as runs of consecutive pages: a row per run, not per sheet.
+    ...(summary ? { unlinked: unlinkedRuns(graph.unlinked).map(([a, b]) => ({ fromPage: a + 1, toPage: b + 1, fromSheet: sheet(a), toSheet: sheet(b) })) } : {}),
     ...(offset + shown.length < wanted.length ? { more: `Showing ${offset + 1}-${offset + shown.length}. Ask again with offset ${offset + shown.length} for the rest.` } : {}),
   };
 }

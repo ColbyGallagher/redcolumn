@@ -113,6 +113,28 @@ test('a sheet that points at many sheets some other way is not an index', () => 
   assert.deepEqual(buildSheetGraph(14, SET, LISTED.slice(0, 9)).unlinked, [10, 11, 12, 13]);
 });
 
+test('an index whose rows also read as other links in review is still an index', () => {
+  // A third of the rows carry a station range or detail reference read from the title column, waiting in review.
+  const doubled = LISTED.filter((_, i) => i % 3 === 0).map((l) => link(0, l.targetPage, i3(l.targetPage), 'review'));
+  const g = buildSheetGraph(14, SET, [...LISTED, ...doubled]);
+  assert.deepEqual(g.indexPages, [0]);
+  // The same links accepted or automatic are references the row really makes twice: not an index.
+  const settled = doubled.map((l) => ({ ...l, status: 'auto' as const }));
+  assert.deepEqual(buildSheetGraph(14, SET, [...LISTED, ...settled]).indexPages, []);
+});
+const i3 = (n: number): GraphLink['kind'] => (n % 2 ? 'chainage' : 'detail');
+
+test('a small set has an index when the cover lists most of it', () => {
+  const small = Array.from({ length: 9 }, (_, i) => sheet(i === 0 ? 'G-001' : `C-${100 + i}`));
+  const listed = Array.from({ length: 8 }, (_, i) => link(0, i + 1, 'sheet', 'auto'));
+  // Only two sheets point at each other besides the cover.
+  const g = buildSheetGraph(9, small, [...listed, link(2, 3, 'detail', 'auto')]);
+  assert.deepEqual(g.indexPages, [0]);
+  assert.deepEqual(g.unlinked, [1, 4, 5, 6, 7, 8]);
+  // Four of eight is not most of the set.
+  assert.deepEqual(buildSheetGraph(9, small, listed.slice(0, 4)).indexPages, []);
+});
+
 test('rejected entries of an index do not count toward it', () => {
   const g = buildSheetGraph(14, SET, [...LISTED.slice(0, 9), ...LISTED.slice(9).map((l) => ({ ...l, status: 'rejected' as const }))]);
   assert.deepEqual(g.indexPages, []);

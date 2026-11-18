@@ -86,12 +86,17 @@ test('get_sheet_graph names a sheet index and keeps its links out of the edges a
   store.setDetectedSheets(Array.from({ length: 12 }, (_, i) => [i, sheet(i === 0 ? 'G-001' : `C-${100 + i}`)]));
   store.setDetectedLinks([...Array.from({ length: 11 }, (_, i) => link(`0:C-${101 + i}`, 0, i + 1, 'sheet', `C-${101 + i}`, 0.8)), link('2:3/C-105', 2, 5, 'detail', '3/C-105', 0.9)]);
   const d: AssistantDocument = { id: 'set', name: 'Set.pdf', pageCount: 12, pageIndex: 0, active: true, store, pageSize: () => ({ width: 1200, height: 800 }) };
-  type Graph = { linkedSheets: number; total: number; disciplines?: unknown[]; indexSheets?: unknown[]; edges: { fromSheet: string; toSheet: string }[]; unlinked?: { sheet: string }[]; more?: string };
+  type Graph = { linkedSheets: number; total: number; disciplines?: unknown[]; indexSheets?: unknown[]; edges: { fromSheet: string; toSheet: string }[]; unlinked?: { fromPage: number; toPage: number; fromSheet: string; toSheet: string }[]; more?: string };
   const all = (await assistantCall([d], 'get_sheet_graph', {})) as Graph;
   assert.deepEqual(all.indexSheets, [{ page: 1, sheet: 'G-001', links: 11 }]);
   assert.deepEqual(all.edges.map((e) => [e.fromSheet, e.toSheet]), [['C-102', 'C-105']]);
   assert.deepEqual([all.total, all.linkedSheets], [1, 3]);
-  assert.deepEqual(all.unlinked?.map((u) => u.sheet), ['C-101', 'C-103', 'C-104', 'C-106', 'C-107', 'C-108', 'C-109', 'C-110', 'C-111']);
+  // One row per run of consecutive pages, not per sheet.
+  assert.deepEqual(all.unlinked, [
+    { fromPage: 2, toPage: 2, fromSheet: 'C-101', toSheet: 'C-101' },
+    { fromPage: 4, toPage: 5, fromSheet: 'C-103', toSheet: 'C-104' },
+    { fromPage: 7, toPage: 12, fromSheet: 'C-106', toSheet: 'C-111' },
+  ]);
   // The index's own page lists what it points at; another sheet's page leaves the index out.
   const index = (await assistantCall([d], 'get_sheet_graph', { page: 1, limit: 4 })) as Graph;
   assert.equal(index.total, 11);
