@@ -40,6 +40,7 @@ import {
   relinkCopies,
 } from '@nb/markup';
 import { settings } from '../settings/settings';
+import { parseRotationInput } from './rotationInput';
 
 export type CadTool = 'move' | 'copy' | 'scale' | 'trim' | 'extend' | 'break' | 'lengthen' | 'fillet' | 'chamfer' | 'mirror' | 'arrayPolar' | 'arrayPath' | 'divide' | 'rotateRef' | 'align' | 'stretch';
 
@@ -405,8 +406,9 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
     case 'rotateRef': {
       const typed = s.rotateAngle.trim();
       if (typed) {
-        const deg = Number(typed);
-        if (!Number.isFinite(deg)) return { error: 'The angle is not a number' };
+        const parsed = parseRotationInput(typed, 'ccw');
+        if (!parsed.ok) return { error: parsed.error };
+        const deg = parsed.degrees;
         // A typed angle turns counter-clockwise on paper, as in AutoCAD: negative in page space.
         return transformSelection(ctx, [rotationAbout(p, -deg)], false);
       }
@@ -538,7 +540,7 @@ export function cadPrompt(tool: CadTool, picks: CadPick[], ctx: Pick<CadContext,
     case 'mirror':
       return n ? 'Click the second point of the mirror line' : 'Click the first point of the mirror line';
     case 'rotateRef':
-      return !n ? (s.rotateAngle.trim() ? `Click the base point to turn ${s.rotateAngle.trim()}°` : 'Click the base point') : n === 1 ? 'Click the reference direction' : 'Click the new direction';
+      return !n ? (s.rotateAngle.trim() ? `Click the base point to turn ${s.rotateAngle.trim()}${/[%:]/.test(s.rotateAngle) ? '' : '°'}` : 'Click the base point') : n === 1 ? 'Click the reference direction' : 'Click the new direction';
     case 'align':
       return ['Click the first source point', 'Click where it goes', 'Click the second source point', 'Click where that goes'][n]!;
     case 'arrayPolar':

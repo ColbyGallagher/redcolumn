@@ -54,7 +54,7 @@ export function AskTextHost() {
         }}
       >
         <h3>{req.title}</h3>
-        {req.label && <p>{req.label}</p>}
+        {req.label && <p style={{ whiteSpace: 'pre-line' }}>{req.label}</p>}
         <div className={req.choices ? 'choice-list' : 'row'} role={req.choices ? 'radiogroup' : undefined} aria-label={req.choices ? req.title : undefined}>
           {req.choices ? (
             req.choices.map((c, i) => {

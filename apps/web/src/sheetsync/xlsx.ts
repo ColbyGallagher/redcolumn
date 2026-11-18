@@ -144,6 +144,27 @@ export interface LooseCell {
   bold?: boolean;
 }
 
+/** A picture in a cell of the sheet (0-based row and column of the sheet, not of the table). It moves with its cell. */
+export interface SheetImage {
+  row: number;
+  col: number;
+  data: Uint8Array;
+  type: 'jpeg' | 'png';
+  /** Size on the sheet, in pixels. */
+  width: number;
+  height: number;
+}
+
+/** A cell that opens an address when clicked (0-based row and column of the sheet). */
+export interface SheetLink {
+  row: number;
+  col: number;
+  url: string;
+}
+
+/** The addresses a cell may link to: a web page, or this app's own link scheme. Anything else is left out. */
+export const isLinkUrl = (url: string) => url.length <= 2000 && /^(https?|redcolumn):\/\/[^\s<>"]+$/i.test(url);
+
 /** One sheet of a workbook. */
 export interface SheetSpec {
   name: string;
@@ -168,6 +189,10 @@ export interface SheetSpec {
   widths?: readonly (number | undefined)[];
   protection?: SheetProtection;
   validations?: readonly SheetValidation[];
+  images?: readonly SheetImage[];
+  links?: readonly SheetLink[];
+  /** Row heights in points, by row of the sheet (0-based). */
+  rowHeights?: ReadonlyMap<number, number>;
 }
 
 /** An Excel serial date for a time in milliseconds (UTC), in the 1900 date system. */
@@ -262,7 +287,16 @@ function numFmt(f: XlsxNumberFormat | undefined): NumFmt {
   return f === undefined ? 'general' : f === 'pct' || f === 'date' || f === 'datetime' ? f : 'num';
 }
 
-function sheetXml(spec: SheetSpec, styles: Styles): string {
+/** A sheet's own xml and what it refers to: links as rId1…, then the drawing that holds its pictures. */
+interface SheetParts {
+  xml: string;
+  links: SheetLink[];
+  images: SheetImage[];
+}
+
+const EMU = 9525;
+
+function sheetXml(spec: SheetSpec, styles: Styles): SheetParts {
   const table = spec.table;
   const row0 = Math.max(0, spec.origin?.row ?? 0);
   const col0 = Math.max(0, spec.origin?.col ?? 0);
@@ -311,12 +345,17 @@ function sheetXml(spec: SheetSpec, styles: Styles): string {
     if (cell.row < 0 || cell.col < 0 || inTable(cell.row, cell.col)) continue;
     put(cell.row, cell.col, cellXml(cell.row, cell.col, cell.value, { bold: !!cell.bold }, false));
   }
+  // A row with a set height is written even when it has no cells.
+  for (const r of spec.rowHeights?.keys() ?? []) if (r >= 0 && !grid.has(r)) grid.set(r, []);
   const rows = [...grid.keys()]
     .sort((a, b) => a - b)
     .map((r) => {
       const cells = grid.get(r)!.sort((a, b) => a[0] - b[0]);
-      return `<row r="${r + 1}">${cells.map((c) => c[1]).join('')}</row>`;
+      const ht = spec.rowHeights?.get(r);
+      return `<row r="${r + 1}"${ht ? ` ht="${Math.min(409, Math.max(1, ht))}" customHeight="1"` : ''}>${cells.map((c) => c[1]).join('')}</row>`;
     });
+  const links = (spec.links ?? []).filter((l) => l.row >= 0 && l.col >= 0 && isLinkUrl(l.url));
+  const images = (spec.images ?? []).filter((i) => i.row >= 0 && i.col >= 0 && i.width > 0 && i.height > 0 && i.data.length > 0);
   const firstCol = columnName(col0);
   const lastCol = columnName(col0 + cols - 1);
   const headerRow = row0 + 1;
@@ -338,17 +377,38 @@ function sheetXml(spec: SheetSpec, styles: Styles): string {
   // The attributes name what stays locked: 0 lets people filter and resize while the sheet is protected.
   const protection = p ? `<sheetProtection${p.password ? ` password="${protectionHash(p.password)}"` : ''} sheet="1" objects="1" scenarios="1" formatColumns="0" formatRows="0" autoFilter="0"/>` : '';
   // The order of these parts is fixed by the file format; Excel offers to repair a sheet that has them in another order.
-  return (
+  const body =
     HEAD +
-    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+    `<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${REL}">` +
     `<sheetViews><sheetView workbookViewId="0"><pane ySplit="${headerRow}" topLeftCell="A${headerRow + 1}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>` +
     `<cols>${widths.map((w, i) => `<col min="${col0 + i + 1}" max="${col0 + i + 1}" width="${w}"${spec.hiddenColumns?.has(i) ? ' hidden="1"' : ''} customWidth="1"/>`).join('')}</cols>` +
     `<sheetData>${rows.join('')}</sheetData>` +
     protection +
     (spec.filter === false ? '' : `<autoFilter ref="${firstCol}${headerRow}:${lastCol}${lastRow}"/>`) +
     (validations.length ? `<dataValidations count="${validations.length}">${validations.join('')}</dataValidations>` : '') +
-    '</worksheet>'
-  );
+    (links.length ? `<hyperlinks>${links.map((l, i) => `<hyperlink ref="${columnName(l.col)}${l.row + 1}" r:id="rId${i + 1}"/>`).join('')}</hyperlinks>` : '') +
+    (images.length ? `<drawing r:id="rId${links.length + 1}"/>` : '') +
+    '</worksheet>';
+  return { xml: body, links, images };
+}
+
+const DRAWING_NS = 'xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"';
+
+/** A sheet's pictures, each anchored in its cell so that it moves (and is hidden) with it. */
+function drawingXml(images: readonly SheetImage[]): string {
+  const pad = 2 * EMU;
+  const anchors = images.map((im, i) => {
+    const cx = Math.round(im.width * EMU);
+    const cy = Math.round(im.height * EMU);
+    const at = (x: number, y: number) => `<xdr:col>${im.col}</xdr:col><xdr:colOff>${x}</xdr:colOff><xdr:row>${im.row}</xdr:row><xdr:rowOff>${y}</xdr:rowOff>`;
+    return (
+      `<xdr:twoCellAnchor editAs="oneCell"><xdr:from>${at(pad, pad)}</xdr:from><xdr:to>${at(pad + cx, pad + cy)}</xdr:to>` +
+      `<xdr:pic><xdr:nvPicPr><xdr:cNvPr id="${i + 2}" name="Picture ${i + 1}"/><xdr:cNvPicPr><a:picLocks noChangeAspect="1"/></xdr:cNvPicPr></xdr:nvPicPr>` +
+      `<xdr:blipFill><a:blip r:embed="rId${i + 1}"/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>` +
+      `<xdr:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/></xdr:twoCellAnchor>`
+    );
+  });
+  return `${HEAD}<xdr:wsDr ${DRAWING_NS} xmlns:r="${REL}">${anchors.join('')}</xdr:wsDr>`;
 }
 
 /** Sheet names made unique (Excel ignores case) by numbering repeats. */
@@ -368,13 +428,39 @@ export function buildWorkbook(sheets: readonly SheetSpec[]): Uint8Array {
   const list: readonly SheetSpec[] = sheets.length ? sheets : [{ name: 'Markups', table: [[]] }];
   const names = uniqueNames(list.map((s) => s.name));
   const styles = new Styles();
-  const sheetParts = list.map((s, i): [string, string] => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(s, styles)]);
+  const built = list.map((s) => sheetXml(s, styles));
+  const sheetParts = built.map((b, i): [string, string] => [`xl/worksheets/sheet${i + 1}.xml`, b.xml]);
+  // Pictures and links hang off a sheet through its relationships: links first, then the sheet's drawing.
+  const RELS = `${HEAD}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`;
+  const binary: { name: string; data: Uint8Array }[] = [];
+  const kinds = new Set<string>();
+  let drawings = 0;
+  let pictures = 0;
+  built.forEach((b, i) => {
+    if (!b.links.length && !b.images.length) return;
+    const rels = b.links.map((l, n) => `<Relationship Id="rId${n + 1}" Type="${REL}/hyperlink" Target="${xml(l.url)}" TargetMode="External"/>`);
+    if (b.images.length) {
+      const d = ++drawings;
+      rels.push(`<Relationship Id="rId${b.links.length + 1}" Type="${REL}/drawing" Target="../drawings/drawing${d}.xml"/>`);
+      sheetParts.push([`xl/drawings/drawing${d}.xml`, drawingXml(b.images)]);
+      const media = b.images.map((im) => {
+        kinds.add(im.type);
+        const name = `image${++pictures}.${im.type}`;
+        binary.push({ name: `xl/media/${name}`, data: im.data });
+        return name;
+      });
+      sheetParts.push([`xl/drawings/_rels/drawing${d}.xml.rels`, `${RELS}${media.map((m, n) => `<Relationship Id="rId${n + 1}" Type="${REL}/image" Target="../media/${m}"/>`).join('')}</Relationships>`]);
+    }
+    sheetParts.push([`xl/worksheets/_rels/sheet${i + 1}.xml.rels`, `${RELS}${rels.join('')}</Relationships>`]);
+  });
   const state = (s: SheetSpec) => (s.state && s.state !== 'visible' ? ` state="${s.state}"` : '');
   const parts: [string, string][] = [
     [
       '[Content_Types].xml',
       `${HEAD}<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">` +
         '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>' +
+        [...kinds].map((k) => `<Default Extension="${k}" ContentType="image/${k}"/>`).join('') +
+        Array.from({ length: drawings }, (_, d) => `<Override PartName="/xl/drawings/drawing${d + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>`).join('') +
         '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
         list.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('') +
         '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>',
@@ -394,7 +480,7 @@ export function buildWorkbook(sheets: readonly SheetSpec[]): Uint8Array {
     ['xl/styles.xml', styles.xml()],
     ...sheetParts,
   ];
-  return zipStore(parts.map(([name, text]) => ({ name, data: enc.encode(text) })));
+  return zipStore([...parts.map(([name, text]) => ({ name, data: enc.encode(text) })), ...binary]);
 }
 
 /** The table as an .xlsx file with one sheet. */

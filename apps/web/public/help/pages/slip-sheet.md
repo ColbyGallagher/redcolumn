@@ -13,7 +13,8 @@ When new revisions of some sheets arrive, **Slip Sheet** puts them into your set
 5. Leave these ticked unless you have a reason not to:
    - **Add new sheets that don't match any page, at the end.**
    - **Move markups to line up with the new sheets** — fixes markups when the new sheet was plotted in a slightly different place.
-6. Click **Slip Sheet**.
+6. To carry only the open comments to the new revision, tick **Leave closed comments behind**. See [Close out comments](#close-out).
+7. Click **Slip Sheet**.
 
 > **Tip:** Afterwards, [Compare](#compare) the old revision with the new one to see what changed under your markups.
 

@@ -4,6 +4,7 @@ import { fileGroups, useFileGroups, type FileGroup } from '../storage/fileGroups
 import type { StoredFile } from '../storage/fileStore';
 import { InlineName } from './InlineName';
 import { ContextMenu, type ContextMenuState, type MenuEntry } from './ContextMenu';
+import { usePersistedState } from '../workspace/layoutPrefs';
 
 interface Props {
   files: StoredFile[];
@@ -44,7 +45,7 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const [naming, setNaming] = useState<{ id: string | 'new'; fileId?: string } | null>(null);
   const [dropOn, setDropOn] = useState<string | null>(null);
-  const [recentsOpen, setRecentsOpen] = useState(true);
+  const [recentsOpen, setRecentsOpen] = usePersistedState('nb.library.recentsOpen', true, (v): v is boolean => typeof v === 'boolean');
   const [query, setQuery] = useState('');
   const closeMenu = useCallback(() => setMenu(null), []);
 
