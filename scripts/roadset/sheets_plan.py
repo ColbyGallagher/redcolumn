@@ -130,13 +130,16 @@ from reportlab.lib.colors import HexColor  # noqa: E402
 HexFill = HexColor("#F6D7B8")
 
 
-def plan_sheet(c, n):
+def plan_sheet(c, n, shift=(0.0, 0.0), services=True):
+    """Plan sheet n. `shift` (mm) moves the drawing inside its frame, as another discipline's
+    sheet drawn off the same base a little out of register would; `services=False` leaves the
+    existing services out."""
     S = site()
     wx0, wy0 = WINDOWS[n]
     k = MM_PER_M
 
     def P(x, y):
-        return (FX0 + (x - wx0) * k, FY0 + (y - wy0) * k)
+        return (FX0 + (x - wx0) * k + shift[0], FY0 + (y - wy0) * k + shift[1])
 
     def PP(pts):
         return [P(x, y) for x, y in pts]
@@ -194,7 +197,7 @@ def plan_sheet(c, n):
 
     # ---- services and drainage
     for lines, col, dash in ((S.sewer, SEWER, DASH), (S.water, WATER, DASH),
-                             (S.power, POWER, DOT), (S.comms, COMMS, DOT)):
+                             (S.power, POWER, DOT), (S.comms, COMMS, DOT)) if services else ():
         for line in lines:
             pl(c, PP(line), 0.25, col, dash)
     for line in S.pipes:

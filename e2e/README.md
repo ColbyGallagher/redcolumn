@@ -45,6 +45,8 @@ pnpm --filter @nb/e2e exec playwright test --project=web --headed --debug scale
   - `stitch.pdf`: a road cut onto three rotated sheets along match lines (stitched view; a port of `scripts/make_stitch_test_pdf.py`);
   - `picture.png` (image tool) and `notes.txt` (attachments).
 
+  `road-disciplines.pdf` (and `road-disciplines.json`, where its match line is drawn) comes from the Kestrel Road demo set instead: `python scripts/make_road_disciplines.py e2e/fixtures/road-disciplines.pdf`. It has two roadworks plan sheets and the same two as drainage plans, the second drawn a little out of register (Apply Stitching to Other Sheets).
+
   The PDFs are committed; after changing the generator, run `pnpm e2e:fixtures` and commit the output.
 - **Saving and printing answer themselves.** No dialog waits for a person:
   - `app.saved()` returns every file the app saved (Save As, Extract, Split, exports). On the web a stand-in for the browser's Save As picker keeps them; on the desktop the save dialog is answered with a folder in the test's profile.

@@ -14,6 +14,8 @@ import { hipValleySlope } from './markup/slopePicker';
 import { cutoutBlocker, cutoutTargetOf } from './markup/cutoutTarget';
 import { parseRotationInput } from './markup/rotationInput';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
+import { ApplyStitchingDialog } from './components/ApplyStitchingDialog';
+import { applyStitching, stitchSourceSheets } from './documents/bulkStitch';
 import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
@@ -1341,6 +1343,8 @@ export function App() {
    * pop-ups are blocked. `step` is where it opens; `n` changes when a command asks for a step.
    */
   const [setup, setSetup] = useState<{ pane: Pane; inline: boolean; step?: WizardStepId; n: number } | null>(null);
+  /** Apply Stitching to Other Sheets is open (from the active document). */
+  const [applyStitch, setApplyStitch] = useState(false);
   const [setupTexts, setSetupTexts] = useState<PageText[] | null>(null);
   const [markupAlert, setMarkupAlert] = useState<{ sessionId: string; entry: RecordEntry } | null>(null);
   const seenAlerts = useRef<Set<string> | null>(null);
@@ -8685,6 +8689,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitchToPage: () => {
       if (currentStitch) stitchToNewPage(currentStitch, true).catch(() => {});
     },
+    applyStitching: () => setApplyStitch(true),
     convertDrawingAgain: () => {
       if (activeOpen && activeCad) setCadAgain(activeOpen.file.id);
     },
@@ -9265,6 +9270,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitched: activeMode === 'stitch',
     canStitch: !!currentStitch,
     canStitchToPage: !!currentStitch && !!activeOpen && !activeReadOnly,
+    canApplyStitching: !!activeOpen && stitchSourceSheets(paneB ? manualStitchB : manualStitchA).length >= 2,
     canConvertDrawingAgain: !!activeCad,
     showLinks: toolsState.showLinks,
     snap: toolsState.snap,
@@ -10439,6 +10445,24 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 setLabelMode(null);
                 void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(`Bulk redact failed: ${err instanceof Error ? err.message : String(err)}`));
               }}
+            />
+          )}
+          {applyStitch && activeOpen && (
+            <ApplyStitchingDialog
+              documents={[activeOpen, ...[...tabsA, ...tabsB].filter((t, i, all) => t.file.id !== activeOpen.file.id && all.findIndex((x) => x.file.id === t.file.id) === i)].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length, readOnly: t.store.readOnly, label: (i: number) => pageLabelFor(t, i), size: (i: number) => t.doc.pages[i]!, stitch: () => t.store.manualStitch() }))}
+              onApply={(targetId, pairs, tol, options) => {
+                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId) ?? activeOpen;
+                return applyStitching(activeOpen, target, pairs, tol, options);
+              }}
+              onShow={(targetId, page) => {
+                setApplyStitch(false);
+                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId);
+                if (!target || target.file.id !== activeOpen.file.id) return setNotice(`Switch to ${target?.file.name ?? 'that document'} to see its stitched sheets.`);
+                const group = mergeStitch(target.store.stitchGroups(), withViewportRegions(target.store.manualStitch(), target.store.allViewports())).find((g) => g.placements.some((p) => p.pageIndex === page));
+                if (group) openStitch(group, page);
+                else setNotice('That sheet is not joined to another: check its match lines in the Stitching panel.');
+              }}
+              onClose={() => setApplyStitch(false)}
             />
           )}
           {setup &&
