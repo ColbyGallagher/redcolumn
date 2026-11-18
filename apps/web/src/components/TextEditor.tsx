@@ -56,6 +56,9 @@ function applyEdit(el: HTMLTextAreaElement, edit: TextEdit) {
   el.setSelectionRange(edit.start, edit.end);
 }
 
+/** Ctrl+B / I / U while typing: the style flag each toggles. */
+const FORMAT_KEYS: Record<string, 'bold' | 'italic' | 'underline' | undefined> = { b: 'bold', i: 'italic', u: 'underline' };
+
 const LIST_BUTTONS: { kind: ListKind; label: string; title: string }[] = [
   { kind: 'bullet', label: '•', title: 'Bulleted list (Ctrl+Shift+8)' },
   { kind: 'number', label: '1.', title: 'Numbered list (Ctrl+Shift+7)' },
@@ -144,6 +147,13 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
       e.currentTarget.blur();
     } else if (e.key === 'Enter' && mod) {
       e.currentTarget.blur();
+    } else if (mod && !e.shiftKey && !e.altKey && FORMAT_KEYS[e.key.toLowerCase()]) {
+      // Bold, italic and underline apply to the whole markup, as the Properties panel's toggles do.
+      e.preventDefault();
+      const key = FORMAT_KEYS[e.key.toLowerCase()]!;
+      const style = store.get(markup.id)?.style ?? markup.style;
+      store.checkpoint();
+      store.update(markup.id, { style: { ...style, [key]: key === 'bold' ? !style.bold : !style[key] || undefined } });
     } else if (e.nativeEvent.isComposing) {
       return;
     } else if (e.key === 'Enter' && !e.shiftKey && !e.altKey) {
@@ -201,8 +211,8 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
           top: y0,
           width,
           height,
-          font: cssFont(markup.style, fontSize * scale),
-          lineHeight: textLineHeight(markup.style),
+          // Line height rides in the shorthand: setting it apart makes React warn when the font changes while typing.
+          font: cssFont(markup.style, fontSize * scale).replace(/px /, `px/${textLineHeight(markup.style)} `),
           textAlign: markup.style.textAlign ?? 'left',
           textDecoration: [markup.style.underline && 'underline', markup.style.strikethrough && 'line-through'].filter(Boolean).join(' ') || undefined,
           padding: textPadding(markup.style) * scale,
