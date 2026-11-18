@@ -525,6 +525,56 @@ body,
   height: 24px;
 }
 
+/* Takeoff › Assembly: the picker over its Variables drop-down and where a change goes. */
+.rb-assembly {
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.rb-assembly select {
+  width: 150px;
+  height: 24px;
+}
+
+.rb-asm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rb-asm-applies {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rb-asm-pop {
+  position: fixed;
+  z-index: 1000;
+  width: 280px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.rb-asm-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.rb-asm-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+
+.rb-asm-pop .warn {
+  color: var(--warning, #d97706);
+}
+
 /* Never scrolls: the controls spread sideways in blocks of up to two rows, so the fixed-height ribbon shows them all. */
 .rb-props {
   display: flex;

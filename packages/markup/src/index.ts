@@ -23,6 +23,7 @@ export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCallout
 export { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset';
 export { cropImage, cropOf, imageFrame, mirrorCrop, uncropImage } from './imageCrop';
 export { DEFAULT_STAMPS, fillStampFieldsNow, refillStamp, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
+export { imageDimensions, imageStamp, imageStampName, MAX_STAMP_IMAGE_BYTES, MAX_STAMP_IMAGE_PIXELS, MAX_STAMP_IMAGE_SIDE, STAMP_IMAGE_BUDGET, STAMP_IMAGE_SIDES, stampImageSize } from './stampImage';
 export { artStamp, parseStampPdf, revuFields, textStamp, type ParsedStamp, type StampPdfText } from './stampPdf';
 export {
   actionTarget,
@@ -87,7 +88,7 @@ export {
 } from './table';
 export { lineRects, markupLines, selectRange, selectWords, wordAt, type WordBox } from './textSelect';
 export { align, centerOnPage, distribute, flip, matchSize, insidePolygon, insideRect, multiplyOffsets, paintedStyle, restack, scaledAbout, shapeBounds, touchesPolygon, touchesRect, type Alignment, type Axis } from './arrange';
-export { BOX_OPPOSITE, dimensionText, drawMarkup, drawSelection, type LegendSource, handlePositions, labelHandles, measurementLabel, segmentLabels, onImageLoad, rotateHandle, textBlockShift, textBoxLines } from './render';
+export { BOX_OPPOSITE, dimensionText, drawMarkup, drawSelection, type LegendSource, handlePositions, labelHandles, measurementLabel, segmentLabels, onImageLoad, rotateHandle, textBaselineOffset, textBlockShift, textBoxLines } from './render';
 export { importAnnotations, type ImportableAnnotation, type ImportResult } from './import';
 export { markupDigest, unchangedSinceImport } from './digest';
 export { autoSizedPoints, canAutoSize, canRoundCorners, defaultCornerRadius, markupColours, recolouredStyle } from './edits';

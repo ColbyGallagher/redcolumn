@@ -178,6 +178,8 @@ export interface CommandActions {
   scaleToLength: () => void;
   /** Shows the selected cropped pictures whole again. */
   resetCrop: () => void;
+  /** Modify › Adjust Image / Picture Colours: opens the dialog for the selected pictures. */
+  pictureDialog: (which: 'adjust' | 'colours') => void;
   arrange: (where: 'front' | 'back' | 'forward' | 'backward') => void;
   sign: () => void;
   digitalIds: () => void;
@@ -248,6 +250,8 @@ export interface CommandActions {
   toggleToolbar: () => void;
   /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
   setToolbarStyle: (style: ToolbarStyle, collapsed?: boolean) => void;
+  /** Puts the side panels, Markups list, ribbon, toolbar and split view back to their standard arrangement. */
+  resetLayout: () => void;
   toggleLeft: () => void;
   /** Shows or hides the side panel of the panels docked on the right. */
   toggleRight: () => void;
@@ -300,6 +304,8 @@ export interface CommandState {
   /** Crop Image has one picture selected to crop; Reset Crop has a cropped one. */
   selectionCroppable: boolean;
   selectionCropped: boolean;
+  /** Adjust Image has pictures selected to work on; Picture Colours has exactly one. */
+  selectionPictures: number;
   /** Whether a Modify tool can work on the selection (true when nothing is selected). */
   selectionFits: (tool: CadTool | 'offset') => boolean;
   canPaste: boolean;
@@ -478,6 +484,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.createViewport', 'Edit', 'Create Viewport', () => a.setTool('viewport'), doc && s.editable, s.tool === 'viewport'),
     cmd('edit.scaleToLength', 'Edit', 'Scale to Length…', a.scaleToLength, doc && s.editable, s.tool === 'scaleLength'),
     cmd('edit.cropImage', 'Edit', 'Crop Image', () => a.setTool('cropImage'), s.selectionCroppable && s.editable, s.tool === 'cropImage'),
+    cmd('edit.adjustImage', 'Edit', 'Adjust Image…', () => a.pictureDialog('adjust'), s.selectionPictures > 0 && s.editable),
+    cmd('edit.pictureColours', 'Edit', 'Picture Colours…', () => a.pictureDialog('colours'), s.selectionPictures === 1 && s.editable),
     cmd('edit.resetCrop', 'Edit', 'Reset Crop', a.resetCrop, s.selectionCropped && s.editable),
     cmd('edit.bringToFront', 'Edit', 'Bring to Front', () => a.arrange('front'), sel && s.editable),
     cmd('edit.bringForward', 'Edit', 'Bring Forward', () => a.arrange('forward'), sel && s.editable),
@@ -520,6 +528,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('view.darkPages', 'View', 'Dark Mode (Pages)', () => a.setSettings({ pageFilter: s.settings.pageFilter === 'dark' ? 'none' : 'dark' }), true, s.settings.pageFilter === 'dark'),
     cmd('view.dimmer', 'View', 'Dimmer', () => a.setSettings({ pageFilter: s.settings.pageFilter === 'dim' ? 'none' : 'dim' }), true, s.settings.pageFilter === 'dim'),
     cmd('view.thinLines', 'View', 'Disable Line Weights', () => a.setSettings({ thinLines: !s.settings.thinLines }), true, s.settings.thinLines),
+    cmd('view.keepView', 'View', 'Keep View Between Pages', () => a.setSettings({ keepViewBetweenPages: !s.settings.keepViewBetweenPages }), true, s.settings.keepViewBetweenPages),
     cmd('view.magnifier', 'View', 'Magnifier', a.magnifier, doc, s.magnifier),
     cmd('view.fullScreen', 'View', 'Full Screen', a.fullScreen, doc, s.fullScreen),
     cmd('view.replyIndicators', 'View', 'Always Show Reply Indicators', () => a.setSettings({ replyIndicators: !s.settings.replyIndicators }), true, s.settings.replyIndicators),
@@ -645,6 +654,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('window.rightPanel', 'Window', 'Right Panel', a.toggleRight, s.hasRightPanels, s.showRight),
     cmd('window.bottomPanel', 'Window', 'Bottom Panel', a.toggleBottom, true, s.showBottom),
     cmd('window.panels', 'Window', 'Toggle Panels', a.togglePanels),
+    cmd('window.resetLayout', 'Window', 'Reset Layout', a.resetLayout),
     cmd('window.files', 'Window', 'File Access', () => a.focusPanel('files'), true, sidePanelOpen('files')),
     cmd('window.pages', 'Window', 'Thumbnails', () => a.focusPanel('pages'), true, sidePanelOpen('pages')),
     cmd('window.bookmarks', 'Window', 'Bookmarks', () => a.focusPanel('bookmarks'), true, sidePanelOpen('bookmarks')),
