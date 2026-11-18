@@ -438,6 +438,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="view.dimmer" />
             <Cmd id="view.replyIndicators" />
             <Cmd id="view.thinLines" />
+            <Cmd id="view.keepView" />
             <Cmd id="view.magnifier" />
             <Cmd id="view.fullScreen" />
             <Submenu label="Navigation Tools">

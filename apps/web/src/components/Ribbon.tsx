@@ -185,6 +185,7 @@ const ICONS: Record<string, ReactNode> = {
   'view.darkPages': ic('M12.5 10A5.5 5.5 0 0 1 6 3.5a5.5 5.5 0 1 0 6.5 6.5z'),
   'view.dimmer': ic('M8 4.5a3.5 3.5 0 1 0 0 7z', <circle cx="8" cy="8" r="3.5" />),
   'view.thinLines': ic('M2 4h12M2 8h12M2 12h12'),
+  'view.keepView': ic('M3 3h10v10H3zM6 6h4v4H6z'),
   'view.fullScreen': ic('M1.5 5.5v-4h4M10.5 1.5h4v4M14.5 10.5v4h-4M5.5 14.5h-4v-4'),
   'window.leftPanel': ic('M1.5 2.5h13v11h-13zM5.5 2.5v11'),
   'window.rightPanel': ic('M1.5 2.5h13v11h-13zM10.5 2.5v11'),
@@ -1249,6 +1250,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Stack>
                 <Cmd id="view.showLinks" />
                 <Cmd id="view.fullScreen" />
+                <Cmd id="view.keepView" />
               </Stack>
             </Group>
             <Group label="Panels">

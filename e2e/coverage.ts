@@ -332,6 +332,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'view.syncDocument': { spec: 'view' },
   'view.syncPage': { spec: 'view' },
   'view.thinLines': { spec: 'view' },
+  'view.keepView': { spec: 'view' },
   'view.unsplit': { spec: 'view' },
   'view.zoomIn': { spec: 'view' },
   'view.zoomOut': { spec: 'view' },
