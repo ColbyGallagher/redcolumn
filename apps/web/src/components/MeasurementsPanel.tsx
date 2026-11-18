@@ -1,4 +1,5 @@
-import { AssemblyInputFields, AssemblyInputsDialog, changedInputs, inputValues } from './AssemblyInputs';
+import { AssemblyInputFields, useAssemblyChoice } from './AssemblyInputs';
+import { takesAssembly } from '../assemblies/assemblyChoice';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   MARKUP_LABELS,
@@ -723,7 +724,7 @@ function Properties({
           onBlur={commit}
         />
       </label>
-      {takeoff && <AssemblyPicker chosen={chosen} store={store} canEdit={canEdit} defaults={defaults} onDefaults={onDefaults} takeoff={takeoff} />}
+      {takeoff && <AssemblyPicker chosen={chosen.filter(takesAssembly)} selected={markups.filter((m) => selected.has(m.id)).length} store={store} canEdit={canEdit} defaults={defaults} onDefaults={onDefaults} takeoff={takeoff} />}
     </div>
   );
 }
@@ -735,13 +736,17 @@ function Properties({
  */
 function AssemblyPicker({
   chosen,
+  selected,
   store,
   canEdit,
   defaults,
   onDefaults,
   takeoff,
 }: {
+  /** The selected markups that can take an assembly (see takesAssembly). */
   chosen: Markup[];
+  /** How many markups are selected in all. */
+  selected: number;
   store: MarkupStore | null;
   canEdit: boolean;
   defaults: MeasureDefaults;
@@ -749,53 +754,15 @@ function AssemblyPicker({
   takeoff: TakeoffProps;
 }) {
   const { assemblies } = takeoff;
-  const nameOf = (id: string | undefined) => assemblies.find((a) => a.id === id)?.name ?? '';
-  const ids = new Set(chosen.map((m) => m.assemblyId ?? ''));
-  const value = chosen.length ? (ids.size === 1 ? [...ids][0]! : '*') : (defaults.assemblyId ?? '');
-  const renamed = (subject: string, oldId: string | undefined, newId: string) => (!subject.trim() || subject.trim() === nameOf(oldId) ? nameOf(newId) : subject);
-  const [asking, setAsking] = useState<{ assembly: Assembly; id: string } | null>(null);
-  const apply = (id: string, inputs: Record<string, number> | undefined) => {
-    if (!chosen.length) {
-      onDefaults({ ...defaults, assemblyId: id || undefined, assemblyInputs: id ? inputs : undefined, subject: renamed(defaults.subject, defaults.assemblyId, id) });
-      return;
-    }
-    if (!store || !canEdit) return;
-    store.checkpoint();
-    store.batch(() =>
-      chosen.forEach((m) => {
-        const subject = renamed(m.subject ?? '', m.assemblyId, id);
-        store.update(m.id, { assemblyId: id || undefined, assemblyInputs: id ? inputs : undefined, ...(subject !== (m.subject ?? '') ? { subject: subject || undefined } : {}) });
-      }),
-    );
-  };
-  const pick = (id: string) => {
-    if (id === '__manage') return takeoff.onManage();
-    if (chosen.length && (!store || !canEdit)) return;
-    // Applied to measurements, an assembly with variables asks for their inputs first. (For the
-    // next measurement, the inputs show below the picker instead.)
-    const assembly = assemblies.find((a) => a.id === id);
-    if (chosen.length && assembly?.variables.length) setAsking({ assembly, id });
-    else apply(id, undefined);
-  };
-  // The inputs of the selected measurements, when they all use one assembly with variables.
-  const shared = value && value !== '*' ? assemblies.find((a) => a.id === value) : undefined;
-  const inputsOf = (m: Markup | undefined) => JSON.stringify(m?.assemblyInputs ?? {});
-  const sameInputs = chosen.every((m) => inputsOf(m) === inputsOf(chosen[0]));
-  const currentInputs = chosen.length ? chosen[0]!.assemblyInputs : defaults.assemblyInputs;
-  const setInput = (name: string, n: number) => {
-    if (!shared) return;
-    const next = changedInputs(shared, { ...inputValues(shared, currentInputs), [name]: n });
-    if (!chosen.length) return onDefaults({ ...defaults, assemblyInputs: next });
-    if (!store || !canEdit) return;
-    store.checkpoint();
-    store.batch(() => chosen.forEach((m) => store.update(m.id, { assemblyInputs: next })));
-  };
+  const { choice, pick: choose, setInput, dialog } = useAssemblyChoice({ chosen, selected, store, canEdit, defaults, onDefaults, assemblies });
+  const { value, assembly: shared } = choice;
+  const pick = (id: string) => (id === '__manage' ? takeoff.onManage() : choose(id));
   const rows = chosen.length ? takeoff.totals(chosen) : [];
   return (
     <>
       <label className="ms-line">
         <span className="ms-k">Assembly:</span>
-        <select aria-label="Assembly" value={value} disabled={!canEdit} onChange={(e) => pick(e.target.value)}>
+        <select aria-label="Assembly" value={value} disabled={!canEdit || choice.target === 'none'} title={choice.target === 'none' ? 'No measurements selected' : undefined} onChange={(e) => pick(e.target.value)}>
           {value === '*' && <option value="*">(several)</option>}
           <option value="">None</option>
           {assemblies.map((a) => (
@@ -807,23 +774,13 @@ function AssemblyPicker({
           <option value="__manage">Manage assemblies…</option>
         </select>
       </label>
-      {shared && shared.variables.length > 0 && sameInputs && (
+      {shared && shared.variables.length > 0 && choice.varies.size === 0 && (
         <div className="ms-asm-inputs" role="group" aria-label="Assembly inputs">
           <span className="ms-k">Inputs:</span>
-          <AssemblyInputFields key={`${chosen.map((m) => m.id).join(',')}:${shared.id}`} assembly={shared} values={inputValues(shared, currentInputs)} disabled={!canEdit} onChange={setInput} />
+          <AssemblyInputFields key={`${chosen.map((m) => m.id).join(',')}:${shared.id}`} assembly={shared} values={choice.values} disabled={!canEdit} commitOnBlur onChange={setInput} />
         </div>
       )}
-      {asking && (
-        <AssemblyInputsDialog
-          assembly={asking.assembly}
-          inputs={chosen.length && chosen.every((m) => m.assemblyId === asking.id) ? chosen[0]!.assemblyInputs : undefined}
-          onOk={(inputs) => {
-            apply(asking.id, inputs);
-            setAsking(null);
-          }}
-          onCancel={() => setAsking(null)}
-        />
-      )}
+      {dialog}
       {rows.length > 0 && (
         <ul className="ms-asm-items" aria-label="Assembly quantities">
           {rows.map((r) => (
