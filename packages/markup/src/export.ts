@@ -14,7 +14,7 @@ import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
-import { dimensionText, labelBox, measurementLabel, segmentLabels, textBoxLines } from './render';
+import { dimensionText, labelBox, measurementLabel, segmentLabels, textBaselineOffset, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { blendsFillOnly, dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, styleCapabilities, textColor, type LineEnding } from './style';
 import { daFontName, fontKeyword, fontPermissions, isNamedFont, isTrueTypeOutline, type FontKeyword } from './fonts';
@@ -153,7 +153,7 @@ function richParagraph(line: string): string {
 }
 
 /** A text markup's default style (/DS) and rich text (/RC), which Bluebeam and Acrobat lay text out from. */
-function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
+function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString; NBTextMargin?: number } {
   const s = m.style;
   const family = isNamedFont(s.fontFamily) ? s.fontFamily : { sans: 'Helvetica', serif: 'Times New Roman', mono: 'Courier' }[fontKeyword(s.fontFamily)];
   const ds = [
@@ -169,7 +169,8 @@ function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString } {
   ].join('; ');
   const paragraphs = (m.text ?? '').split('\n').map(richParagraph);
   const rc = `<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2" style="${escapeXml(ds)}">${paragraphs.join('')}</body>`;
-  return { DS: pdfText(ds), RC: pdfText(rc) };
+  // The exact padding rides in a private key: the /DS margin cannot say less than 0, and other readers add a point to it.
+  return { DS: pdfText(ds), RC: pdfText(rc), ...(s.textMargin !== undefined ? { NBTextMargin: s.textMargin } : {}) };
 }
 
 function pdfDate(ms: number) {
@@ -584,7 +585,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     const b = contentBox(m);
     const size = style.fontSize ?? 12;
     const lines = textBoxLines({ ...m, text: safeParagraphs(font, m.text) }, (s) => font.widthOfTextAtSize(s, size));
-    const ascent = font.heightAtSize(size, { descender: false });
+    const ascent = textBaselineOffset({ ...style, fontSize: size });
     ops.push('/GS1 gs', `${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, `${fmt(b.x)} ${fmt(b.y)} ${fmt(b.w)} ${fmt(b.h)} re W n`, 'BT', `/F0 ${fmt(size)} Tf`);
     for (const line of lines) {
       // Page space is y-down; flip the text matrix so glyphs stay upright.
@@ -677,7 +678,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
         fontRefs[fontNames.get(fontName)!] = font.ref;
       }
       const size = cell.style.fontSize ?? 12;
-      const ascent = font.heightAtSize(size, { descender: false });
+      const ascent = textBaselineOffset({ ...cell.style, fontSize: size });
       const [cr, cg, cb] = rgb(textColor(cell.style));
       const lines = textBoxLines(tableCellText(m, { rect: cell.rect, text: safeParagraphs(font, cell.text), style: cell.style }), (s) => font.widthOfTextAtSize(s, size));
       ops.push('q', '/GS1 gs', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} rg`, `${fmt(x)} ${fmt(y)} ${fmt(w)} ${fmt(h)} re W n`, 'BT', `/${fontNames.get(fontName)} ${fmt(size)} Tf`);

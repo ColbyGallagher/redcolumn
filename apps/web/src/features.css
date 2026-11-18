@@ -6571,6 +6571,17 @@ tr.hidden-markup td {
   width: 70px;
 }
 
+.register-client-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 4px;
+}
+
+.register-client-label {
+  font-weight: 600;
+}
+
 .register-row-actions {
   white-space: nowrap;
 }
@@ -6593,6 +6604,26 @@ tr.hidden-markup td {
   margin-top: 8px;
   max-height: 120px;
   overflow: auto;
+}
+
+/* Close-out: comments by sheet */
+.close-out-table tbody tr {
+  cursor: pointer;
+}
+
+.close-out-table tbody tr:hover,
+.close-out-table tbody tr:focus-visible {
+  background: rgba(20, 163, 154, 0.12);
+  outline: none;
+}
+
+.close-out-table tr.close-out-sheet td {
+  font-weight: 600;
+}
+
+.close-out-table tr.close-out-comment .comment-text {
+  white-space: pre-wrap;
+  min-width: 240px;
 }
 
 /* Comments table (a Project's or Live Session's comments) */
@@ -8410,6 +8441,17 @@ tr.hidden-markup td {
 
 .revu-migration .revu-results .failed {
   color: var(--danger-text);
+}
+
+.adjust-image .adjust-row {
+  display: grid;
+  grid-template-columns: 11em 1fr 3em;
+  align-items: center;
+  gap: 8px;
+}
+
+.adjust-image .adjust-row output {
+  text-align: right;
 }
 
 .revu-migration progress {

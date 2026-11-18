@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { MARKUP_LABELS, type Markup } from '@nb/markup';
 import { parseLength, type Scale } from '@nb/measure';
 import { CAD_TOOL_LABELS, type CadTool } from '../markup/cadTools';
+import { parseRotationInput } from '../markup/rotationInput';
 import { settings, useSettings, type Settings } from '../settings/settings';
 
 interface Props {
@@ -48,6 +49,7 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
     return !!t && !((parseLength(t, scale.unit) ?? 0) > 0) && Number(t) !== 0;
   };
   let bad = false;
+  const rotateParse = s.rotateAngle.trim() ? parseRotationInput(s.rotateAngle, 'ccw') : undefined;
 
   const length = (key: LengthKey, label: string, placeholder: string, title: string, ref?: RefObject<HTMLInputElement | null>) => {
     if (badLength(s[key])) bad = true;
@@ -144,12 +146,12 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
       break;
     case 'rotateRef':
       fields = (
-        <label title="Counter-clockwise degrees. Leave empty to rotate from a reference direction to a new one.">
+        <label title="Counter-clockwise degrees, or a grade such as 2% or 1:50 (a positive grade rises to the right, a negative grade such as -2% falls to the right). Leave empty to rotate from a reference direction to a new one.">
           Angle
-          <input ref={first} value={s.rotateAngle} onChange={(e) => settings.set({ rotateAngle: e.target.value })} placeholder="by reference" aria-label="Rotate angle" />°
+          <input ref={first} value={s.rotateAngle} onChange={(e) => settings.set({ rotateAngle: e.target.value })} placeholder="by reference" aria-label="Rotate angle" aria-invalid={rotateParse && !rotateParse.ok ? true : undefined} />{rotateParse?.ok && rotateParse.unit !== 'degrees' ? ` ${rotateParse.readout}` : '°'}
         </label>
       );
-      if (s.rotateAngle.trim() && !Number.isFinite(Number(s.rotateAngle))) bad = true;
+      if (rotateParse && !rotateParse.ok) bad = true;
       break;
     case 'align':
       fields = check('alignScale', 'Scale to fit', 'Also grow or shrink so the second source point lands on its target');

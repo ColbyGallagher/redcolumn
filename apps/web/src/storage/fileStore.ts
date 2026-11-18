@@ -183,6 +183,18 @@ export async function keepRevision(id: string, note: string): Promise<void> {
   }));
 }
 
+/**
+ * Keeps other contents as a revision of the document: the document as it is with its markups written
+ * in, say, where `keepRevision` keeps the stored file only.
+ */
+export async function keepRevisionOf(id: string, bytes: ArrayBuffer, note: string): Promise<void> {
+  const hash = await cacheFile(bytes);
+  await updateIndex((entries) => ({
+    entries: entries.map((e) => (e.id === id ? { ...e, revisions: [{ hash, size: bytes.byteLength, savedAt: Date.now(), note }, ...(e.revisions ?? []).filter((r) => r.hash !== hash)] } : e)),
+    result: undefined,
+  }));
+}
+
 /** Renames a document (its contents and markups are unchanged). */
 export async function renameFile(id: string, name: string): Promise<StoredFile | null> {
   return updateIndex((entries) => {
