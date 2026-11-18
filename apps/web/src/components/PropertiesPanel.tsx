@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BLEND_MODES,
   CELL_STYLE_KEYS,
@@ -33,6 +33,7 @@ import {
 } from '@nb/markup';
 import { DEFAULT_SCALE, formatArea, formatLength, formatMeasure, formatVolume, isMeasureKind, measureDetails, measureValue, METERS_PER_UNIT, parseLength, QUANTITY, slopeAngle, slopeApplies, slopeNeedsRun, type ManualKind, type Scale, type Slope, type SlopeSpec } from '@nb/measure';
 import { defaultManualUnit, makeManual, manualEditValue, MANUAL_KIND_LABELS, MANUAL_UNITS } from '../measure/manualQuantity';
+import { gradeReadout, parseRotationInput } from '../markup/rotationInput';
 import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/MarkupTools';
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
 import { useWorkspace } from '../workspace/profiles';
@@ -328,8 +329,8 @@ function ArrangeSection({ chosen, tools }: { chosen: Markup[]; tools: MarkupTool
   return (
     <Section title="Arrange">
       {rotatable && (
-        <Row label="Rotation" title="Degrees clockwise about the centre of the markup">
-          <NumberField value={sameAngle ? angle : undefined} placeholder={sameAngle ? undefined : 'Mixed'} min={0} max={359.99} step={1} unit="°" onChange={(v) => v !== undefined && tools.setRotation(v)} />
+        <Row label="Rotation" title="Degrees clockwise about the centre of the markup. You can also type a road grade: 2% or 1:50 (a positive grade rises to the right, a negative grade such as -2% or -1:50 falls to the right).">
+          <RotationField value={sameAngle ? angle : undefined} onApply={(v) => tools.setRotation(v)} />
           <button className="btn" title="Turn 90° anticlockwise" onClick={() => tools.setRotation(angle - 90)}>
             ↺
           </button>
@@ -1047,6 +1048,58 @@ export function LineSpacing({ value, onChange }: { value: number | undefined; on
         <option value="custom">Custom</option>
       </select>
       {choice === 'custom' && <NumberField value={value} min={0.5} max={5} step={0.05} unit="×" onChange={(v) => onChange(v)} />}
+    </>
+  );
+}
+
+/**
+ * Rotation as clockwise degrees, or a road-style grade such as `2%` or `1:50`. Whatever is typed
+ * applies once, on Enter or when you leave the field (Escape reverts), so half-typed grades such as
+ * `-2` are never applied. Shows the equivalent value as you type.
+ */
+function RotationField({ value, onApply }: { value: number | undefined; onApply: (degrees: number) => void }) {
+  const shown = value === undefined ? '' : String(Math.round(value * 100) / 100);
+  const [text, setText] = useState(shown);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setText(shown);
+  }, [shown]);
+  const parsed = text.trim() === '' || text === shown ? undefined : parseRotationInput(text);
+  const bad = parsed && !parsed.ok;
+  const note = parsed ? (parsed.ok ? [parsed.readout, parsed.warning].filter(Boolean).join(' ') : parsed.error) : value !== undefined ? gradeReadout(value) : undefined;
+  const commit = () => {
+    if (!parsed?.ok) return false;
+    onApply(parsed.degrees);
+    setText(String(Math.round(parsed.degrees * 100) / 100));
+    return true;
+  };
+  return (
+    <>
+      <input
+        type="text"
+        className="num"
+        value={text}
+        placeholder={value === undefined ? 'Mixed' : undefined}
+        aria-label="Rotation"
+        aria-invalid={bad ? true : undefined}
+        title="Degrees clockwise, or a grade such as 2% or 1:50. Positive rises to the right, negative (-2%) falls to the right."
+        onFocus={() => (focused.current = true)}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          focused.current = false;
+          if (!commit()) setText(shown);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') commit();
+          if (e.key === 'Escape') setText(shown);
+        }}
+      />
+      <span className="unit">°</span>
+      {note && (
+        <span className="unit rotation-note" role={bad ? 'alert' : undefined} style={bad ? { color: '#c0392b' } : undefined}>
+          {note}
+        </span>
+      )}
     </>
   );
 }

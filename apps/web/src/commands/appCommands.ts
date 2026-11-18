@@ -190,6 +190,8 @@ export interface CommandActions {
   autoFields: () => void;
   batch: (kind: BatchKind) => void;
   slipSheet: () => void;
+  /** What is still open on each sheet, and the revision each comment was raised on. */
+  closeOut: () => void;
   revisions: () => void;
   overlay: () => void;
   deletePages: () => void;
@@ -552,6 +554,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.ocr', 'Document', 'OCR…', a.ocr, s.pagesEditable),
     cmd('document.slipSheet', 'Document', 'Slip Sheet…', a.slipSheet, s.pagesEditable),
     cmd('document.revisions', 'Document', 'Revisions…', a.revisions, doc),
+    cmd('document.closeOut', 'Document', 'Close-out…', a.closeOut, doc),
     ...(Object.keys(BATCH_LABELS) as BatchKind[]).map((k) => cmd(`batch.${k}`, 'Bulk', `${BATCH_LABELS[k]}…`, () => a.batch(k), s.libraryCount > 0)),
     cmd('document.security', 'Document', 'Security…', a.security, doc && s.canSaveCopy),
     cmd('document.pdfa', 'Document', 'Archive as PDF/A…', a.archivePdfA, doc && s.canSaveCopy),
