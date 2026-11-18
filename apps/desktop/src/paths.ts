@@ -148,6 +148,10 @@ export function registerPathIpc(allowlist: PathAllowlist, launchesFor: (contents
     if (!fromApp(event)) return [];
     return launchesFor(event.sender)?.take() ?? [];
   });
+  ipcMain.handle('launch:take-links', (event) => {
+    if (!fromApp(event)) return [];
+    return launchesFor(event.sender)?.takeLinks() ?? [];
+  });
 }
 
 export async function persistAllowlist(allowlist: PathAllowlist, filePath: string) {

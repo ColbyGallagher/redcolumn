@@ -3,7 +3,7 @@ import type { ListColumn, ListRowData } from '../columns/listColumns';
 import { replyColumn, replyKey, responderKey, syncColumn, toSyncTable, type SyncColumn, type SyncTable } from './keyed';
 import { buildSyncSheets, type RegisterRecord } from './syncWorkbook';
 import type { TableCell } from './table';
-import { buildWorkbook, columnName, sheetName, type LooseCell, type SheetSpec } from './xlsx';
+import { buildWorkbook, columnName, isLinkUrl, sheetName, type LooseCell, type SheetImage, type SheetLink, type SheetSpec } from './xlsx';
 
 /**
  * Comment register templates. A register is the Markups list in a client's layout: their column
@@ -78,8 +78,30 @@ export interface RegisterTemplate {
   /** Written in the workbook's Read me sheet: protection is against accidents, not people. */
   password?: string;
   cells: RegisterCell[];
+  /**
+   * The client's own register file, on this computer (Windows desktop app): an export can fill in a
+   * copy of it instead of making a workbook that looks like it. `id` is the desktop app's name for
+   * the file; it means nothing on another computer, so it is not shared with the template.
+   */
+  clientFile?: { id: string; name: string };
+  /** Each item number links to its comment: clicking it opens the document there (on a computer that has the document). */
+  links?: boolean;
   updatedAt: number;
 }
+
+/** The column that holds a picture of each comment's markup. It has no value: nothing typed there is read. */
+export const THUMB_KEY = 'thumb';
+/** A thumbnail's longer side, in pixels. */
+export const THUMB_PX = 200;
+/** Pictures make a register heavy to email: past this many rows they are left out unless asked for, and past the limit they cannot be. */
+export const THUMB_AUTO_ROWS = 200;
+export const THUMB_MAX_ROWS = 2000;
+
+/** A picture of a comment's markup with the drawing around it. */
+export type RegisterThumb = Pick<SheetImage, 'data' | 'type' | 'width' | 'height'>;
+
+/** A column of the client's file that the register has nothing for: its heading is checked and its cells are left alone. */
+export const blankKey = (n: number) => `blank:${n}`;
 
 /** The password of a protected register whose template sets none. */
 export const DEFAULT_PASSWORD = 'redcolumn';
@@ -219,6 +241,24 @@ export interface RegisterExport {
   exportedAt: string;
   /** The details cells above the table can show. */
   values: Partial<Record<RegisterValue, string>>;
+  /** Pictures for the thumbnail column, by markup id. Left out, the column stays blank. */
+  thumbnails?: ReadonlyMap<string, RegisterThumb>;
+  /** The address that opens a comment, by markup id. Used when the template links item numbers. */
+  linkOf?: (markupId: string) => string | undefined;
+}
+
+/** Which of the table's columns holds the pictures and which the links (-1 for none), and each row's link. */
+export function registerExtras(e: RegisterExport, table: SyncTable): { thumbCol: number; linkCol: number; links: (string | undefined)[] } {
+  const thumbCol = table.columns.findIndex((c) => c.key === THUMB_KEY);
+  const linked = !!e.template.links && !!e.linkOf;
+  // The item number carries the link; a register without one links its first column.
+  const seq = table.columns.findIndex((c) => c.key === 'seq');
+  const linkCol = linked ? (seq >= 0 ? seq : thumbCol === 0 ? 1 : 0) : -1;
+  const links = table.rows.map((r) => {
+    const url = linkCol >= 0 && linkCol < table.columns.length ? e.linkOf?.(r.key) : undefined;
+    return url && isLinkUrl(url) ? url : undefined;
+  });
+  return { thumbCol, linkCol, links };
 }
 
 function readMe(e: RegisterExport, table: SyncTable): SheetSpec {
@@ -239,6 +279,7 @@ function readMe(e: RegisterExport, table: SyncTable): SheetSpec {
           '',
         ]
       : []),
+    ...(e.template.links && e.linkOf ? ['Each item number is a link to its comment. It opens the document on a computer that has it in redcolumn.', ''] : []),
     'The sheet has a hidden column, and the workbook a hidden sheet. They tie each row to its comment: leave them in place.',
     'Rows added here are not imported, and deleting a row does not delete its comment.',
     'When you are done, save the workbook and send it back. It is imported with File > Import > Markups from Excel.',
@@ -263,11 +304,29 @@ export function registerSheets(e: RegisterExport): SheetSpec[] {
     origin: { row: row0, col: Math.max(0, t.firstCol) },
     cells,
     keyAt: 'last',
-    widths: fields.map((c) => c.width),
+    widths: fields.map((c) => c.width ?? (fieldKey(c.field) === THUMB_KEY && e.thumbnails?.size ? Math.ceil(THUMB_PX / 7) + 2 : undefined)),
     register: registerRecord(t),
     ...(t.protection === 'protected' ? { protect: { password: t.password || DEFAULT_PASSWORD } } : {}),
   });
-  return [visible!, readMe(e, table), hidden!];
+  // Pictures and links sit on cells of the sheet: the table's rows start under the header.
+  const col0 = Math.max(0, t.firstCol);
+  const extras = registerExtras(e, table);
+  const images: SheetImage[] = [];
+  const links: SheetLink[] = [];
+  const rowHeights = new Map<number, number>();
+  table.rows.forEach((r, i) => {
+    const row = row0 + 1 + i;
+    const thumb = extras.thumbCol >= 0 ? e.thumbnails?.get(r.key) : undefined;
+    if (thumb) {
+      images.push({ ...thumb, row, col: col0 + extras.thumbCol });
+      // Pixels to points, with a little room so the picture stays inside its cell.
+      rowHeights.set(row, Math.ceil((thumb.height + 6) * 0.75));
+    }
+    const url = extras.links[i];
+    if (url) links.push({ row, col: col0 + extras.linkCol, url });
+  });
+  const sheet: SheetSpec = { ...visible!, ...(images.length ? { images, rowHeights } : {}), ...(links.length ? { links } : {}) };
+  return [sheet, readMe(e, table), hidden!];
 }
 
 export function exportRegisterWorkbook(e: RegisterExport): Uint8Array {
@@ -309,7 +368,7 @@ function whole(v: unknown, max: number, what: string): number {
 
 export function exportTemplate(t: RegisterTemplate): string {
   // Which client it is kept beside is this person's own arrangement.
-  const { standardId: _standard, ...shared } = t;
+  const { standardId: _standard, clientFile: _file, ...shared } = t;
   return JSON.stringify({ format: FORMAT, version: VERSION, template: shared }, null, 2);
 }
 
@@ -363,6 +422,7 @@ export function parseTemplateFile(content: string): RegisterTemplate {
     columns,
     statuses,
     protection: t.protection === 'open' ? 'open' : 'protected',
+    ...(t.links === true ? { links: true } : {}),
     ...(typeof t.password === 'string' && t.password ? { password: str(t.password, 60, 'the password') } : {}),
     cells,
     updatedAt: typeof t.updatedAt === 'number' ? t.updatedAt : 0,

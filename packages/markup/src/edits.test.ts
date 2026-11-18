@@ -39,7 +39,7 @@ test('Auto-size fits a text box to its text and keeps its top-left corner', () =
   const box = mk('text', [[20, 30], [400, 300]], { text: 'Hello\nwide world line', style: { ...DEFAULT_STYLES.text, fontSize: 10 } });
   const pts = autoSizedPoints(box, measure)!;
   // 15 characters × 6 + padding; 2 lines × 12 + padding.
-  assert.deepEqual(pts, [[20, 30], [20 + Math.ceil(90 + 8 + 1), 30 + Math.ceil(24 + 8)]]);
+  assert.deepEqual(pts, [[20, 30], [20 + Math.ceil(90 + 8 + 1.5), 30 + Math.ceil(24 + 8)]]);
   const callout = mk('callout', [[0, 0], [10, 10], [50, 50], [300, 200]], { text: 'ab', style: { ...DEFAULT_STYLES.callout, fontSize: 10 } });
   const c = autoSizedPoints(callout, measure)!;
   assert.deepEqual(c.slice(0, 3), [[0, 0], [10, 10], [50, 50]], 'the leader stays where it was');

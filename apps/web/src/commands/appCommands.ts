@@ -178,6 +178,8 @@ export interface CommandActions {
   scaleToLength: () => void;
   /** Shows the selected cropped pictures whole again. */
   resetCrop: () => void;
+  /** Modify › Adjust Image / Picture Colours: opens the dialog for the selected pictures. */
+  pictureDialog: (which: 'adjust' | 'colours') => void;
   arrange: (where: 'front' | 'back' | 'forward' | 'backward') => void;
   sign: () => void;
   digitalIds: () => void;
@@ -190,6 +192,8 @@ export interface CommandActions {
   autoFields: () => void;
   batch: (kind: BatchKind) => void;
   slipSheet: () => void;
+  /** What is still open on each sheet, and the revision each comment was raised on. */
+  closeOut: () => void;
   revisions: () => void;
   overlay: () => void;
   deletePages: () => void;
@@ -294,6 +298,8 @@ export interface CommandState {
   /** Crop Image has one picture selected to crop; Reset Crop has a cropped one. */
   selectionCroppable: boolean;
   selectionCropped: boolean;
+  /** Adjust Image has pictures selected to work on; Picture Colours has exactly one. */
+  selectionPictures: number;
   /** Whether a Modify tool can work on the selection (true when nothing is selected). */
   selectionFits: (tool: CadTool | 'offset') => boolean;
   canPaste: boolean;
@@ -472,6 +478,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.createViewport', 'Edit', 'Create Viewport', () => a.setTool('viewport'), doc && s.editable, s.tool === 'viewport'),
     cmd('edit.scaleToLength', 'Edit', 'Scale to Length…', a.scaleToLength, doc && s.editable, s.tool === 'scaleLength'),
     cmd('edit.cropImage', 'Edit', 'Crop Image', () => a.setTool('cropImage'), s.selectionCroppable && s.editable, s.tool === 'cropImage'),
+    cmd('edit.adjustImage', 'Edit', 'Adjust Image…', () => a.pictureDialog('adjust'), s.selectionPictures > 0 && s.editable),
+    cmd('edit.pictureColours', 'Edit', 'Picture Colours…', () => a.pictureDialog('colours'), s.selectionPictures === 1 && s.editable),
     cmd('edit.resetCrop', 'Edit', 'Reset Crop', a.resetCrop, s.selectionCropped && s.editable),
     cmd('edit.bringToFront', 'Edit', 'Bring to Front', () => a.arrange('front'), sel && s.editable),
     cmd('edit.bringForward', 'Edit', 'Bring Forward', () => a.arrange('forward'), sel && s.editable),
@@ -554,6 +562,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.ocr', 'Document', 'OCR…', a.ocr, s.pagesEditable),
     cmd('document.slipSheet', 'Document', 'Slip Sheet…', a.slipSheet, s.pagesEditable),
     cmd('document.revisions', 'Document', 'Revisions…', a.revisions, doc),
+    cmd('document.closeOut', 'Document', 'Close-out…', a.closeOut, doc),
     ...(Object.keys(BATCH_LABELS) as BatchKind[]).map((k) => cmd(`batch.${k}`, 'Bulk', `${BATCH_LABELS[k]}…`, () => a.batch(k), s.libraryCount > 0)),
     cmd('document.security', 'Document', 'Security…', a.security, doc && s.canSaveCopy),
     cmd('document.pdfa', 'Document', 'Archive as PDF/A…', a.archivePdfA, doc && s.canSaveCopy),
