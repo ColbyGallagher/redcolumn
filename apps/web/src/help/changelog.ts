@@ -11,6 +11,26 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: '0.1.21',
+    date: '2026-11-18',
+    items: [
+      'Comment registers: Excel export and import, templates, thumbnails and links, close-out by sheet',
+      'Sync to Excel: two-way, with sheet sync that merges three ways',
+      'Community library: Browse Library and .rctrade trade packs',
+      'Revu migration wizard, keyboard import and preset',
+      'Stitching: apply a sheet set's stitching to other disciplines' plans',
+      'Portals (Experimental): mirror takeoff markups across typical floors',
+      'Takeoff ribbon: Assembly group with a Variables drop-down',
+      'Stamps: import PNG, JPEG, GIF, BMP and WebP pictures',
+      'Image markups: Crop Image, Reset Crop and Adjust Image colours',
+      'Rotation accepts road grades (2%, 1:50); length fields accept any unit',
+      'Keep View Between Pages; Markups list and panel widths persist, with Reset Layout',
+      'Line style picker draws each style beside its name',
+      'Graphite is the default theme',
+      'Fixes: macOS Open With when the app is running, text box auto-size, Mirror keeps text upright',
+    ],
+  },
+  {
     version: '0.1.20',
     date: '2026-11-13',
     items: [
