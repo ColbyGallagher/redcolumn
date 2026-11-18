@@ -213,7 +213,7 @@ export function firstFontName(s: string): string {
   return s;
 }
 
-function cssColor(s: string): string | null {
+export function cssColor(s: string): string | null {
   const hex = /^#([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(s.trim());
   if (hex) return hex[1]!.length === 3 ? '#' + [...hex[1]!].map((c) => c + c).join('').toLowerCase() : `#${hex[1]!.toLowerCase()}`;
   const rgb = /^rgb\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)$/i.exec(s.trim());

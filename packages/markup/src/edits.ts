@@ -1,5 +1,6 @@
 import { boundsOf, contentBox, flagTip, isTextType, rotatePoint, rotationCentre, type Markup, type MarkupStyle, type Point } from './model';
 import { layoutParagraphs } from './textLists';
+import { baseTextStyle, layoutRuns, spansOf, type StyledMeasure } from './textSpans';
 import { textLineHeight, textPadding } from './geometry';
 import { TYPE_INFO } from './types';
 
@@ -51,13 +52,14 @@ export function canAutoSize(m: Pick<Markup, 'type' | 'text'>): boolean {
  * with it when rotated (a callout keeps its leader). `measure` gives a string's width at the
  * markup's font size. Null when the markup cannot be auto-sized.
  */
-export function autoSizedPoints(m: Markup, measure: (s: string) => number): Point[] | null {
+export function autoSizedPoints(m: Markup, measure: (s: string) => number, styled?: StyledMeasure): Point[] | null {
   if (!canAutoSize(m) || TYPE_INFO[m.type].content !== 'text') return null;
   const size = m.style.fontSize ?? 12;
   const pad = textPadding(m.style);
   const box = contentBox(m);
-  const lines = layoutParagraphs(m.text ?? '', box.w - pad * 2, measure);
-  const textW = Math.max(0, ...lines.map((l) => l.indent + measure(l.text.trimEnd())));
+  const spans = styled ? spansOf(m) : [];
+  const lines: { text: string; indent: number; width?: number }[] = styled && spans.length ? layoutRuns(m.text ?? '', spans, baseTextStyle(m), box.w - pad * 2, styled) : layoutParagraphs(m.text ?? '', box.w - pad * 2, measure);
+  const textW = Math.max(0, ...lines.map((l) => l.indent + (l.width ?? measure(l.text.trimEnd()))));
   // Slack scaled to the font: the exported PDF measures text with its own font tables, a hair off the canvas.
   let w = Math.ceil(textW + pad * 2 + Math.max(1, size * 0.15));
   if (textW <= box.w - pad * 2) w = Math.min(w, box.w);

@@ -30,6 +30,8 @@ import { readBsiLegend } from './bsiLegend';
 import { readLineStyle } from './lineStyle';
 import { blendModeOfPdf, effectiveBlendMode, type LineDash } from './style';
 import { familyFromPdfName } from './fonts';
+import { spansFromRichText } from './richText';
+import { baseTextStyle, type TextSpan } from './textSpans';
 import type { Viewport } from './viewports';
 
 /** What import needs from an existing PDF annotation (matches pdf-core's PdfAnnotation). */
@@ -112,6 +114,13 @@ function editedText(m: Markup, raw: string | null | undefined, plain: string): s
   if (contents === undefined) return null;
   const now = cleanText(contents);
   return now === cleanText(m.text ?? '') ? null : now;
+}
+
+/** The styled parts of a text markup's /RC (as `{ spans }`), left out where there are none or the text does not agree with them. */
+function richSpans(r: PdfDictValue | null, text: string, style: MarkupStyle): { spans?: TextSpan[] } {
+  if (!r) return {};
+  const spans = spansFromRichText(str(r.RC), text, baseTextStyle({ style }));
+  return spans.length ? { spans } : {};
 }
 
 /** The kind, identifier and label a `/Link` we wrote carries in our app data, if it is ours and well formed. */
@@ -335,6 +344,9 @@ export function importAnnotations(
           const edited = editedText(m, r ? str(r.Contents) : undefined, a.contents);
           if (edited !== null) {
             m.text = edited;
+            // Its styled parts were for the old text: take them from the rich text it left, if that agrees.
+            delete m.spans;
+            Object.assign(m, richSpans(r, edited, m.style));
             redraw.add(m);
           }
           markups.push(m);
@@ -441,6 +453,7 @@ export function importAnnotations(
         points: f.points,
         style,
         ...(textual ? { text: f.text ?? contents } : comment ? { comment } : {}),
+        ...(textual && isTextType(f.type) ? richSpans(r, f.text ?? contents, style) : {}),
         ...(f.extra ?? {}),
         ...(f.type === 'attachment' && a.file ? { attachment: { name: a.file.name, mime: mimeOf(a.file.name), size: a.file.data.length, data: toBase64(a.file.data) } } : {}),
         status: 'none',
