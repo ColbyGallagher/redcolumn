@@ -161,6 +161,15 @@ class Parts {
   }
 }
 
+/**
+ * A workbook's parts by name, each as text (null for one it does not have): for tests and tools that
+ * look at what was written. Importing never needs it.
+ */
+export function workbookParts(bytes: Uint8Array, limits: ReadLimits = READ_LIMITS): { names: string[]; text: (name: string) => Promise<string | null> } {
+  const parts = new Parts(bytes, limits);
+  return { names: [...zipEntries(bytes).keys()], text: (name) => parts.text(name) };
+}
+
 const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
 
 /** XML text with its character references resolved. Only the five built-in entities exist: a DOCTYPE is refused. */
