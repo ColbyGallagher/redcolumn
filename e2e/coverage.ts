@@ -117,6 +117,8 @@ export const COVERAGE: Record<string, Coverage> = {
   'edit.distributeVertical': { spec: 'edit' },
   'edit.cropImage': { spec: 'crop-image' },
   'edit.resetCrop': { spec: 'crop-image' },
+  'edit.adjustImage': { spec: 'adjust-image' },
+  'edit.pictureColours': { spec: 'adjust-image' },
   'edit.flipHorizontal': { spec: 'edit' },
   'edit.flipVertical': { spec: 'edit' },
   'edit.formatPainter': { spec: 'edit' },

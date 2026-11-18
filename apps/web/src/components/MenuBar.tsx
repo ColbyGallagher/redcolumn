@@ -356,6 +356,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Sep />
               <Cmd id="edit.cropImage" />
               <Cmd id="edit.resetCrop" />
+              <Cmd id="edit.adjustImage" />
+              <Cmd id="edit.pictureColours" />
               <Sep />
               <Cmd id="edit.arrayPolar" />
               <Cmd id="edit.arrayPath" />
