@@ -211,10 +211,11 @@ test.describe('stitched view', () => {
     expect((await app.command('view.stitched')).enabled).toBe(true);
     await app.cmd('view.stitched');
     expect((await app.view()).mode).toBe('stitch');
-    expect((await app.command('view.stitched')).checked).toBe(true);
+    // The app hears of the view's mode on the viewer's next frame.
+    await expect.poll(async () => (await app.command('view.stitched')).checked).toBe(true);
     await app.cmd('view.stitched');
     expect((await app.view()).mode).not.toBe('stitch');
-    expect((await app.command('view.stitched')).checked).toBe(false);
+    await expect.poll(async () => (await app.command('view.stitched')).checked).toBe(false);
   });
 
   test('view.stitched is off for sheets without match lines', async ({ app }) => {
