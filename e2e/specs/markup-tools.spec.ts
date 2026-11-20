@@ -17,10 +17,10 @@ function expectPoints(actual: [number, number][], expected: readonly Pt[]) {
 }
 
 async function typeAndCommit(app: App, text: string) {
-  await expect(app.page.locator('textarea.text-editor')).toBeVisible();
+  await expect(app.page.locator('div.text-editor')).toBeVisible();
   await app.page.keyboard.type(text);
   await app.page.keyboard.press('Control+Enter');
-  await expect(app.page.locator('textarea.text-editor')).toHaveCount(0);
+  await expect(app.page.locator('div.text-editor')).toHaveCount(0);
 }
 
 /** Runs a command that opens the file picker and answers it with a fixture. */

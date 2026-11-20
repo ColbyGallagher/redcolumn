@@ -935,8 +935,9 @@ select[size] {
   background: #fff;
   font-family: Helvetica, Arial, sans-serif;
   line-height: 1.2;
-  resize: none;
   overflow: hidden;
+  overflow-wrap: break-word;
+  cursor: text;
 }
 
 /* List buttons over the text editor. Their mousedown is cancelled so the editor keeps focus (it commits on blur). */
@@ -967,6 +968,40 @@ select[size] {
 
 .text-editor-bar button:hover {
   background: var(--border);
+}
+
+.text-editor-bar button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.text-editor-bar .fmt-bold {
+  font-weight: 700;
+}
+
+.text-editor-bar .fmt-italic {
+  font-style: italic;
+}
+
+.text-editor-bar .fmt-underline {
+  text-decoration: underline;
+}
+
+.text-editor-bar .fmt-strikethrough {
+  text-decoration: line-through;
+}
+
+.text-editor-bar .swatch-button {
+  min-width: 18px;
+  padding: 0 2px;
+}
+
+.text-editor-bar .swatch-button span {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgb(0 0 0 / 0.35);
 }
 
 .text-editor-bar .sep {

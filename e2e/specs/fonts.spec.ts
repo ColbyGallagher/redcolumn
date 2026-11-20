@@ -7,7 +7,7 @@ import { expect, test, type App } from '../support/app.ts';
 // permission prompt. The desktop app lists the machine's real fonts, so those parts run on the web build only.
 test.skip(({ app }) => app.kind !== 'web', 'the stubbed Local Font Access API is a browser feature');
 
-const editor = (app: App) => app.page.locator('textarea.text-editor');
+const editor = (app: App) => app.page.locator('div.text-editor');
 const picker = (app: App) => app.page.locator('.font-picker-button').first();
 const options = (app: App) => app.page.locator('.font-picker-pop [role="option"]');
 
