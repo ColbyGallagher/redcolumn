@@ -319,6 +319,7 @@ test.describe('view', () => {
   });
 
   test('split with one file open shows it on both sides, in sync, with no file picker', async ({ app }) => {
+    expect((await app.command('view.unsplit')).enabled).toBe(false);
     await app.tool('rect');
     await app.drag([300, 450], [350, 500]);
     let picked = false;
@@ -329,7 +330,11 @@ test.describe('view', () => {
     expect(picked).toBe(false);
     // One document, one markup store, two views; Synchronise Document is on.
     expect(await app.documents()).toHaveLength(1);
-    expect((await app.command('view.syncDocument')).checked).toBe(true);
+    await expect.poll(async () => (await app.command('view.syncDocument')).checked).toBe(true);
+    expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
+    // Switch Panes has nothing to swap.
+    await app.cmd('view.switchPanes');
+    expect(await app.documents()).toHaveLength(1);
     expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
     await app.cmd('view.unsplit');
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
@@ -337,7 +342,53 @@ test.describe('view', () => {
     expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
   });
 
+  test('page edits while the view is mirrored reach both panes', async ({ app }) => {
+    await app.cmd('view.split');
+    await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
+    await expect.poll(() => app.page.evaluate(() => !!window.__nb.viewerB?.pageSize(0))).toBe(true);
+    const sizes = () => app.page.evaluate(() => [window.__nb.viewer.pageSize(0), window.__nb.viewerB?.pageSize(0)]);
+    const [before] = await sizes();
+    await app.cmd('document.rotatePages');
+    await expect
+      .poll(async () => {
+        const [a, b] = await sizes();
+        return !!a && !!b && a.width === b.width && a.height === b.height && a.width === before!.height;
+      })
+      .toBe(true);
+  });
+
+  for (const from of ['left', 'right'] as const) {
+    test(`closing the document from the ${from} pane while mirrored closes both views`, async ({ app }) => {
+      await app.cmd('view.split');
+      await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
+      await app.page.locator('main.stage').nth(from === 'left' ? 0 : 1).click({ position: { x: 5, y: 5 } });
+      await app.cmd('file.close');
+      await expect.poll(async () => (await app.documents()).length).toBe(0);
+      await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
+      await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
+    });
+  }
+
+  test('a mirrored right pane follows the left pane to another file, and closing keeps the other', async ({ app }) => {
+    await app.cmd('view.split');
+    await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
+    await app.open('plan-rev1.pdf');
+    await app.cmd('view.switchPanes');
+    expect(await app.documents()).toHaveLength(2);
+    await expect(app.page.locator('main.stage canvas')).toHaveCount(2);
+    // Closing from the right pane closes the file in front (plan-rev1.pdf); plan.pdf stays, still split.
+    await app.page.locator('main.stage').nth(1).click({ position: { x: 5, y: 5 } });
+    await app.cmd('file.close');
+    await expect.poll(async () => (await app.documents()).map((d) => d.name)).toEqual(['plan.pdf']);
+    await expect(app.page.locator('main.stage canvas')).toHaveCount(2);
+    expect(await app.page.evaluate(() => !!window.__nb.viewerB?.pageSize(0))).toBe(true);
+    await app.cmd('view.unsplit');
+    await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
+  });
+
   test('split with two files open puts the other open file in the second pane', async ({ app }) => {
+    await app.tool('rect');
+    await app.drag([300, 450], [350, 500]);
     await app.open('plan-rev1.pdf');
     await app.open('plan.pdf');
     let picked = false;
@@ -350,9 +401,14 @@ test.describe('view', () => {
     // The active file stays active, its markups intact.
     expect((await app.documents()).find((d) => d.active)!.name).toBe('plan.pdf');
     for (const id of ['view.unsplit', 'view.switchPanes', 'view.balance', 'view.syncDocument', 'view.syncPage']) expect((await app.command(id)).enabled, id).toBe(true);
-    // Switch Panes swaps the documents.
+    // Switch Panes swaps the documents: the active file is unchanged, and both stay open.
+    const before = (await app.documents()).find((d) => d.active)!.name;
+    expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
     await app.cmd('view.switchPanes');
+    await expect.poll(() => app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(0);
     await app.cmd('view.switchPanes');
+    await expect.poll(() => app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
+    expect((await app.documents()).find((d) => d.active)!.name).toBe(before);
     await app.cmd('view.balance');
     await expect
       .poll(async () => {

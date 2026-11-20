@@ -11,8 +11,7 @@ export function pickSplitPartner(openIds: readonly string[], activeId: string | 
   if (!others.length) return null;
   for (const id of recent) if (others.includes(id)) return id;
   const at = activeId === null ? -1 : openIds.indexOf(activeId);
-  const beside = openIds[at + 1];
-  return beside !== undefined && beside !== activeId ? beside : others[0]!;
+  return openIds[at + 1] ?? others[0]!;
 }
 
 /** Moves a document to the front of the most-recently-shown list. */

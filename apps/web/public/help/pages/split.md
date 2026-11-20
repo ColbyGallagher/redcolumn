@@ -12,7 +12,7 @@ Split the drawing area in two to look at two documents (or two parts of the same
 
 Each pane has its own tabs, zoom and page. Click in a pane to make it the active one: menus and tools work on the active pane.
 
-To show a different file in the second pane, click in it and open the file (or right-click a file in the Files panel and choose **Open in Split View**). You can also right-click a tab and choose **Move to Right Pane**. If no file is open, splitting asks you to pick one.
+To show a different file in the second pane, click in it and open the file (or right-click a file in the Files panel and choose **Open in Split View**). You can also right-click a tab and choose **Move to Right Pane**.
 
 ## Move them together (Sync)
 

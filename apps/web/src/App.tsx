@@ -1394,12 +1394,18 @@ export function App() {
     window.addEventListener('nb-assistant-open', open);
     return () => window.removeEventListener('nb-assistant-open', open);
   }, []);
-  const pendingSplit = useRef<File | null>(null);
   /** A library file or a tab waiting for the right pane to exist (Open in Split View, Move to Right Pane). */
   const pendingSplitStored = useRef<{ file: StoredFile; bytes: ArrayBuffer } | null>(null);
   const pendingMove = useRef<OpenFile | null>(null);
-  /** What Split View does once the right pane exists: bring another open tab across, or show the front document on both sides. */
-  const pendingSplitFill = useRef<'mirror' | 'move' | null>(null);
+  /** Split View with one file open: once the right pane exists, show the front document in it too. */
+  const pendingMirror = useRef(false);
+  /**
+   * The right pane is a tab-less second view of the left pane's front document, following it
+   * (one document, one markup store, two views). It ends when the right pane is given its own document.
+   */
+  const mirrorRef = useRef(false);
+  /** Where Split View took a tab from, so Unsplit puts it back in the same place. */
+  const splitOrigin = useRef<{ id: string; index: number } | null>(null);
   /** Documents most recently shown first, for choosing the other side of a split. */
   const recentFiles = useRef<string[]>([]);
   const moveTabRef = useRef<(from: Pane, t: OpenFile) => void>(() => {});
@@ -1515,7 +1521,6 @@ export function App() {
   const insertFileRef = useRef<HTMLInputElement>(null);
   const bulkInsertFileRef = useRef<HTMLInputElement>(null);
   const [bulkInsertFiles, setBulkInsertFiles] = useState<File[] | null>(null);
-  const splitFileRef = useRef<HTMLInputElement>(null);
   /** Views to return to after following hyperlinks (Alt+Left). */
   const history = useRef<ViewState[]>([]);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -1702,6 +1707,9 @@ export function App() {
         __nb: {
           engine,
           viewer,
+          get viewerB() {
+            return viewerBRef.current;
+          },
           tools,
           commands: () => commandsRef.current,
           assistant: (method: string, params: unknown) => {
@@ -1754,12 +1762,16 @@ export function App() {
 
   /** Puts a document (or nothing) in front in a pane, remembering where the previous one was scrolled. */
   const showInPane = useCallback(
-    (pane: Pane, packed: OpenFile | null) => {
+    (pane: Pane, packed: OpenFile | null, follow = false) => {
       const c = pane === 'b' ? ctlB : ctl;
       const cur = openRefOf(pane).current;
+      // A mirrored right pane's view is not what the left pane saved for the same document.
+      const mirrored = pane === 'b' && mirrorRef.current;
+      if (pane === 'b' && !follow) mirrorRef.current = false;
       if (cur === packed) return;
       if (packed) recentFiles.current = touchRecent(recentFiles.current, packed.file.id);
-      if (cur && c) savedViews.current.set(cur.file.id, c.viewer.getView());
+      if (cur && c && !mirrored) savedViews.current.set(cur.file.id, c.viewer.getView());
+      if (pane === 'a' && mirrorRef.current && packed && ctlB) showInPane('b', packed, true);
       setFront(pane, packed);
       if (pane === 'a') {
         // Per-document state of the front document.
@@ -2379,19 +2391,20 @@ export function App() {
     const moving = pendingMove.current;
     pendingMove.current = null;
     if (moving) moveTabRef.current('a', moving);
-    const fill = pendingSplitFill.current;
-    pendingSplitFill.current = null;
-    if (fill === 'mirror' && openRef.current) {
+    if (moving) setActivePane('a');
+    if (pendingMirror.current && openRef.current) {
       // One document in both panes (one markup store, two views), kept in step.
-      showInPane('b', openRef.current);
+      pendingMirror.current = false;
+      mirrorRef.current = true;
+      showInPane('b', openRef.current, true);
       setSync('document');
+      setActivePane('a');
     }
-    if (fill) setActivePane('a');
-    const f = pendingSplit.current;
-    if (!f) return;
-    pendingSplit.current = null;
-    void openNewFile(f, 'b');
-  }, [ctlB, openNewFile, openStored, showInPane]);
+  }, [ctlB, openStored, showInPane]);
+
+  useEffect(() => {
+    if (!split) mirrorRef.current = false;
+  }, [split]);
 
   // Load the library (the tabs are reopened above, as Preferences › Options says).
   const restored = useRef(false);
@@ -2444,24 +2457,27 @@ export function App() {
    */
   const reopenInPane = useCallback(
     async (cur: OpenFile, pane: Pane, next: OpenFile, keep: 'view' | ((was: number) => number)) => {
-      const c = ctlOf(pane);
-      if (!c) {
+      if (!ctlOf(pane)) {
         void next.doc.close();
         return;
       }
       await hideImported(next.doc, cur.store);
       setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? next : t)));
-      setFront(pane, next);
-      const { tools, viewer } = c;
-      tools.setSnapSource(async (pageIndex) => {
-        const g = await next.doc.geometry(pageIndex);
-        return new SnapIndex(g.segments, undefined, g.curves);
-      });
-      tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
-      const view = viewer.getView();
-      viewer.setDocument(next.doc);
-      if (keep === 'view') viewer.setView(view);
-      else viewer.goToPage(keep(view.pageIndex));
+      // Every pane showing this document, by file: a mirrored right pane has no tab to find it by.
+      const showing = (['a', 'b'] as const).filter((p) => ctlOf(p) && openRefOf(p).current?.file.id === cur.file.id);
+      for (const p of showing.length ? showing : [pane]) {
+        const { tools, viewer } = ctlOf(p)!;
+        setFront(p, next);
+        tools.setSnapSource(async (pageIndex) => {
+          const g = await next.doc.geometry(pageIndex);
+          return new SnapIndex(g.segments, undefined, g.curves);
+        });
+        tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
+        const view = viewer.getView();
+        viewer.setDocument(next.doc);
+        if (keep === 'view') viewer.setView(view);
+        else viewer.goToPage(keep(view.pageIndex));
+      }
       void cur.doc.close();
     },
     [ctl, ctlB, setTabs, setFront],
@@ -4428,24 +4444,19 @@ export function App() {
    */
   const closeTab = useCallback(
     (pane: Pane, fileId: string) => {
+      // A mirrored right pane has no tabs of its own: its document's tab is in the left pane.
+      if (pane === 'b' && mirrorRef.current) pane = 'a';
       const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
       const idx = tabs.findIndex((t) => t.file.id === fileId);
-      if (idx < 0) {
-        // The right pane showing the left pane's document (Split View with one file open) has no tab of its own.
-        if (pane === 'b' && openBRef.current?.file.id === fileId && !tabsBRef.current.length) {
-          showInPane('b', null);
-          setSplit(false);
-          setActivePane('a');
-        }
-        return;
-      }
+      if (idx < 0) return;
       const closing = tabs[idx]!;
       const rest = tabs.filter((_, i) => i !== idx);
       setTabs(pane, rest);
-      // The other pane may be showing the same document without a tab of its own.
-      if (pane === 'a' && openBRef.current === closing && !tabsBRef.current.length) {
+      // The mirrored right pane follows the left pane's next tab; with none, the mirror and the split end.
+      if (pane === 'a' && mirrorRef.current && openRef.current === closing && !rest.length) {
         showInPane('b', null);
         setSplit(false);
+        setActivePane('a');
       }
       const front = pane === 'b' ? openBRef.current : openRef.current;
       if (front === closing) {
@@ -4520,6 +4531,7 @@ export function App() {
    */
   const requestCloseTab = useCallback(
     async (pane: Pane, fileId: string): Promise<boolean> => {
+      if (pane === 'b' && mirrorRef.current) pane = 'a';
       if (!(await settleUnsaved(pane, fileId))) return false;
       closeTab(pane, fileId);
       return true;
@@ -4617,7 +4629,13 @@ export function App() {
     const bFront = openBRef.current;
     showInPane('b', null);
     setTabs('b', []);
-    setTabs('a', [...tabsARef.current, ...moved]);
+    // The tab Split View took across goes back where it was.
+    const origin = splitOrigin.current;
+    splitOrigin.current = null;
+    const back = origin ? moved.find((t) => t.file.id === origin.id) : undefined;
+    const joined = [...tabsARef.current, ...moved.filter((t) => t !== back)];
+    if (back) joined.splice(Math.min(origin!.index, tabsARef.current.length), 0, back);
+    setTabs('a', joined);
     if (!openRef.current && bFront) showInPane('a', bFront);
     setSplit(false);
     setActivePane('a');
@@ -6938,23 +6956,18 @@ export function App() {
 
   /**
    * Split View. With other documents open, the most recently used one goes in the new pane. With only
-   * one open, it is shown on both sides with the views synchronised. Only with nothing open does it
-   * ask for a file.
+   * one open, it is shown on both sides with the views synchronised.
    */
   const startSplit = () => {
-    if (split) return;
     const front = openRef.current;
-    if (!front) {
-      splitFileRef.current?.click();
-      return;
-    }
+    if (split || !front) return;
     const tabs = tabsARef.current;
     const partnerId = pickSplitPartner(tabs.map((t) => t.file.id), front.file.id, recentFiles.current);
     const partner = tabs.find((t) => t.file.id === partnerId);
     if (partner) {
       pendingMove.current = partner;
-      pendingSplitFill.current = 'move';
-    } else pendingSplitFill.current = 'mirror';
+      splitOrigin.current = { id: partner.file.id, index: tabs.indexOf(partner) };
+    } else pendingMirror.current = true;
     setSplit(true);
   };
 
@@ -6962,7 +6975,7 @@ export function App() {
   const swapPanes = () => {
     const a = openRef.current;
     const b = openBRef.current;
-    if (!a || !b || a === b || !ctl || !ctlB) return;
+    if (!a || !b || mirrorRef.current || !ctl || !ctlB) return;
     const tabs = tabsARef.current;
     savedViews.current.set(a.file.id, ctl.viewer.getView());
     savedViews.current.set(b.file.id, ctlB.viewer.getView());
@@ -9327,7 +9340,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     showBottom: bottomOpen,
     tool: toolsState.tool,
     settings: prefs,
-    openTabCount: (pane === 'b' ? tabsB : tabsA).length,
+    openTabCount: (pane === 'b' && !mirrorRef.current ? tabsB : tabsA).length,
     leftTab,
     rightTab,
     bottomTab,
@@ -10177,20 +10190,6 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           const files = [...(e.target.files ?? [])];
           e.target.value = '';
           if (files.length && open) setBulkInsertFiles(files);
-        }}
-      />
-      <input
-        ref={splitFileRef}
-        type="file"
-        accept="application/pdf"
-        hidden
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = '';
-          if (!f) return;
-          pendingSplit.current = f;
-          setSplit(true);
-          setActivePane('b');
         }}
       />
       <MenuBar
