@@ -111,3 +111,53 @@ test.describe('markup format tab follows the selection', () => {
     await expect(ribbon(app).getByRole('button', { name: 'Line color' })).toHaveAttribute('data-mixed', 'true');
   });
 });
+
+// The Units & Scale group sits in the Markup Format tab while measuring: the units (Preferences ›
+// Units, one setting) and the page's scale, without going to the bottom of the window.
+test.describe('markup format tab: units and scale', () => {
+  test.use({ toolbar: 'ribbon' });
+
+  const pageScale = (app: App) =>
+    app.page.evaluate(() => {
+      const store = window.__nb.tools.store as unknown as { scaleFor(page: number): { unit: string; label: string; metersPerPoint: number } };
+      const s = store.scaleFor(0);
+      return { unit: s.unit, label: s.label, metersPerPoint: s.metersPerPoint };
+    });
+
+  test.beforeEach(async ({ app }) => {
+    await app.open('plan.pdf');
+    await setScale(app);
+  });
+
+  test('a measure tool shows the group with the page scale, a plain markup tool does not', async ({ app }) => {
+    await app.tool('rect');
+    await expect(ribbon(app).getByRole('tab', { name: 'Markup Format' })).toHaveAttribute('aria-selected', 'true');
+    await expect(ribbon(app).getByRole('group', { name: 'Units & Scale' })).toHaveCount(0);
+    await app.tool('length');
+    const group = ribbon(app).getByRole('group', { name: 'Units & Scale' });
+    await expect(group).toBeVisible();
+    // The page's own (calibrated) scale is the one shown.
+    await expect(group.getByLabel('Scale', { exact: true })).toContainText('Calibrated');
+  });
+
+  test('switching the units rewords the page scale and keeps its size', async ({ app }) => {
+    const line = await draw(app, 'length', [[r.x, r.y], [r.x + 100, r.y]]);
+    await select(app, [line.id]);
+    const group = ribbon(app).getByRole('group', { name: 'Units & Scale' });
+    await expect(group).toBeVisible();
+    await expect(group.getByLabel('Units', { exact: true })).toHaveValue('imperial');
+    expect((await pageScale(app)).unit).toBe('ft');
+
+    await group.getByLabel('Units', { exact: true }).selectOption('metric');
+    await expect.poll(async () => (await pageScale(app)).unit).toBe('m');
+    // Same size: 100 pt was 10 feet (3.048 m).
+    expect((await pageScale(app)).metersPerPoint).toBeCloseTo(3.048 / 100, 6);
+    await expect(group.getByLabel('Length unit')).toHaveValue('m');
+
+    await group.getByLabel('Length unit').selectOption('mm');
+    await expect.poll(async () => (await pageScale(app)).unit).toBe('mm');
+
+    await group.getByLabel('Units', { exact: true }).selectOption('imperial');
+    await expect.poll(async () => (await pageScale(app)).unit).toBe('ft');
+  });
+});

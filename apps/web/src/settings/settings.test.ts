@@ -10,7 +10,7 @@ const store = new Map<string, string>([['nb.settings', JSON.stringify({ unitSyst
   removeItem: (k: string) => void store.delete(k),
 };
 
-const { DEFAULT_SETTINGS, gridSpacingPoints, settings, switchUnitSystem, withDefaultUnits } = await import('./settings.ts');
+const { DEFAULT_SETTINGS, gridSpacingPoints, scaleInDefaultUnits, settings, switchUnitSystem, withDefaultUnits } = await import('./settings.ts');
 
 const preset = (label: string) => SCALE_PRESETS.find((p) => p.label === label)!.scale;
 
@@ -45,6 +45,25 @@ test('a scale with its own units, or from the other system, keeps them', () => {
   assert.equal(calibrated.unit, 'm');
   assert.equal(calibrated.areaUnit, 'km');
   assert.deepEqual(withDefaultUnits(preset('1/8" = 1\'-0"'), s), preset('1/8" = 1\'-0"'));
+});
+
+test('scaleInDefaultUnits rewords a page scale in the default units without changing its size', () => {
+  const metric = { ...DEFAULT_SETTINGS, ...switchUnitSystem(DEFAULT_SETTINGS, 'metric'), unitSystem: 'metric' as const };
+  const imperial = { ...DEFAULT_SETTINGS, ...switchUnitSystem(metric, 'imperial'), unitSystem: 'imperial' as const };
+  const base = preset('1:100');
+  const inFeet = scaleInDefaultUnits(base, imperial);
+  assert.equal(inFeet.unit, 'ft');
+  assert.equal(inFeet.areaUnit, 'ft');
+  assert.equal(inFeet.metersPerPoint, base.metersPerPoint);
+  assert.equal(inFeet.label, base.label);
+  assert.equal(inFeet.feetInches, false);
+  const back = scaleInDefaultUnits(inFeet, metric);
+  assert.equal(back.unit, 'm');
+  assert.equal(back.areaUnit, 'm');
+  // Inch fractions survive a move between feet and inches, and are dropped for metric.
+  const fractional = { ...preset('1/8" = 1\'-0"'), feetInches: true };
+  assert.equal(scaleInDefaultUnits(fractional, { ...imperial, lengthUnit: 'in' }).feetInches, true);
+  assert.equal(scaleInDefaultUnits(fractional, metric).feetInches, false);
 });
 
 test('pages with no scale use the default units', () => {
