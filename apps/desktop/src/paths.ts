@@ -122,9 +122,18 @@ export function registerPathIpc(allowlist: PathAllowlist, launchesFor: (contents
   ipcMain.handle('paths:show', async (event, token: unknown): Promise<boolean> => {
     if (!fromApp(event) || typeof token !== 'string') return false;
     const filePath = allowlist.get(token);
-    if (!filePath) return false;
+    // A file moved or deleted since has no folder to show.
+    if (!filePath || (await fileGone(filePath))) return false;
     shell.showItemInFolder(filePath);
     return true;
+  });
+
+  // Whether the file is still where it was opened from. Only a file that is surely gone (moved,
+  // renamed or deleted) answers false: an unreachable network drive keeps its offline copy.
+  ipcMain.handle('paths:exists', async (event, token: unknown): Promise<boolean> => {
+    if (!fromApp(event) || typeof token !== 'string') return true;
+    const filePath = allowlist.get(token);
+    return !filePath || !(await fileGone(filePath));
   });
 
   ipcMain.handle('paths:forget', (event, token: unknown): boolean => {
@@ -152,6 +161,16 @@ export function registerPathIpc(allowlist: PathAllowlist, launchesFor: (contents
     if (!fromApp(event)) return [];
     return launchesFor(event.sender)?.takeLinks() ?? [];
   });
+}
+
+/** True when nothing is at the path any more (or something other than a file is). */
+export async function fileGone(filePath: string): Promise<boolean> {
+  try {
+    return !(await fs.stat(filePath)).isFile();
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    return code === 'ENOENT' || code === 'ENOTDIR';
+  }
 }
 
 export async function persistAllowlist(allowlist: PathAllowlist, filePath: string) {
