@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
-const info = ipcRenderer.sendSync('desktop:info') as { nativeFiles: boolean; printMode: 'viewer' | 'verb' | 'images' };
+import type { ManagedPolicy } from './policy';
+
+const info = ipcRenderer.sendSync('desktop:info') as { nativeFiles: boolean; printMode: 'viewer' | 'verb' | 'images'; policy: ManagedPolicy };
 
 function unsubscribe(channel: string, listener: (...args: unknown[]) => void) {
   ipcRenderer.removeListener(channel, listener);
@@ -25,6 +27,9 @@ contextBridge.exposeInMainWorld('redcolumn', {
   isDesktop: true,
   nativeFiles: info.nativeFiles,
   printMode: info.printMode,
+  // The organisation's policy (policy.ts), read by the main process at startup. The main process
+  // enforces its switches itself; the page uses this copy to hide what is turned off.
+  policy: info.policy,
   tokenForFile(file: File) {
     try {
       const filePath = webUtils.getPathForFile(file);
@@ -121,8 +126,9 @@ contextBridge.exposeInMainWorld('redcolumn', {
     return () => unsubscribe('window:close-request', listener);
   },
   closeWindow: () => ipcRenderer.send('window:close'),
-  // Sync to Excel on this computer drives Excel through COM, so it exists on Windows only.
-  ...(process.platform === 'win32'
+  // Sync to Excel on this computer drives Excel through COM, so it exists on Windows only (and not
+  // where policy turns it off: the main process has no handlers for it then).
+  ...(process.platform === 'win32' && !info.policy.disableExcelSync
     ? {
         excel: {
           pick: (suggestedName: string) => call('excel:pick', suggestedName),
