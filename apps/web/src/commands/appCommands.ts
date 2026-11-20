@@ -43,6 +43,8 @@ export interface Command {
   checked?: boolean;
   /** Shown as the tooltip while the command is disabled: what to do to enable it. */
   hint?: string;
+  /** The organisation's policy removes this command (desktop/policy.ts): menus, the ribbon and the palette leave it out. */
+  managed?: true;
 }
 
 /** What the app can do; App supplies these, the command table decides when each is available. */

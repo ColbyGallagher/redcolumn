@@ -251,6 +251,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
   const Cmd = ({ id, label }: { id: string; label?: string }) => {
     const c = commands.get(id);
     if (!c) return <Item label={label ?? id} disabled />;
+    // Removed by the organisation's policy (desktop/policy.ts).
+    if (c.managed) return null;
     return <Item label={label ?? c.label} shortcut={shortcutLabel(id)} checked={c.checked} disabled={!c.enabled} onClick={run(c.run)} />;
   };
 
@@ -708,7 +710,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
       <div className="menubar-help" role="group" aria-label="Help and feedback">
         {HELP_BUTTONS.map((id) => {
           const c = commands.get(id);
-          if (!c) return null;
+          if (!c || c.managed) return null;
           const shortcut = shortcutLabel(id);
           return (
             <button key={id} type="button" className="menubar-help-btn" title={shortcut ? `${c.label} (${shortcut})` : c.label} disabled={!c.enabled} onClick={c.run}>

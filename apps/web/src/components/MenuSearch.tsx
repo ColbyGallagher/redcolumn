@@ -59,7 +59,7 @@ export function MenuSearch({ commands, onOpenSetting }: Props) {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     if (!words.length) return [];
     const cmds = commands
-      .map((c, i) => ({ c, i, s: score(c, words) }))
+      .map((c, i) => ({ c, i, s: c.managed ? -1 : score(c, words) }))
       .filter((r) => r.s >= 0)
       .sort((a, b) => Number(b.c.enabled) - Number(a.c.enabled) || a.s - b.s || a.i - b.i)
       .slice(0, MAX_COMMANDS)

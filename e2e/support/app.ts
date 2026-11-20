@@ -1,6 +1,6 @@
 // The `app` fixture: a fresh redcolumn (a Chromium page on the dev server, or the Electron app with
 // its own profile folder) plus the driver in driver.ts. Specs use it the same way in both projects.
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { test as base, expect, _electron as electron, type Page } from '@playwright/test';
@@ -110,20 +110,24 @@ function collectErrors(page: Page, errors: string[]) {
   page.on('dialog', (d) => void d.accept().catch(() => {}));
 }
 
-export const test = base.extend<{ app: App; settings: Record<string, unknown>; toolbar: 'simplified' | 'ribbon' }>({
+export const test = base.extend<{ app: App; settings: Record<string, unknown>; toolbar: 'simplified' | 'ribbon'; policy: Record<string, unknown> | null }>({
   settings: [IMPERIAL, { option: true }],
   toolbar: ['simplified', { option: true }],
+  // Desktop only: a managed policy file (apps/desktop/src/policy.ts) the app reads as well as the machine's.
+  policy: [null, { option: true }],
   // `page` is only used by the web project (the desktop project's is left blank).
-  app: async ({ page, settings, toolbar }, use, testInfo) => {
+  app: async ({ page, settings, toolbar, policy }, use, testInfo) => {
     const errors: string[] = [];
     if (testInfo.project.name === 'desktop') {
       const profile = mkdtempSync(join(tmpdir(), 'rc-e2e-'));
+      const policyFile = policy ? join(profile, 'policy.json') : '';
+      if (policy) writeFileSync(policyFile, JSON.stringify(policy));
       const electronApp = await electron.launch({
         cwd: join(ROOT, 'apps/desktop'),
         args: ['.', `--user-data-dir=${profile}`],
         // APPDATA too: the assistant's endpoint file lives there (apps/desktop/src/assistant/endpoint.ts),
         // outside the profile, and must not touch the real app's or another test's.
-        env: { ...process.env, RECOLUMN_E2E: '1', ELECTRON_DEV: '', APPDATA: profile, XDG_CONFIG_HOME: profile },
+        env: { ...process.env, RECOLUMN_E2E: '1', ELECTRON_DEV: '', APPDATA: profile, XDG_CONFIG_HOME: profile, RECOLUMN_POLICY_FILE: policyFile },
       });
       try {
         // Save dialogs answer themselves: each file goes into `saves`, under the name the app suggested.
