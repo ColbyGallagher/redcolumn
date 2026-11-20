@@ -232,6 +232,7 @@ export type WorkerRequest =
   | { id: number; type: 'close'; docId: number }
   | ({ id: number; type: 'render' } & TileRequest)
   | { id: number; type: 'geometry'; docId: number; pageIndex: number }
+  | { id: number; type: 'clipRegion'; docId: number; pageIndex: number; rect: PageRegion }
   | { id: number; type: 'text'; docId: number; pageIndex: number }
   | { id: number; type: 'annotations'; docId: number; pageIndex: number }
   | { id: number; type: 'hideAnnots'; docId: number; pageIndex: number; indices: number[] }
@@ -260,6 +261,7 @@ export type WorkerResponse =
   | { id: number; ok: true; type: 'bytes'; bytes: ArrayBuffer }
   | { id: number; ok: true; type: 'setRenderCopy' }
   | { id: number; ok: true; type: 'checkCopy'; check: CopyCheck }
+  | { id: number; ok: true; type: 'clipRegion'; bytes: ArrayBuffer }
   | { id: number; ok: true; type: 'geometry'; segments: Float32Array; curves: Uint8Array; paper: Uint8Array; ms: number }
   | { id: number; ok: true; type: 'text'; words: TextWord[] }
   | { id: number; ok: true; type: 'annotations'; annotations: PdfAnnotation[] }
