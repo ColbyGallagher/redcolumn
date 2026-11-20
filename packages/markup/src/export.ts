@@ -14,6 +14,7 @@ import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
+import { baseTextStyle, spansOf, styleRuns } from './textSpans';
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBaselineOffset, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
 import { blendsFillOnly, dashPattern, HATCH_PATTERNS, pdfBlendName, labelStyle, lineEnds, styleCapabilities, textColor, type LineEnding } from './style';
@@ -155,6 +156,41 @@ function richParagraph(line: string): string {
   return line ? `<p>${escapeXml(line.replace(/^ +/, (spaces) => ' '.repeat(spaces.length)))}</p>` : '<p />';
 }
 
+/**
+ * The text's paragraphs as rich text. Where parts of it are styled, each run that differs from
+ * the markup's own style is a `<span style>`, as other PDF tools write mixed formatting.
+ */
+function richParagraphs(m: Markup): string[] {
+  const text = m.text ?? '';
+  const spans = spansOf(m);
+  if (!spans.length) return text.split('\n').map(richParagraph);
+  const base = baseTextStyle(m);
+  const runs = styleRuns(text, spans, base);
+  let offset = 0;
+  return text.split('\n').map((line) => {
+    const start = offset;
+    offset += line.length + 1;
+    if (!line) return '<p />';
+    const parts = runs
+      .filter((r) => r.end > start && r.start < start + line.length)
+      .map((r) => {
+        const a = Math.max(r.start, start);
+        const b = Math.min(r.end, start + line.length);
+        let t = escapeXml(text.slice(a, b));
+        // A nested list's indent becomes no-break spaces, which XHTML would otherwise collapse.
+        if (a === start) t = t.replace(/^ +/, (spaces) => ' '.repeat(spaces.length));
+        const css = [
+          ...(r.bold !== !!base.bold ? [`font-weight:${r.bold ? 'bold' : 'normal'}`] : []),
+          ...(r.italic !== !!base.italic ? [`font-style:${r.italic ? 'italic' : 'normal'}`] : []),
+          ...(r.underline !== !!base.underline || r.strikethrough !== !!base.strikethrough ? [`text-decoration:${[r.underline && 'underline', r.strikethrough && 'line-through'].filter(Boolean).join(' ') || 'none'}`] : []),
+          ...(r.color.toLowerCase() !== base.color.toLowerCase() ? [`color:${r.color.toUpperCase()}`] : []),
+        ];
+        return css.length ? `<span style="${css.join('; ')}">${t}</span>` : t;
+      });
+    return `<p>${parts.join('')}</p>`;
+  });
+}
+
 /** A text markup's default style (/DS) and rich text (/RC), which Bluebeam and Acrobat lay text out from. */
 function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString; NBTextMargin?: number } {
   const s = m.style;
@@ -170,7 +206,7 @@ function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString; NBTextMargin
     ...(s.italic ? ['font-style:italic'] : []),
     ...(s.underline || s.strikethrough ? [`text-decoration:${[s.underline && 'underline', s.strikethrough && 'line-through'].filter(Boolean).join(' ')}`] : []),
   ].join('; ');
-  const paragraphs = (m.text ?? '').split('\n').map(richParagraph);
+  const paragraphs = richParagraphs(m);
   const rc = `<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2" style="${escapeXml(ds)}">${paragraphs.join('')}</body>`;
   // The exact padding rides in a private key: the /DS margin cannot say less than 0, and other readers add a point to it.
   return { DS: pdfText(ds), RC: pdfText(rc), ...(s.textMargin !== undefined ? { NBTextMargin: s.textMargin } : {}) };
@@ -583,7 +619,44 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     resources.XObject = { Im0: image.ref };
   }
 
-  if (isTextType(m.type) && m.text) {
+  if (isTextType(m.type) && m.text && spansOf(m).length) {
+    // Styled parts: each run in the font of its weight and slant, its own colour and decoration.
+    const size = style.fontSize ?? 12;
+    const b = contentBox(m);
+    const names = new Map<FontKey, string>();
+    const refs: Record<string, PDFRef> = {};
+    const fontOf = (bold: boolean, italic: boolean) => {
+      const key = standardFont({ ...style, bold, italic }, false);
+      const font = ctx.fonts.get(key)!;
+      if (!names.has(key)) {
+        names.set(key, `F${names.size}`);
+        refs[names.get(key)!] = font.ref;
+      }
+      return { font, name: names.get(key)! };
+    };
+    const clean = (font: PDFFont, t: string) => safeText(font, t.replace(/\t/g, '    '));
+    const own = fontOf(!!style.bold, !!style.italic).font;
+    const lines = textBoxLines(m, (t) => own.widthOfTextAtSize(clean(own, t), size), (t, bold, italic) => {
+      const { font } = fontOf(bold, italic);
+      return font.widthOfTextAtSize(clean(font, t), size);
+    });
+    const ascent = textBaselineOffset({ ...style, fontSize: size });
+    ops.push('/GS1 gs', `${fmt(b.x)} ${fmt(b.y)} ${fmt(b.w)} ${fmt(b.h)} re W n`);
+    const decorations: string[] = [];
+    for (const line of lines) {
+      for (const run of line.runs ?? []) {
+        if (!run.text) continue;
+        const { font, name } = fontOf(run.bold, run.italic);
+        const [r, g, bl] = rgb(run.color);
+        ops.push(`${fmt(r)} ${fmt(g)} ${fmt(bl)} rg`, 'BT', `/${name} ${fmt(size)} Tf`, `1 0 0 -1 ${fmt(run.x)} ${fmt(line.y + ascent)} Tm`, `${fmt(line.gap)} Tw`, `${font.encodeText(clean(font, run.text)).toString()} Tj`, 'ET');
+        if (/^\s*$/.test(run.text)) continue;
+        if (run.underline) decorations.push(`${fmt(r)} ${fmt(g)} ${fmt(bl)} RG`, underlineOps(run.x, line.y + size * 0.98, run.width, size));
+        if (run.strikethrough) decorations.push(`${fmt(r)} ${fmt(g)} ${fmt(bl)} RG`, underlineOps(run.x, line.y + size * 0.55, run.width, size));
+      }
+    }
+    ops.push('0 Tw', ...decorations);
+    resources.Font = refs;
+  } else if (isTextType(m.type) && m.text) {
     const font = ctx.fonts.get(standardFont(style, false))!;
     const b = contentBox(m);
     const size = style.fontSize ?? 12;
@@ -2124,6 +2197,8 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
       ...(m.type === 'stamp'
         ? [StandardFonts.HelveticaBold, StandardFonts.Helvetica, ...(m.stamp?.art ? [StandardFonts.HelveticaBoldOblique, StandardFonts.HelveticaOblique] : [])]
         : styleCapabilities(m.type).font ? [standardFont(m.style, isMeasureKind(m.type))] : []),
+      // Styled parts of a text markup letter in the weights and slants they use.
+      ...(isTextType(m.type) ? styleRuns(m.text ?? '', spansOf(m), baseTextStyle(m)).map((r) => standardFont({ ...m.style, bold: r.bold, italic: r.italic }, false)) : []),
       // A table's cells can each have a font of their own.
       ...(m.type === 'table' ? tableCells(m).map((c) => standardFont(c.style, false)) : []),
       ...(m.style.lineStyle ? lineStyleFonts(m.style.lineStyle).map(artStandardFont) : []),

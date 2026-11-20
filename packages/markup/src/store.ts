@@ -1,3 +1,4 @@
+import { shiftSpans } from './textSpans';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { DEFAULT_SCALE, type GeoRegion, type Scale } from '@nb/measure';
@@ -1369,6 +1370,11 @@ export class MarkupStore {
     if ('assemblyId' in patch && patch.assemblyId !== current.assemblyId && !('assemblyOverrides' in patch)) patch = { ...patch, assemblyOverrides: undefined, takeoffApproval: undefined };
     // Another assembly's inputs are not this one's.
     if ('assemblyId' in patch && patch.assemblyId !== current.assemblyId && !('assemblyInputs' in patch)) patch = { ...patch, assemblyInputs: undefined };
+    // New text without its own styled parts keeps the old ones on the characters that stayed.
+    if ('text' in patch && !('spans' in patch) && current.spans?.length) {
+      const spans = shiftSpans(current.spans, current.text ?? '', patch.text ?? '');
+      patch = { ...patch, spans: spans.length ? spans : undefined };
+    }
     const next: Record<string, unknown> = { ...current, ...patch, modifiedAt: Date.now() };
     for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
     this.doc.transact(() => {
