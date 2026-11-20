@@ -6,7 +6,8 @@ import { isStandalone } from '../offline/install';
 import type { Tool } from '../markup/MarkupTools';
 import { MEASURE_TOOLS } from './ToolBar';
 import { MenuSearch } from './MenuSearch';
-import { MENUBAR_SLOT_ID } from './menubarSlot';
+import { createPortal } from 'react-dom';
+import { MENUBAR_SLOT_ID, useSearchSlot } from './menubarSlot';
 import { settings, useSettings } from '../settings/settings';
 import type { PrefEntry } from './PreferencesDialog';
 
@@ -136,6 +137,13 @@ function Item({
   );
 }
 
+/** The Feedback dropdown's items: Help-menu commands, labelled for what the user is trying to do. */
+const FEEDBACK_ITEMS: [string, string][] = [
+  ['help.support', 'Report a Bug / Get Support'],
+  ['help.suggest', 'Suggest a Feature'],
+  ['help.sponsor', 'Sponsor redcolumn'],
+];
+
 function Sep() {
   return <div className="menu-sep" role="separator" />;
 }
@@ -226,11 +234,15 @@ export function updateButton(update: UpdateState | null | undefined): { label: s
  */
 export function MenuBar({ commands, author, onAuthorChange, recents, profiles, activeProfileId, hiddenPanels, panels, stamps, update, on }: MenuBarProps) {
   const [open, setOpen] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const brand = useRef<HTMLDivElement>(null);
+  const feedback = useRef<HTMLDivElement>(null);
   const installed = isStandalone();
   const updateBtn = updateButton(update);
   const autosave = useSettings().autosave;
   const commandList = useMemo(() => [...commands.values()], [commands]);
+  const searchSlot = useSearchSlot();
+  const search = <MenuSearch commands={commandList} onOpenSetting={on.openSetting} />;
 
   useEffect(() => {
     if (!open) return;
@@ -247,6 +259,22 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!feedbackOpen) return;
+    const close = (e: MouseEvent) => {
+      if (!feedback.current?.contains(e.target as Node)) setFeedbackOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFeedbackOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', close);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [feedbackOpen]);
 
   const run = (fn: () => void) => () => {
     setOpen(false);
@@ -695,8 +723,6 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         </button>
         {open && (
           <div className="menu-drop brand-drop" role="menu">
-            <MenuSearch commands={commandList} onOpenSetting={on.openSetting} onDone={() => setOpen(false)} />
-            <Sep />
             {MENUS.map(({ id, label }) => (
               <Submenu key={id} label={label}>
                 {menu(id)}
@@ -714,6 +740,50 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         )}
       </div>
       <div id={MENUBAR_SLOT_ID} className="menubar-slot" />
+      {searchSlot ? createPortal(search, searchSlot) : search}
+      <div className={`menu feedback-menu${feedbackOpen ? ' open' : ''}`} ref={feedback}>
+        <button
+          type="button"
+          className="menubar-icon-btn feedback-btn"
+          aria-haspopup="true"
+          aria-expanded={feedbackOpen}
+          aria-label="Feedback"
+          title="Report a bug, suggest a feature or sponsor redcolumn"
+          onClick={() => setFeedbackOpen(!feedbackOpen)}
+        >
+          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+            <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" d="M2.5 3h11v7.5H8L5 13.5v-3H2.5z" />
+          </svg>
+          <span className="feedback-label">Feedback</span>
+          <span className="brand-caret" aria-hidden="true">
+            ▾
+          </span>
+        </button>
+        {feedbackOpen && (
+          <div className="menu-drop feedback-drop" role="menu">
+            {FEEDBACK_ITEMS.map(([id, label]) => {
+              const c = commands.get(id);
+              return c ? <Item key={id} label={label} disabled={!c.enabled} onClick={() => { setFeedbackOpen(false); c.run(); }} /> : null;
+            })}
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        className={`menubar-icon-btn autosave-btn${autosave ? ' on' : ''}`}
+        aria-checked={autosave}
+        aria-label="Autosave"
+        title={autosave ? 'Autosave is on: changes are saved to the file a few seconds after you make them. Click to turn off.' : 'Autosave is off. Click to save changes to the file in the background.'}
+        onClick={() => settings.set({ autosave: !autosave })}
+      >
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+          <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" d="M2.5 2.5h8l3 3v8h-11z M5 2.5v3.5h5V2.5 M5 13.5V9.5h6v4" />
+        </svg>
+        <span className="switch-track" aria-hidden="true">
+          <span className="switch-thumb" />
+        </span>
+      </button>
     </div>
   );
 }

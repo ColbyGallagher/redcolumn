@@ -35,11 +35,25 @@ test('the redcolumn mark opens and closes its menu, and the toolbar shares its r
   await mark.click();
   await expect(drop).toBeVisible();
   await expect(mark).toHaveAttribute('aria-expanded', 'true');
-  await expect(drop.locator('.menu-search input')).toBeVisible();
   await mark.click();
   await expect(drop).toHaveCount(0);
   await expect(mark).toHaveAttribute('aria-expanded', 'false');
   // The ribbon's tabs or the simplified toolbar, whichever the profile shows.
   await expect(app.page.locator('.menubar .menubar-slot > .rb-tabs, .menubar .menubar-slot > .toolbar.tools')).toBeVisible();
+  expect(app.errors).toEqual([]);
+});
+
+test('search, Feedback and Autosave stay in the top bar', async ({ app }) => {
+  await expect(app.page.locator('.menubar .menu-search input')).toBeVisible();
+  const feedback = app.page.locator('.menubar .feedback-btn');
+  await feedback.click();
+  const items = app.page.locator('.feedback-drop .menu-item .label');
+  await expect(items).toHaveText(['Report a Bug / Get Support', 'Suggest a Feature', 'Sponsor redcolumn']);
+  await app.page.keyboard.press('Escape');
+  await expect(app.page.locator('.feedback-drop')).toHaveCount(0);
+  const autosave = app.page.locator('.menubar .autosave-btn');
+  const before = await autosave.getAttribute('aria-checked');
+  await autosave.click();
+  await expect(autosave).toHaveAttribute('aria-checked', before === 'true' ? 'false' : 'true');
   expect(app.errors).toEqual([]);
 });
