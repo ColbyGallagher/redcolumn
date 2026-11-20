@@ -3,6 +3,7 @@ import { isMac } from '../commands/keys';
 import { settings, steppedZoom } from '../settings/settings';
 import { deskColour } from '../theme/themes';
 import { applyAffine, composeAffine, IDENTITY, invertAffine, rotationAffine, type Affine } from './affine';
+import { keepView, type KeepPlan } from './keepView';
 import { spreadRows } from './layout';
 import { LONG_PRESS_MS, LONG_PRESS_SLOP_PX, PenGuard, pinchStep, type Pt } from './gestures';
 
@@ -719,29 +720,58 @@ export class TileViewer {
     }
   }
 
+  /** Keep View Between Pages: plain page changes (arrows, thumbnails, page box) keep zoom and position. */
+  keepViewBetweenPages = true;
+
   /**
-   * Shows a page. With `keepView`, a page the same size as the current one opens at the same zoom and
-   * on the same part of the sheet (the same stair on the next floor); any other page opens as usual.
+   * The entry point for a plain page change (arrows, page keys, first/last, the page box, thumbnails):
+   * keeps the view when Keep View Between Pages is on. Jumps to a destination (bookmark, link, search
+   * hit) call `goToPage` without `keepView` instead.
+   */
+  changePage(index: number) {
+    this.goToPage(index, this.keepViewBetweenPages);
+  }
+
+  /**
+   * Shows a page. With `keepView` (use `changePage`), see `keepView()` in keepView.ts: the same zoom
+   * and part of the sheet, refitted when the sheet size changes and the view was at fit. Side-by-side
+   * spreads always fit the spread.
    */
   goToPage(index: number, keepView = false) {
     const keep = keepView ? this.viewToKeep(index) : null;
     this.showTarget(index);
     if (!keep) return;
-    const [x, y] = this.pageToWorld(this.pageIndex, keep.point);
-    this.zoom = keep.zoom;
-    this.panX = this.canvas.clientWidth / 2 - x * keep.zoom;
-    this.panY = this.canvas.clientHeight / 2 - y * keep.zoom;
+    if (keep.refit) {
+      if (this.mode === 'continuous') this.fit();
+      return;
+    }
+    const [x, y] = this.pageToWorld(this.pageIndex, keep.centre);
+    this.zoom = Math.max(MIN_ZOOM, Math.min(maxZoom(), keep.zoom));
+    this.panX = this.canvas.clientWidth / 2 - x * this.zoom;
+    this.panY = this.canvas.clientHeight / 2 - y * this.zoom;
     this.invalidate();
   }
 
-  /** The zoom and the page point at the centre of the view, when `index` is a page of the same size. */
-  private viewToKeep(index: number): { zoom: number; point: PagePoint } | null {
-    if (!this.doc || this.mode === 'stitch' || index === this.pageIndex) return null;
-    const from = this.doc.pages[this.pageIndex];
-    const to = this.doc.pages[index];
-    if (!from || !to || Math.abs(from.width - to.width) > 1 || Math.abs(from.height - to.height) > 1) return null;
+  /** What to show on page `index` to keep the current view, or null to open it as usual. */
+  private viewToKeep(index: number): KeepPlan | null {
+    if (!this.doc || this.mode === 'stitch' || this.columns > 1) return null;
+    const clamped = Math.max(0, Math.min(this.doc.pages.length - 1, index));
+    const to = this.doc.pages[clamped];
+    if (!to || clamped === this.pageIndex) return null;
     const rect = this.canvas.getBoundingClientRect();
-    return { zoom: this.zoom, point: this.clientToPage(rect.left + this.canvas.clientWidth / 2, rect.top + this.canvas.clientHeight / 2) };
+    const cx = rect.left + this.canvas.clientWidth / 2;
+    const cy = rect.top + this.canvas.clientHeight / 2;
+    // In continuous layout the view centre can be on a neighbouring page or in a gap: take the page under it.
+    const under = (this.mode === 'continuous' ? this.pageAtClient(cx, cy) : null) ?? this.pageIndex;
+    const from = this.doc.pages[under];
+    if (!from) return null;
+    // At fit: the old page fitted (the whole page, or its width in continuous layout).
+    const saved = { zoom: this.zoom, panX: this.panX, panY: this.panY };
+    this.fit();
+    const fitZoom = this.zoom;
+    Object.assign(this, saved);
+    const atFit = Math.abs(saved.zoom - fitZoom) <= fitZoom * 0.01;
+    return keepView({ centre: this.clientToPage(cx, cy, under), zoom: saved.zoom, from, to, atFit, turns: this.turns });
   }
 
   private showTarget(index: number) {
@@ -768,12 +798,12 @@ export class TileViewer {
   }
 
   nextPage() {
-    this.goToPage(this.currentRow().at(-1)! + 1);
+    this.changePage(this.currentRow().at(-1)! + 1);
   }
 
   prevPage() {
     const row = this.currentRow();
-    if (row[0]! > 0) this.goToPage(row[0]! - 1);
+    if (row[0]! > 0) this.changePage(row[0]! - 1);
   }
 
   /** World-space bounds of one placed sheet (its visible part). */

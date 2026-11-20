@@ -390,6 +390,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Sep />
               <Cmd id="edit.cropImage" />
               <Cmd id="edit.resetCrop" />
+              <Cmd id="edit.adjustImage" />
+              <Cmd id="edit.pictureColours" />
               <Sep />
               <Cmd id="edit.arrayPolar" />
               <Cmd id="edit.arrayPath" />
@@ -470,6 +472,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="view.dimmer" />
             <Cmd id="view.replyIndicators" />
             <Cmd id="view.thinLines" />
+            <Cmd id="view.keepView" />
             <Cmd id="view.magnifier" />
             <Cmd id="view.fullScreen" />
             <Submenu label="Navigation Tools">
@@ -517,9 +520,11 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="document.overlay" />
             <Cmd id="document.slipSheet" />
             <Cmd id="document.revisions" />
+            <Cmd id="document.closeOut" />
             <Cmd id="document.stitching" />
             <Cmd id="document.geospatial" />
             <Cmd id="document.stitchToPage" />
+            <Cmd id="document.applyStitching" />
             <Cmd id="document.convertDrawingAgain" />
             <Cmd id="document.ocr" />
             <Cmd id="document.colour" />
@@ -599,6 +604,9 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               <Cmd id="takeoff.manual" />
               <Cmd id="takeoff.reports" />
               <Cmd id="takeoff.syncExcel" />
+              <Cmd id="takeoff.definePortal" />
+              <Cmd id="takeoff.portals" />
+              <Cmd id="takeoff.breakPortalLink" />
               <Cmd id="takeoff.hip" />
               <Cmd id="takeoff.valley" />
             </Submenu>
@@ -659,6 +667,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="window.rightPanel" />
             <Cmd id="window.bottomPanel" />
             <Cmd id="window.panels" />
+            <Cmd id="window.resetLayout" />
             <Sep />
             <Submenu label="Panels">
               <Cmd id="window.files" />

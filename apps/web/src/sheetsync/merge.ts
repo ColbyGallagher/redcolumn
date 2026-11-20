@@ -102,12 +102,28 @@ export interface MergeOptions {
 
 const norm = (v: CellValue | undefined) => (v === null || v === undefined ? '' : String(v).trim().toLowerCase());
 
+/**
+ * The headings of a header row. A blank cell takes the heading above it (up to two rows up): a
+ * client's register often merges a heading down over a second header row, and a merged cell's text
+ * is kept in its top cell only.
+ */
+export function headerCells(sheet: ReadSheet, r: number): CellValue[] {
+  const width = Math.max(0, ...[0, 1, 2].map((up) => sheet.rows[r - up]?.length ?? 0));
+  return Array.from({ length: width }, (_, c) => {
+    for (let up = 0; up <= 2 && r - up >= 0; up++) {
+      const v = sheet.rows[r - up]?.[c];
+      if (v !== null && v !== undefined && v !== '') return v;
+    }
+    return null;
+  });
+}
+
 /** The header row: where the snapshot says, when the labels are still there; else the row within the first 200 that holds the most of them. */
 function findHeader(sheet: ReadSheet, labels: readonly string[], hint: number | null): number {
   const want = new Set(labels.map((l) => l.trim().toLowerCase()).filter(Boolean));
   const score = (r: number) => {
     const seen = new Set<string>();
-    for (const v of sheet.rows[r] ?? []) {
+    for (const v of headerCells(sheet, r)) {
       const t = norm(v);
       if (want.has(t)) seen.add(t);
     }
@@ -135,7 +151,17 @@ function fromSheet(col: SyncColumn, value: CellValue | undefined, isDate: boolea
   return canon(col, v, aliases);
 }
 
-function preview(row: readonly CellValue[]): string {
+/**
+ * What a row that is not the table's is known by: its first cell with something in it ("Reviewed by",
+ * "Total comments"). The rest of such a row changes: a total counts, a sign-off gets signed.
+ */
+export function rowLabel(row: readonly CellValue[]): string {
+  const v = row.find((x) => x !== null && x !== '');
+  return v === undefined ? '' : String(v).split('\n')[0]!.trim().toLowerCase().slice(0, 80);
+}
+
+/** The first few cells of a row, to recognise it by. */
+export function preview(row: readonly CellValue[]): string {
   return row
     .filter((v) => v !== null && v !== '')
     .slice(0, 4)
@@ -174,7 +200,7 @@ export function mergeWorkbook(book: ReadWorkbook, current: SyncTable, opts: Merg
   let keyCol = -1;
   const sheetCols: { at: number; col: SyncColumn; index: number }[] = [];
   const placed = new Set<string>();
-  (sheet.rows[header] ?? []).forEach((v, at) => {
+  headerCells(sheet, header).forEach((v, at) => {
     const label = norm(v);
     if (label === KEY_LABEL) {
       if (keyCol < 0) keyCol = at;
@@ -206,6 +232,7 @@ export function mergeWorkbook(book: ReadWorkbook, current: SyncTable, opts: Merg
   }
 
   const seen = new Set<string>();
+  const ignore = new Set(snap?.ignore ?? []);
   const unknown = new Map<string, UnknownValue>();
   for (let r = header + 1; r < sheet.rows.length; r++) {
     const cells = sheet.rows[r] ?? [];
@@ -215,6 +242,8 @@ export function mergeWorkbook(book: ReadWorkbook, current: SyncTable, opts: Merg
     let key = '';
     let via: MatchVia = 'key';
     const typedKey = keyCol >= 0 ? String(cells[keyCol] ?? '').trim() : '';
+    // A row that was below the table when it was written (a sign-off block) is not a row of it.
+    if (!typedKey && ignore.has(rowLabel(cells))) continue;
     const itemNo = itemCol >= 0 ? Number(cells[itemCol] ?? Number.NaN) : Number.NaN;
     if (typedKey) key = typedKey;
     else if (Number.isInteger(itemNo) && keyByItemHidden.has(itemNo)) [key, via] = [keyByItemHidden.get(itemNo)!, 'hidden'];

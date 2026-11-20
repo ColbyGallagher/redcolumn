@@ -48,9 +48,11 @@ export const BUILT_IN_COLUMNS: ListColumn[] = [
   { key: 'created', label: 'Creation Date', defaultWidth: 140 },
   { key: 'status', label: 'Status', defaultWidth: 220 },
   { key: 'checked', label: 'Checkmark', defaultWidth: 50 },
+  { key: 'raisedRev', label: 'Raised at Revision', defaultWidth: 70 },
   { key: 'comment', label: 'Comments', defaultWidth: 220 },
   { key: 'locked', label: 'Lock', defaultWidth: 50 },
   { key: 'layer', label: 'Layer', defaultWidth: 100 },
+  { key: 'portal', label: 'Portal', defaultWidth: 70 },
   { key: 'type', label: 'Type', defaultWidth: 90 },
   { key: 'color', label: 'Colour', defaultWidth: 70 },
   { key: 'capture', label: 'Capture', defaultWidth: 70 },
@@ -63,7 +65,7 @@ const SLOPE_COLUMNS = ['planLength', 'planArea', 'slopeFactor', 'pitch', 'slopeA
 const DEFAULT_VISIBLE = new Set(['seq', 'subject', 'label', 'page', 'measurement', 'author', 'date', 'status', 'comment']);
 
 /** Built-in columns that existed before layouts could lack them: one missing from a saved layout is shown. */
-const LONG_STANDING = new Set(BUILT_IN_COLUMNS.map((c) => c.key).filter((k) => !['created', 'locked', 'layer', 'assembly', ...SLOPE_COLUMNS].includes(k)));
+const LONG_STANDING = new Set(BUILT_IN_COLUMNS.map((c) => c.key).filter((k) => !['created', 'locked', 'layer', 'portal', 'assembly', 'raisedRev', ...SLOPE_COLUMNS].includes(k)));
 
 export const customKey = (id: string) => `custom:${id}`;
 
@@ -215,8 +217,11 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
     created: { text: new Date(m.createdAt).toLocaleString(), num: m.createdAt },
     locked: { text: m.locked ? '🔒' : '', num: m.locked ? 1 : 0 },
     layer: cell(m.layer ?? ''),
+    // Mirrored through a portal (Experimental): one of several linked copies.
+    portal: cell(m.portalLink ? 'Linked' : ''),
     status: cell(statusName(m.status, ctx.statuses)),
     checked: { text: m.checked ? '✓' : '', num: m.checked ? 1 : 0 },
+    raisedRev: cell(m.raisedRev ?? ''),
     comment: cell((isTextType(m.type) ? m.text : m.comment) ?? ''),
     type: cell(MARKUP_LABELS[m.type] ?? m.type),
     color: cell(m.style.stroke),

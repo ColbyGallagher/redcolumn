@@ -182,6 +182,8 @@ export interface Settings {
   pageFilter: 'none' | 'dark' | 'dim';
   /** Disable Line Weights: PDF lines drawn as hairlines. */
   thinLines: boolean;
+  /** Keep View Between Pages: a plain page change keeps the zoom and the part of the sheet in view. */
+  keepViewBetweenPages: boolean;
   /** Keep the tool active after placing a markup (status bar Reuse). */
   reuseTool: boolean;
   /** Hovering over a markup or Modify tool for a moment shows a short animation of how to use it. */
@@ -241,6 +243,8 @@ export interface Settings {
   hiddenRibbonGroups: string[];
   /** Snapshot: resolution of the picture it copies, in dots per inch. */
   snapshotDpi: number;
+  /** Snapshot: a rectangle keeps the drawing as vector content (sharp at any zoom, snapped to); off copies a picture only. */
+  snapshotVector: boolean;
   /** Advanced › Experimental: an application embedding RedColumn may set the library id of files it launches and turn commands off (desktop/embedHost.ts). */
   embedHostHooks: boolean;
 
@@ -442,6 +446,7 @@ export const DEFAULT_SETTINGS: Settings = {
   sketchEllipse: 'ellipse',
   pageFilter: 'none',
   thinLines: false,
+  keepViewBetweenPages: true,
   reuseTool: true,
   toolPreviews: true,
   eraserSize: 'medium',
@@ -475,6 +480,7 @@ export const DEFAULT_SETTINGS: Settings = {
   startTips: true,
   hiddenRibbonGroups: [],
   snapshotDpi: 200,
+  snapshotVector: true,
   embedHostHooks: false,
 
   tabTruncation: 'end',

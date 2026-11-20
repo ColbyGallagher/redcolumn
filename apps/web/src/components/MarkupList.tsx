@@ -562,7 +562,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     if (!activeReply || readOnly) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.getAttribute('role') === 'combobox' || t.isContentEditable)) return;
       if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const m = markups.find((x) => x.id === activeReply.markupId);
       if (!m) return;

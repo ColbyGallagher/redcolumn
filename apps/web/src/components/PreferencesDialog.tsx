@@ -535,6 +535,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['dim', 'Dimmer'],
         ])}
         <C>{check('thinLines', 'Disable Line Weights')}</C>
+        <C>{check('keepViewBetweenPages', 'Keep View Between Pages')}</C>
         <C>{check('showRulers', 'Show Rulers')}</C>
         <C>{check('showSpaces', 'Show Spaces')}</C>
         <C>{check('showHyperlinks', 'Show Hyperlink Areas')}</C>
@@ -571,6 +572,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             ))}
           </select>
         </Row>
+        <C>{check('snapshotVector', 'Keep Snapshots Vector', { title: 'A rectangular Snapshot keeps the drawing as lines, so it stays sharp when zoomed in and can be snapped to' })}</C>
         <C>{check('confirmDelete', 'Confirm before Deleting Markups')}</C>
       </Grid>
     ),

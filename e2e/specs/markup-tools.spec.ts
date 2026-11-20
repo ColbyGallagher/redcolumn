@@ -17,10 +17,10 @@ function expectPoints(actual: [number, number][], expected: readonly Pt[]) {
 }
 
 async function typeAndCommit(app: App, text: string) {
-  await expect(app.page.locator('textarea.text-editor')).toBeVisible();
+  await expect(app.page.locator('div.text-editor')).toBeVisible();
   await app.page.keyboard.type(text);
   await app.page.keyboard.press('Control+Enter');
-  await expect(app.page.locator('textarea.text-editor')).toHaveCount(0);
+  await expect(app.page.locator('div.text-editor')).toHaveCount(0);
 }
 
 /** Runs a command that opens the file picker and answers it with a fixture. */
@@ -292,6 +292,36 @@ test.describe('markup tools', () => {
     await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
   });
 
+  test('snapshot: a rectangle stays vector, and its lines snap where it is pasted', async ({ app }) => {
+    // The room on plan.pdf is a box from (300, 200) to (500, 300); copy it with some space round it.
+    await app.tool('snapshot');
+    await app.drag([280, 180], [520, 320]);
+    await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
+    await app.cmd('edit.paste');
+    const picture = (await app.raw()).find((m) => m.type === 'image')!;
+    const vector = picture.vector as { pdf: string; width: number; height: number } | undefined;
+    expect(vector).toBeTruthy();
+    expect(vector!.width).toBeCloseTo(240, 1);
+    expect(vector!.height).toBeCloseTo(140, 1);
+    expect(Buffer.from(vector!.pdf, 'base64').subarray(0, 5).toString()).toBe('%PDF-');
+    // Move it clear of the drawing: the room's top-left corner is then at (620, 470).
+    await app.page.evaluate((id) => {
+      const store = window.__nb.tools.store as unknown as { update(id: string, patch: object): void };
+      store.update(id, { points: [[600, 450], [840, 590]] });
+    }, picture.id as string);
+    await app.tool('line');
+    // Its first point lands on the corner of the copied room, which only the Snapshot has there.
+    await expect
+      .poll(async () => {
+        // Only lines from earlier tries go; the picture stays.
+        await app.page.evaluate(() => window.__nb.tools.store.remove(window.__nb.tools.store.all().filter((m) => m.type === 'line').map((m) => m.id)));
+        await app.drag([621.5, 471.5], [700, 640]);
+        const line = (await app.markups()).find((m) => m.type === 'line');
+        return line?.points[0]?.map((v) => Math.round(v * 100) / 100);
+      })
+      .toEqual([620, 470]);
+  });
+
   test('snapshot: clicking the corners copies an outlined area, adds no markup', async ({ app }) => {
     await app.tool('snapshot');
     await app.clicks([A, C, B, A]);
@@ -435,14 +465,32 @@ test.describe('markup tools', () => {
 
     // The pickers offer it, and open the manager from their last entry.
     await app.tool('line');
-    const picker = app.page.locator('select:has(option[value="manage"])').first();
-    await picker.selectOption({ label: 'E2E Gas' });
+    const picker = app.page.getByRole('combobox', { name: 'Line style' }).first();
+    await picker.click();
+    const list = app.page.getByRole('listbox', { name: 'Line styles' });
+    // Every style is listed with its name and a drawn swatch (the manager entry has none).
+    const options = list.getByRole('option');
+    expect(await options.count()).toBeGreaterThan(6);
+    expect(await list.locator('canvas.ls-swatch').count()).toBe((await options.count()) - 1);
+    await expect(list.getByRole('option', { name: 'Dashed', exact: true }).locator('canvas.ls-swatch')).toBeVisible();
+    // The keyboard picks too: type the name, Enter.
+    await app.page.keyboard.type('E2E');
+    await expect(list.getByRole('option', { name: 'E2E Gas' })).toHaveClass(/active/);
+    await app.page.keyboard.press('Enter');
+    await expect(list).toBeHidden();
+    await expect(picker).toContainText('E2E Gas');
     await app.drag(A, B);
     const [m] = await app.raw();
     expect(m).toMatchObject({ style: { lineStyle: { name: 'E2E Gas', spec: [true, [0, 6, -3, ['G', 'Helvetica', 6, false, false, true]]] } } });
-    await picker.selectOption('manage');
+    // Escape closes without picking; the last entry opens the manager and leaves the pick as it was.
+    await picker.press('ArrowDown');
+    await expect(list).toBeVisible();
+    await app.page.keyboard.press('Escape');
+    await expect(list).toBeHidden();
+    await picker.click();
+    await list.getByRole('option', { name: 'Manage line styles…' }).click();
     await expect(dialog).toBeVisible();
-    await expect(picker).toHaveValue(/^line:/);
+    await expect(picker).toContainText('E2E Gas');
   });
 
   test('hatch color: picked from the swatch menu, then back to the line color', async ({ app }) => {

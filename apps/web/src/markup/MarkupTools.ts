@@ -1,5 +1,9 @@
 import {
   align,
+  hasVector,
+  mirrorVector,
+  pictureSegments,
+  setVectorPainter,
   cropImage,
   cropOf,
   mirrorCrop,
@@ -119,7 +123,8 @@ import {
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
-import { arcPoints, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type ManualQuantity, type Slope, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { arcPoints, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, betterSnap, track, type ManualQuantity, type Slope, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { vectorPictures } from './vectorPictures';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
@@ -136,7 +141,7 @@ type CadSession = { tool: CadTool; pageIndex: number; picks: CadPick[]; hover: P
  * markups inside a free-form outline; `painter` (Format Painter) copies one markup's look onto
  * the markups clicked next.
  */
-export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'cropImage' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | CadTool;
+export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'cropImage' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | 'portalPolygon' | CadTool;
 
 /** Tools that draw a markup (not select, calibrate, a label region, lasso or format painter). */
 export const isMarkupTool = (t: Tool): t is MarkupType => !(t in OTHER_TOOL_LABELS);
@@ -166,6 +171,7 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
   matchLine: 'Match Line',
   stitchRegion: 'Stitch Region',
   stitchPolygon: 'Stitch Region (Polygon)',
+  portalPolygon: 'Define Portal',
   stitchMove: 'Move Sheet',
   pan: 'Pan',
   zoomBox: 'Zoom',
@@ -177,6 +183,13 @@ const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
 const POLYGON_REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['snapshot', 'eraseContent', 'cutContent']);
 /** Tools that pick out an area of the page (drawn as a plain box, snapped only for Snapshot). */
 const REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['labelRegion', 'viewport', 'visualSearch', 'cropArea', 'cropImage', 'eraseContent', 'formField', 'snapshot', 'cutContent', 'stitchRegion']);
+
+/** A portal (Experimental) as outlined on its linked pages. */
+export interface PortalGuide {
+  name: string;
+  points: Point[];
+  pages: number[];
+}
 
 /** Hand-placed match lines and stitch regions, drawn while the Stitching panel is open. */
 export interface StitchGuides {
@@ -548,6 +561,8 @@ export interface MarkupToolsOptions {
   onGeoPick?: (target: 'model' | 'page', p: Point) => void;
   /** The user outlined the part of a sheet holding the drawing, for stitching (`stitchRegion`, `stitchPolygon`). */
   onStitchRegion?: (pageIndex: number, points: Point[]) => void;
+  /** The user outlined a portal (the `portalPolygon` tool): its linked pages are chosen next. */
+  onPortalDrawn?: (pageIndex: number, points: Point[]) => void;
   /** A short message for the user (e.g. Smart Fill found no enclosed region). */
   onNotice?: (text: string) => void;
   /** A Space was drawn: it needs a name. */
@@ -606,7 +621,7 @@ function needsScale(tool: Tool): boolean {
 function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean } | null {
   if (tool === 'calibrate') return { min: 2, fixed: 2 };
   if (tool === 'matchLine') return { min: 2, fixed: 2 };
-  if (tool === 'cutout' || tool === 'stitchPolygon' || POLYGON_REGION_TOOLS.has(tool)) return { min: 3, closes: true };
+  if (tool === 'cutout' || tool === 'stitchPolygon' || tool === 'portalPolygon' || POLYGON_REGION_TOOLS.has(tool)) return { min: 3, closes: true };
   // Draw to Size: lines go point to point (a drag still works), so the second point can be typed.
   if (SKETCH_LINE_TYPES.includes(tool as MarkupType) && settings.get().sketchToScale) return { min: 2, fixed: 2 };
   return (isMarkupTool(tool) && CLICK_SHAPES[tool]) || null;
@@ -658,6 +673,8 @@ export class MarkupTools implements ViewerOverlay {
   private textSource: ((pageIndex: number) => Promise<readonly WordBox[]>) | null = null;
   private pageWords = new Map<number, readonly WordBox[] | 'loading'>();
   private snapIndexes = new Map<number, SnapIndex | 'loading'>();
+  /** Snap indexes of vector Snapshots' line work, by markup id, for where the markup is (`key`). */
+  private pictureIndexes = new Map<string, { key: string; index: SnapIndex | 'loading' }>();
   /** Snap target under the cursor, drawn as an indicator. */
   private snapHit: Snap | null = null;
   /** The snap target is a grid point (no name shown beside it). */
@@ -682,6 +699,7 @@ export class MarkupTools implements ViewerOverlay {
     private options: MarkupToolsOptions,
   ) {
     onImageLoad(() => this.viewer.invalidate());
+    setVectorPainter(vectorPictures.paint);
     // Grid and snapping preferences change what is drawn; Show Spaces changes which markups show.
     settings.subscribe(() => {
       this.refreshSketch();
@@ -878,6 +896,7 @@ export class MarkupTools implements ViewerOverlay {
   setSnapSource(source: ((pageIndex: number) => Promise<SnapIndex>) | null) {
     this.snapSource = source;
     this.snapIndexes.clear();
+    this.pictureIndexes.clear();
     this.snapHit = null;
   }
 
@@ -1635,7 +1654,9 @@ export class MarkupTools implements ViewerOverlay {
       if (!isImageType(m.type) || !m.image) continue;
       // A cropped picture is turned over with its crop, so the same part stays shown.
       const crop = cropOf(m);
-      void mirrorDataUrl(m.image, axis).then((image) => image && store.update(m.id, { image, ...(crop ? { crop: mirrorCrop(crop, axis) } : {}) }), () => undefined);
+      // A vector Snapshot is turned over as it is drawn, not in its PDF.
+      const vector = hasVector(m) ? mirrorVector(m.vector, axis) : undefined;
+      void mirrorDataUrl(m.image, axis).then((image) => image && store.update(m.id, { image, ...(crop ? { crop: mirrorCrop(crop, axis) } : {}), ...(vector ? { vector } : {}) }), () => undefined);
     }
   }
 
@@ -2183,6 +2204,13 @@ export class MarkupTools implements ViewerOverlay {
       if (points.length >= 3) this.options.onStitchRegion?.(g.markup.pageIndex, points);
       return;
     }
+    if (this.state.tool === 'portalPolygon') {
+      if (points.length >= 3) {
+        this.setState({ tool: 'select' });
+        this.options.onPortalDrawn?.(g.markup.pageIndex, points);
+      }
+      return;
+    }
     if (POLYGON_REGION_TOOLS.has(this.state.tool)) {
       if (points.length < 3) return;
       const pageIndex = g.markup.pageIndex;
@@ -2255,6 +2283,8 @@ export class MarkupTools implements ViewerOverlay {
     }
     const walls: number[] = [];
     for (const m of store.forPage(pageIndex)) if (m.type !== 'space' && !TYPE_INFO[m.type].content && TYPE_INFO[m.type].draw !== 'text') walls.push(...markupSegments(m));
+    // Vector Snapshots' line work bounds areas too.
+    for (const pic of this.pictureIndexesFor(pageIndex)) walls.push(...pic.segments);
     const segments = walls.length ? Float32Array.from([...index.segments, ...walls]) : index.segments;
     const polygon = dynamicFill(segments, at, { width: size.width, height: size.height })?.map(([x, y]): Point => [x, y]);
     if (!polygon) return { error: 'No enclosed area there: click inside a closed outline, or draw a line to close the gap.' };
@@ -2308,9 +2338,9 @@ export class MarkupTools implements ViewerOverlay {
   finishKey(key: string, target?: unknown): boolean {
     if (key !== ' ' && key !== 'Spacebar') return false;
     if (this.gesture?.kind !== 'multi') return false;
-    const t = target as { tagName?: string; isContentEditable?: boolean } | null | undefined;
+    const t = target as { tagName?: string; isContentEditable?: boolean; getAttribute?: (n: string) => string | null } | null | undefined;
     const tag = t?.tagName?.toUpperCase();
-    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable) return false;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || t?.isContentEditable || t?.getAttribute?.('role') === 'combobox') return false;
     this.finish();
     return true;
   }
@@ -2388,7 +2418,10 @@ export class MarkupTools implements ViewerOverlay {
   draw(ctx: CanvasRenderingContext2D, pageIndex: number, zoom: number) {
     if (!this.store) return;
     // Load snap geometry as soon as a drawing tool is in use, so the very first click snaps.
-    if (this.state.tool !== 'select' && this.state.snap) this.snapIndexFor(pageIndex);
+    if (this.state.tool !== 'select' && this.state.snap) {
+      this.snapIndexFor(pageIndex);
+      this.pictureIndexesFor(pageIndex);
+    }
     const scale = this.store.scaleFor(pageIndex);
     if (settings.get().showGrid) drawGrid(ctx, this.viewer.pageSize(pageIndex), gridSpacingPoints(settings.get()), zoom);
     const store = this.store;
@@ -2452,6 +2485,7 @@ export class MarkupTools implements ViewerOverlay {
     this.drawLinks(ctx, pageIndex, zoom);
     this.drawRegions(ctx, zoom);
     this.drawStitchGuides(ctx, pageIndex, zoom);
+    this.drawPortals(ctx, pageIndex, zoom);
     this.drawGeoOverlay(ctx, pageIndex, zoom);
     const g = this.gesture;
     if (this.pickedText?.pageIndex === pageIndex && !g) {
@@ -2872,6 +2906,36 @@ export class MarkupTools implements ViewerOverlay {
     ctx.restore();
   }
 
+  private portalGuides: readonly PortalGuide[] = [];
+
+  /** Portals to outline on their linked pages (Experimental). */
+  setPortalGuides(guides: readonly PortalGuide[]) {
+    this.portalGuides = guides;
+    this.viewer.invalidate();
+  }
+
+  private drawPortals(ctx: CanvasRenderingContext2D, pageIndex: number, zoom: number) {
+    const shown = this.portalGuides.filter((p) => p.pages.includes(pageIndex) && p.points.length >= 3);
+    if (!shown.length) return;
+    ctx.save();
+    ctx.lineWidth = 1.5 / zoom;
+    ctx.setLineDash([8 / zoom, 4 / zoom]);
+    ctx.font = `600 ${11 / zoom}px system-ui, sans-serif`;
+    for (const p of shown) {
+      ctx.beginPath();
+      p.points.forEach((q, i) => (i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1])));
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(13, 148, 136, 0.06)';
+      ctx.fill();
+      ctx.strokeStyle = '#0d9488';
+      ctx.stroke();
+      const top = p.points.reduce((a, b) => (b[1] < a[1] || (b[1] === a[1] && b[0] < a[0]) ? b : a));
+      ctx.fillStyle = '#0d9488';
+      ctx.fillText(`${p.name} (${p.pages.length} pages)`, top[0] + 4 / zoom, top[1] - 4 / zoom);
+    }
+    ctx.restore();
+  }
+
   private stitchGuides: StitchGuides | null = null;
 
   /** Shows (or, with null, hides) the hand-placed match lines and stitch regions. */
@@ -3158,10 +3222,10 @@ export class MarkupTools implements ViewerOverlay {
       }
       // A cutout is drawn inside its area, on the area's page.
       if (tool === 'cutout' && this.store.get(this.cutoutTarget ?? '')?.pageIndex !== pageIndex) return false;
-      const markup = this.newMarkup(tool === 'calibrate' || tool === 'matchLine' ? 'line' : tool === 'cutout' || tool === 'stitchPolygon' ? 'polygon' : (tool as MarkupType), pageIndex, [p]);
+      const markup = this.newMarkup(tool === 'calibrate' || tool === 'matchLine' ? 'line' : tool === 'cutout' || tool === 'stitchPolygon' || tool === 'portalPolygon' ? 'polygon' : (tool as MarkupType), pageIndex, [p]);
       if (tool === 'calibrate') markup.style = { ...CALIBRATE_STYLE };
       if (tool === 'matchLine') markup.style = { ...MATCH_LINE_STYLE };
-      if (tool === 'cutout' || tool === 'stitchPolygon') markup.style = { ...CALIBRATE_STYLE, dash: 'dashed' };
+      if (tool === 'cutout' || tool === 'stitchPolygon' || tool === 'portalPolygon') markup.style = { ...CALIBRATE_STYLE, dash: 'dashed' };
       // A match line, like a calibration line, is two points and makes no markup.
       this.setGesture({ kind: 'multi', markup, hover: p, down: p, calibrate: tool === 'calibrate' || tool === 'matchLine' });
       // A manual quantity is one point: the click places it.
@@ -3940,7 +4004,7 @@ export class MarkupTools implements ViewerOverlay {
       }
       this.resolve(pt, mods, null);
     } else if (anchor && anchor.pageIndex === pageIndex) anchor.hover = this.resolve(pt, mods, anchor.at);
-    else if (tool === 'calibrate' || tool === 'matchLine' || tool === 'stitchPolygon' || tool === 'snapshot' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
+    else if (tool === 'calibrate' || tool === 'matchLine' || tool === 'stitchPolygon' || tool === 'portalPolygon' || tool === 'snapshot' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
     this.viewer.invalidate();
     return 'crosshair';
   }
@@ -4288,7 +4352,8 @@ export class MarkupTools implements ViewerOverlay {
     const radius = snapPx() / this.viewer.zoomFor(this.page);
     const index = this.state.snap ? this.snapIndexFor(this.page) : null;
     // Paths stop where they cross the drawing's lines or the markups' outlines.
-    const lines = [...(index?.linesNear(p, radius, prefs.snapCurves) ?? []), ...(prefs.snapToMarkup ? this.outlines(this.page, excludeId) : [])];
+    const pictures = this.state.snap ? this.pictureIndexesFor(this.page, excludeId) : [];
+    const lines = [...(index?.linesNear(p, radius, prefs.snapCurves) ?? []), ...pictures.flatMap((pic) => pic.linesNear(p, radius, prefs.snapCurves)), ...(prefs.snapToMarkup ? this.outlines(this.page, excludeId) : [])];
     return track(
       p,
       radius,
@@ -4345,7 +4410,40 @@ export class MarkupTools implements ViewerOverlay {
     const radius = snapPx() / this.viewer.zoomFor(pageIndex);
     // Markup outlines are snapped onto and crossed (nearest, perpendicular), not at their own ends.
     const lines = prefs.snapToMarkup ? this.outlines(pageIndex, excludeId) : undefined;
-    return index.snap(p, radius, extra, snapKinds(), prefs.snapCurves, { from, lines });
+    let best = index.snap(p, radius, extra, snapKinds(), prefs.snapCurves, { from, lines });
+    // Vector Snapshots snap like the drawing they were taken from.
+    if (this.state.snap) for (const pic of this.pictureIndexesFor(pageIndex, excludeId)) best = betterSnap(best, pic.snap(p, radius, [], snapKinds(), prefs.snapCurves, { from, lines }), p, radius);
+    return best;
+  }
+
+  /**
+   * Snap indexes of the vector Snapshots on a page (but `excludeId`) that are ready, each loading in
+   * the background on first use and again once its markup has moved.
+   */
+  private pictureIndexesFor(pageIndex: number, excludeId?: string): SnapIndex[] {
+    const out: SnapIndex[] = [];
+    for (const m of this.pageMarkups(pageIndex)) {
+      if (m.id === excludeId || !hasVector(m)) continue;
+      const key = JSON.stringify([m.points, m.rotation ?? 0, m.crop ?? null, m.vector.flipX ?? false, m.vector.flipY ?? false, m.vector.pdf.length]);
+      const cached = this.pictureIndexes.get(m.id);
+      if (cached?.key === key) {
+        if (cached.index !== 'loading') out.push(cached.index);
+        continue;
+      }
+      const entry: { key: string; index: SnapIndex | 'loading' } = { key, index: 'loading' };
+      this.pictureIndexes.set(m.id, entry);
+      vectorPictures
+        .geometry(m.vector)
+        .then((g) => {
+          const placed = pictureSegments(m, g.segments, g.curves);
+          entry.index = new SnapIndex(placed.segments, undefined, placed.curves);
+        })
+        .catch((err) => {
+          console.error('Reading a vector Snapshot failed', err);
+          if (this.pictureIndexes.get(m.id) === entry) this.pictureIndexes.delete(m.id);
+        });
+    }
+    return out;
   }
 
   /** Cached snap index for a page, loading it in the background on first use. */

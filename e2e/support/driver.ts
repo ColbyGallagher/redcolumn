@@ -69,6 +69,22 @@ export function driver(page: Page) {
         })
         .toBe(true);
       await d.fit();
+      // The viewer tells the app its page and page count once a frame, and the command table is built
+      // from what the app was told. Wait until the table has caught up with the viewer, or the first
+      // command a test runs can still be disabled, as it was before the document opened.
+      const pages = (await d.documents()).find((doc) => doc.active)?.pageCount ?? 0;
+      await page
+        .waitForFunction(
+          (pages) => {
+            const v = window.__nb.viewer;
+            const next = window.__nb.commands().get('view.nextPage');
+            const { pageIndex } = v.getView();
+            return !!next && next.enabled === pageIndex < pages - 1 && !!window.__nb.commands().get('view.zoomIn')?.enabled;
+          },
+          pages,
+          { timeout: 5000 },
+        )
+        .catch(() => {});
     },
 
     /** Calls one of the assistant's MCP tools (list_markups, get_page, ...) inside the app. */
@@ -107,6 +123,9 @@ export function driver(page: Page) {
     },
     /** Runs a command by id; fails if it does not exist or is disabled. */
     async cmd(id: string) {
+      // A command enabled by what just happened (a selection, a page turn) is enabled a render later:
+      // give it a moment before calling it disabled.
+      await page.waitForFunction((id) => window.__nb.commands().get(id)?.enabled !== false, id, { timeout: 2000 }).catch(() => {});
       await page.evaluate((id) => {
         const before = window.__nb.commands();
         const c = before.get(id);

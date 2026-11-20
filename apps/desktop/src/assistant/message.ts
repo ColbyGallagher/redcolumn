@@ -48,6 +48,7 @@ export const ASSISTANT_METHODS = [
   'propose_page_scale',
   'get_drawing_standard',
   'list_sheet_links',
+  'get_sheet_graph',
   'propose_sheet_links',
   'propose_standard_hints',
 ] as const;
@@ -866,6 +867,23 @@ const TOOLS: ToolDef[] = [
         page: { type: 'integer', description: '1-based page the links are on.' },
         offset: { type: 'integer', description: 'Skip this many (for the next part of a long list).' },
         limit: { type: 'integer', description: 'At most this many, 1 to 500 (100 when omitted).' },
+      },
+    },
+    annotations: READS,
+  },
+  {
+    name: 'get_sheet_graph',
+    title: 'Get the sheet graph',
+    description:
+      "The set's cross-references rolled up sheet to sheet: one edge per pair of sheets, with how many links it carries, of which kinds, and how many still wait for review. With the first part of the whole list: how many sheets each discipline has, the sheets that are a sheet index (indexSheets), and the sheets nothing but an index links to or from (unlinked, as runs of consecutive pages: fromPage to toPage). An index lists every sheet, so its links are not among the edges and do not count as linking a sheet: give the index's page to read them. Rejected links and links that stay on their own sheet are left out. Use it to see how a set hangs together and where links are missing (a detail sheet nothing points to, a plan with no match line) before reading single links with list_sheet_links. Filter by kind, or give a page for only that sheet's edges.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        kind: { type: 'string', enum: ['detail', 'section', 'elevation', 'enlargedPlan', 'sheet', 'matchline', 'chainage'] },
+        page: { type: 'integer', description: '1-based page: only edges to or from this sheet.' },
+        offset: { type: 'integer', description: 'Skip this many edges (for the next part of a long list).' },
+        limit: { type: 'integer', description: 'At most this many edges, 1 to 500 (100 when omitted).' },
       },
     },
     annotations: READS,

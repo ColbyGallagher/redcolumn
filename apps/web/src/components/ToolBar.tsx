@@ -1,7 +1,7 @@
 import { Children, Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { HATCH_PATTERNS, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
-import { ALIGN_ICONS, LineSpacing, VALIGN_ICONS } from './PropertiesPanel';
+import { HATCH_PATTERNS, TEXT_PADDING, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
+import { ALIGN_ICONS, LineSpacing, NumberField, VALIGN_ICONS } from './PropertiesPanel';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
@@ -18,6 +18,7 @@ import { ColorMenu } from './ColorMenu';
 import { commonCapabilities, distinctIdentities, identityOf, identityPatch, sharedIdentity, styleMixed, toolIdentity, type IdentityField } from '../markup/selectionFormat';
 import { saveToolBack } from '../toolchest/saveBack';
 import { useMenubarSlot } from './menubarSlot';
+import type { TakeoffAssemblyProps } from './RibbonAssembly';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
 export function toolShortcut(tool: Tool): string | undefined {
@@ -251,6 +252,8 @@ export interface ToolBarProps {
   toolbarMenu?: ReactNode;
   /** Takeoff › Templates: the document's takeoff templates (the library's are read when the menu opens), and arming one. */
   takeoffTemplates?: { document: readonly TakeoffTemplate[]; onUse: (t: TakeoffTemplate) => void } | null;
+  /** Takeoff › Assembly: the assembly (and its variables' values) the next measurements are taken off as. */
+  takeoffAssembly?: TakeoffAssemblyProps | null;
 }
 
 export function toolTitle(tool: Tool) {
@@ -553,6 +556,10 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           <label className="field" title="Line spacing">
             Spacing
             <LineSpacing key={textType} value={textStyle.lineHeight} onChange={(v) => apply(textType, { lineHeight: v })} />
+          </label>
+          <label className="field" title="Gap between the box edge and the text lines (measured to the line box, not the ink)">
+            Padding
+            <NumberField key={textType} value={textStyle.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" onChange={(v) => apply(textType, { textMargin: v })} />
           </label>
         </>
       )}
