@@ -38,6 +38,10 @@ When you save or export, the font is **embedded** in the PDF (only the letters y
 - Some fonts' licences forbid embedding (Segoe Script is one). Those, and fonts that cannot be embedded for technical reasons, are written as the nearest standard font (Helvetica, Times or Courier), and a notice tells you which.
 - If you open a document that uses a font this computer does not have, a notice lists it and the text is shown in a similar font. The font name is kept, so it appears correctly again on a computer that has it.
 
+## Bold, italic and underline while typing
+
+In a text box or call-out, press **[[Ctrl+B]]**, **[[Ctrl+I]]** or **[[Ctrl+U]]** while you type. They switch the style on or off for the whole markup, the same as the **B**, **I** and **U** buttons in the Properties panel.
+
 ## Lists
 
 While you type in a text markup, a small bar above it makes lists. Select lines and press a button, or just start typing:

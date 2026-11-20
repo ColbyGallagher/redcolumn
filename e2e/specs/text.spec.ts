@@ -36,6 +36,20 @@ test.describe('text markups', () => {
     expect(await textOf(app)).toBe('SECOND DRAFT');
   });
 
+  test('Ctrl+B, Ctrl+I and Ctrl+U style the text being typed', async ({ app }) => {
+    await textBox(app);
+    await app.page.keyboard.type('STYLED');
+    await app.page.keyboard.press('Control+B');
+    await app.page.keyboard.press('Control+I');
+    await app.page.keyboard.press('Control+U');
+    await commit(app);
+    const style = (await app.raw())[0]!.style as { bold?: boolean; italic?: boolean; underline?: boolean };
+    expect(style.bold).toBe(true);
+    expect(style.italic).toBe(true);
+    expect(style.underline).toBe(true);
+    expect(await textOf(app)).toBe('STYLED');
+  });
+
   test('Escape cancels an edit', async ({ app }) => {
     await textBox(app);
     await app.page.keyboard.type('KEEP');
