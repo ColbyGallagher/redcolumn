@@ -41,7 +41,7 @@ In the desktop app, an AI client on your computer (Copilot, Claude, Codex or Cur
 | `list_assemblies`, `propose_takeoff`, `list_takeoff_proposals` | Suggests takeoff assemblies. | [Takeoff proposals](#mcp-takeoff) |
 | `find_symbol_matches`, `propose_counts`, `list_count_proposals` | Finds repeats of a symbol and suggests a count. | [AI auto count](#ai-auto-count) |
 | `get_sheet_info`, `propose_page_scale` | Reads and suggests sheet scales. | [Sheet scales](#mcp-scale) |
-| `get_drawing_standard`, `list_sheet_links`, `propose_sheet_links`, `propose_standard_hints` | Finishes a drawing standard's links. | [Drawing standards](#drawing-standards) |
+| `get_drawing_standard`, `list_sheet_links`, `get_sheet_graph`, `propose_sheet_links`, `propose_standard_hints` | Reads the set's links and finishes a drawing standard's. | [Drawing standards](#drawing-standards) |
 | `start_comparison`, `get_comparison`, `report_document_changes` | AI comparison of two revisions. | [Compare documents](#mcp-compare) |
 | `get_stitching`, `get_stitch_image`, `place_match_lines`, `update_match_lines`, `delete_match_lines`, `set_stitch_region`, `show_stitched_view`, `stitch_to_page` | Joins sheets. | [Stitch sheets](#mcp-stitch) |
 | `list_viewports`, `place_viewport`, `place_viewports`, `set_viewport_scale` | Regions with their own scale. | [Viewports](#mcp-viewports) |
