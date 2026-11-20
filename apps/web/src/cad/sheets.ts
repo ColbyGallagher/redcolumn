@@ -72,7 +72,7 @@ export interface Planned {
   sheets: Sheet[];
   stats: RenderStats;
   /** Notes for the report: units assumed, non-standard scales, non-plan views. */
-  notes: ({ kind: 'units-assumed'; unit: string } | { kind: 'plot-style-missing'; name: string })[];
+  notes: ({ kind: 'units-assumed'; unit: string } | { kind: 'plot-style-missing'; name: string } | { kind: 'model-fit'; scale: string })[];
 }
 
 /** Drawing units: metres per unit and whether the drawing is imperial. */
@@ -229,7 +229,12 @@ export function planSheets(d: Drawing, opts: SheetOptions): Planned {
   if (units.assumed) notes.push({ kind: 'units-assumed', unit: `${unitName(unitsGuess(d))}${units.grid ? ' (it is drawn at survey grid coordinates)' : ''}` });
   const layouts = paperLayouts(d).filter(({ layout }) => !opts.layouts || opts.layouts.includes(layout.name));
   const sheets = layouts.map(({ layout, entities }) => layoutSheet(d, opts, stats, layout, entities, notes));
-  if (!paperLayouts(d).length || opts.includeModel) sheets.push(modelSheet(d, opts, stats, notes));
+  if (!paperLayouts(d).length || opts.includeModel) {
+    const model = modelSheet(d, opts, stats, notes);
+    sheets.push(model);
+    // The model page is fitted, not plotted: its scale need not be the one the drawing intends.
+    notes.push({ kind: 'model-fit', scale: model.pageScale!.label });
+  }
   return { sheets, stats, notes };
 }
 

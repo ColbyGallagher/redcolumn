@@ -30,6 +30,16 @@ export interface SnapOptions {
 
 /** Lower wins when several snaps are within range. */
 const PRIORITY: Record<SnapKind, number> = { endpoint: 0, center: 0, geocenter: 0, intersection: 1, midpoint: 2, quadrant: 2, perpendicular: 2, tangent: 2, apparent: 3, nearest: 4 };
+/**
+ * Of two snaps found for the pointer at `p` within `radius` (from different indexes), the one
+ * `SnapIndex.snap` would have picked: the stronger kind, then the nearer.
+ */
+export function betterSnap(a: Snap | null, b: Snap | null, p: Pt, radius: number): Snap | null {
+  if (!a || !b) return a ?? b;
+  const score = (s: Snap) => PRIORITY[s.kind] * radius * 10 + Math.hypot(s.point[0] - p[0], s.point[1] - p[1]);
+  return score(b) < score(a) ? b : a;
+}
+
 /** Grid cells are indexed with a fixed offset so small negative coordinates still hash uniquely. */
 const OFFSET = 4096;
 const STRIDE = 16384;

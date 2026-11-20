@@ -1,4 +1,4 @@
-import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFFont, PDFHexString, PDFImage, PDFName, PDFNull, PDFNumber, PDFPage, PDFRef, PDFStream, PDFString, StandardFonts, type PDFObject } from 'pdf-lib';
+import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFEmbeddedPage, PDFFont, PDFHexString, PDFImage, PDFName, PDFNull, PDFNumber, PDFPage, PDFRef, PDFStream, PDFString, StandardFonts, type PDFObject } from 'pdf-lib';
 
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
@@ -33,6 +33,7 @@ import { bsiLegendValue } from './bsiLegend';
 import { defaultSubject } from './bluebeamTypes';
 import { toPdfDict } from './pdfValue';
 import { imageFrame } from './imageCrop';
+import { base64ToBytes, hasVector, multiply, pictureMatrix, userToShown, type Matrix as PictureMatrix } from './vectorPicture';
 
 /**
  * Key under which each exported annotation carries its markup's full data, so re-opening the file
@@ -352,6 +353,8 @@ interface Ctx {
   unembedded: ReadonlySet<string>;
   /** Embedded markup images (signatures) by data URL. */
   images: Map<string, PDFImage>;
+  /** Embedded vector Snapshots by their PDF (base64): the page as a form, and its user space → shown space. */
+  pictures: Map<string, VectorForm>;
   scale: Scale;
   /** Every markup being exported and each page's scale, for legends. */
   all: readonly Markup[];
@@ -361,6 +364,26 @@ interface Ctx {
   pages: PDFPage[];
   /** Named destination written for each Place, by Place id. */
   placeNames: Map<string, string>;
+}
+
+interface VectorForm {
+  page: PDFEmbeddedPage;
+  toShown: PictureMatrix;
+}
+
+/** Embeds a vector Snapshot's one-page PDF as a form; null when it cannot be read. */
+async function embedVector(doc: PDFDocument, pdf: string): Promise<VectorForm | null> {
+  try {
+    const src = await PDFDocument.load(base64ToBytes(pdf), { ignoreEncryption: true, updateMetadata: false });
+    const first = src.getPage(0);
+    const box = first.getCropBox();
+    // An identity /Matrix, so the form draws in the page's own user space.
+    const [page] = await doc.embedPages([first], [{ left: box.x, bottom: box.y, right: box.x + box.width, top: box.y + box.height }], [[1, 0, 0, 1, 0, 0]]);
+    if (!page) return null;
+    return { page, toShown: userToShown({ l: box.x, b: box.y, r: box.x + box.width, t: box.y + box.height }, first.getRotation().angle) };
+  } catch {
+    return null;
+  }
 }
 
 /** Embeds a PNG or JPEG data URL; null for anything else. */
@@ -609,7 +632,25 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     resources.Font = { F0: font.ref };
   }
 
-  const image = (isImageType(m.type) || m.type === 'attachment') && m.image ? ctx.images.get(m.image) : undefined;
+  const vector = hasVector(m) ? ctx.pictures.get(m.vector.pdf) : undefined;
+  const image = vector ? undefined : (isImageType(m.type) || m.type === 'attachment') && m.image ? ctx.images.get(m.image) : undefined;
+  if (vector && hasVector(m)) {
+    // The area's own page as a form: its user space to its shown space, stretched (and flipped)
+    // over the picture's rectangle, clipped to the box. Markups that were over it follow as a picture.
+    const { clip } = imageFrame(m);
+    const place = pictureMatrix(m);
+    const cm = multiply(vector.toShown, place);
+    ops.push('q /GS1 gs', `${fmt(clip.x)} ${fmt(clip.y)} ${fmt(clip.w)} ${fmt(clip.h)} re W n`, `${cm.map(fmt).join(' ')} cm`, '/Fm0 Do', 'Q');
+    const xobjects: LiteralObject = { Fm0: vector.page.ref };
+    const overlay = m.vector.overlay ? ctx.images.get(m.vector.overlay) : undefined;
+    if (overlay) {
+      // Image space is a unit square with y up, laid over the shown space of the area.
+      const o = multiply([m.vector.width, 0, 0, -m.vector.height, 0, m.vector.height], place);
+      ops.push('q /GS1 gs', `${fmt(clip.x)} ${fmt(clip.y)} ${fmt(clip.w)} ${fmt(clip.h)} re W n`, `${o.map(fmt).join(' ')} cm`, '/Im0 Do', 'Q');
+      xobjects.Im0 = overlay.ref;
+    }
+    resources.XObject = xobjects;
+  }
   if (image) {
     const { clip, full } = imageFrame(m);
     // Image space is a unit square with y up; page space is y down. A cropped picture is drawn
@@ -2244,6 +2285,17 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     const img = await embedDataUrl(doc, src);
     if (img) images.set(src, img);
   }
+  const pictures = new Map<string, VectorForm>();
+  for (const m of written) {
+    if (!hasVector(m) || pictures.has(m.vector.pdf)) continue;
+    const form = await embedVector(doc, m.vector.pdf);
+    if (form) pictures.set(m.vector.pdf, form);
+    const overlay = m.vector.overlay;
+    if (form && overlay && !images.has(overlay)) {
+      const img = await embedDataUrl(doc, overlay);
+      if (img) images.set(overlay, img);
+    }
+  }
   const placeNames = addPlaces(doc, pages, options.places ?? []);
   if (options.bookmarks) writeOutline(doc, pages, options.bookmarks, placeNames);
   if (options.pageLabels?.some((l) => l)) writePageLabels(doc, options.pageLabels);
@@ -2266,7 +2318,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     const page = pages[pageIndex];
     if (!page) continue;
     const list = (byPage.get(pageIndex) ?? []).sort((a, b) => a.createdAt - b.createdAt);
-    const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames, unembedded };
+    const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, pictures, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames, unembedded };
     const build = (m: Markup, orig?: PDFDict) => {
       const dict = annotationDict({ ...ctx, scale: scaleOf(m) }, m);
       // Markups on a layer show and hide with it in other viewers too.
