@@ -318,24 +318,41 @@ test.describe('view', () => {
     await expect.poll(active).toBe('plan-rev1.pdf');
   });
 
-  test('split, sync, switch and unsplit', async ({ app }) => {
-    expect((await app.command('view.unsplit')).enabled).toBe(false);
+  test('split with one file open shows it on both sides, in sync, with no file picker', async ({ app }) => {
     await app.tool('rect');
     await app.drag([300, 450], [350, 500]);
-    const chooser = app.page.waitForEvent('filechooser');
+    let picked = false;
+    app.page.on('filechooser', () => (picked = true));
     await app.cmd('view.split');
-    await (await chooser).setFiles(app.fixture('plan-rev1.pdf'));
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(true);
-    // Two panes, two canvases.
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
-    for (const id of ['view.unsplit', 'view.switchPanes', 'view.balance', 'view.syncDocument', 'view.syncPage']) expect((await app.command(id)).enabled, id).toBe(true);
-    // Switch Panes swaps the documents: plan.pdf (with its markup) moves out of pane A, then back.
+    expect(picked).toBe(false);
+    // One document, one markup store, two views; Synchronise Document is on.
+    expect(await app.documents()).toHaveLength(1);
+    expect((await app.command('view.syncDocument')).checked).toBe(true);
     expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
+    await app.cmd('view.unsplit');
+    await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
+    await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
+    expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
+  });
+
+  test('split with two files open puts the other open file in the second pane', async ({ app }) => {
+    await app.open('plan-rev1.pdf');
+    await app.open('plan.pdf');
+    let picked = false;
+    app.page.on('filechooser', () => (picked = true));
+    await app.cmd('view.split');
+    await expect.poll(async () => (await app.command('view.split')).checked).toBe(true);
+    await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
+    expect(picked).toBe(false);
+    expect((await app.documents()).map((d) => d.name).sort()).toEqual(['plan-rev1.pdf', 'plan.pdf']);
+    // The active file stays active, its markups intact.
+    expect((await app.documents()).find((d) => d.active)!.name).toBe('plan.pdf');
+    for (const id of ['view.unsplit', 'view.switchPanes', 'view.balance', 'view.syncDocument', 'view.syncPage']) expect((await app.command(id)).enabled, id).toBe(true);
+    // Switch Panes swaps the documents.
     await app.cmd('view.switchPanes');
-    await expect.poll(() => app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(0);
     await app.cmd('view.switchPanes');
-    await expect.poll(() => app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
-    // Balance gives the panes equal widths.
     await app.cmd('view.balance');
     await expect
       .poll(async () => {
@@ -347,17 +364,14 @@ test.describe('view', () => {
       await app.cmd(id);
       await expect.poll(async () => (await app.command(id)).checked, id).toBe(true);
     }
-    const names = async () => (await app.documents()).map((d) => d.name).sort();
-    expect(await names()).toEqual(['plan-rev1.pdf', 'plan.pdf']);
     await app.cmd('view.unsplit');
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
     await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
+    expect(await app.documents()).toHaveLength(2);
   });
 
   test('split horizontal', async ({ app }) => {
-    const chooser = app.page.waitForEvent('filechooser');
     await app.cmd('view.splitHorizontal');
-    await (await chooser).setFiles(app.fixture('plan-rev1.pdf'));
     await expect.poll(async () => (await app.command('view.splitHorizontal')).checked).toBe(true);
     expect((await app.command('view.split')).checked).toBe(false);
     await app.cmd('view.unsplit');

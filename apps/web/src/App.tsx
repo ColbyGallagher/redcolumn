@@ -254,6 +254,7 @@ import { apply as applyAffine, compose as composeAffine, invert as invertStitch,
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
+import { pickSplitPartner, touchRecent } from './splitPartner';
 import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink } from './fonts/fontNotices';
 
 interface Controllers {
@@ -1397,6 +1398,10 @@ export function App() {
   /** A library file or a tab waiting for the right pane to exist (Open in Split View, Move to Right Pane). */
   const pendingSplitStored = useRef<{ file: StoredFile; bytes: ArrayBuffer } | null>(null);
   const pendingMove = useRef<OpenFile | null>(null);
+  /** What Split View does once the right pane exists: bring another open tab across, or show the front document on both sides. */
+  const pendingSplitFill = useRef<'mirror' | 'move' | null>(null);
+  /** Documents most recently shown first, for choosing the other side of a split. */
+  const recentFiles = useRef<string[]>([]);
   const moveTabRef = useRef<(from: Pane, t: OpenFile) => void>(() => {});
   const canvasMenuRef = useRef<(e: MouseEvent, pane: Pane) => void>(() => {});
   /** Where the pointer last was over a page, for pasting at the cursor. */
@@ -1753,6 +1758,7 @@ export function App() {
       const c = pane === 'b' ? ctlB : ctl;
       const cur = openRefOf(pane).current;
       if (cur === packed) return;
+      if (packed) recentFiles.current = touchRecent(recentFiles.current, packed.file.id);
       if (cur && c) savedViews.current.set(cur.file.id, c.viewer.getView());
       setFront(pane, packed);
       if (pane === 'a') {
@@ -2373,11 +2379,19 @@ export function App() {
     const moving = pendingMove.current;
     pendingMove.current = null;
     if (moving) moveTabRef.current('a', moving);
+    const fill = pendingSplitFill.current;
+    pendingSplitFill.current = null;
+    if (fill === 'mirror' && openRef.current) {
+      // One document in both panes (one markup store, two views), kept in step.
+      showInPane('b', openRef.current);
+      setSync('document');
+    }
+    if (fill) setActivePane('a');
     const f = pendingSplit.current;
     if (!f) return;
     pendingSplit.current = null;
     void openNewFile(f, 'b');
-  }, [ctlB, openNewFile, openStored]);
+  }, [ctlB, openNewFile, openStored, showInPane]);
 
   // Load the library (the tabs are reopened above, as Preferences › Options says).
   const restored = useRef(false);
@@ -4416,10 +4430,23 @@ export function App() {
     (pane: Pane, fileId: string) => {
       const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
       const idx = tabs.findIndex((t) => t.file.id === fileId);
-      if (idx < 0) return;
+      if (idx < 0) {
+        // The right pane showing the left pane's document (Split View with one file open) has no tab of its own.
+        if (pane === 'b' && openBRef.current?.file.id === fileId && !tabsBRef.current.length) {
+          showInPane('b', null);
+          setSplit(false);
+          setActivePane('a');
+        }
+        return;
+      }
       const closing = tabs[idx]!;
       const rest = tabs.filter((_, i) => i !== idx);
       setTabs(pane, rest);
+      // The other pane may be showing the same document without a tab of its own.
+      if (pane === 'a' && openBRef.current === closing && !tabsBRef.current.length) {
+        showInPane('b', null);
+        setSplit(false);
+      }
       const front = pane === 'b' ? openBRef.current : openRef.current;
       if (front === closing) {
         const next = rest[Math.min(idx, rest.length - 1)] ?? null;
@@ -6909,16 +6936,33 @@ export function App() {
     window.addEventListener('pointerup', up);
   };
 
+  /**
+   * Split View. With other documents open, the most recently used one goes in the new pane. With only
+   * one open, it is shown on both sides with the views synchronised. Only with nothing open does it
+   * ask for a file.
+   */
   const startSplit = () => {
     if (split) return;
-    splitFileRef.current?.click();
+    const front = openRef.current;
+    if (!front) {
+      splitFileRef.current?.click();
+      return;
+    }
+    const tabs = tabsARef.current;
+    const partnerId = pickSplitPartner(tabs.map((t) => t.file.id), front.file.id, recentFiles.current);
+    const partner = tabs.find((t) => t.file.id === partnerId);
+    if (partner) {
+      pendingMove.current = partner;
+      pendingSplitFill.current = 'move';
+    } else pendingSplitFill.current = 'mirror';
+    setSplit(true);
   };
 
   /** Swaps the two panes' tabs. */
   const swapPanes = () => {
     const a = openRef.current;
     const b = openBRef.current;
-    if (!a || !b || !ctl || !ctlB) return;
+    if (!a || !b || a === b || !ctl || !ctlB) return;
     const tabs = tabsARef.current;
     savedViews.current.set(a.file.id, ctl.viewer.getView());
     savedViews.current.set(b.file.id, ctlB.viewer.getView());
