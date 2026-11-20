@@ -12,7 +12,10 @@ import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
 import { hipValleySlope } from './markup/slopePicker';
 import { cutoutBlocker, cutoutTargetOf } from './markup/cutoutTarget';
+import { parseRotationInput } from './markup/rotationInput';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
+import { ApplyStitchingDialog } from './components/ApplyStitchingDialog';
+import { applyStitching, stitchSourceSheets } from './documents/bulkStitch';
 import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
@@ -82,12 +85,14 @@ import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
 import { settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, cellsFor, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
+import { clearLayout, DEFAULT_LAYOUT, fitWidths, loadLayout, saveLayout, serializeLayout } from './workspace/layoutState';
+import { LAYOUT_RESET_EVENT, SECTION_KEYS } from './workspace/layoutPrefs';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
 import { setTemplate } from './storage/fileStore';
 import { attachmentBlob, fileToAttachment, imageToDataUrl, pickAttachment, pickImage } from './markup/pickImage';
-import { polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
+import { adjustPixels, polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
 import { SoundDialog } from './components/SoundDialog';
 import { UndoHistoryDialog } from './components/UndoHistoryDialog';
 import { invertAffine, mapBox } from './compare/affine';
@@ -153,8 +158,11 @@ import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './compo
 import { CommentDialog } from './components/CommentDialog';
 import { DocTabStrip } from './components/DocTabStrip';
 import { MultiplyDialog } from './components/MultiplyDialog';
+import { anyLinked, PortalDialogHost, usePortalGuides, type PortalDialogState } from './takeoff/portalsUi';
 import { ChangeColoursDialog } from './components/ChangeColoursDialog';
 import { PictureColoursDialog } from './components/PictureColoursDialog';
+import { AdjustImageDialog } from './components/AdjustImageDialog';
+import { bakePicture } from './markup/pictureBake';
 import { MENU_ICONS } from './components/menuIcons';
 import { parsePageRange } from './sheets/regions';
 import { StatusBar } from './components/StatusBar';
@@ -825,6 +833,7 @@ async function annotatedBytes(
     statuses: cur.store.columnSet().statuses,
     assemblies: cur.store.assemblies(),
     estimating: cur.store.estimating(),
+    portals: cur.store.portals(),
     places: cur.store.places(),
     // Sheet numbers become the PDF's page labels, so other readers show them too.
     pageLabels: cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null),
@@ -894,7 +903,7 @@ function readOnlyReason(o: OpenFile, snaps: readonly StudioSnapshot[]): string {
 }
 
 function isTyping(target: EventTarget | null) {
-  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+  return target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLElement && target.getAttribute('role') === 'combobox');
 }
 
 /** Opens the editor on the selected table cell at once, so keys typed right after the first reach it. */
@@ -1041,7 +1050,9 @@ export function App() {
   const [leftTab, setLeftTab] = useState<LeftTab>(() => saved.left.tab ?? (panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files')));
   // On narrow screens the panel covers the drawing, so it starts closed whatever was saved.
   const [leftOpen, setLeftOpen] = useState(() => (narrowScreen() ? false : (saved.left.open ?? true)));
-  const [leftWidth, setLeftWidth] = useState(440);
+  // Panel widths and the Markups list's state, kept between launches (see workspace/layoutState.ts).
+  const [savedLayout] = useState(loadLayout);
+  const [leftWidth, setLeftWidth] = useState(() => savedLayout?.leftWidth ?? DEFAULT_LAYOUT.leftWidth);
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
   const [rightTab, setRightTab] = useState<LeftTab>(() => saved.right.tab ?? firstPanelOn('right') ?? 'properties');
   const [rightOpen, setRightOpen] = useState(() => saved.right.open ?? !!firstPanelOn('right'));
@@ -1053,7 +1064,7 @@ export function App() {
       /* storage off limits: the layout lasts for this session */
     }
   }, [leftTab, leftOpen, rightTab, rightOpen]);
-  const [rightWidth, setRightWidth] = useState(360);
+  const [rightWidth, setRightWidth] = useState(() => savedLayout?.rightWidth ?? DEFAULT_LAYOUT.rightWidth);
   // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
   const [railLabels, setRailLabels] = useState<Record<DockSide, boolean>>(() => {
@@ -1135,14 +1146,25 @@ export function App() {
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [docDigest, setDocDigest] = useState<string | null>(null);
   // On a phone the Markups list is a drawer over the drawing, so it starts closed there.
-  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked);
-  const [bottomTab, setBottomTab] = useState<BottomTab>('markups');
-  const [dockHeight, setDockHeight] = useState(180);
+  const [showBottom, setShowBottom] = useState(() => !window.matchMedia?.('(max-width: 720px)').matches && !profiles.active().state.markupsDocked && (savedLayout?.showBottom ?? true));
+  const [bottomTab, setBottomTab] = useState<BottomTab>(() => savedLayout?.bottomTab ?? 'markups');
+  const [dockHeight, setDockHeight] = useState(() => savedLayout?.dockHeight ?? DEFAULT_LAYOUT.dockHeight);
   // Clicking the Markups list's top edge collapses it to a thin strip; clicking the strip opens it again.
-  const [dockOpen, setDockOpen] = useState(true);
-  // Showing the list again (menu, shortcut) opens it rather than leaving the strip.
+  const [dockOpen, setDockOpen] = useState(() => savedLayout?.dockOpen ?? true);
+  // Showing the list again (menu, shortcut) opens it rather than leaving the strip. Not on launch,
+  // where the strip is how it was left.
+  const lastShowBottom = useRef(showBottom);
+  // The list was left off at launch by the window width or a profile, not by the user: what they chose
+  // last time stays saved until they show or hide it themselves.
+  const showBottomForced = useRef(narrowScreen() || profiles.active().state.markupsDocked);
+  const layoutRef = useRef(savedLayout ?? DEFAULT_LAYOUT);
+  const restoringBottom = useRef(false);
   useEffect(() => {
-    if (showBottom) setDockOpen(true);
+    // Not when it came back by itself (wider window, undocked profile): the strip stays a strip.
+    if (showBottom && !lastShowBottom.current && !restoringBottom.current) setDockOpen(true);
+    restoringBottom.current = false;
+    if (showBottom !== lastShowBottom.current) showBottomForced.current = false;
+    lastShowBottom.current = showBottom;
   }, [showBottom]);
   // Collapsed to its strip, the list counts as closed: menus show it unchecked and toggling opens it.
   const bottomOpen = showBottom && dockOpen;
@@ -1162,6 +1184,68 @@ export function App() {
     mq.addEventListener('change', on);
     return () => mq.removeEventListener('change', on);
   }, []);
+  // Back from a phone-width window, or off a profile that docks the list, it returns as it was left.
+  useEffect(() => {
+    if (!narrow && !ws.markupsDocked && showBottomForced.current) {
+      showBottomForced.current = false;
+      restoringBottom.current = layoutRef.current.showBottom !== showBottom;
+      setShowBottom(layoutRef.current.showBottom);
+    }
+  }, [narrow, ws.markupsDocked]);
+  // The layout is saved a moment after it changes, so dragging a divider writes once. Nothing is written
+  // on a phone (the panels are drawers), when nothing differs from what is saved, or for the list's
+  // visibility while something other than the user is deciding it.
+  useEffect(() => {
+    if (narrow) return;
+    const forced = showBottomForced.current || ws.markupsDocked;
+    const next = { leftWidth, rightWidth, showBottom: forced ? layoutRef.current.showBottom : showBottom, dockOpen, bottomTab, dockHeight };
+    if (serializeLayout(next) === serializeLayout(layoutRef.current)) return;
+    const t = window.setTimeout(() => {
+      layoutRef.current = next;
+      saveLayout(next);
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [narrow, ws.markupsDocked, leftWidth, rightWidth, showBottom, dockOpen, bottomTab, dockHeight]);
+  /** The side panels as drawn: the saved widths, shrunk when both are open in a window too small for them. */
+  const shownWidths = (() => {
+    const [left, right] = leftOpen && rightOpen ? fitWidths(leftWidth, rightWidth, window.innerWidth) : [leftWidth, rightWidth];
+    return { left, right };
+  })();
+  /**
+   * Window > Reset Layout: side panel tabs, widths and rail labels, panel order and hidden panels, the
+   * Markups list (shown, size, tab), ribbon and toolbar visibility, split view, and the remembered
+   * Recents and Measurements sections. Documents, profiles and tools are untouched.
+   */
+  const resetLayout = () => {
+    clearLayout();
+    layoutRef.current = DEFAULT_LAYOUT;
+    for (const k of ['nb.panel.left', 'nb.panel.right', 'nb.railLabels', 'nb.rightRailLabels', ...SECTION_KEYS]) {
+      try {
+        localStorage.removeItem(k);
+      } catch {
+        /* nothing kept */
+      }
+    }
+    window.dispatchEvent(new Event(LAYOUT_RESET_EVENT));
+    updateWorkspace((w) => ({ ...w, hiddenPanels: [], panelOrder: [], showToolbar: true, ribbonCollapsed: false }));
+    const docked = profiles.active().state.markupsDocked;
+    showBottomForced.current = narrow || docked;
+    setLeftWidth(DEFAULT_LAYOUT.leftWidth);
+    setRightWidth(DEFAULT_LAYOUT.rightWidth);
+    setDockHeight(DEFAULT_LAYOUT.dockHeight);
+    setBottomTab(DEFAULT_LAYOUT.bottomTab);
+    setShowBottom(!narrow && !docked);
+    setDockOpen(true);
+    setLeftTab(panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files'));
+    setRightTab(firstPanelOn('right') ?? 'properties');
+    // On a phone the panels are drawers over the drawing, so they stay shut.
+    setLeftOpen(!narrow);
+    setRightOpen(!narrow && !!firstPanelOn('right'));
+    setRailLabels({ left: true, right: true });
+    setSplitRatio(0.5);
+    setSplitHorizontal(false);
+    if (split) unsplit();
+  };
   const dockFull = ws.dockFullWidth && !narrow;
   const [split, setSplit] = useState(false);
   const [splitRatio, setSplitRatio] = useState(0.5);
@@ -1262,6 +1346,8 @@ export function App() {
    * pop-ups are blocked. `step` is where it opens; `n` changes when a command asks for a step.
    */
   const [setup, setSetup] = useState<{ pane: Pane; inline: boolean; step?: WizardStepId; n: number } | null>(null);
+  /** Apply Stitching to Other Sheets is open (from the active document). */
+  const [applyStitch, setApplyStitch] = useState(false);
   const [setupTexts, setSetupTexts] = useState<PageText[] | null>(null);
   const [markupAlert, setMarkupAlert] = useState<{ sessionId: string; entry: RecordEntry } | null>(null);
   const seenAlerts = useRef<Set<string> | null>(null);
@@ -1374,6 +1460,7 @@ export function App() {
   /** Right-click › Change Colours: the markups whose colours are being changed. */
   const [changeColoursFor, setChangeColoursFor] = useState<{ pane: Pane; ids: string[] } | null>(null);
   const [pictureColoursFor, setPictureColoursFor] = useState<{ pane: Pane; id: string } | null>(null);
+  const [adjustImageFor, setAdjustImageFor] = useState<{ pane: Pane; ids: string[] } | null>(null);
   /** Right-click › Capture › View Capture: the picture shown. */
   const [captureView, setCaptureView] = useState<string | null>(null);
   /** File → New PDF, or Document → Insert → Blank Pages. */
@@ -1390,6 +1477,8 @@ export function App() {
   const regionRef = useRef<(rect: Region) => void>(() => {});
   const matchLineRef = useRef<(pane: Pane, pageIndex: number, p0: Point, p1: Point) => void>(() => {});
   const stitchRegionRef = useRef<(pane: Pane, pageIndex: number, points: Point[]) => void>(() => {});
+  const portalDrawnRef = useRef<(pane: Pane, pageIndex: number, points: Point[]) => void>(() => {});
+  const [portalDialog, setPortalDialog] = useState<PortalDialogState | null>(null);
   const matchLineEditedRef = useRef<(pane: Pane, id: string, p0: Point, p1: Point) => boolean>(() => false);
   const stitchDragRef = useRef<(pane: Pane, delta: Point, done: boolean) => void>(() => {});
   /** The Geospatial panel's handlers for drags and picks on the page (null while it is closed). */
@@ -1543,6 +1632,7 @@ export function App() {
       onRegion: (_pageIndex, rect) => regionRef.current(rect),
       onMatchLine: (pageIndex, p0, p1) => matchLineRef.current(pane, pageIndex, p0, p1),
       onStitchRegion: (pageIndex, points) => stitchRegionRef.current(pane, pageIndex, points),
+      onPortalDrawn: (pageIndex, points) => portalDrawnRef.current(pane, pageIndex, points),
       onMatchLineEdited: (id, p0, p1) => matchLineEditedRef.current(pane, id, p0, p1),
       onStitchDrag: (delta, done) => stitchDragRef.current(pane, delta, done),
       onGeoMoved: (dx, dy) => geoHandlersRef.current?.moved(dx, dy),
@@ -4885,6 +4975,7 @@ export function App() {
                 statuses: store.columnSet().statuses,
                 assemblies: store.assemblies(),
                 estimating: store.estimating(),
+                portals: store.portals(),
                 places: store.places(),
               },
             );
@@ -6098,10 +6189,11 @@ export function App() {
       if (!viewer) continue;
       viewer.setPageFilter(prefs.pageFilter);
       viewer.setThinLines(prefs.thinLines);
+      viewer.keepViewBetweenPages = prefs.keepViewBetweenPages;
       const cur = viewer.spread;
       if (cur.columns !== spread.columns || cur.cover !== spread.cover) viewer.setSpread(spread.columns, spread.cover);
     }
-  }, [prefs.pageFilter, prefs.thinLines, spread, ctl, ctlB]);
+  }, [prefs.pageFilter, prefs.thinLines, prefs.keepViewBetweenPages, spread, ctl, ctlB]);
 
   // Read each open document's PDF layers once; layers the file starts with off count as hidden.
   useEffect(() => {
@@ -6833,7 +6925,7 @@ export function App() {
   const onSideResize = (side: DockSide, e: { preventDefault(): void; clientX: number }) => {
     e.preventDefault();
     const startX = e.clientX;
-    const startW = side === 'left' ? leftWidth : rightWidth;
+    const startW = side === 'left' ? shownWidths.left : shownWidths.right;
     const setWidth = side === 'left' ? setLeftWidth : setRightWidth;
     // The right panel's inner edge is its left one: dragging it left widens the panel.
     const dir = side === 'left' ? 1 : -1;
@@ -7250,6 +7342,9 @@ export function App() {
       { label: 'Delete', icon: MENU_ICONS.delete, shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
       SEP,
       { label: 'Round All Corners', checked: allRound, disabled: ro || !roundable.some((m) => !m.locked && store.mayEdit(m)), onClick: () => roundCorners(store, ms, !allRound) },
+      ...(ms.some((m) => m.type === 'image' && m.image)
+        ? [{ label: 'Adjust Image…', disabled: ro || allLocked, onClick: () => setAdjustImageFor({ pane, ids: ms.filter((m) => m.type === 'image' && m.image).map((m) => m.id) }) } as MenuEntry]
+        : []),
       // A picture's own colours are swapped, not the line and fill colours the other markups have.
       { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
       { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
@@ -7277,10 +7372,20 @@ export function App() {
                 {
                   label: 'Rotate…',
                   onClick: () =>
-                    void askText('Rotate', String(first.rotation ?? 0), { label: 'Angle in degrees, clockwise (drag the round handle above a selected markup to turn it freely).', confirm: 'Rotate' }).then((t) => {
-                      const deg = Number(t);
-                      if (t !== null && Number.isFinite(deg)) turnMarkups(store, ms, deg, true);
-                    }),
+                    void (async () => {
+                      const help = 'Angle in degrees, clockwise, or a grade such as 2% or 1:50 (negative falls to the right). Drag the round handle above a selected markup to turn it freely.';
+                      let initial = String(first.rotation ?? 0);
+                      let note = '';
+                      // Ask again, with the reason, until the input is understood or the dialog is cancelled.
+                      for (;;) {
+                        const t = await askText('Rotate', initial, { label: note ? `${note}\n${help}` : help, confirm: 'Rotate' });
+                        if (t === null) return;
+                        const r = parseRotationInput(t);
+                        if (r.ok && (!r.warning || t === initial)) return turnMarkups(store, ms, r.degrees, true);
+                        initial = t;
+                        note = r.ok ? `${r.warning} Press Rotate again to apply it.` : r.error;
+                      }
+                    })(),
                 },
                 { label: 'Reset Rotation', disabled: !ms.some((m) => m.rotation), onClick: () => turnMarkups(store, ms, 0, true) },
               ],
@@ -8319,6 +8424,8 @@ export function App() {
     if (!pair) return;
     doc.store.setManualStitch({ ...s, lines: s.lines.map((l) => (l.id === pair.line.id || l.id === pair.partner.id ? (({ offset: _, ...rest }) => rest)(l) : l)) });
   };
+  portalDrawnRef.current = (pane, pageIndex, points) => setPortalDialog({ pane, draft: { pageIndex, points } });
+  usePortalGuides([[ctl, open?.store, open?.doc.pages.length], [ctlB, openB?.store, openB?.doc.pages.length]]);
   stitchRegionRef.current = (pane, pageIndex, points) => {
     const doc = pane === 'b' ? openB : open;
     if (!doc || doc.store.readOnly) return;
@@ -8363,11 +8470,11 @@ export function App() {
             onCustom={() => setCustomScalePane(which)}
           />
         }
-        onFirst={() => viewer?.goToPage(0)}
+        onFirst={() => viewer?.changePage(0)}
         onPrev={() => viewer?.prevPage()}
         onNext={() => viewer?.nextPage()}
-        onLast={() => viewer?.goToPage(Math.max(0, count - 1))}
-        onGoTo={(i) => viewer?.goToPage(i)}
+        onLast={() => viewer?.changePage(Math.max(0, count - 1))}
+        onGoTo={(i) => viewer?.changePage(i)}
         onZoomTo={(z) => viewer && viewer.zoomBy(z / viewer.currentZoom)}
         onBack={goBack}
         onForward={goForward}
@@ -8633,6 +8740,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitchToPage: () => {
       if (currentStitch) stitchToNewPage(currentStitch, true).catch(() => {});
     },
+    applyStitching: () => setApplyStitch(true),
     convertDrawingAgain: () => {
       if (activeOpen && activeCad) setCadAgain(activeOpen.file.id);
     },
@@ -8653,7 +8761,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       if (!v) return;
       if (which === 'next') v.nextPage();
       else if (which === 'prev') v.prevPage();
-      else v.goToPage(which === 'first' ? 0 : pageCount - 1);
+      else v.changePage(which === 'first' ? 0 : pageCount - 1);
     },
     documentProperties: () => setDocPropsOpen(true),
     rotatePages: (quarterTurns) => {
@@ -8731,6 +8839,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     distribute: (axis) => activeTools?.distributeSelected(axis),
     scaleToLength: () => activeTools?.setTool('scaleLength'),
     resetCrop: () => activeTools?.resetCropSelected(),
+    pictureDialog: (which) => {
+      const ms = selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked);
+      if (!ms.length) return;
+      if (which === 'adjust') setAdjustImageFor({ pane, ids: ms.map((m) => m.id) });
+      else setPictureColoursFor({ pane, id: ms[0]!.id });
+    },
     arrange: (where) => activeTools && activeTools.arrange(activeTools.getState().selected, where),
     sign: () => {
       showPanel('signatures');
@@ -8783,6 +8897,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     takeoffReview: () => setTakeoffReviewOpen(true),
     cutout: startCutoutFromSelection,
     syncExcel: () => setSyncOpen(true),
+    portals: () => setPortalDialog({ pane: paneB ? 'b' : 'a' }),
+    breakPortalLink: () => {
+      activeOpen?.store.breakPortalLinks(selectedMarkups.filter((m) => m.portalLink).map((m) => m.id));
+      setNotice('The selected markups are no longer mirrored: they are ordinary markups on their page now.');
+    },
     takeoffReports: () => {
       setReportsError(null);
       setReportsOpen(true);
@@ -8800,6 +8919,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     signatures: () => showPanel('signatures'),
     toggleToolbar,
     setToolbarStyle: (toolbarStyle, collapsed) => updateWorkspace((w) => ({ ...w, toolbarStyle, showToolbar: true, ribbonCollapsed: collapsed ?? w.ribbonCollapsed })),
+    resetLayout,
     toggleLeft: () => setLeftOpen((s) => !s),
     toggleRight: () => (rightShown ? setRightOpen(false) : showPanel(panelSide(rightTab) === 'right' ? rightTab : rightRail[0]!.id)),
     toggleBottom,
@@ -9176,12 +9296,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     hiddenCount: markups.filter((m) => m.hidden).length,
     selectionLocked: selectedMarkups.some((m) => m.locked),
     selectionGrouped: selectedMarkups.some((m) => m.groupId),
+    selectionLinked: anyLinked(selectedMarkups),
     selectionJoinable: selectedMarkups.filter(canJoin).length > 1,
     selectionExplodable: selectedMarkups.some(canExplode),
     selectionCloudable: selectedMarkups.some(canCloud),
     selectionReversible: selectedMarkups.some(canReverse),
     selectionAutoSizable: selectedMarkups.some(canAutoSize),
     selectionCroppable: selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked).length === 1,
+    selectionPictures: selectedMarkups.filter((m) => m.type === 'image' && m.image && !m.locked).length,
     selectionCropped: selectedMarkups.some((m) => m.type === 'image' && !m.locked && !!cropOf(m)),
     selectionFits: (tool) => (tool === 'offset' ? !selectedMarkups.length || selectedMarkups.some(canOffset) : cadToolFits(tool, selectedMarkups)),
     canPaste: clipboardCount > 0,
@@ -9199,6 +9321,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitched: activeMode === 'stitch',
     canStitch: !!currentStitch,
     canStitchToPage: !!currentStitch && !!activeOpen && !activeReadOnly,
+    canApplyStitching: !!activeOpen && stitchSourceSheets(paneB ? manualStitchB : manualStitchA).length >= 2,
     canConvertDrawingAgain: !!activeCad,
     showLinks: toolsState.showLinks,
     snap: toolsState.snap,
@@ -9306,7 +9429,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   const sidePanel = (side: DockSide) => {
     const tab = side === 'left' ? leftTab : rightTab;
     if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side) return null;
-    const width = side === 'left' ? leftWidth : rightWidth;
+    const width = side === 'left' ? shownWidths.left : shownWidths.right;
     const close = () => (side === 'left' ? setLeftOpen(false) : setRightOpen(false));
     return (
       <aside
@@ -9420,7 +9543,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             sheets={sheets}
             scales={scales}
             busy={busyPages || indexing}
-            onGoTo={(i) => v?.goToPage(i, true)}
+            onGoTo={(i) => v?.changePage(i)}
             onPageOps={(ops, inserts) => void applyPageOps(ops, inserts)}
             onSetScale={(pages, scale) => activeOpen?.store.setScale(pages, withDefaultUnits(scale))}
             onCalibrate={activeOpen && !activeReadOnly ? () => activeTools?.setTool('calibrate') : null}
@@ -10141,6 +10264,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onUndo: () => activeOpen?.store.undo(),
           onRedo: () => activeOpen?.store.redo(),
           takeoffTemplates: activeOpen ? { document: estimating.templates, onUse: armTemplate } : null,
+          takeoffAssembly: activeOpen ? { assemblies, defaults: measureDefaults, onDefaults: setMeasureDefaults, onManage: () => setAssembliesOpen(true) } : null,
         };
         const displayMenu = <ToolbarDisplayMenu commands={commandMap} />;
         return ws.toolbarStyle === 'ribbon' ? (
@@ -10372,6 +10496,24 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 setLabelMode(null);
                 void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(`Bulk redact failed: ${err instanceof Error ? err.message : String(err)}`));
               }}
+            />
+          )}
+          {applyStitch && activeOpen && (
+            <ApplyStitchingDialog
+              documents={[activeOpen, ...[...tabsA, ...tabsB].filter((t, i, all) => t.file.id !== activeOpen.file.id && all.findIndex((x) => x.file.id === t.file.id) === i)].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length, readOnly: t.store.readOnly, label: (i: number) => pageLabelFor(t, i), size: (i: number) => t.doc.pages[i]!, stitch: () => t.store.manualStitch() }))}
+              onApply={(targetId, pairs, tol, options) => {
+                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId) ?? activeOpen;
+                return applyStitching(activeOpen, target, pairs, tol, options);
+              }}
+              onShow={(targetId, page) => {
+                setApplyStitch(false);
+                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId);
+                if (!target || target.file.id !== activeOpen.file.id) return setNotice(`Switch to ${target?.file.name ?? 'that document'} to see its stitched sheets.`);
+                const group = mergeStitch(target.store.stitchGroups(), withViewportRegions(target.store.manualStitch(), target.store.allViewports())).find((g) => g.placements.some((p) => p.pageIndex === page));
+                if (group) openStitch(group, page);
+                else setNotice('That sheet is not joined to another: check its match lines in the Stitching panel.');
+              }}
+              onClose={() => setApplyStitch(false)}
             />
           )}
           {setup &&
@@ -10715,6 +10857,41 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             />
           );
         })()}
+      {adjustImageFor &&
+        (() => {
+          const store = paneParts(adjustImageFor.pane).o?.store;
+          const ms = store ? adjustImageFor.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && !!m.image && !m.locked && store.mayEdit(m)) : [];
+          if (!store || !ms.length) return null;
+          return (
+            <AdjustImageDialog
+              source={ms[0]!.image!}
+              count={ms.length}
+              onCancel={() => setAdjustImageFor(null)}
+              onChangeColours={ms.length === 1 ? () => {
+                setAdjustImageFor(null);
+                setPictureColoursFor({ pane: adjustImageFor.pane, id: ms[0]!.id });
+              } : undefined}
+              onApply={async (adjust) => {
+                // Bake every picture first, so a failure leaves them all as they were; then one undo step.
+                const baked: { id: string; from: string; image: string }[] = [];
+                // Re-resolved now, not when the dialog opened: a picture may have gone or been locked since.
+                const now = adjustImageFor.ids.map((id) => store.get(id)).filter((m): m is Markup => !!m && !!m.image && !m.locked && store.mayEdit(m));
+                for (const m of now) baked.push({ id: m.id, from: m.image!, image: await bakePicture(m.image!, (d) => adjustPixels(d, adjust)) });
+                // Pictures deleted, locked or given another image under the dialog meanwhile are skipped, so
+                // a collaborator's change is not overwritten.
+                const live = baked.filter((b) => {
+                  const m = store.get(b.id);
+                  return !!m?.image && !m.locked && store.mayEdit(m) && m.image === b.from;
+                });
+                if (live.length) {
+                  store.checkpoint();
+                  store.batch(() => live.forEach((b) => store.update(b.id, { image: b.image })));
+                }
+                setAdjustImageFor(null);
+              }}
+            />
+          );
+        })()}
       {changeColoursFor &&
         (() => {
           const store = paneParts(changeColoursFor.pane).o?.store;
@@ -10748,20 +10925,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               source={source}
               onCancel={() => setPictureColoursFor(null)}
               onApply={async (mode) => {
-                const img = new Image();
-                img.src = source;
-                await img.decode();
-                const canvas = document.createElement('canvas');
-                canvas.width = img.naturalWidth;
-                canvas.height = img.naturalHeight;
-                const g = canvas.getContext('2d')!;
-                g.drawImage(img, 0, 0);
-                const pixels = g.getImageData(0, 0, canvas.width, canvas.height);
-                recolourPixels(pixels.data, mode);
-                g.putImageData(pixels, 0, 0);
+                const image = await bakePicture(source, (d) => recolourPixels(d, mode));
+                const now = store.get(m.id);
+                if (!now?.image || now.locked || !store.mayEdit(now) || now.image !== source) return setPictureColoursFor(null);
                 store.checkpoint();
                 // New colours are in the picture only, so a vector Snapshot becomes a plain picture.
-                store.update(m.id, { image: canvas.toDataURL('image/png'), vector: undefined });
+                store.batch(() => store.update(m.id, { image, vector: undefined }));
                 setPictureColoursFor(null);
               }}
             />
@@ -11866,6 +12035,16 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               : undefined
           }
           onClose={() => setRegisterTemplatesOpen(null)}
+        />
+      )}
+      {portalDialog && (portalDialog.pane === 'b' ? openB : open) && (
+        <PortalDialogHost
+          state={portalDialog}
+          store={(portalDialog.pane === 'b' ? openB : open)!.store}
+          pageCount={(portalDialog.pane === 'b' ? openB : open)!.doc.pages.length}
+          pageLabel={(i) => (portalDialog.pane === 'b' ? sheetsB : sheetsA)[i]?.number || `Page ${i + 1}`}
+          onClose={() => setPortalDialog(null)}
+          onNotice={setNotice}
         />
       )}
       {syncOpen && activeOpen && syncTable && (

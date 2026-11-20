@@ -30,6 +30,8 @@ import { readBsiLegend } from './bsiLegend';
 import { readLineStyle } from './lineStyle';
 import { blendModeOfPdf, effectiveBlendMode, type LineDash } from './style';
 import { familyFromPdfName } from './fonts';
+import { spansFromRichText } from './richText';
+import { baseTextStyle, type TextSpan } from './textSpans';
 import type { Viewport } from './viewports';
 
 /** What import needs from an existing PDF annotation (matches pdf-core's PdfAnnotation). */
@@ -87,6 +89,22 @@ const NOT_SHOWN = 1 | 2 | 32;
 const LOCKED = 128;
 
 /**
+ * The font name and size a /DA string sets with its `Tf` operator (`/Helv 12 Tf`), found by
+ * splitting on whitespace so a long hostile string costs linear time. Size is 0 when absent.
+ */
+export function daFont(da: string | null | undefined): { name: string; size: number } {
+  const tokens = (da ?? '').split(/\s+/);
+  const at = tokens.indexOf('Tf');
+  if (at < 1) return { name: '', size: 0 };
+  const sizeToken = tokens[at - 1]!;
+  let start = sizeToken.length;
+  while (start > 0 && /[\d.]/.test(sizeToken[start - 1]!)) start--;
+  const size = Number(sizeToken.slice(start)) || 0;
+  const nameToken = at >= 2 ? tokens[at - 2]! : '';
+  return { name: nameToken.startsWith('/') && !nameToken.includes('/', 1) ? nameToken.slice(1) : '', size };
+}
+
+/**
  * The text another program left in /Contents of a markup of ours, when it is no longer the text we saved;
  * null when it is the same, missing, or not the markup's text (a shape's /Contents is a comment, a measurement's its value).
  */
@@ -96,6 +114,13 @@ function editedText(m: Markup, raw: string | null | undefined, plain: string): s
   if (contents === undefined) return null;
   const now = cleanText(contents);
   return now === cleanText(m.text ?? '') ? null : now;
+}
+
+/** The styled parts of a text markup's /RC (as `{ spans }`), left out where there are none or the text does not agree with them. */
+function richSpans(r: PdfDictValue | null, text: string, style: MarkupStyle): { spans?: TextSpan[] } {
+  if (!r) return {};
+  const spans = spansFromRichText(str(r.RC), text, baseTextStyle({ style }));
+  return spans.length ? { spans } : {};
 }
 
 /** The kind, identifier and label a `/Link` we wrote carries in our app data, if it is ours and well formed. */
@@ -319,6 +344,9 @@ export function importAnnotations(
           const edited = editedText(m, r ? str(r.Contents) : undefined, a.contents);
           if (edited !== null) {
             m.text = edited;
+            // Its styled parts were for the old text: take them from the rich text it left, if that agrees.
+            delete m.spans;
+            Object.assign(m, richSpans(r, edited, m.style));
             redraw.add(m);
           }
           markups.push(m);
@@ -397,16 +425,16 @@ export function importAnnotations(
         }
         if (f.type === 'typewriter') style.width = 0;
         if (f.type === 'text' || f.type === 'typewriter') {
-          style.fontSize = Number(/([\d.]+)\s+Tf/.exec(a.da)?.[1]) || 12;
+          style.fontSize = daFont(a.da).size || 12;
           // Font resource names in /DA hint at the family (Acrobat: Helv, TiRo, Cour).
-          const daFont = /\/([^\s/]+)\s+[\d.]+\s+Tf/.exec(a.da)?.[1] ?? '';
-          const font = daFont.toLowerCase();
+          const daName = daFont(a.da).name;
+          const font = daName.toLowerCase();
           if (/^(tiro|times)/.test(font)) style.fontFamily = 'serif';
           else if (/^cour/.test(font)) style.fontFamily = 'mono';
-          else if (daFont && !/^(helv|arial)/.test(font) && !/^(zadb|symb)/.test(font)) {
+          else if (daName && !/^(helv|arial)/.test(font) && !/^(zadb|symb)/.test(font)) {
             // Any other font name is an installed font's, kept as it is (a name written by an
             // earlier export has its spaces taken out; the rich text, read later, has them).
-            const named = familyFromPdfName(daFont.replace(/#([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16))));
+            const named = familyFromPdfName(daName.replace(/#([0-9a-f]{2})/gi, (_m, h: string) => String.fromCharCode(parseInt(h, 16))));
             if (named !== 'sans') style.fontFamily = named;
           }
           if (/bold|,b/.test(font)) style.bold = true;
@@ -425,6 +453,7 @@ export function importAnnotations(
         points: f.points,
         style,
         ...(textual ? { text: f.text ?? contents } : comment ? { comment } : {}),
+        ...(textual && isTextType(f.type) ? richSpans(r, f.text ?? contents, style) : {}),
         ...(f.extra ?? {}),
         ...(f.type === 'attachment' && a.file ? { attachment: { name: a.file.name, mime: mimeOf(a.file.name), size: a.file.data.length, data: toBase64(a.file.data) } } : {}),
         status: 'none',
@@ -641,7 +670,10 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
   const color = colorHex(r.C);
   const interior = colorHex(r.IC);
   const ds = str(r.DS);
-  const textStyle = ds ? parseDefaultStyle(ds, Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || undefined) : {};
+  const nbMargin = num(r.NBTextMargin);
+  const textStyle: Partial<MarkupStyle> = ds ? parseDefaultStyle(ds, daFont(str(r.DA) ?? a.da).size || undefined) : {};
+  // Our exact padding, trusted only while it agrees with the /DS margin written beside it: another reader that edited /DS leaves it stale.
+  if (typeof nbMargin === 'number' && nbMargin >= 0 && nbMargin <= 51 && textStyle.textMargin !== undefined && Math.abs(textStyle.textMargin - Math.max(1, nbMargin)) < 1e-6) textStyle.textMargin = nbMargin;
   const daColor = daTextColor(str(r.DA) ?? a.da);
   const fillOpacity = num(r.FillOpacity);
   const dash = nameOf(bs?.S) === 'D' ? dashOf(nums(bs?.D).length ? nums(bs?.D) : [3], width) : undefined;
@@ -728,7 +760,7 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       };
       delete style.textColor;
       if (text !== style.stroke) style.textColor = text;
-      if (!textStyle.fontSize) style.fontSize = Number(/([\d.]+)\s+Tf/.exec(str(r.DA) ?? a.da)?.[1]) || 12;
+      if (!textStyle.fontSize) style.fontSize = daFont(str(r.DA) ?? a.da).size || 12;
       let box = innerBox();
       if (intent === 'FreeTextCallout') {
         const cl = pagePoints(nums(r.CL), toPage);

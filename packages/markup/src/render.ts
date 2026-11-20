@@ -1,6 +1,7 @@
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
+import { baseTextStyle, layoutRuns, runsWithin, spansOf, styleRuns, type StyledMeasure } from './textSpans';
 import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, textPadding, type PathCmd } from './geometry';
 import { bulgeMidpoint } from './cad';
 import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
@@ -296,32 +297,71 @@ export const TEXT_INK_METRICS = {
 } as const;
 
 /**
- * Where each line of a text box goes: `x` is the line's left edge, `y` its top, both in page
- * space, for the box's alignment. `measure` gives a string's width at the box's font size.
+ * How far below a line's top its baseline sits, in page units. Canvas, PDF appearance and the CSS
+ * editor all put the baseline here, so a line's ink lands in the same place in each.
  */
-export function textBoxLines(m: Markup, measure: (s: string) => number): { text: string; x: number; y: number; width: number; gap: number }[] {
+export function textBaselineOffset(style: { fontFamily?: string; fontSize?: number }): number {
+  return TEXT_INK_METRICS[fontKeyword(style.fontFamily)].ascent * (style.fontSize ?? 12);
+}
+
+/** One run of a laid-out line: its own font, colour and decoration, at its own position. */
+export interface LineRun {
+  text: string;
+  /** Left edge in page space, with the line's justification gaps up to it. */
+  x: number;
+  /** Width, including the gaps inside it. */
+  width: number;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+  strikethrough: boolean;
+  color: string;
+}
+
+export interface TextLine {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  gap: number;
+  /** Only where the text has styled parts (and a styled measure was given): the line cut into its runs. */
+  runs?: LineRun[];
+}
+
+/**
+ * Where each line of a text box goes: `x` is the line's left edge, `y` its top, both in page
+ * space, for the box's alignment. `measure` gives a string's width at the box's font size. Where
+ * the text has styled parts, `styled` (a width in a given weight and slant) lays it out run by
+ * run: each line then lists its `runs`.
+ */
+export function textBoxLines(m: Markup, measure: (s: string) => number, styled?: StyledMeasure): TextLine[] {
   const b = contentBox(m);
   const pad = textPadding(m.style);
   const size = m.style.fontSize ?? 12;
   const inner = b.w - pad * 2;
-  const lines = layoutParagraphs(m.text ?? '', inner, measure);
+  const spans = styled ? spansOf(m) : [];
+  const base = baseTextStyle(m);
+  const runLines = styled && spans.length ? layoutRuns(m.text ?? '', spans, base, inner, styled) : null;
+  const runs = runLines ? styleRuns(m.text ?? '', spans, base) : [];
+  const lines: { text: string; indent: number; last: boolean; start?: number; end?: number; width?: number }[] = runLines ?? layoutParagraphs(m.text ?? '', inner, measure);
   const lineH = size * textLineHeight(m.style);
   // Glyphs sit at the top of their line; CSS (the editor, other tools' rich text) splits the extra leading above and below, so shift by half of it. Zero at the default.
   const lead = ((textLineHeight(m.style) - TEXT_LINE_HEIGHT) * size) / 2;
   const valign = m.style.verticalAlign ?? 'top';
-  // Middle and bottom place the visible ink (first line's cap top to last line's descender bottom), not the line boxes, which carry empty space below the glyphs.
+  // Middle and bottom place the visible ink, not the line boxes, which carry empty space below the glyphs.
+  // Middle centres the first line's cap top to the last baseline, so capitals and digits have equal gaps above and below (descenders hang into the lower gap). Bottom keeps descenders on the padding.
   // An installed font uses the metrics of the standard family it falls back to.
   const fm = TEXT_INK_METRICS[fontKeyword(m.style.fontFamily)];
   const inkTopOffset = (fm.ascent - fm.cap) * size + lead;
-  const inkH = Math.max(0, lines.length - 1) * lineH + (fm.cap + fm.descent) * size;
+  const inkH = Math.max(0, lines.length - 1) * lineH + (fm.cap + (valign === 'middle' ? 0 : fm.descent)) * size;
   const top =
     valign === 'middle'
       ? b.y + (b.h - inkH) / 2 - inkTopOffset
       : valign === 'bottom'
         ? b.y + b.h - pad - inkH - inkTopOffset
         : b.y + pad;
-  return lines.map(({ text, indent, last }, i) => {
-    let width = measure(text);
+  return lines.map(({ text, indent, last, start, end, width: measured }, i) => {
+    let width = measured ?? measure(text);
     // A wrapped list line hangs in from its first line; aligned text treats the indent as part of the line.
     const full = indent + width;
     const align = m.style.textAlign ?? 'left';
@@ -333,7 +373,17 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
       gap = (inner - full) / spaces;
       width += gap * spaces;
     }
-    return { text, x, y: top + i * lineH + lead, width, gap };
+    const line: TextLine = { text, x, y: top + i * lineH + lead, width, gap };
+    if (runLines && styled && start !== undefined && end !== undefined) {
+      let at = x;
+      line.runs = runsWithin(runs, start, end).map((r) => {
+        const w = styled(r.text, r.bold, r.italic) + gap * (r.text.match(/ /g) ?? []).length;
+        const run: LineRun = { text: r.text, x: at, width: w, bold: r.bold, italic: r.italic, underline: r.underline, strikethrough: r.strikethrough, color: r.color };
+        at += w;
+        return run;
+      });
+    }
+    return line;
   });
 }
 
@@ -342,10 +392,10 @@ export function textBoxLines(m: Markup, measure: (s: string) => number): { text:
  * units (0 for top; can be negative when the text overflows). The in-place editor adds it to its
  * top padding so typing starts where the rendered text sits.
  */
-export function textBlockShift(m: Markup, measure: (s: string) => number): number {
+export function textBlockShift(m: Markup, measure: (s: string) => number, styled?: StyledMeasure): number {
   if ((m.style.verticalAlign ?? 'top') === 'top') return 0;
-  const aligned = textBoxLines(m, measure)[0];
-  const top = textBoxLines({ ...m, style: { ...m.style, verticalAlign: 'top' } }, measure)[0];
+  const aligned = textBoxLines(m, measure, styled)[0];
+  const top = textBoxLines({ ...m, style: { ...m.style, verticalAlign: 'top' } }, measure, styled)[0];
   return aligned && top ? aligned.y - top.y : 0;
 }
 
@@ -528,13 +578,32 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.font = cssFont(style, size);
     ctx.fillStyle = textColor(style);
     ctx.strokeStyle = textColor(style);
-    ctx.textBaseline = 'top';
+    ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
     ctx.beginPath();
     ctx.rect(b.x, b.y, b.w, b.h);
     ctx.clip();
-    for (const line of textBoxLines(m, (s) => ctx.measureText(s).width)) {
-      drawJustified(ctx, line);
+    const base = textBaselineOffset(style);
+    const styledMeasure: StyledMeasure = (t, bold, italic) => {
+      ctx.font = cssFont({ ...style, bold, italic }, size);
+      return ctx.measureText(t).width;
+    };
+    const lines = textBoxLines(m, (s) => ctx.measureText(s).width, styledMeasure);
+    ctx.font = cssFont(style, size);
+    for (const line of lines) {
+      if (line.runs) {
+        // Styled parts: each run in its own font and colour, with its own underline and strikethrough.
+        for (const run of line.runs) {
+          ctx.font = cssFont({ ...style, bold: run.bold, italic: run.italic }, size);
+          ctx.fillStyle = run.color;
+          drawJustified(ctx, { text: run.text, x: run.x, y: line.y + base, gap: line.gap });
+          if (/^\s*$/.test(run.text)) continue;
+          if (run.underline) underline(ctx, run.x, line.y + size * 0.98, run.width, size);
+          if (run.strikethrough) underline(ctx, run.x, line.y + size * 0.55, run.width, size);
+        }
+        continue;
+      }
+      drawJustified(ctx, { ...line, y: line.y + base });
       if (style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
       if (style.strikethrough && line.text) underline(ctx, line.x, line.y + size * 0.55, line.width, size);
     }
@@ -594,7 +663,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
 
 /** A table's cell text, each cell's lines laid out and clipped like a text box. */
 function drawTable(ctx: CanvasRenderingContext2D, m: Markup) {
-  ctx.textBaseline = 'top';
+  ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   for (const cell of tableCells(m)) {
     if (!cell.text) continue;
@@ -607,7 +676,7 @@ function drawTable(ctx: CanvasRenderingContext2D, m: Markup) {
     ctx.rect(cell.rect.x, cell.rect.y, cell.rect.w, cell.rect.h);
     ctx.clip();
     for (const line of textBoxLines(tableCellText(m, cell), (s) => ctx.measureText(s).width)) {
-      drawJustified(ctx, line);
+      drawJustified(ctx, { ...line, y: line.y + textBaselineOffset({ ...cell.style, fontSize: size }) });
       if (cell.style.underline && line.text) underline(ctx, line.x, line.y + size * 0.98, line.width, size);
     }
     ctx.restore();

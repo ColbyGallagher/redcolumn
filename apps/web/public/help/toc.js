@@ -172,6 +172,7 @@ window.HELP_TOC = [
       { id: 'takeoff-templates', title: 'Takeoff templates' },
       { id: 'community-library', title: 'Community library (trade packs)' },
       { id: 'takeoff-reports', title: 'Takeoff reports (PDF, Excel, CSV)' },
+      { id: 'portals', title: 'Portals: mirror typical floors (Experimental)' },
       { id: 'spaces', title: 'Spaces (rooms and zones)' },
     ],
   },

@@ -1,7 +1,7 @@
 import { expect, test, type App } from '../support/app.ts';
 import { PLAN } from '../support/driver.ts';
 
-const editor = (app: App) => app.page.locator('textarea.text-editor');
+const editor = (app: App) => app.page.locator('div.text-editor');
 
 /** Draws a text box and leaves its editor open. */
 async function textBox(app: App) {
@@ -29,11 +29,101 @@ test.describe('text markups', () => {
     expect(await textOf(app)).toBe('FIRST DRAFT');
     const c = await app.at([450, 525]);
     await app.page.mouse.dblclick(c.x, c.y);
-    await expect(editor(app)).toHaveValue('FIRST DRAFT');
+    await expect(editor(app)).toHaveText('FIRST DRAFT');
     await app.page.keyboard.press('Control+A');
     await app.page.keyboard.type('SECOND DRAFT');
     await commit(app);
     expect(await textOf(app)).toBe('SECOND DRAFT');
+  });
+
+  test('Ctrl+B, Ctrl+I and Ctrl+U style the text being typed', async ({ app }) => {
+    await textBox(app);
+    await app.page.keyboard.type('STYLED');
+    await app.page.keyboard.press('Control+B');
+    await app.page.keyboard.press('Control+I');
+    await app.page.keyboard.press('Control+U');
+    await commit(app);
+    const style = (await app.raw())[0]!.style as { bold?: boolean; italic?: boolean; underline?: boolean };
+    expect(style.bold).toBe(true);
+    expect(style.italic).toBe(true);
+    expect(style.underline).toBe(true);
+    expect(await textOf(app)).toBe('STYLED');
+  });
+
+  /** Types "plain bold plain" and selects "bold". */
+  async function selectMiddleWord(app: App) {
+    await textBox(app);
+    await app.page.keyboard.type('plain bold plain');
+    await app.page.keyboard.press('Home');
+    for (let i = 0; i < 6; i++) await app.page.keyboard.press('ArrowRight');
+    for (let i = 0; i < 4; i++) await app.page.keyboard.press('Shift+ArrowRight');
+  }
+
+  test('Ctrl+B on selected words bolds only those words', async ({ app }) => {
+    await selectMiddleWord(app);
+    await app.page.keyboard.press('Control+B');
+    await commit(app);
+    const m = (await app.raw())[0]! as { text: string; spans?: unknown; style: { bold?: boolean } };
+    expect(m.text).toBe('plain bold plain');
+    expect(m.style.bold).toBeFalsy();
+    expect(m.spans).toEqual([{ start: 6, end: 10, style: { bold: true } }]);
+  });
+
+  test('italic, underline and strikethrough on selected words, from the bar', async ({ app }) => {
+    await selectMiddleWord(app);
+    await app.page.keyboard.press('Control+I');
+    await app.page.keyboard.press('Control+U');
+    await app.page.locator('.text-editor-bar button[aria-label^="Strikethrough"]').click();
+    await commit(app);
+    const m = (await app.raw())[0]! as { spans?: unknown };
+    expect(m.spans).toEqual([{ start: 6, end: 10, style: { italic: true, underline: true, strikethrough: true } }]);
+  });
+
+  test('a colour from the bar applies to the selected words', async ({ app }) => {
+    await selectMiddleWord(app);
+    await app.page.locator('.text-editor-bar button[aria-label="Text colour #d92d20"]').click();
+    await commit(app);
+    const m = (await app.raw())[0]! as { spans?: unknown; style: { textColor?: string } };
+    expect(m.spans).toEqual([{ start: 6, end: 10, style: { color: '#d92d20' } }]);
+    expect(m.style.textColor).toBeUndefined();
+  });
+
+  test('with all the text selected, Ctrl+B bolds the whole markup as before', async ({ app }) => {
+    await textBox(app);
+    await app.page.keyboard.type('everything');
+    await app.page.keyboard.press('Control+A');
+    await app.page.keyboard.press('Control+B');
+    await commit(app);
+    const m = (await app.raw())[0]! as { spans?: unknown; style: { bold?: boolean } };
+    expect(m.style.bold).toBe(true);
+    expect(m.spans).toBeUndefined();
+  });
+
+  test('Ctrl+Z undoes the styling, then Ctrl+Y brings it back', async ({ app }) => {
+    await selectMiddleWord(app);
+    await app.page.keyboard.press('Control+B');
+    await expect(editor(app).locator('span[data-b="1"]')).toHaveText('bold');
+    await app.page.keyboard.press('Control+Z');
+    await expect(editor(app).locator('span[data-b="1"]')).toHaveCount(0);
+    await app.page.keyboard.press('Control+Y');
+    await expect(editor(app).locator('span[data-b="1"]')).toHaveText('bold');
+    await commit(app);
+    expect(((await app.raw())[0]! as { spans?: unknown[] }).spans).toHaveLength(1);
+  });
+
+  test('styled words survive editing again, and typing before them keeps them on the right words', async ({ app }) => {
+    await selectMiddleWord(app);
+    await app.page.keyboard.press('Control+B');
+    await commit(app);
+    const c = await app.at([450, 525]);
+    await app.page.mouse.dblclick(c.x, c.y);
+    await expect(editor(app).locator('span[data-b="1"]')).toHaveText('bold');
+    await app.page.keyboard.press('Control+Home');
+    await app.page.keyboard.type('>> ');
+    await commit(app);
+    const m = (await app.raw())[0]! as { text: string; spans?: unknown };
+    expect(m.text).toBe('>> plain bold plain');
+    expect(m.spans).toEqual([{ start: 9, end: 13, style: { bold: true } }]);
   });
 
   test('Escape cancels an edit', async ({ app }) => {

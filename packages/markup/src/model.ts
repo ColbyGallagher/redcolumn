@@ -5,6 +5,7 @@ import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
 import type { TableData } from './table';
 import type { CustomLine } from './lineStyle';
+import type { TextSpan } from './textSpans';
 import { lineEnds, type BlendMode, type FontFamily, type LineDash, type LineEnding, type HatchSpec, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
 /** Point in page space: PDF points, origin at the top-left of the displayed (rotated) page, y down. */
@@ -317,6 +318,11 @@ export interface Markup {
   points: Point[];
   style: MarkupStyle;
   text?: string;
+  /**
+   * Text markups: parts of `text` styled apart from the markup (bold, italic, underline, strikethrough,
+   * colour). `text` stays the plain string, so /Contents and other tools read it unchanged.
+   */
+  spans?: TextSpan[];
   /** Free-form comment shown in the markup list. */
   comment?: string;
   /** Replies to the markup. A reply's `parentId` points at the reply it answers, when it answers one. */
@@ -395,6 +401,11 @@ export interface Markup {
   locked?: boolean;
   /** Markups sharing a group id are selected, moved and deleted together. */
   groupId?: string;
+  /**
+   * Portals (Experimental): this markup is one of the copies of a markup mirrored across a portal's
+   * linked pages (see portals.ts); copies share `linkId` and are kept in sync.
+   */
+  portalLink?: { portalId: string; linkId: string };
   /** The markup layer it is on (Layers panel); exported as a PDF layer of that name. */
   layer?: string;
   /** Flagged for follow-up (a linked flag, listed in the Flags panel). */

@@ -8443,6 +8443,17 @@ tr.hidden-markup td {
   color: var(--danger-text);
 }
 
+.adjust-image .adjust-row {
+  display: grid;
+  grid-template-columns: 11em 1fr 3em;
+  align-items: center;
+  gap: 8px;
+}
+
+.adjust-image .adjust-row output {
+  text-align: right;
+}
+
 .revu-migration progress {
   width: 100%;
   margin-bottom: 12px;

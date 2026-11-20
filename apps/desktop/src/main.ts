@@ -15,7 +15,8 @@ import { checkFill, checkLive, checkSheets, checkTable, fillWorkbook, loadExcelL
 import { PathAllowlist } from './allowlist';
 import { NATIVE_OPEN_SAVE, PRINT_MODE } from './capabilities';
 import { DEV_ORIGIN, isDev } from './dev';
-import { captureEarlyOpens, LaunchQueue, type LaunchItem } from './launch';
+import { openIntoWindow } from './open-file';
+import { captureOpenFiles, LaunchQueue, type LaunchItem } from './launch';
 import { LINK_SCHEME } from './links';
 import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
 import { SystemFonts, systemFontDirs } from './fonts';
@@ -28,7 +29,7 @@ import { harden, installMenu, installPermissions } from './security';
 import { isSmokeRun, lockHeldMessage, smokeUserData } from './smoke';
 import { createUpdater } from './updater';
 
-const earlyOpens = captureEarlyOpens();
+const openFiles = captureOpenFiles();
 const allowlist = new PathAllowlist();
 /** The window files opened from outside the app (Explorer, the command line) go to: the one last in front. */
 const focusedLaunches = () => (mainWindow ? windows.get(mainWindow.webContents)?.launches : undefined) ?? [...windows.values()][0]?.launches;
@@ -409,7 +410,8 @@ async function start() {
 
   app.on('web-contents-created', (_event, contents) => harden(contents));
   createWindow();
-  for (const filePath of earlyOpens) focusedLaunches()?.note(filePath);
+  // open-file from here on (Finder Open With on a running app): to the front window, or a new one if all were closed.
+  openFiles.start((filePath) => openIntoWindow(focusedLaunches, () => createWindow(), () => quitting, filePath));
   noteArgv(process.argv);
   for (const argv of waitingArgv.splice(0)) focusedLaunches()?.noteArgv(argv);
   // A moment after launch, so the check never competes with the page loading.

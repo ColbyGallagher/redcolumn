@@ -525,6 +525,56 @@ body,
   height: 24px;
 }
 
+/* Takeoff › Assembly: the picker over its Variables drop-down and where a change goes. */
+.rb-assembly {
+  gap: 4px;
+  padding-top: 2px;
+}
+
+.rb-assembly select {
+  width: 150px;
+  height: 24px;
+}
+
+.rb-asm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.rb-asm-applies {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rb-asm-pop {
+  position: fixed;
+  z-index: 1000;
+  width: 280px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--panel);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.rb-asm-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+.rb-asm-note {
+  margin: 6px 0 0;
+  font-size: 11px;
+}
+
+.rb-asm-pop .warn {
+  color: var(--warning, #d97706);
+}
+
 /* Never scrolls: the controls spread sideways in blocks of up to two rows, so the fixed-height ribbon shows them all. */
 .rb-props {
   display: flex;
@@ -885,8 +935,9 @@ select[size] {
   background: #fff;
   font-family: Helvetica, Arial, sans-serif;
   line-height: 1.2;
-  resize: none;
   overflow: hidden;
+  overflow-wrap: break-word;
+  cursor: text;
 }
 
 /* List buttons over the text editor. Their mousedown is cancelled so the editor keeps focus (it commits on blur). */
@@ -917,6 +968,40 @@ select[size] {
 
 .text-editor-bar button:hover {
   background: var(--border);
+}
+
+.text-editor-bar button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.text-editor-bar .fmt-bold {
+  font-weight: 700;
+}
+
+.text-editor-bar .fmt-italic {
+  font-style: italic;
+}
+
+.text-editor-bar .fmt-underline {
+  text-decoration: underline;
+}
+
+.text-editor-bar .fmt-strikethrough {
+  text-decoration: line-through;
+}
+
+.text-editor-bar .swatch-button {
+  min-width: 18px;
+  padding: 0 2px;
+}
+
+.text-editor-bar .swatch-button span {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgb(0 0 0 / 0.35);
 }
 
 .text-editor-bar .sep {

@@ -133,6 +133,8 @@ export interface CommandActions {
   geospatial: () => void;
   /** Writes the current sheet's stitched group as one new page. */
   stitchToPage: () => void;
+  /** Copies the stitching set up on some plan sheets onto another discipline's sheets. */
+  applyStitching: () => void;
   /** Converts the drawing the current PDF was made from again (DWG/DXF opened in this visit). */
   convertDrawingAgain: () => void;
   split: () => void;
@@ -178,6 +180,8 @@ export interface CommandActions {
   scaleToLength: () => void;
   /** Shows the selected cropped pictures whole again. */
   resetCrop: () => void;
+  /** Modify › Adjust Image / Picture Colours: opens the dialog for the selected pictures. */
+  pictureDialog: (which: 'adjust' | 'colours') => void;
   arrange: (where: 'front' | 'back' | 'forward' | 'backward') => void;
   sign: () => void;
   digitalIds: () => void;
@@ -224,6 +228,10 @@ export interface CommandActions {
   cutout: () => void;
   /** Takeoff › Sync to Excel: opens the same dialog as the Markups list's button. */
   syncExcel: () => void;
+  /** Portals (Experimental): the document's portals, to change their linked pages or remove them. */
+  portals: () => void;
+  /** The selected mirrored markups become ordinary markups on their pages. */
+  breakPortalLink: () => void;
   /** Takeoff › Reports: the quantity, detail and count reports as PDF, Excel or CSV. */
   takeoffReports: () => void;
   /** Takeoff › Arc (3-point): arms (or disarms) the next segment of a polylength, area, perimeter or volume as an arc. */
@@ -244,6 +252,8 @@ export interface CommandActions {
   toggleToolbar: () => void;
   /** The top toolbar as a ribbon (full, or tabs only) or as the one-row simplified toolbar. */
   setToolbarStyle: (style: ToolbarStyle, collapsed?: boolean) => void;
+  /** Puts the side panels, Markups list, ribbon, toolbar and split view back to their standard arrangement. */
+  resetLayout: () => void;
   toggleLeft: () => void;
   /** Shows or hides the side panel of the panels docked on the right. */
   toggleRight: () => void;
@@ -283,6 +293,8 @@ export interface CommandState {
   hiddenCount: number;
   selectionLocked: boolean;
   selectionGrouped: boolean;
+  /** Some selected markup is mirrored through a portal. */
+  selectionLinked: boolean;
   /** Join and Explode have something selected to work on. */
   selectionJoinable: boolean;
   selectionExplodable: boolean;
@@ -294,6 +306,8 @@ export interface CommandState {
   /** Crop Image has one picture selected to crop; Reset Crop has a cropped one. */
   selectionCroppable: boolean;
   selectionCropped: boolean;
+  /** Adjust Image has pictures selected to work on; Picture Colours has exactly one. */
+  selectionPictures: number;
   /** Whether a Modify tool can work on the selection (true when nothing is selected). */
   selectionFits: (tool: CadTool | 'offset') => boolean;
   canPaste: boolean;
@@ -313,6 +327,7 @@ export interface CommandState {
   stitched: boolean;
   canStitch: boolean;
   canStitchToPage: boolean;
+  canApplyStitching: boolean;
   canConvertDrawingAgain: boolean;
   showLinks: boolean;
   snap: boolean;
@@ -472,6 +487,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.createViewport', 'Edit', 'Create Viewport', () => a.setTool('viewport'), doc && s.editable, s.tool === 'viewport'),
     cmd('edit.scaleToLength', 'Edit', 'Scale to Length…', a.scaleToLength, doc && s.editable, s.tool === 'scaleLength'),
     cmd('edit.cropImage', 'Edit', 'Crop Image', () => a.setTool('cropImage'), s.selectionCroppable && s.editable, s.tool === 'cropImage'),
+    cmd('edit.adjustImage', 'Edit', 'Adjust Image…', () => a.pictureDialog('adjust'), s.selectionPictures > 0 && s.editable),
+    cmd('edit.pictureColours', 'Edit', 'Picture Colours…', () => a.pictureDialog('colours'), s.selectionPictures === 1 && s.editable),
     cmd('edit.resetCrop', 'Edit', 'Reset Crop', a.resetCrop, s.selectionCropped && s.editable),
     cmd('edit.bringToFront', 'Edit', 'Bring to Front', () => a.arrange('front'), sel && s.editable),
     cmd('edit.bringForward', 'Edit', 'Bring Forward', () => a.arrange('forward'), sel && s.editable),
@@ -514,6 +531,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('view.darkPages', 'View', 'Dark Mode (Pages)', () => a.setSettings({ pageFilter: s.settings.pageFilter === 'dark' ? 'none' : 'dark' }), true, s.settings.pageFilter === 'dark'),
     cmd('view.dimmer', 'View', 'Dimmer', () => a.setSettings({ pageFilter: s.settings.pageFilter === 'dim' ? 'none' : 'dim' }), true, s.settings.pageFilter === 'dim'),
     cmd('view.thinLines', 'View', 'Disable Line Weights', () => a.setSettings({ thinLines: !s.settings.thinLines }), true, s.settings.thinLines),
+    cmd('view.keepView', 'View', 'Keep View Between Pages', () => a.setSettings({ keepViewBetweenPages: !s.settings.keepViewBetweenPages }), true, s.settings.keepViewBetweenPages),
     cmd('view.magnifier', 'View', 'Magnifier', a.magnifier, doc, s.magnifier),
     cmd('view.fullScreen', 'View', 'Full Screen', a.fullScreen, doc, s.fullScreen),
     cmd('view.replyIndicators', 'View', 'Always Show Reply Indicators', () => a.setSettings({ replyIndicators: !s.settings.replyIndicators }), true, s.settings.replyIndicators),
@@ -564,6 +582,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.stitching', 'Document', 'Stitching… (Experimental)', a.stitching, doc, sidePanelOpen('stitching')),
     cmd('document.geospatial', 'Document', 'Geospatial…', a.geospatial, doc, sidePanelOpen('geospatial')),
     cmd('document.stitchToPage', 'Document', 'Stitch to New Page (Experimental)', a.stitchToPage, s.canStitchToPage),
+    cmd('document.applyStitching', 'Document', 'Apply Stitching to Other Sheets… (Experimental)', a.applyStitching, s.canApplyStitching),
     cmd('document.convertDrawingAgain', 'Document', 'Convert Drawing Again… (Experimental)', a.convertDrawingAgain, s.canConvertDrawingAgain),
     cmd('document.labelRegions', 'Document', 'Page Labels from Region…', a.labelRegions, s.pagesEditable),
     cmd('document.scaleRegions', 'Document', 'Bulk Apply Page Scale…', a.scaleRegions, s.pagesEditable),
@@ -608,6 +627,9 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     { ...cmd('tool.cutout', 'Tools', 'Cutout', a.cutout, doc && s.editable && (s.cutoutReady || s.tool === 'cutout'), s.tool === 'cutout'), hint: doc && s.editable ? s.cutoutHint : undefined },
     cmd('takeoff.syncExcel', 'Tools', 'Sync to Excel…', a.syncExcel, doc),
     cmd('takeoff.reports', 'Tools', 'Takeoff Reports…', a.takeoffReports, doc),
+    cmd('takeoff.definePortal', 'Tools', 'Define Portal (Experimental)', () => a.setTool('portalPolygon'), doc && s.editable && s.pageCount > 1, s.tool === 'portalPolygon'),
+    cmd('takeoff.portals', 'Tools', 'Portals… (Experimental)', a.portals, doc),
+    cmd('takeoff.breakPortalLink', 'Tools', 'Break Portal Link (Experimental)', a.breakPortalLink, s.selectionLinked && s.editable),
     { ...cmd('draw.arc', 'Tools', 'Arc (3-point)', a.toggleArc, doc && s.editable && (s.canArc || s.arcArmed), s.arcArmed), hint: 'Start a polylength or area first' },
     cmd('takeoff.hip', 'Tools', 'Hip Length', () => a.hipValley('hip'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'hip'),
     cmd('takeoff.valley', 'Tools', 'Valley Length', () => a.hipValley('valley'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'valley'),
@@ -636,6 +658,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('window.rightPanel', 'Window', 'Right Panel', a.toggleRight, s.hasRightPanels, s.showRight),
     cmd('window.bottomPanel', 'Window', 'Bottom Panel', a.toggleBottom, true, s.showBottom),
     cmd('window.panels', 'Window', 'Toggle Panels', a.togglePanels),
+    cmd('window.resetLayout', 'Window', 'Reset Layout', a.resetLayout),
     cmd('window.files', 'Window', 'File Access', () => a.focusPanel('files'), true, sidePanelOpen('files')),
     cmd('window.pages', 'Window', 'Thumbnails', () => a.focusPanel('pages'), true, sidePanelOpen('pages')),
     cmd('window.bookmarks', 'Window', 'Bookmarks', () => a.focusPanel('bookmarks'), true, sidePanelOpen('bookmarks')),

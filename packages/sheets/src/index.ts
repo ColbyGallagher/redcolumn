@@ -6,3 +6,4 @@ export * from './regions.ts';
 export * from './standard.ts';
 export * from './chainage.ts';
 export * from './confidence.ts';
+export * from './graph.ts';
