@@ -13,9 +13,12 @@ export interface RichState {
 }
 
 /** The inline CSS of one run, every property explicit so a run can switch a markup-wide style off. */
-function runCss(r: { bold: boolean; italic: boolean; underline: boolean; strikethrough: boolean; color: string }): string {
-  const deco = [r.underline && 'underline', r.strikethrough && 'line-through'].filter(Boolean).join(' ') || 'none';
-  return `font-weight:${r.bold ? 'bold' : 'normal'};font-style:${r.italic ? 'italic' : 'normal'};text-decoration:${deco};color:${r.color}`;
+function applyRunStyle(el: HTMLElement, r: { bold: boolean; italic: boolean; underline: boolean; strikethrough: boolean; color: string }) {
+  // CSSOM assignments, not a style attribute: the desktop CSP (style-src 'self') blocks the latter.
+  el.style.fontWeight = r.bold ? 'bold' : 'normal';
+  el.style.fontStyle = r.italic ? 'italic' : 'normal';
+  el.style.textDecoration = [r.underline && 'underline', r.strikethrough && 'line-through'].filter(Boolean).join(' ') || 'none';
+  el.style.color = r.color;
 }
 
 /** Fills `root` with the text as runs (replacing what it had). */
@@ -28,7 +31,7 @@ export function renderRuns(root: HTMLElement, text: string, spans: readonly Text
     el.dataset.u = r.underline ? '1' : '0';
     el.dataset.s = r.strikethrough ? '1' : '0';
     el.dataset.c = r.color;
-    el.setAttribute('style', runCss(r));
+    applyRunStyle(el, r);
     el.textContent = r.text;
     root.appendChild(el);
   }
