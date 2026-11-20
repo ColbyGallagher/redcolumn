@@ -115,6 +115,59 @@ test('an artwork stamp is saved as its picture with its text over it', async () 
   assert.match(text, /\/Helvetica-Bold\b/, 'and the bold font for its text');
 });
 
+/**
+ * A stamp with form fields, as other PDF tools write dynamic stamps: text fields whose scripts fill
+ * in the user, the date or a typed answer, a list to pick from, and a tick box.
+ */
+async function formStampPdf() {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([300, 100]);
+  page.node.set(PDFName.of('ArtBox'), doc.context.obj([0, 0, 300, 100]));
+  const js = (src: string) => ({ C: { S: 'JavaScript', JS: PDFString.of(src) } });
+  const widget = (rect: number[], extra: Record<string, unknown>) => doc.context.register(doc.context.obj({ Type: 'Annot', Subtype: 'Widget', Rect: rect, DA: PDFString.of('/HeBo 12 Tf 0 0 1 rg'), Q: 1, ...extra }));
+  // One field with two widgets: both show its value.
+  const parent = doc.context.register(doc.context.obj({ FT: 'Tx', T: PDFString.of('Checker'), AA: js('if (event.source.forReal) event.value = app.response({ cQuestion: "Checked by:", cTitle: "Stamp", cDefault: "J. Smith" });') }));
+  const annots = [
+    doc.context.register(doc.context.obj({ Type: 'Annot', Subtype: 'FreeText', Rect: [10, 70, 100, 90], DA: PDFString.of('0 0 0 rg /Helv 12 Tf'), Contents: PDFString.of('Checked by'), DS: PDFString.of('font: Helvetica 12pt; text-align:left') })),
+    widget([110, 70, 290, 90], { Parent: parent }),
+    widget([110, 5, 290, 20], { Parent: parent }),
+    widget([10, 40, 140, 60], { FT: 'Tx', T: PDFString.of('Date'), AA: js('event.value = util.printd("dd mmm yyyy", new Date());') }),
+    widget([150, 40, 290, 60], { FT: 'Tx', T: PDFString.of('Who'), AA: js('event.value = identity.name;') }),
+    widget([10, 22, 140, 38], { FT: 'Ch', Ff: 1 << 17, T: PDFString.of('St'), TU: PDFString.of('Status?'), Opt: [PDFString.of('Open'), [PDFString.of('c'), PDFString.of('Closed')]], V: PDFString.of('Open') }),
+    widget([150, 22, 170, 38], { FT: 'Btn', T: PDFString.of('Urgent') }),
+  ];
+  page.node.set(PDFName.of('Annots'), doc.context.obj(annots));
+  return doc.save();
+}
+
+test('a stamp’s form fields become its own fields, or {User} and {Date} where their scripts fill those in', async () => {
+  const p = await parseStampPdf(await formStampPdf(), 'Checked');
+  assert.deepEqual(
+    p.texts.map((t) => t.text),
+    ['Checked by', '{Checked by}', '{Checked by}', '{Date}', '{User}', '{Status}'],
+  );
+  assert.deepEqual(p.fields, [
+    { id: 'Checker', label: 'Checked by', kind: 'text', value: 'J. Smith' },
+    { id: 'St', label: 'Status', kind: 'text', value: 'Open', choices: ['Open', 'Closed'] },
+  ]);
+  const field = p.texts[1]!;
+  assert.deepEqual([field.x, field.y, field.w, field.h, field.size, field.color, field.bold, field.align], [110, 10, 180, 20, 12, '#0000ff', true, 'center']);
+  // The tick box is left in the picture.
+  assert.equal(p.hasArtwork, true);
+});
+
+test('a stamp with form fields places as a picture stamp asking for them, with each where it was', async () => {
+  const p = await parseStampPdf(await formStampPdf(), 'Checked');
+  const def = artStamp(p, 'data:image/png;base64,AAAA', 'f1');
+  assert.equal(def.fields!.length, 2);
+  const c = resolveStamp(def, { user: 'Jane Doe', file: 'f.pdf', page: '1', now: new Date(2026, 9, 5) }, { Checker: 'A. Smith', St: 'Closed' });
+  assert.deepEqual(c.art!.texts.map((t) => t.text).slice(0, 3), ['Checked by', 'A. Smith', 'A. Smith']);
+  assert.ok(c.art!.texts.some((t) => t.text === 'Jane Doe'));
+  assert.ok(c.art!.texts.some((t) => t.text === 'Closed'));
+  // As text alone, a label and the field beside it are one line.
+  assert.equal(textStamp(p, 't1').lines[0], 'Checked by {Checked by}');
+});
+
 // Run with REVU_SETTINGS_DIR pointing at a Revu settings folder to read every stamp it has.
 const dir = process.env.REVU_SETTINGS_DIR;
 test("Revu's own stamps all read", { skip: dir ? false : 'REVU_SETTINGS_DIR is not set' }, async () => {

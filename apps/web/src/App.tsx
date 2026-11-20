@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -6428,7 +6428,7 @@ export function App() {
     const form = carried?.stamp?.form;
     const stamp = carried?.stamp
       ? form
-        ? withFieldValues({ id: item.id, name: item.subject || item.label, lines: form.lines, color: form.color, frame: carried.stamp.frame, fields: form.fields }, form.values)
+        ? withFieldValues({ id: item.id, name: item.subject || item.label, ...formStamp(carried.stamp)! }, form.values)
         : { id: item.id, name: item.subject || item.label, lines: carried.stamp.lines, color: item.style.stroke, frame: carried.stamp.frame, ...(carried.stamp.art ? { art: carried.stamp.art } : {}) }
       : undefined;
     tools.setTool(item.tool ?? item.type, {
@@ -11463,7 +11463,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           if (!o || !m?.stamp || !form) return null;
           return (
             <FillStampDialog
-              stamp={{ name: m.subject ?? 'Stamp', lines: form.lines, frame: m.stamp.frame, color: form.color, fields: form.fields }}
+              stamp={{ name: m.subject ?? 'Stamp', ...formStamp(m.stamp)! }}
               author={form.placed.user}
               initial={form.values}
               title={m.subject ?? 'Stamp'}

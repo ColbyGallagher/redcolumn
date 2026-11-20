@@ -23,7 +23,7 @@ export { addBend, anchorOf, anchorsOf, canConnect, connectorLabel, CONNECTOR_STU
 export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip } from './callout';
 export { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset';
 export { cropImage, cropOf, imageFrame, mirrorCrop, uncropImage } from './imageCrop';
-export { DEFAULT_STAMPS, fillStampFieldsNow, refillStamp, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
+export { DEFAULT_STAMPS, fillStampFieldsNow, formStamp, refillStamp, renameFieldToken, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
 export { imageDimensions, imageStamp, imageStampName, MAX_STAMP_IMAGE_BYTES, MAX_STAMP_IMAGE_PIXELS, MAX_STAMP_IMAGE_SIDE, STAMP_IMAGE_BUDGET, STAMP_IMAGE_SIDES, stampImageSize } from './stampImage';
 export { artStamp, parseStampPdf, revuFields, textStamp, type ParsedStamp, type StampPdfText } from './stampPdf';
 export {

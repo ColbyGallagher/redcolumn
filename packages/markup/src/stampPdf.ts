@@ -1,5 +1,5 @@
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRawStream, PDFRef, PDFString, type PDFObject } from 'pdf-lib';
-import type { StampArt, StampArtText, StampDef } from './stamp';
+import type { StampArt, StampArtText, StampDef, StampField } from './stamp';
 import { unescapeXml } from './xml';
 
 /**
@@ -34,6 +34,11 @@ export interface ParsedStamp {
   texts: StampPdfText[];
   /** Anything but text: the page's own content, or annotations that are not text boxes. */
   hasArtwork: boolean;
+  /**
+   * Blanks to fill in, from the stamp's form fields: each a text field (or a list to pick from),
+   * used in `texts` as `{Label}`.
+   */
+  fields: StampField[];
 }
 
 /** Revu's fields (`&[Date]`) as ours (`{Date}`). Names we do not know stay as they are. */
@@ -113,6 +118,117 @@ function appearanceText(annot: PDFDict): { text: string; font: string; size: num
   return { text, font: font?.[1] ?? '', size: Number(font?.[2]) || 12, color: rgb ? toHex(Number(rgb[1]), Number(rgb[2]), Number(rgb[3])) : null };
 }
 
+/** A form field's entry, from the widget or the field above it (fields inherit from their parents). */
+function inherited(d: PDFDict, key: string): PDFObject | undefined {
+  let at: PDFDict | undefined = d;
+  for (let depth = 0; at && depth < 16; depth++) {
+    const v = at.lookup(PDFName.of(key));
+    if (v !== undefined) return v;
+    at = at.lookupMaybe(PDFName.of('Parent'), PDFDict);
+  }
+  return undefined;
+}
+
+/** A form field's full name: its own and its parents', joined by dots. */
+function fieldName(d: PDFDict): string {
+  const parts: string[] = [];
+  let at: PDFDict | undefined = d;
+  for (let depth = 0; at && depth < 16; depth++) {
+    const t = textOf(at.lookup(PDFName.of('T')));
+    if (t) parts.unshift(t);
+    at = at.lookupMaybe(PDFName.of('Parent'), PDFDict);
+  }
+  return parts.join('.');
+}
+
+/** The scripts a field runs to work out and show its value (calculate, format, keystroke), joined. */
+function fieldScripts(d: PDFDict): string {
+  const out: string[] = [];
+  let at: PDFDict | undefined = d;
+  for (let depth = 0; at && depth < 16; depth++) {
+    const aa = at.lookupMaybe(PDFName.of('AA'), PDFDict);
+    for (const key of ['C', 'F', 'K']) {
+      const js = aa?.lookupMaybe(PDFName.of(key), PDFDict)?.lookup(PDFName.of('JS'));
+      if (js instanceof PDFRawStream) out.push(new TextDecoder('latin1').decode(decodePDFRawStream(js).decode()));
+      else if (js) out.push(textOf(js));
+    }
+    at = at.lookupMaybe(PDFName.of('Parent'), PDFDict);
+  }
+  return out.join('\n');
+}
+
+/** The script string literal starting at `i` (after any spaces): its value and where it ends. */
+function jsString(src: string, i: number): { value: string; end: number } | null {
+  while (/\s/.test(src[i] ?? '')) i++;
+  const q = src[i];
+  if (q !== '"' && q !== "'") return null;
+  let value = '';
+  for (let j = i + 1; j < src.length; j++) {
+    const c = src[j]!;
+    if (c === '\\') {
+      const n = src[++j] ?? '';
+      value += n === 'n' ? ' ' : n;
+    } else if (c === q) return { value, end: j + 1 };
+    else value += c;
+  }
+  return null;
+}
+
+/** The string given for `key:` in an object literal in a script. */
+function jsNamed(src: string, key: string): string | undefined {
+  const at = new RegExp(`\\b${key}\\s*:`).exec(src);
+  return at ? jsString(src, at.index + at[0].length)?.value : undefined;
+}
+
+/** The leading string arguments of a call whose `(` is at `i`. */
+function jsArgs(src: string, i: number): string[] {
+  const out: string[] = [];
+  let at = i + 1;
+  for (;;) {
+    const s = jsString(src, at);
+    if (!s) return out;
+    out.push(s.value);
+    at = s.end;
+    while (/\s/.test(src[at] ?? '')) at++;
+    if (src[at] !== ',') return out;
+    at++;
+  }
+}
+
+/**
+ * What a stamp's form field shows, from the script that fills it in: the user's name, the date or
+ * time, the file name, or a question asked when the stamp is placed (`app.response`). No script is
+ * run: one that does anything else leaves the field a blank to fill in.
+ */
+function scriptedValue(js: string): { token: string } | { question: string; value?: string } | null {
+  if (!js.trim()) return null;
+  const ask = /app\.response\s*\(/.exec(js);
+  if (ask) {
+    const open = ask.index + ask[0].length - 1;
+    const tail = js.slice(open, open + 2000);
+    // app.response("Question", "Title", "Default") or app.response({ cQuestion: ..., cDefault: ... }).
+    const args = jsArgs(js, open);
+    const question = (args.length ? args[0] : jsNamed(tail, 'cQuestion')) ?? '';
+    const value = args.length ? args[2] : jsNamed(tail, 'cDefault');
+    return { question, ...(value ? { value } : {}) };
+  }
+  if (/identity\.(name|loginName)/.test(js)) return { token: '{User}' };
+  if (/documentFileName/.test(js)) return { token: '{File}' };
+  const printd = /util\.printd\s*\(/.exec(js) ?? /AFDate_Format(?:Ex)?\s*\(/.exec(js);
+  const format = printd ? jsArgs(js, printd.index + printd[0].length - 1)[0] : undefined;
+  if (printd || /new\s+Date\s*\(/.test(js)) {
+    // The script's date format: d, m and y for the date; h, H, M and t for the time.
+    const f = format ?? 'mm/dd/yyyy';
+    const date = /[dmy]/.test(f);
+    const time = /[hHMt]/.test(f);
+    return { token: date && time ? '{Date} {Time}' : time ? '{Time}' : '{Date}' };
+  }
+  return null;
+}
+
+/** A field's label: its question, tooltip or name, without a trailing colon or question mark (or braces). */
+const fieldLabel = (s: string) => s.replace(/\s+/g, ' ').replace(/[{}]/g, '').replace(/[\s:?]+$/, '').trim();
+
 /** Reads a Revu stamp PDF. Throws when it has no page to read. */
 export async function parseStampPdf(bytes: Uint8Array | ArrayBuffer, fallbackName = 'Stamp'): Promise<ParsedStamp> {
   const doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
@@ -142,11 +258,68 @@ export async function parseStampPdf(bytes: Uint8Array | ArrayBuffer, fallbackNam
   const resources = node.lookupMaybe(PDFName.of('Resources'), PDFDict);
   if (resources?.lookupMaybe(PDFName.of('XObject'), PDFDict)?.keys().length) hasArtwork = true;
 
+  const fields: StampField[] = [];
+  const labels = new Set<string>();
+  /**
+   * A text field or a list on the stamp as one of its texts: a dynamic field ({User}, {Date}) when
+   * its script fills one in, else a field of the stamp's own to fill in. False for other widgets.
+   */
+  const widget = (d: PDFDict, rect: number[], annot: number): boolean => {
+    const ft = inherited(d, 'FT');
+    const kind = ft instanceof PDFName ? ft.decodeText() : '';
+    if (kind !== 'Tx' && kind !== 'Ch') return false;
+    const name = fieldName(d);
+    const scripted = scriptedValue(fieldScripts(d));
+    let text: string;
+    const same = name ? fields.find((f) => f.id === name) : undefined;
+    if (scripted && 'token' in scripted) text = scripted.token;
+    // Another widget of a field already read shows the same value.
+    else if (same) text = `{${same.label}}`;
+    else {
+      const base = fieldLabel(scripted?.question || textOf(inherited(d, 'TU')) || name) || 'Field';
+      let label = base;
+      for (let n = 2; labels.has(label.toLowerCase()); n++) label = `${base} ${n}`;
+      labels.add(label.toLowerCase());
+      const opt = inherited(d, 'Opt');
+      const choices = opt instanceof PDFArray ? opt.asArray().map((o) => (o instanceof PDFArray ? textOf(o.get(1)) || textOf(o.get(0)) : textOf(o))).filter(Boolean) : [];
+      const value = textOf(inherited(d, 'V')) || textOf(inherited(d, 'DV')) || (scripted && 'value' in scripted ? scripted.value : '') || '';
+      fields.push({ id: name || label, label, kind: 'text', value: revuFields(value), ...(choices.length ? { choices } : {}) });
+      text = `{${label}}`;
+    }
+    const da = textOf(inherited(d, 'DA'));
+    const font = /\/(\S+)\s+[\d.]+\s+Tf/.exec(da)?.[1] ?? '';
+    const daRgb = /([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+rg/.exec(da);
+    const daGrey = /(?:^|\s)([\d.]+)\s+g(?:\s|$)/.exec(da);
+    const q = inherited(d, 'Q');
+    const align = q instanceof PDFNumber ? q.asNumber() : 0;
+    const x0 = Math.min(rect[0]!, rect[2]!);
+    const x1 = Math.max(rect[0]!, rect[2]!);
+    const y0 = Math.min(rect[1]!, rect[3]!);
+    const y1 = Math.max(rect[1]!, rect[3]!);
+    texts.push({
+      text,
+      x: x0 - box.x,
+      y: box.y + box.h - y1,
+      w: x1 - x0,
+      h: y1 - y0,
+      // Size 0 is "fit the box": about two thirds of its height.
+      size: Number(/\/\S+\s+([\d.]+)\s+Tf/.exec(da)?.[1]) || (y1 - y0) * 0.65,
+      color: daRgb ? toHex(Number(daRgb[1]), Number(daRgb[2]), Number(daRgb[3])) : daGrey ? toHex(Number(daGrey[1]), Number(daGrey[1]), Number(daGrey[1])) : '#000000',
+      // Form fonts are often named HeBo, TiBo, CoBo and so on.
+      bold: /bld|bold|^[A-Z][a-z]Bo/i.test(font),
+      italic: /obl|ital/i.test(font),
+      align: align === 1 ? 'center' : align === 2 ? 'right' : 'left',
+      annot,
+    });
+    return true;
+  };
+
   dicts.forEach((d, annot) => {
     if (!(d instanceof PDFDict)) return;
     const subtype = d.lookupMaybe(PDFName.of('Subtype'), PDFName)?.decodeText();
     if (subtype === 'Popup') return;
     const rect = numbers(d.lookupMaybe(PDFName.of('Rect'), PDFArray) ?? undefined);
+    if (subtype === 'Widget' && rect?.length === 4 && widget(d, rect, annot)) return;
     if (subtype !== 'FreeText' || !rect || rect.length !== 4) {
       hasArtwork = true;
       return;
@@ -180,19 +353,28 @@ export async function parseStampPdf(bytes: Uint8Array | ArrayBuffer, fallbackNam
   });
 
   const title = doc.getTitle()?.trim();
-  return { name: title || fallbackName, width: box.w, height: box.h, box, texts, hasArtwork };
+  return { name: title || fallbackName, width: box.w, height: box.h, box, texts, hasArtwork, fields };
 }
 
 /** A stamp of text alone as one of ours: its lines top to bottom, in the colour of the largest. */
 export function textStamp(p: ParsedStamp, id: string): StampDef {
   const ordered = [...p.texts].sort((a, b) => a.y - b.y || a.x - b.x);
   const lead = [...p.texts].sort((a, b) => b.size - a.size)[0];
+  // Texts side by side (a label and the field beside it) are one line, left to right.
+  const rows: StampPdfText[][] = [];
+  for (const t of ordered) {
+    const mid = t.y + t.h / 2;
+    const row = t.text.includes('\n') ? undefined : rows.find((r) => r.every((o) => !o.text.includes('\n') && Math.abs(o.y + o.h / 2 - mid) < Math.min(o.h, t.h) / 2));
+    if (row) row.push(t);
+    else rows.push([t]);
+  }
   return {
     id,
     name: p.name,
-    lines: ordered.flatMap((t) => t.text.split('\n')),
+    lines: rows.flatMap((r) => (r.length > 1 ? [r.sort((a, b) => a.x - b.x).map((t) => t.text).join(' ')] : r[0]!.text.split('\n'))),
     color: lead?.color ?? '#000000',
     frame: 'none',
+    ...(p.fields.length ? { fields: structuredClone(p.fields) } : {}),
   };
 }
 

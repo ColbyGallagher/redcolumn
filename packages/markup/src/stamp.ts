@@ -37,7 +37,8 @@ export interface StampDef {
   art?: StampArt;
   /**
    * Boxes to tick and blanks to fill in, listed under the wording. Ticking a box can fill in other
-   * fields and recolour the stamp (see `StampOption`). Not for picture stamps.
+   * fields and recolour the stamp (see `StampOption`). On a picture stamp, fields are shown only
+   * where its texts use them as `{Label}`, so each sits where its text is placed.
    */
   fields?: StampField[];
   /** Built-in stamps cannot be deleted (they can be copied and changed). */
@@ -65,6 +66,8 @@ export interface StampField {
   options?: StampOption[];
   /** The value it starts with: text (which may hold {Date} and the like), or the ticked box's label. */
   value?: string;
+  /** text: the values to pick from, offered as a list when it is filled in. */
+  choices?: string[];
 }
 
 /** How a stamp's line is drawn: plain (centred), a box (ticked or not), or a filled-in field. */
@@ -80,6 +83,8 @@ export interface StampForm {
   values: Record<string, string>;
   /** What {User}, {Date} and the other dynamic fields were filled in with when it was placed. */
   placed: { user: string; file: string; page: string; path?: string; now: number };
+  /** A picture stamp: its texts before anything is filled in (the picture itself stays on the content). */
+  artTexts?: StampArtText[];
 }
 
 /** What a placed stamp shows: its resolved lines and frame. */
@@ -175,7 +180,7 @@ function fillFields(s: string, v: StampValues): string {
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-const fieldToken = (f: StampField) => new RegExp(`\\{${escapeRe(f.label.trim())}\\}`, 'gi');
+const fieldToken = (f: Pick<StampField, 'label'>) => new RegExp(`\\{${escapeRe(f.label.trim())}\\}`, 'gi');
 
 /**
  * Text fields' values with {User} and the date fields filled in now, for showing them before the
@@ -226,15 +231,19 @@ export function withFieldValues<T extends Pick<StampDef, 'fields'>>(def: T, valu
 /** A stamp's lines with its dynamic fields filled in; empty lines are dropped. */
 export function resolveStamp(def: Pick<StampDef, 'lines' | 'frame' | 'art' | 'fields'> & { color?: string }, v: StampValues, values?: Readonly<Record<string, string>>): StampContent {
   const fill = (s: string) => fillFields(s, v);
-  if (def.art) {
-    const texts = def.art.texts.map((t) => ({ ...t, text: fill(t.text) })).filter((t) => t.text.trim());
-    return { lines: texts.map((t) => t.text), frame: 'none', art: { ...def.art, texts } };
-  }
   const fields = def.fields?.filter((f) => f.label.trim()) ?? [];
-  if (!fields.length) return { lines: def.lines.map(fill).filter((l) => l.trim()), frame: def.frame };
-
   const vals = { ...stampFieldValues(fields), ...values };
   const shown = (f: StampField) => (f.kind === 'text' ? fill(vals[f.id] ?? '') : (vals[f.id] ?? ''));
+  const placed = { user: v.user, file: v.file, page: v.page, ...(v.path ? { path: v.path } : {}), now: v.now.getTime() };
+  if (def.art) {
+    // Each text in its place, with the fields it names filled in.
+    const fillText = (s: string) => fields.reduce((line, f) => line.replace(fieldToken(f), () => shown(f)), fill(s));
+    const texts = def.art.texts.map((t) => ({ ...t, text: fillText(t.text) })).filter((t) => t.text.trim());
+    const content: StampContent = { lines: texts.map((t) => t.text), frame: 'none', art: { ...def.art, texts } };
+    if (!fields.length) return content;
+    return { ...content, form: { lines: [...def.lines], color: def.color ?? '#000000', fields: structuredClone(fields), values: vals, placed, artTexts: structuredClone(def.art.texts) } };
+  }
+  if (!fields.length) return { lines: def.lines.map(fill).filter((l) => l.trim()), frame: def.frame };
   // The wording, with {Label} for each field it uses; those fields are not listed again.
   const used = new Set<string>();
   const lines: string[] = [];
@@ -264,7 +273,6 @@ export function resolveStamp(def: Pick<StampDef, 'lines' | 'frame' | 'art' | 'fi
       kinds.push('field');
     }
   }
-  const placed = { user: v.user, file: v.file, page: v.page, ...(v.path ? { path: v.path } : {}), now: v.now.getTime() };
   return { lines, frame: def.frame, kinds, form: { lines: [...def.lines], color: def.color ?? '#000000', fields: structuredClone(fields), values: vals, placed } };
 }
 
@@ -276,8 +284,25 @@ export function refillStamp(content: StampContent, values: Readonly<Record<strin
   const form = content.form;
   if (!form) return null;
   const { now, ...rest } = form.placed;
-  const stamp = resolveStamp({ lines: form.lines, frame: content.frame, fields: form.fields, color: form.color }, { ...rest, now: new Date(now) }, values);
+  const stamp = resolveStamp(formStamp(content)!, { ...rest, now: new Date(now) }, values);
   return { stamp, color: stampFormColor(form.fields, values, form.color) };
+}
+
+/**
+ * A placed stamp with fields as the library stamp it was placed from, before anything was filled
+ * in (to fill it in again, or to place another like it). Null when it has no fields.
+ */
+export function formStamp(content: StampContent): Pick<StampDef, 'lines' | 'frame' | 'color' | 'fields' | 'art'> | null {
+  const form = content.form;
+  if (!form) return null;
+  const art = form.artTexts && content.art ? { image: content.art.image, aspect: content.art.aspect, texts: structuredClone(form.artTexts) } : undefined;
+  return { lines: [...form.lines], frame: content.frame, color: form.color, fields: structuredClone(form.fields), ...(art ? { art } : {}) };
+}
+
+/** A field's `{Label}` in wording, renamed: `from` becomes `to` wherever it is used. */
+export function renameFieldToken(text: string, from: string, to: string): string {
+  const old = from.trim();
+  return old ? text.replace(fieldToken({ label: old }), () => `{${to.trim()}}`) : text;
 }
 
 /** Headline size relative to the other lines. */
