@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { searchText, type SearchHit, type SheetInfo } from '@nb/sheets';
+import { searchText, type PageText, type SearchHit, type SheetInfo } from '@nb/sheets';
 import { CountToolDialog } from './CountToolDialog';
 import { centreOf, type CountHit, type CountTool } from '../search/countFromHits';
 import { fileSource, type Labelled, type SearchSource } from '../search/sources';
+import { searchIndex } from '../search/index/client';
 
 /** Where to look, as in Bluebeam's Search panel. */
 export type SearchScope = 'document' | 'page' | 'open' | 'recents' | 'folder';
@@ -133,6 +134,8 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
   const [collapsed, setCollapsed] = useState<string[]>(saved?.collapsed ?? []);
   const [resultsKey, setResultsKey] = useState(stale ? activeKey : (saved?.activeKey ?? activeKey));
   const [progress, setProgress] = useState<string | null>(null);
+  // A search that found nothing, run again with its misspelt words corrected.
+  const [respelt, setRespelt] = useState<{ from: string; to: string } | null>(null);
   // Checked results (by index in `hits`) to turn into a count, and the page the list is narrowed to (-1: all).
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [pageFilter, setPageFilter] = useState(-1);
@@ -174,6 +177,7 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
 
   const reset = () => {
     ++run.current;
+    setRespelt(null);
     setChecked(new Set());
     setPageFilter(-1);
     setHits(null);
@@ -194,9 +198,9 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
     return folder.files.filter((f) => options.includeSubfolders || f.path.split('/').length <= 2).map((f) => fileSource(f.file, f.path));
   };
 
-  const search = async () => {
+  /** Searches for `q`; `misspelt` is the query it corrects, when the search for that found nothing. */
+  const search = async (q = query.trim(), misspelt: string | null = null) => {
     const id = ++run.current;
-    const q = query.trim();
     if (!q) {
       setHits(null);
       return;
@@ -205,12 +209,26 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
       chooseFolder();
       return;
     }
-    const docs = documents();
+    setRespelt(misspelt ? { from: misspelt, to: q } : null);
     const re = matcher(q, options);
     const found: DocHit[] = [];
     setHits(null);
     setResultsKey(activeKey);
     setShowResults(true);
+    // The search index says which pages of the documents it holds can match, so only those are
+    // read (and none, for a document where nothing can). Documents it does not hold yet are read
+    // in full, and kept in it for next time.
+    const keys = options.pages ? documents().flatMap((d) => (d.indexKey ? [d.indexKey] : [])) : [];
+    const narrowed = keys.length ? await searchIndex.candidates(keys, q, options.wholeWord) : null;
+    if (id !== run.current) return;
+    const candidates = narrowed?.hits ?? null;
+    const indexed = new Set(narrowed?.indexed ?? []);
+    const rankOf = (d: SearchSource) => (d.indexKey ? candidates?.[d.indexKey]?.rank : undefined);
+    // With several documents, the ones with the best matching pages come first (a word in a page's
+    // body ranks above the same word only in its title block), then the others in their usual order.
+    const all = documents();
+    const ranked = all.filter((d) => rankOf(d) !== undefined).sort((a, b) => rankOf(a)! - rankOf(b)!);
+    const docs = [...ranked, ...all.filter((d) => rankOf(d) === undefined)];
     for (const [n, doc] of docs.entries()) {
       const status = (what: string) => id === run.current && setProgress(docs.length > 1 ? `Searching ${n + 1} of ${docs.length}: ${doc.name}${what ? ` (${what})` : ''}` : what || 'Searching');
       status('');
@@ -222,7 +240,12 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
         if (options.filenames && applies('filenames', scope)) own.push(...tag('filename')(labelledHit(re, -1, [], '', doc.name)));
         if (options.properties) own.push(...Object.entries(await doc.properties()).flatMap(([k, v]) => tag('property')(labelledHit(re, -1, [], k, v))));
         if (options.pages) {
-          const pages = await doc.text((done, total) => status(`reading text ${done}/${total}`));
+          let pages: PageText[] | null = null;
+          if (doc.indexKey && candidates && indexed.has(doc.indexKey)) {
+            const wanted = (candidates[doc.indexKey]?.pages ?? []).filter((p) => doc.page === undefined || p === doc.page);
+            pages = wanted.length ? await searchIndex.pages(doc.indexKey, wanted) : [];
+          }
+          pages ??= await doc.text((done, total) => status(`reading text ${done}/${total}`));
           if (id !== run.current) return;
           const searched = doc.page === undefined ? pages : pages.map((p, i) => (i === doc.page ? p : { ...p, words: [] }));
           own.push(...searchText(searched, q, { wholeWord: options.wholeWord, caseSensitive: options.caseSensitive }).flatMap(tag('text')));
@@ -236,6 +259,13 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
       found.push(...own.sort(byPosition));
       // Results come in document by document, so a long folder search shows what it has found so far.
       setHits([...found]);
+    }
+    // Nothing found: try again with misspelt words corrected from the words the index holds (in
+    // lower case, so not when the case must match).
+    if (!found.length && !misspelt && keys.length && !options.caseSensitive) {
+      const respelling = await searchIndex.suggest(keys, q);
+      if (id !== run.current) return;
+      if (respelling) return search(respelling, q);
     }
     setProgress(null);
     setHits([...found]);
@@ -450,6 +480,11 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
       {showResults && (
         <>
           {progress && <p className="empty">{progress}</p>}
+          {respelt && !!hits?.length && !progress && (
+            <p className="empty search-respelt">
+              No matches for “{respelt.from}”. Showing matches for “{respelt.to}”.
+            </p>
+          )}
           {hits && !progress && (
             <p className="empty">
               {hits.length === 0 ? 'No matches.' : `${hits.length} match${hits.length === 1 ? '' : 'es'}${grouped ? ` in ${groups.size} file${groups.size === 1 ? '' : 's'}` : ` on ${new Set(hits.map((h) => h.pageIndex)).size} page(s)`}`}

@@ -6,6 +6,7 @@
  */
 
 import { openLocal, sealLocal } from './localCrypto';
+import { searchIndex } from '../search/index/client';
 
 export interface StoredFile {
   /** Stable document id: the hash of the file as first added. */
@@ -170,6 +171,7 @@ async function dropIfUnused(hash: string) {
   } catch {
     // Already gone.
   }
+  void searchIndex.drop(hash);
 }
 
 /**
