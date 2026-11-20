@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { calibratedScale, formatArea, formatFeetInches, formatLength, formatScaleNumber, parseLength, parseScaleNumber, parseScaleText, parseTypedScale, SCALE_PRESETS, scaleFromParts, scaleParts, yScaleLabel } from './scale.ts';
 import { angleAt, arcPoints, arcSegment, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, expandArcs, labelAnchor, measureLabel, measureValue, pathLengthArcs, polygonArea, polygonAreaArcs, toDisplayQuantity } from './measure.ts';
-import { SnapIndex } from './snap.ts';
+import { betterSnap, SnapIndex } from './snap.ts';
 
 const preset = (label: string) => SCALE_PRESETS.find((p) => p.label === label)!.scale;
 
@@ -387,4 +387,21 @@ test('slopes: pitch, ratio, elevations, hips and valleys give true lengths and a
   assert.equal(formatSlope(old), '6:12');
   assert.equal(formatSlope({ kind: 'degrees', value: 30 }), '30°');
   assert.equal(formatSlope({ kind: 'percent', value: 8 }), '8%');
+});
+
+test('betterSnap picks across indexes as one index would', () => {
+  const page = new SnapIndex(new Float32Array([0, 0, 200, 0]));
+  const picture = new SnapIndex(new Float32Array([60, -40, 60, 200]));
+  const p: [number, number] = [61, 2];
+  // The page line only offers a point on it; the picture's line passes nearer still, but neither has an end in reach.
+  const a = page.snap(p, 10);
+  const b = picture.snap(p, 10);
+  assert.equal(a?.kind, 'nearest');
+  assert.equal(b?.kind, 'nearest');
+  assert.deepEqual(betterSnap(a, b, p, 10)?.point, b!.point);
+  // An end beats a nearer point on a line.
+  const end = new SnapIndex(new Float32Array([64, 6, 90, 90]));
+  assert.equal(betterSnap(b, end.snap(p, 10), p, 10)?.kind, 'endpoint');
+  assert.equal(betterSnap(null, b, p, 10), b);
+  assert.equal(betterSnap(a, null, p, 10), a);
 });

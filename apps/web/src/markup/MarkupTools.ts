@@ -1,5 +1,9 @@
 import {
   align,
+  hasVector,
+  mirrorVector,
+  pictureSegments,
+  setVectorPainter,
   cropImage,
   cropOf,
   mirrorCrop,
@@ -119,7 +123,8 @@ import {
   type FlowShapeKind,
   type Side,
 } from '@nb/markup';
-import { arcPoints, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, track, type ManualQuantity, type Slope, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { arcPoints, arcSplit, bulgeThrough, bulgeThroughPoint, smoothBulgesAt, dynamicFill, expandArcs, formatLength, METERS_PER_UNIT, parseLength, pageLengthFor, pathLength, realLengthAlong, SnapIndex, betterSnap, track, type ManualQuantity, type Slope, type Snap, type SnapKind, type Tracked, type TrackPathKind, type TrackPoint } from '@nb/measure';
+import { vectorPictures } from './vectorPictures';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer';
 import { applyAffine, type Affine } from '../viewer/affine';
@@ -668,6 +673,8 @@ export class MarkupTools implements ViewerOverlay {
   private textSource: ((pageIndex: number) => Promise<readonly WordBox[]>) | null = null;
   private pageWords = new Map<number, readonly WordBox[] | 'loading'>();
   private snapIndexes = new Map<number, SnapIndex | 'loading'>();
+  /** Snap indexes of vector Snapshots' line work, by markup id, for where the markup is (`key`). */
+  private pictureIndexes = new Map<string, { key: string; index: SnapIndex | 'loading' }>();
   /** Snap target under the cursor, drawn as an indicator. */
   private snapHit: Snap | null = null;
   /** The snap target is a grid point (no name shown beside it). */
@@ -692,6 +699,7 @@ export class MarkupTools implements ViewerOverlay {
     private options: MarkupToolsOptions,
   ) {
     onImageLoad(() => this.viewer.invalidate());
+    setVectorPainter(vectorPictures.paint);
     // Grid and snapping preferences change what is drawn; Show Spaces changes which markups show.
     settings.subscribe(() => {
       this.refreshSketch();
@@ -888,6 +896,7 @@ export class MarkupTools implements ViewerOverlay {
   setSnapSource(source: ((pageIndex: number) => Promise<SnapIndex>) | null) {
     this.snapSource = source;
     this.snapIndexes.clear();
+    this.pictureIndexes.clear();
     this.snapHit = null;
   }
 
@@ -1645,7 +1654,9 @@ export class MarkupTools implements ViewerOverlay {
       if (!isImageType(m.type) || !m.image) continue;
       // A cropped picture is turned over with its crop, so the same part stays shown.
       const crop = cropOf(m);
-      void mirrorDataUrl(m.image, axis).then((image) => image && store.update(m.id, { image, ...(crop ? { crop: mirrorCrop(crop, axis) } : {}) }), () => undefined);
+      // A vector Snapshot is turned over as it is drawn, not in its PDF.
+      const vector = hasVector(m) ? mirrorVector(m.vector, axis) : undefined;
+      void mirrorDataUrl(m.image, axis).then((image) => image && store.update(m.id, { image, ...(crop ? { crop: mirrorCrop(crop, axis) } : {}), ...(vector ? { vector } : {}) }), () => undefined);
     }
   }
 
@@ -2272,6 +2283,8 @@ export class MarkupTools implements ViewerOverlay {
     }
     const walls: number[] = [];
     for (const m of store.forPage(pageIndex)) if (m.type !== 'space' && !TYPE_INFO[m.type].content && TYPE_INFO[m.type].draw !== 'text') walls.push(...markupSegments(m));
+    // Vector Snapshots' line work bounds areas too.
+    for (const pic of this.pictureIndexesFor(pageIndex)) walls.push(...pic.segments);
     const segments = walls.length ? Float32Array.from([...index.segments, ...walls]) : index.segments;
     const polygon = dynamicFill(segments, at, { width: size.width, height: size.height })?.map(([x, y]): Point => [x, y]);
     if (!polygon) return { error: 'No enclosed area there: click inside a closed outline, or draw a line to close the gap.' };
@@ -2405,7 +2418,10 @@ export class MarkupTools implements ViewerOverlay {
   draw(ctx: CanvasRenderingContext2D, pageIndex: number, zoom: number) {
     if (!this.store) return;
     // Load snap geometry as soon as a drawing tool is in use, so the very first click snaps.
-    if (this.state.tool !== 'select' && this.state.snap) this.snapIndexFor(pageIndex);
+    if (this.state.tool !== 'select' && this.state.snap) {
+      this.snapIndexFor(pageIndex);
+      this.pictureIndexesFor(pageIndex);
+    }
     const scale = this.store.scaleFor(pageIndex);
     if (settings.get().showGrid) drawGrid(ctx, this.viewer.pageSize(pageIndex), gridSpacingPoints(settings.get()), zoom);
     const store = this.store;
@@ -4336,7 +4352,8 @@ export class MarkupTools implements ViewerOverlay {
     const radius = snapPx() / this.viewer.zoomFor(this.page);
     const index = this.state.snap ? this.snapIndexFor(this.page) : null;
     // Paths stop where they cross the drawing's lines or the markups' outlines.
-    const lines = [...(index?.linesNear(p, radius, prefs.snapCurves) ?? []), ...(prefs.snapToMarkup ? this.outlines(this.page, excludeId) : [])];
+    const pictures = this.state.snap ? this.pictureIndexesFor(this.page, excludeId) : [];
+    const lines = [...(index?.linesNear(p, radius, prefs.snapCurves) ?? []), ...pictures.flatMap((pic) => pic.linesNear(p, radius, prefs.snapCurves)), ...(prefs.snapToMarkup ? this.outlines(this.page, excludeId) : [])];
     return track(
       p,
       radius,
@@ -4393,7 +4410,40 @@ export class MarkupTools implements ViewerOverlay {
     const radius = snapPx() / this.viewer.zoomFor(pageIndex);
     // Markup outlines are snapped onto and crossed (nearest, perpendicular), not at their own ends.
     const lines = prefs.snapToMarkup ? this.outlines(pageIndex, excludeId) : undefined;
-    return index.snap(p, radius, extra, snapKinds(), prefs.snapCurves, { from, lines });
+    let best = index.snap(p, radius, extra, snapKinds(), prefs.snapCurves, { from, lines });
+    // Vector Snapshots snap like the drawing they were taken from.
+    if (this.state.snap) for (const pic of this.pictureIndexesFor(pageIndex, excludeId)) best = betterSnap(best, pic.snap(p, radius, [], snapKinds(), prefs.snapCurves, { from, lines }), p, radius);
+    return best;
+  }
+
+  /**
+   * Snap indexes of the vector Snapshots on a page (but `excludeId`) that are ready, each loading in
+   * the background on first use and again once its markup has moved.
+   */
+  private pictureIndexesFor(pageIndex: number, excludeId?: string): SnapIndex[] {
+    const out: SnapIndex[] = [];
+    for (const m of this.pageMarkups(pageIndex)) {
+      if (m.id === excludeId || !hasVector(m)) continue;
+      const key = JSON.stringify([m.points, m.rotation ?? 0, m.crop ?? null, m.vector.flipX ?? false, m.vector.flipY ?? false, m.vector.pdf.length]);
+      const cached = this.pictureIndexes.get(m.id);
+      if (cached?.key === key) {
+        if (cached.index !== 'loading') out.push(cached.index);
+        continue;
+      }
+      const entry: { key: string; index: SnapIndex | 'loading' } = { key, index: 'loading' };
+      this.pictureIndexes.set(m.id, entry);
+      vectorPictures
+        .geometry(m.vector)
+        .then((g) => {
+          const placed = pictureSegments(m, g.segments, g.curves);
+          entry.index = new SnapIndex(placed.segments, undefined, placed.curves);
+        })
+        .catch((err) => {
+          console.error('Reading a vector Snapshot failed', err);
+          if (this.pictureIndexes.get(m.id) === entry) this.pictureIndexes.delete(m.id);
+        });
+    }
+    return out;
   }
 
   /** Cached snap index for a page, loading it in the background on first use. */
