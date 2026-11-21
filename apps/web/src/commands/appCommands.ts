@@ -319,6 +319,8 @@ export interface CommandState {
   canGoForward: boolean;
   split: boolean;
   splitHorizontal: boolean;
+  /** The right pane is a second view of the left pane's document: nothing to switch. */
+  mirrored: boolean;
   sync: 'document' | 'page' | null;
   /** Pages per row and whether the first page sits alone. */
   columns: 1 | 2;
@@ -517,7 +519,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('view.splitHorizontal', 'View', 'Split Horizontal', s.split && s.splitHorizontal ? a.unsplit : a.splitHorizontal, doc, s.split && s.splitHorizontal),
     cmd('view.syncDocument', 'View', 'Synchronise Document', () => a.sync(s.sync === 'document' ? null : 'document'), s.split, s.sync === 'document'),
     cmd('view.syncPage', 'View', 'Synchronise Page', () => a.sync(s.sync === 'page' ? null : 'page'), s.split, s.sync === 'page'),
-    cmd('view.switchPanes', 'View', 'Switch Split Panes', a.switchPanes, s.split),
+    cmd('view.switchPanes', 'View', 'Switch Split Panes', a.switchPanes, s.split && !s.mirrored),
     cmd('view.balance', 'View', 'Balance Split', a.balance, s.split),
     cmd('view.unsplit', 'View', 'Unsplit', a.unsplit, s.split),
     cmd('view.stitched', 'View', 'Stitched View', a.stitch, s.canStitch || s.stitched, s.stitched),
