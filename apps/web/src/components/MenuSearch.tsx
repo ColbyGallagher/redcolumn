@@ -30,10 +30,12 @@ interface Props {
   commands: readonly Command[];
   /** Opens Preferences on the tab that holds this setting. */
   onOpenSetting: (setting: PrefEntry) => void;
+  /** Called after a result runs or opens, so a menu holding the box can close. */
+  onDone?: () => void;
 }
 
 /** The menu bar's search box: finds any tool, command or preference and runs or opens it. */
-export function MenuSearch({ commands, onOpenSetting }: Props) {
+export function MenuSearch({ commands, onOpenSetting, onDone }: Props) {
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -92,9 +94,11 @@ export function MenuSearch({ commands, onOpenSetting }: Props) {
     if (r.kind === 'command') {
       if (!r.command.enabled) return;
       reset();
+      onDone?.();
       r.command.run();
     } else {
       reset();
+      onDone?.();
       onOpenSetting(r.setting);
     }
   };

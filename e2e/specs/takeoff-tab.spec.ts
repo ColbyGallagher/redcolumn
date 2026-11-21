@@ -4,7 +4,8 @@ import { PLAN, type Pt } from '../support/driver.ts';
 // The Takeoff ribbon tab: an estimator's workspace made of commands that exist elsewhere, plus
 // Cutout (which needs an area selected) and Sync to Excel.
 
-const ribbon = (app: App) => app.page.locator('.ribbon');
+// The ribbon's commands, and its tabs, which sit in the menu bar's row.
+const ribbon = (app: App) => app.page.locator('.ribbon, .rb-tabs');
 const button = (app: App, id: string) => ribbon(app).locator(`[data-ribbon-command="${id}"]`);
 const tool = (app: App, id: string) => ribbon(app).locator(`[data-toolbar-tool="${id}"]`);
 const openTab = (app: App) => ribbon(app).getByRole('tab', { name: 'Takeoff' }).click();

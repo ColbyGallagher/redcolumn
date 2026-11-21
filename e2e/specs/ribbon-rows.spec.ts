@@ -12,7 +12,7 @@ test.describe('ribbon layout', () => {
   });
 
   test('no group runs past three rows or under its label, on any tab', async ({ app }) => {
-    const ribbon = app.page.locator('.ribbon');
+    const ribbon = app.page.locator('.ribbon, .rb-tabs');
     const tabs = await ribbon.getByRole('tab').allTextContents();
     expect(tabs.length).toBeGreaterThan(5);
 

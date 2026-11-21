@@ -5,7 +5,8 @@ import { PLAN, type Pt } from '../support/driver.ts';
 // per-takeoff inputs, the totals with waste and rounding, then a takeoff template that measures
 // the next area the same way.
 
-const ribbon = (app: App) => app.page.locator('.ribbon');
+// The ribbon's commands, and its tabs, which sit in the menu bar's row.
+const ribbon = (app: App) => app.page.locator('.ribbon, .rb-tabs');
 const button = (app: App, id: string) => ribbon(app).locator(`[data-ribbon-command="${id}"]`);
 const openTab = (app: App) => ribbon(app).getByRole('tab', { name: 'Takeoff' }).click();
 
