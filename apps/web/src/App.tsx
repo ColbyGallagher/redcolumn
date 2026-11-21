@@ -10143,6 +10143,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         const target = e.target as HTMLElement;
         // Text fields keep the browser's own menu (spelling, copy and paste).
         if (target.closest('input, textarea, select, [contenteditable]')) return;
+        // The ribbon's tabs sit in the menu bar's row; the ribbon shows its own menu for them.
+        if (target.closest('.rb-tabs')) return;
         if (target.closest('.rail')) showMenu(e, panelsMenu(target.closest<HTMLElement>('[data-panel]')?.dataset.panel as LeftTab | undefined));
         else if (target.closest('.toolbar.tools')) showMenu(e, toolbarMenu(e));
         else if (target.closest('.menubar, .toolbar,.statusbar, .doc-tabs, .tabs, .panel.side > h2')) showMenu(e, layoutMenu());
