@@ -97,9 +97,14 @@ test('a drawing that does not say its units asks for them, and Convert Again kee
   await ask.getByRole('radio', { name: /^Feet/ }).check();
   await ask.getByRole('button', { name: 'Convert' }).click();
   await expect.poll(async () => (await app.documents().catch(() => [])).find((d) => d.active && d.name === 'site.pdf')?.pageCount ?? 0, { timeout: 60_000 }).toBe(1);
-  // Units chosen: nothing left to warn about, so the report has no details to show.
-  await expect(app.page.locator('.cad-report')).toContainText('Converted from site.dxf');
-  await expect(app.page.locator('.cad-report').getByRole('button', { name: 'Details' })).toHaveCount(0);
+  // Units chosen: the report no longer says the units were assumed. A model-only drawing still reports
+  // the scale its page was fitted at, so the one warning left is that.
+  const report = app.page.locator('.cad-report');
+  await expect(report).toContainText('Converted from site.dxf');
+  await report.getByRole('button', { name: 'Details' }).click();
+  await expect(report.locator('.cad-report-list li')).toHaveCount(1);
+  await expect(report.locator('.cad-report-list')).toContainText('Model space is fitted at');
+  await expect(report.locator('.cad-report-list')).not.toContainText('does not say its units');
 
   await app.cmd('document.convertDrawingAgain');
   const dialog = app.page.locator('.cad-convert-dialog');
