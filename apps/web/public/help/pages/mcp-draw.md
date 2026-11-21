@@ -15,6 +15,15 @@ The client can draw markups for you. Each call is one undo step.
 
 **Returns:** the new markup.
 
+**Measurements are drafts.** A measurement the client draws is an **AI draft**. It is drawn dashed and left out of quantities until you approve it in [Review AI takeoff](#ai-review). The client can also send:
+
+- `confidence`: how sure it is, from 0 to 1.
+- `sources`: where it read it. Each source is a page, an optional `bbox`, the text found there and its kind (such as legend, schedule or note).
+- `reasoning`: why it drew it.
+- `method`: how it found it.
+- `assembly`: the assembly it is for.
+- `expected`: the quantities it expects.
+
 **Limits:**
 
 - **Image, stamp, signature and file attachment** need a file, so the client cannot draw them. It can start the tool with [run_command](#mcp-commands) and you pick the file.
@@ -28,7 +37,7 @@ The client can draw markups for you. Each call is one undo step.
 
 **Takes:** a list, each item like `place_markup`. A page on the call is the default for items that do not give their own.
 
-**Returns:** each new markup's id, number, type and page.
+**Returns:** each new markup's id, number, type and page, and whether it is a draft.
 
 **Limits:** 500 at a time. One bad item draws nothing. Not for Cloud+ or Smart Fill.
 

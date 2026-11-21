@@ -281,7 +281,7 @@ Markup tools, measuring tools, flowchart shapes and takeoff commands. (92 comman
 | `tools.library` | Browse Library… | Dialog |
 | `tools.quantities` | Takeoff Quantities… | Dialog |
 | `tools.scripts` | Scripts… | Dialog |
-| `tools.takeoffReview` | Review AI Proposals… | Dialog |
+| `tools.takeoffReview` | Review AI Takeoff… | Dialog |
 | `tools.signatures` | Sign… | Dialog |
 | `tool.connector` | Connector |  |
 | `diagram.addBelow` | Add Step Below |  |

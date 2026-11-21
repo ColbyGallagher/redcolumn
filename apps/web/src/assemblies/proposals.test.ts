@@ -21,7 +21,7 @@ async function setup() {
 test('nothing is in the takeoff until approved; approval writes the assembly and its record, in one undo step', async () => {
   const store = await setup();
   const ps = [proposal('p1', 'a'), proposal('p2', 'b'), proposal('p3', 'c')];
-  takeoffProposals.add(store.fileHash, ps);
+  takeoffProposals.add(store, ps);
   assert.equal(store.get('a')!.assemblyId, undefined, 'a proposal changes nothing');
   assert.deepEqual(ps.map((p) => stateOf(p, store.get(p.markupId))), ['pending', 'pending', 'pending']);
   // b is approved with another assembly and a stud count set by hand.
@@ -43,14 +43,14 @@ test('nothing is in the takeoff until approved; approval writes the assembly and
 
 test('rejections stay on this device and can be reviewed again; a new proposal replaces a pending one', async () => {
   const store = await setup();
-  takeoffProposals.add(store.fileHash, [proposal('p1', 'a'), proposal('p2', 'b')]);
-  takeoffProposals.reject(store.fileHash, ['p1'], 'Hana');
-  const [p1] = takeoffProposals.list(store.fileHash);
+  takeoffProposals.add(store, [proposal('p1', 'a'), proposal('p2', 'b')]);
+  takeoffProposals.reject(store, ['p1'], 'Hana');
+  const [p1] = takeoffProposals.list(store);
   assert.equal(stateOf(p1!, store.get('a')), 'rejected');
   assert.equal(p1!.rejected!.by, 'Hana');
   assert.equal(store.get('a')!.assemblyId, undefined);
-  takeoffProposals.reopen(store.fileHash, ['p1']);
-  assert.equal(stateOf(takeoffProposals.list(store.fileHash)[0]!, store.get('a')), 'pending');
-  takeoffProposals.add(store.fileHash, [proposal('p9', 'b', 'slab')]);
-  assert.deepEqual(takeoffProposals.list(store.fileHash).map((p) => p.id), ['p1', 'p9']);
+  takeoffProposals.reopen(store, ['p1']);
+  assert.equal(stateOf(takeoffProposals.list(store)[0]!, store.get('a')), 'pending');
+  takeoffProposals.add(store, [proposal('p9', 'b', 'slab')]);
+  assert.deepEqual(takeoffProposals.list(store).map((p) => p.id), ['p1', 'p9']);
 });

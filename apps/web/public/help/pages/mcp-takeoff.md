@@ -16,9 +16,9 @@ The client can suggest which [assembly](#assemblies) fits each measurement. It n
 
 **Does:** proposes an assembly for each of some measurements, with its reasoning and, if it likes, the quantities it expects.
 
-**Takes:** a list. Each item names a measurement (by id or number), an assembly (name or id), a reason, and optionally the expected quantities.
+**Takes:** a list. Each item names a measurement (by id or number), an assembly (name or id) and a reason. It can also give the quantities the AI expects, its `confidence` (0 to 1) and its `sources`: where it read them, so you can check them. [Review AI takeoff](#ai-review) lists the least sure first.
 
-**Where you see it:** the proposals wait in {{Tools > Takeoff > Review AI Proposals…}}, a panel that opens by itself when they arrive. You **approve**, **edit** or **reject** each one. Nothing is added to the takeoff until you approve it.
+**Where you see it:** the proposals wait in {{Tools > Takeoff > Review AI Takeoff…}}, a panel that opens by itself when they arrive. You **approve**, **edit** or **reject** each one. Nothing is added to the takeoff until you approve it.
 
 **Limits:**
 
@@ -31,7 +31,7 @@ The client can suggest which [assembly](#assemblies) fits each measurement. It n
 
 ## list_takeoff_proposals
 
-**Does:** lists the proposals and where each stands: pending, approved (by whom, and whether they edited it) or rejected.
+**Does:** lists the proposals and where each stands: pending, approved (by whom, and whether they edited it) or rejected. It also lists the measurements the client drew (its drafts) and where each stands, and the drafts you rejected.
 
 **Limits:** it changes nothing.
 
