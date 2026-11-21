@@ -30,6 +30,9 @@ files:
   - "!dist/assistant/node"
   - "!dist/assistant/LICENSE-node.txt"
   - "!dist/.node-cache/**"
+  # Search by meaning's model and runtime are an extra resource too (scripts/fetch-search-models.mjs).
+  - "!dist/semantic/**"
+  - "!dist/.semantic-cache/**"
 extraResources:
   - from: ../web/dist
     to: web
@@ -37,6 +40,10 @@ extraResources:
   # not the app executable (see apps/desktop/scripts/fetch-assistant-node.mjs).
   - from: dist/assistant
     to: assistant
+  # Search by meaning: the embedding model, its tokenizer and ONNX Runtime Web, served at
+  # app://redcolumn/semantic/ (src/protocol.ts).
+  - from: dist/semantic
+    to: semantic
 # Links to a comment (redcolumn://markup?…): a comment register can put one on each item number.
 protocols:
   - name: redcolumn link
