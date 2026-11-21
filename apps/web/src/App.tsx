@@ -255,6 +255,7 @@ import { apply as applyAffine, compose as composeAffine, invert as invertStitch,
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
+import { pickSplitPartner, touchRecent } from './splitPartner';
 import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink } from './fonts/fontNotices';
 
 interface Controllers {
@@ -1405,10 +1406,20 @@ export function App() {
     window.addEventListener('nb-assistant-open', open);
     return () => window.removeEventListener('nb-assistant-open', open);
   }, []);
-  const pendingSplit = useRef<File | null>(null);
   /** A library file or a tab waiting for the right pane to exist (Open in Split View, Move to Right Pane). */
   const pendingSplitStored = useRef<{ file: StoredFile; bytes: ArrayBuffer } | null>(null);
   const pendingMove = useRef<OpenFile | null>(null);
+  /** Split View with one file open: once the right pane exists, show the front document in it too. */
+  const pendingMirror = useRef(false);
+  /**
+   * The right pane is a tab-less second view of the left pane's front document, following it
+   * (one document, one markup store, two views). It ends when the right pane is given its own document.
+   */
+  const mirrorRef = useRef(false);
+  /** Where Split View took a tab from, so Unsplit puts it back in the same place. */
+  const splitOrigin = useRef<{ id: string; index: number } | null>(null);
+  /** Documents most recently shown first, for choosing the other side of a split. */
+  const recentFiles = useRef<string[]>([]);
   const moveTabRef = useRef<(from: Pane, t: OpenFile) => void>(() => {});
   const canvasMenuRef = useRef<(e: MouseEvent, pane: Pane) => void>(() => {});
   /** Where the pointer last was over a page, for pasting at the cursor. */
@@ -1522,7 +1533,6 @@ export function App() {
   const insertFileRef = useRef<HTMLInputElement>(null);
   const bulkInsertFileRef = useRef<HTMLInputElement>(null);
   const [bulkInsertFiles, setBulkInsertFiles] = useState<File[] | null>(null);
-  const splitFileRef = useRef<HTMLInputElement>(null);
   /** Views to return to after following hyperlinks (Alt+Left). */
   const history = useRef<ViewState[]>([]);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -1711,6 +1721,9 @@ export function App() {
         __nb: {
           engine,
           viewer,
+          get viewerB() {
+            return viewerBRef.current;
+          },
           tools,
           commands: () => commandsRef.current,
           assistant: (method: string, params: unknown) => {
@@ -1750,10 +1763,28 @@ export function App() {
   const tabsRefOf = (pane: Pane) => (pane === 'b' ? tabsBRef : tabsARef);
   const paneParts = (pane: Pane) => ({ c: ctlOf(pane), o: openRefOf(pane).current });
 
+  /** The pane whose tab list holds a pane's documents: a mirrored right pane has no tabs, its document's tab is in the left pane. */
+  const tabPaneOf = (pane: Pane): Pane => (pane === 'b' && mirrorRef.current ? 'a' : pane);
+
   const setTabs = useCallback((pane: Pane, tabs: OpenFile[]) => {
     (pane === 'b' ? tabsBRef : tabsARef).current = tabs;
     (pane === 'b' ? setTabsB : setTabsA)(tabs);
   }, []);
+
+  /** Replaces a tab's document in whichever pane's tab list holds it (the mirror can end while an edit is in flight); false if none does. */
+  const replaceTab = useCallback(
+    (cur: OpenFile, next: OpenFile) => {
+      let replaced = false;
+      for (const p of ['a', 'b'] as const) {
+        const tabs = (p === 'b' ? tabsBRef : tabsARef).current;
+        if (!tabs.includes(cur)) continue;
+        setTabs(p, tabs.map((t) => (t === cur ? next : t)));
+        replaced = true;
+      }
+      return replaced;
+    },
+    [setTabs],
+  );
 
   /** The pane's front document, in its ref and its state. */
   const setFront = useCallback((pane: Pane, packed: OpenFile | null) => {
@@ -1763,11 +1794,16 @@ export function App() {
 
   /** Puts a document (or nothing) in front in a pane, remembering where the previous one was scrolled. */
   const showInPane = useCallback(
-    (pane: Pane, packed: OpenFile | null) => {
+    (pane: Pane, packed: OpenFile | null, follow = false) => {
       const c = pane === 'b' ? ctlB : ctl;
       const cur = openRefOf(pane).current;
+      // A mirrored right pane's view is not what the left pane saved for the same document.
+      const mirrored = pane === 'b' && mirrorRef.current;
       if (cur === packed) return;
-      if (cur && c) savedViews.current.set(cur.file.id, c.viewer.getView());
+      if (pane === 'b' && !follow) mirrorRef.current = false;
+      if (packed) recentFiles.current = touchRecent(recentFiles.current, packed.file.id);
+      if (cur && c && !mirrored) savedViews.current.set(cur.file.id, c.viewer.getView());
+      if (pane === 'a' && mirrorRef.current && packed && ctlB) showInPane('b', packed, true);
       setFront(pane, packed);
       if (pane === 'a') {
         // Per-document state of the front document.
@@ -2394,12 +2430,28 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     if (stored) void openStored(stored.file, stored.bytes, 'b');
     const moving = pendingMove.current;
     pendingMove.current = null;
-    if (moving) moveTabRef.current('a', moving);
-    const f = pendingSplit.current;
-    if (!f) return;
-    pendingSplit.current = null;
-    void openNewFile(f, 'b');
-  }, [ctlB, openNewFile, openStored]);
+    if (moving) {
+      moveTabRef.current('a', moving);
+      setActivePane('a');
+    }
+    const mirror = pendingMirror.current;
+    pendingMirror.current = false;
+    if (mirror && openRef.current) {
+      // One document in both panes (one markup store, two views), kept in step.
+      mirrorRef.current = true;
+      showInPane('b', openRef.current, true);
+      setSync('document');
+      setActivePane('a');
+    }
+  }, [ctlB, openStored, showInPane]);
+
+  useEffect(() => {
+    if (!split) {
+      mirrorRef.current = false;
+      splitOrigin.current = null;
+      pendingMirror.current = false;
+    }
+  }, [split]);
 
   // Load the library (the tabs are reopened above, as Preferences › Options says).
   const restored = useRef(false);
@@ -2452,27 +2504,36 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
    */
   const reopenInPane = useCallback(
     async (cur: OpenFile, pane: Pane, next: OpenFile, keep: 'view' | ((was: number) => number)) => {
-      const c = ctlOf(pane);
-      if (!c) {
+      if (!ctlOf(pane)) {
         void next.doc.close();
         return;
       }
       await hideImported(next.doc, cur.store);
-      setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? next : t)));
-      setFront(pane, next);
-      const { tools, viewer } = c;
-      tools.setSnapSource(async (pageIndex) => {
-        const g = await next.doc.geometry(pageIndex);
-        return new SnapIndex(g.segments, undefined, g.curves);
-      });
-      tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
-      const view = viewer.getView();
-      viewer.setDocument(next.doc);
-      if (keep === 'view') viewer.setView(view);
-      else viewer.goToPage(keep(view.pageIndex));
+      const replaced = replaceTab(cur, next);
+      // Every pane showing this document, by file (a mirrored right pane has no tab to find it by). A tab
+      // that is not in front anywhere only has its tab entry replaced.
+      const showing = (['a', 'b'] as const).filter((p) => ctlOf(p) && openRefOf(p).current?.file.id === cur.file.id);
+      if (!replaced && !showing.length) {
+        // The tab was closed while the edit ran (which closed `cur`'s document): drop the new one.
+        void next.doc.close();
+        return;
+      }
+      for (const p of showing) {
+        const { tools, viewer } = ctlOf(p)!;
+        setFront(p, next);
+        tools.setSnapSource(async (pageIndex) => {
+          const g = await next.doc.geometry(pageIndex);
+          return new SnapIndex(g.segments, undefined, g.curves);
+        });
+        tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
+        const view = viewer.getView();
+        viewer.setDocument(next.doc);
+        if (keep === 'view') viewer.setView(view);
+        else viewer.goToPage(keep(view.pageIndex));
+      }
       void cur.doc.close();
     },
-    [ctl, ctlB, setTabs, setFront],
+    [ctl, ctlB, replaceTab, setFront],
   );
 
   /**
@@ -4357,8 +4418,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         if (renamed) {
           now = { ...cur, file: renamed };
           markSaved(now);
-          setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? now : t)));
-          if (openRefOf(pane).current === cur) setFront(pane, now);
+          replaceTab(cur, now);
+          for (const p of ['a', 'b'] as const) if (openRefOf(p).current?.file.id === cur.file.id) setFront(p, now);
           void refreshLibrary();
         }
       }
@@ -4397,7 +4458,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       if (!silent) setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
-  }, [setTabs, setFront, refreshLibrary]);
+  }, [replaceTab, setFront, refreshLibrary]);
 
   // Preferences › Document › Autosave: a few seconds after the last edit, documents with changes
   // and a file to write to are saved in the background.
@@ -4436,12 +4497,19 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
    */
   const closeTab = useCallback(
     (pane: Pane, fileId: string) => {
+      pane = tabPaneOf(pane);
       const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
       const idx = tabs.findIndex((t) => t.file.id === fileId);
       if (idx < 0) return;
       const closing = tabs[idx]!;
       const rest = tabs.filter((_, i) => i !== idx);
       setTabs(pane, rest);
+      // The mirrored right pane follows the left pane's next tab; with none, the mirror and the split end.
+      if (pane === 'a' && mirrorRef.current && openRef.current === closing && !rest.length) {
+        showInPane('b', null);
+        setSplit(false);
+        setActivePane('a');
+      }
       const front = pane === 'b' ? openBRef.current : openRef.current;
       if (front === closing) {
         const next = rest[Math.min(idx, rest.length - 1)] ?? null;
@@ -4515,6 +4583,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
    */
   const requestCloseTab = useCallback(
     async (pane: Pane, fileId: string): Promise<boolean> => {
+      pane = tabPaneOf(pane);
       if (!(await settleUnsaved(pane, fileId))) return false;
       closeTab(pane, fileId);
       return true;
@@ -4612,7 +4681,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const bFront = openBRef.current;
     showInPane('b', null);
     setTabs('b', []);
-    setTabs('a', [...tabsARef.current, ...moved]);
+    // The tab Split View took across goes back where it was.
+    const origin = splitOrigin.current;
+    splitOrigin.current = null;
+    const back = origin ? moved.find((t) => t.file.id === origin.id) : undefined;
+    const joined = [...tabsARef.current, ...moved.filter((t) => t !== back)];
+    if (back) joined.splice(Math.min(origin!.index, tabsARef.current.length), 0, back);
+    setTabs('a', joined);
     if (!openRef.current && bFront) showInPane('a', bFront);
     setSplit(false);
     setActivePane('a');
@@ -6979,16 +7054,28 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     window.addEventListener('pointerup', up);
   };
 
+  /**
+   * Split View. With other documents open, the most recently used one goes in the new pane. With only
+   * one open, it is shown on both sides with the views synchronised.
+   */
   const startSplit = () => {
-    if (split) return;
-    splitFileRef.current?.click();
+    const front = openRef.current;
+    if (split || !front) return;
+    const tabs = tabsARef.current;
+    const partnerId = pickSplitPartner(tabs.map((t) => t.file.id), front.file.id, recentFiles.current);
+    const partner = tabs.find((t) => t.file.id === partnerId);
+    if (partner) {
+      pendingMove.current = partner;
+      splitOrigin.current = { id: partner.file.id, index: tabs.indexOf(partner) };
+    } else pendingMirror.current = true;
+    setSplit(true);
   };
 
   /** Swaps the two panes' tabs. */
   const swapPanes = () => {
     const a = openRef.current;
     const b = openBRef.current;
-    if (!a || !b || !ctl || !ctlB) return;
+    if (!a || !b || mirrorRef.current || !ctl || !ctlB) return;
     const tabs = tabsARef.current;
     savedViews.current.set(a.file.id, ctl.viewer.getView());
     savedViews.current.set(b.file.id, ctlB.viewer.getView());
@@ -8847,12 +8934,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       showPanel('bookmarks');
     },
     cycleDocument: (dir) => {
-      const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
-      const front = pane === 'b' ? openBRef.current : openRef.current;
+      const tp = tabPaneOf(pane);
+      const tabs = tp === 'b' ? tabsBRef.current : tabsARef.current;
+      const front = tp === 'b' ? openBRef.current : openRef.current;
       if (tabs.length < 2 || !front) return;
       const i = tabs.findIndex((t) => t.file.id === front.file.id);
       const next = tabs[(i + dir + tabs.length) % tabs.length];
-      if (next) activateTab(pane, next);
+      // From the mirrored right pane the left pane changes and focus stays where it is.
+      if (next) (tp === pane ? activateTab(tp, next) : showInPane(tp, next));
     },
     align: (how) => activeTools?.alignSelected(how),
     nudge: (dx, dy, large) => activeTools?.nudgeScreen(dx, dy, large),
@@ -9316,6 +9405,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       return !snap || snap.isHost || allows(snap.meta, 'saveCopy');
     })(),
     selectionCount: toolsState.selected.size,
+    textSelected: !!toolsState.textSelection,
     hiddenCount: markups.filter((m) => m.hidden).length,
     selectionLocked: selectedMarkups.some((m) => m.locked),
     selectionGrouped: selectedMarkups.some((m) => m.groupId),
@@ -9335,6 +9425,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     canUndo: !!activeOpen && activeOpen.store.undoHistory().length > 0,
     split,
     splitHorizontal,
+    mirrored: mirrorRef.current,
     sync,
     columns: spread.columns,
     cover: spread.cover,
@@ -9357,7 +9448,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     showBottom: bottomOpen,
     tool: toolsState.tool,
     settings: prefs,
-    openTabCount: (pane === 'b' ? tabsB : tabsA).length,
+    openTabCount: (tabPaneOf(pane) === 'b' ? tabsB : tabsA).length,
     leftTab,
     rightTab,
     bottomTab,
@@ -10166,6 +10257,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         const target = e.target as HTMLElement;
         // Text fields keep the browser's own menu (spelling, copy and paste).
         if (target.closest('input, textarea, select, [contenteditable]')) return;
+        // The ribbon's tabs sit in the menu bar's row; the ribbon shows its own menu for them.
+        if (target.closest('.rb-tabs')) return;
         if (target.closest('.rail')) showMenu(e, panelsMenu(target.closest<HTMLElement>('[data-panel]')?.dataset.panel as LeftTab | undefined));
         else if (target.closest('.toolbar.tools')) showMenu(e, toolbarMenu(e));
         else if (target.closest('.menubar, .toolbar,.statusbar, .doc-tabs, .tabs, .panel.side > h2')) showMenu(e, layoutMenu());
@@ -10207,20 +10300,6 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           const files = [...(e.target.files ?? [])];
           e.target.value = '';
           if (files.length && open) setBulkInsertFiles(files);
-        }}
-      />
-      <input
-        ref={splitFileRef}
-        type="file"
-        accept="application/pdf"
-        hidden
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = '';
-          if (!f) return;
-          pendingSplit.current = f;
-          setSplit(true);
-          setActivePane('b');
         }}
       />
       <MenuBar

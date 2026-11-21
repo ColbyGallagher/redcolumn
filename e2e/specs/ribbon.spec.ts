@@ -5,7 +5,8 @@ import { expect, test, type App } from '../support/app.ts';
 // simplified toolbar.
 
 const select = (app: App, ids: string[]) => app.page.evaluate((ids) => window.__nb.tools.select(ids), ids);
-const ribbon = (app: App) => app.page.locator('.ribbon');
+// The ribbon's commands, and its tabs, which sit in the menu bar's row.
+const ribbon = (app: App) => app.page.locator('.ribbon, .rb-tabs');
 // Selecting markups switches the ribbon to the Markup Format tab; these specs want Modify, so pick it back.
 async function selectOnModify(app: App, ids: string[]) {
   await select(app, ids);
@@ -42,12 +43,12 @@ test.describe('ribbon', () => {
   });
 
   test('starts as a ribbon, and switches to its tabs only and the simplified toolbar', async ({ app }) => {
-    await expect(ribbon(app)).toBeVisible();
+    await expect(app.page.locator('.ribbon')).toBeVisible();
     await expect(app.page.locator('.toolbar.tools')).toHaveCount(0);
     expect((await app.command('window.ribbon')).checked).toBe(true);
 
     await display(app, /Show Tabs and Commands/);
-    await expect(ribbon(app)).toBeVisible();
+    await expect(app.page.locator('.ribbon')).toBeVisible();
     await expect(app.page.locator('.toolbar.tools')).toHaveCount(0);
     expect((await app.command('window.ribbon')).checked).toBe(true);
     await expect(ribbon(app).getByRole('tab')).toHaveText(['Home', 'Markup', 'Measure', 'Takeoff', 'Diagram', 'Modify', 'Document', 'Bulk', 'View']);
@@ -81,7 +82,7 @@ test.describe('ribbon', () => {
     await expect(ribbon(app).locator('.rb-body')).toBeVisible();
 
     await display(app, /Simplified Toolbar/);
-    await expect(ribbon(app)).toHaveCount(0);
+    await expect(app.page.locator('.ribbon')).toHaveCount(0);
     await expect(app.page.locator('.toolbar.tools')).toBeVisible();
     expect((await app.command('window.simplifiedToolbar')).checked).toBe(true);
   });
