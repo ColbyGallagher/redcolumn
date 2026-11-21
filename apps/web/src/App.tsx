@@ -1760,6 +1760,21 @@ export function App() {
     (pane === 'b' ? setTabsB : setTabsA)(tabs);
   }, []);
 
+  /** Replaces a tab's document in whichever pane's tab list holds it (the mirror can end while an edit is in flight); false if none does. */
+  const replaceTab = useCallback(
+    (cur: OpenFile, next: OpenFile) => {
+      let replaced = false;
+      for (const p of ['a', 'b'] as const) {
+        const tabs = (p === 'b' ? tabsBRef : tabsARef).current;
+        if (!tabs.includes(cur)) continue;
+        setTabs(p, tabs.map((t) => (t === cur ? next : t)));
+        replaced = true;
+      }
+      return replaced;
+    },
+    [setTabs],
+  );
+
   /** The pane's front document, in its ref and its state. */
   const setFront = useCallback((pane: Pane, packed: OpenFile | null) => {
     (pane === 'b' ? openBRef : openRef).current = packed;
@@ -1773,8 +1788,8 @@ export function App() {
       const cur = openRefOf(pane).current;
       // A mirrored right pane's view is not what the left pane saved for the same document.
       const mirrored = pane === 'b' && mirrorRef.current;
-      if (pane === 'b' && !follow) mirrorRef.current = false;
       if (cur === packed) return;
+      if (pane === 'b' && !follow) mirrorRef.current = false;
       if (packed) recentFiles.current = touchRecent(recentFiles.current, packed.file.id);
       if (cur && c && !mirrored) savedViews.current.set(cur.file.id, c.viewer.getView());
       if (pane === 'a' && mirrorRef.current && packed && ctlB) showInPane('b', packed, true);
@@ -2475,11 +2490,15 @@ export function App() {
         return;
       }
       await hideImported(next.doc, cur.store);
-      const tp = tabPaneOf(pane);
-      setTabs(tp, tabsRefOf(tp).current.map((t) => (t === cur ? next : t)));
+      const replaced = replaceTab(cur, next);
       // Every pane showing this document, by file (a mirrored right pane has no tab to find it by). A tab
       // that is not in front anywhere only has its tab entry replaced.
       const showing = (['a', 'b'] as const).filter((p) => ctlOf(p) && openRefOf(p).current?.file.id === cur.file.id);
+      if (!replaced && !showing.length) {
+        // The tab was closed while the edit ran (which closed `cur`'s document): drop the new one.
+        void next.doc.close();
+        return;
+      }
       for (const p of showing) {
         const { tools, viewer } = ctlOf(p)!;
         setFront(p, next);
@@ -2495,7 +2514,7 @@ export function App() {
       }
       void cur.doc.close();
     },
-    [ctl, ctlB, setTabs, setFront],
+    [ctl, ctlB, replaceTab, setFront],
   );
 
   /**
@@ -4380,8 +4399,7 @@ export function App() {
         if (renamed) {
           now = { ...cur, file: renamed };
           markSaved(now);
-          const tp = tabPaneOf(pane);
-          setTabs(tp, tabsRefOf(tp).current.map((t) => (t === cur ? now : t)));
+          replaceTab(cur, now);
           for (const p of ['a', 'b'] as const) if (openRefOf(p).current?.file.id === cur.file.id) setFront(p, now);
           void refreshLibrary();
         }
@@ -4421,7 +4439,7 @@ export function App() {
       if (!silent) setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
-  }, [setTabs, setFront, refreshLibrary]);
+  }, [replaceTab, setFront, refreshLibrary]);
 
   // Preferences › Document › Autosave: a few seconds after the last edit, documents with changes
   // and a file to write to are saved in the background.
@@ -8899,7 +8917,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       if (tabs.length < 2 || !front) return;
       const i = tabs.findIndex((t) => t.file.id === front.file.id);
       const next = tabs[(i + dir + tabs.length) % tabs.length];
-      if (next) activateTab(tp, next);
+      // From the mirrored right pane the left pane changes and focus stays where it is.
+      if (next) (tp === pane ? activateTab(tp, next) : showInPane(tp, next));
     },
     align: (how) => activeTools?.alignSelected(how),
     nudge: (dx, dy, large) => activeTools?.nudgeScreen(dx, dy, large),
