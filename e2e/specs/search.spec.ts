@@ -60,6 +60,39 @@ test.describe('text search', () => {
     expect(await index()).toBe(2);
   });
 
+  test('finds the same matches through the search index', async ({ app }) => {
+    // The first search reads the document and keeps its text in the search index; after that a
+    // search reads only the pages that can match. Every count must stay the same.
+    await search(app, 'DOOR');
+    await expect(app.page.locator('.search-hit')).toHaveCount(PLAN.search.DOOR!.hits);
+    await expect
+      .poll(() => app.page.evaluate(async () => (await navigator.storage.getDirectory().then((d) => d.getDirectoryHandle('redcolumn-search')).then(() => true, () => false))))
+      .toBe(true);
+    for (const [query, { hits, firstPage }] of Object.entries(PLAN.search)) {
+      await search(app, query);
+      await expect(app.page.locator('.search-results-head .count')).toHaveText(String(hits));
+      await expect(app.page.locator('.search-hit').first().locator('.num')).toHaveText(`Page ${firstPage + 1}`);
+    }
+    // Inside a word, and a word cut short.
+    await search(app, 'OLLOW COR');
+    await expect(app.page.locator('.search-hit')).toHaveCount(1);
+    await expect(app.page.locator('.search-hit mark')).toHaveText('OLLOW COR');
+  });
+
+  test('corrects a misspelt word from the words in the document', async ({ app }) => {
+    // The index is filled in the background after the document opens, so try until it has it.
+    await expect(async () => {
+      await search(app, 'SCHEDUEL');
+      await expect(app.page.locator('.search-respelt')).toHaveText('No matches for “SCHEDUEL”. Showing matches for “schedule”.', { timeout: 1000 });
+    }).toPass();
+    await expect(app.page.locator('.search-hit')).toHaveCount(1);
+    await expect(app.page.locator('.search-hit .num')).toHaveText('Page 2');
+    // Numbers are never respelt: DOOR 9 is not a misspelling of DOOR 1.
+    await search(app, 'DOOR 9');
+    await expect(app.page.locator('.search .empty')).toHaveText(/^No matches\./);
+    await expect(app.page.locator('.search-respelt')).toHaveCount(0);
+  });
+
   test('reports no matches', async ({ app }) => {
     await search(app, 'WINDOW');
     await expect(app.page.locator('.search .empty')).toHaveText(/No matches\./);

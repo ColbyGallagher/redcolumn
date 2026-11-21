@@ -4,6 +4,7 @@ import type { PageText } from '@nb/sheets';
 import type { FormModel } from '../documents/forms';
 import { loadPageTexts, readForSearch } from '../sheets/indexer';
 import { readFile, type StoredFile } from '../storage/fileStore';
+import { searchIndex } from './index/client';
 
 /** A piece of text on a page that is not the page's own text: a form field value or a markup's text. */
 export interface Labelled {
@@ -23,6 +24,11 @@ export interface SearchSource {
   name: string;
   /** Searches this page only (Current Page). */
   page?: number;
+  /**
+   * The key its text is kept under in the search index, which lets a search read only the pages
+   * that can match. Unset for a document that is never indexed.
+   */
+  indexKey?: string;
   text(onProgress: (done: number, total: number) => void): Promise<PageText[]>;
   properties(): Promise<Record<string, string>>;
   fields(): Promise<Labelled[]>;
@@ -49,6 +55,15 @@ const markupsOf = (ms: readonly Markup[]): Labelled[] =>
     return text ? [{ pageIndex: m.pageIndex, rect: boundsOf(m.points), label: m.subject || MARKUP_LABELS[m.type], text }] : [];
   });
 
+/** Form fields of a document that is not open, kept in the search index once read. */
+async function cachedFields(key: string, bytes: () => Promise<ArrayBuffer>): Promise<Labelled[]> {
+  const kept = await searchIndex.fields(key);
+  if (kept) return kept;
+  const fields = fieldsOf(await formOf(bytes));
+  void searchIndex.setFields(key, fields);
+  return fields;
+}
+
 async function formOf(bytes: () => Promise<ArrayBuffer>): Promise<FormModel | null> {
   try {
     const { readForm } = await import('../documents/forms');
@@ -66,7 +81,13 @@ export function openSource(o: { file: StoredFile; doc: PdfDocument; store: Marku
     id: o.file.id,
     name: o.file.name,
     ...(page !== undefined ? { page } : {}),
-    text: (report) => loadPageTexts(bytes, o.store, (p) => report(p.done, p.total)),
+    // Kept by the hash of the contents read, as for a library document: an edit makes a new hash.
+    indexKey: o.file.hash,
+    text: async (report) => {
+      const pages = await loadPageTexts(bytes, o.store, (p) => report(p.done, p.total));
+      void searchIndex.put(o.file.hash, pages);
+      return pages;
+    },
     properties: async () => propertiesOf(await o.doc.info()),
     fields: async () => fieldsOf(form ?? (await formOf(bytes))),
     markups: async () => markupsOf(o.store.all()),
@@ -80,9 +101,10 @@ export function librarySource(file: StoredFile): SearchSource {
   return {
     id: file.id,
     name: file.name,
+    indexKey: file.hash,
     text: async (report) => (await read(report)).pages,
     properties: async () => propertiesOf((await read()).info),
-    fields: async () => fieldsOf(await formOf(bytes)),
+    fields: () => cachedFields(file.hash, bytes),
     markups: async () => {
       const store = await MarkupStore.open(file.id);
       try {
@@ -98,13 +120,16 @@ export function librarySource(file: StoredFile): SearchSource {
 /** A PDF in a folder on disk; `path` is relative to the chosen folder. */
 export function fileSource(file: File, path: string): SearchSource {
   const bytes = () => file.arrayBuffer();
-  const read = (report: (done: number, total: number) => void = () => {}) => readForSearch(`file:${path}:${file.size}:${file.lastModified}`, bytes, report);
+  // A changed file (new size or date) is read again under a new key.
+  const key = `file:${path}:${file.size}:${file.lastModified}`;
+  const read = (report: (done: number, total: number) => void = () => {}) => readForSearch(key, bytes, report);
   return {
     id: `file:${path}`,
     name: file.name,
+    indexKey: key,
     text: async (report) => (await read(report)).pages,
     properties: async () => propertiesOf((await read()).info),
-    fields: async () => fieldsOf(await formOf(bytes)),
+    fields: () => cachedFields(key, bytes),
     markups: async () => (await read()).notes,
   };
 }
