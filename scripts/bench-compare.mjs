@@ -8,7 +8,7 @@
 // bench-baselines.local (never committed; times only mean something on the same machine). After
 // that, running it without --save compares and exits non-zero if the optimised render got more
 // than --threshold percent slower (default 15). Each measurement is the median of --runs runs.
-import { existsSync, readFileSync, writeFileSync, statSync } from 'node:fs';
+import { readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { c, flag, root, run } from './lib/cli.mjs';
 
@@ -17,14 +17,25 @@ const save = flag(args, '--save');
 const runs = Number(flag(args, '--runs', true) ?? 3);
 const threshold = Number(flag(args, '--threshold', true) ?? 15);
 const [file, pages = 'all'] = args;
-if (!file || !existsSync(file)) {
+let fileSize = 0;
+try {
+  fileSize = file ? statSync(file).size : 0;
+} catch {
+  // handled below
+}
+if (!file || !fileSize) {
   console.error('Usage: pnpm bench:compare <file.pdf> [pages] [--save] [--runs 3] [--threshold 15]');
   process.exit(2);
 }
 
 const baselineFile = join(root, 'bench-baselines.local');
-const baselines = existsSync(baselineFile) ? JSON.parse(readFileSync(baselineFile, 'utf8')) : {};
-const key = `${basename(file)}|${statSync(file).size}|${pages}`;
+let baselines = {};
+try {
+  baselines = JSON.parse(readFileSync(baselineFile, 'utf8'));
+} catch {
+  // no baseline file yet
+}
+const key = `${basename(file)}|${fileSize}|${pages}`;
 
 const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 const samples = { before: [], after: [], build: [] };

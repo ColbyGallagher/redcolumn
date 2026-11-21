@@ -14,7 +14,7 @@
 // builds the Windows, Mac and Linux installers, then WAITS for you to approve the `release`
 // environment on GitHub. Installed Windows apps update themselves once the release is published,
 // so approving is the real "ship it" button, and this script never presses it.
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { c, confirm, flag, out, pause, run, show, tryOut } from './lib/cli.mjs';
@@ -70,7 +70,10 @@ function unreleasedSubjects(since) {
     .map((s) => s.replace(/\s*\(#\d+\)/g, '').trim());
 }
 
-const quoteJs = (s) => (s.includes("'") ? `"${s.replace(/"/g, '\\"')}"` : `'${s}'`);
+const quoteJs = (s) => {
+  const t = s.replace(/\\/g, '\\\\');
+  return t.includes("'") ? `"${t.replace(/"/g, '\\"')}"` : `'${t}'`;
+};
 
 // ---------------------------------------------------------------- status
 function status() {
@@ -125,14 +128,16 @@ async function prepare() {
   if (!(await confirm('\nCreate the release branch and pull request?', yes))) fail('Cancelled. Nothing was changed.');
 
   // Work in a temporary checkout of origin/master so your own branch and edits are not touched.
-  const tmp = join(tmpdir(), `rc-release-${next}`);
-  rmSync(tmp, { recursive: true, force: true });
+  // A fresh private folder (not a predictable name in the shared temp folder).
+  const tmpRoot = mkdtempSync(join(tmpdir(), 'rc-release-'));
+  const tmp = join(tmpRoot, 'checkout');
   const branch = `release/v${next}`;
   const add = run('git', ['worktree', 'add', '--no-track', '-b', branch, tmp, 'origin/master']);
   if (add.status !== 0) fail(`Could not create a worktree: ${add.stderr.trim()}`);
   const cleanup = () => {
     run('git', ['worktree', 'remove', '--force', tmp]);
     run('git', ['worktree', 'prune']);
+    rmSync(tmpRoot, { recursive: true, force: true });
   };
   try {
     // 1. version

@@ -10,7 +10,9 @@ const tty = process.stdout.isTTY && !process.env.NO_COLOR;
 const paint = (code) => (s) => (tty ? `\x1b[${code}m${s}\x1b[0m` : String(s));
 export const c = { red: paint(31), green: paint(32), yellow: paint(33), cyan: paint(36), dim: paint(2), bold: paint(1) };
 
-const quote = (a) => (/^[\w@%+=:,./\\-]+$/.test(a) ? a : `"${String(a).replace(/"/g, '\\"')}"`);
+// Windows quoting: a backslash only needs doubling where it comes before a quote or the closing quote.
+const quote = (a) =>
+  /^[\w@%+=:,./\\-]+$/.test(a) ? a : `"${String(a).replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/, '$1$1')}"`;
 
 /** spawnSync that also works for pnpm/npx on Windows (they are .cmd files and need a shell there). */
 export function run(cmd, args = [], opts = {}) {
