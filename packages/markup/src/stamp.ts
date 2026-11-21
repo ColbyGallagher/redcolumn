@@ -246,7 +246,9 @@ export function resolveStamp(def: Pick<StampDef, 'lines' | 'frame' | 'art' | 'fi
   // Each {Name} in one pass: a field of the stamp's own first (so one named Date is its own value,
   // not today's date), else a dynamic field. A value filled in is not read for names again.
   const byLabel = new Map<string, StampField>();
-  for (const f of fields) if (!byLabel.has(f.label.trim().toLowerCase())) byLabel.set(f.label.trim().toLowerCase(), f);
+  // A field named like a dynamic field (stamps made before such names were refused) never takes
+  // its token: {Date} is always the date. Such a field is listed under the wording instead.
+  for (const f of fields) if (!isDynamicFieldName(f.label) && !byLabel.has(f.label.trim().toLowerCase())) byLabel.set(f.label.trim().toLowerCase(), f);
   const used = new Set<string>();
   const fillLine = (raw: string) =>
     raw.replace(/\{([^{}]{1,256})\}/g, (token, name: string) => {
@@ -314,7 +316,9 @@ export function formStamp(content: StampContent): Pick<StampDef, 'lines' | 'fram
 /** Text with a field's `{Label}` taken out (the field was removed), spaces closed up. */
 export function removeFieldToken(text: string, label: string): string {
   if (!label.trim() || !fieldToken({ label }).test(text)) return text;
-  return text.replace(fieldToken({ label }), '').replace(/ {2,}/g, ' ').trim();
+  const token = `\\{${escapeRe(label.trim())}\\}`;
+  // One space next to the token goes with it; the rest of the text is left as it was.
+  return text.replace(new RegExp(` ${token}(?= |$)|^${token} ?|${token}`, 'gi'), '');
 }
 
 /** A field's `{Label}` in wording, renamed: `from` becomes `to` wherever it is used. */

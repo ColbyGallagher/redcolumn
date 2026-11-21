@@ -201,21 +201,25 @@ test('a picture stamp with fields saves its filled-in text in its appearance and
   assert.equal(again.stamp.art!.texts[1]!.text, 'Rejected');
 });
 
-test('a field named like a dynamic field is its own value, not the dynamic one, and is not listed again', () => {
+test('a dynamic field is always dynamic: an older stamp with a field named Date keeps today’s date in its wording', () => {
+  // Fields existed before names like Date were refused: "By {User} on {Date}" must not change meaning.
   const field = { id: 'd', label: 'Date', kind: 'text' as const, value: '15/03/2025' };
-  const text = resolveStamp({ lines: ['ISSUED', 'On {Date}'], frame: 'box', fields: [field] }, values);
-  assert.deepEqual(text.lines, ['ISSUED', 'On 15/03/2025']);
+  const legacy = resolveStamp({ lines: ['CHECKED', 'By {User} on {Date}'], frame: 'box', fields: [field] }, values);
+  assert.deepEqual(legacy.lines, ['CHECKED', `By Jane Doe on ${values.now.toLocaleDateString()}`, 'Date: 15/03/2025']);
   const art = resolveStamp({ ...checkedArt, fields: [field], art: { ...checkedArt.art, texts: [{ ...checkedArt.art.texts[2]!, text: '{date}' }] } }, values);
-  assert.deepEqual(art.art!.texts.map((t) => t.text), ['15/03/2025']);
-  // A value is not read for names again: a typed "{Status}" stays as typed.
+  assert.deepEqual(art.art!.texts.map((t) => t.text), [values.now.toLocaleDateString()]);
+  // A value is not read for names again: a typed "{B}" stays as typed.
   const two = resolveStamp({ lines: ['{A} {B}'], frame: 'box', fields: [{ id: 'a', label: 'A', kind: 'text', value: '{B}' }, { id: 'b', label: 'B', kind: 'text', value: 'x' }] }, values);
   assert.deepEqual(two.lines, ['{B} x']);
   assert.ok(isDynamicFieldName(' date ') && isDynamicFieldName('YYYY') && !isDynamicFieldName('Date 2'));
 });
 
-test('removing a field takes its {Label} out of the wording, closing up the spaces', () => {
+test('removing a field takes out its {Label} and one space beside it, and nothing else', () => {
   assert.equal(removeFieldToken('Checked by {Checked by} today', 'checked by'), 'Checked by today');
+  assert.equal(removeFieldToken('{Status} now', 'Status'), 'now');
+  assert.equal(removeFieldToken('Status {Status}', 'Status'), 'Status');
   assert.equal(removeFieldToken('{Status}', 'Status'), '');
+  assert.equal(removeFieldToken('a  b {S} c', 'S'), 'a  b c', 'other double spaces are left alone');
   assert.equal(removeFieldToken('{Other}  spaced', 'Status'), '{Other}  spaced', 'left alone when not used');
 });
 

@@ -1,6 +1,6 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { DEFAULT_STYLES, drawMarkup, fillStampFieldsNow, isDynamicFieldName, onImageLoad, removeFieldToken, renameFieldToken, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampFieldValues, stampFormColor, type Markup, type StampArtText, type StampDef, type StampField, type StampOption } from '@nb/markup';
+import { DEFAULT_STYLES, DYNAMIC_FIELD_NAMES, drawMarkup, fillStampFieldsNow, isDynamicFieldName, onImageLoad, removeFieldToken, renameFieldToken, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampFieldValues, stampFormColor, type Markup, type StampArtText, type StampDef, type StampField, type StampOption } from '@nb/markup';
 import { importStampFiles, STAMP_FILE_ACCEPT } from '../stamps/imageStamps';
 import { stampLibrary, updateWorkspace, useWorkspace } from '../workspace/profiles';
 
@@ -111,12 +111,14 @@ function ArtTextPositioner({ stamp, author, width, values, onMove }: { stamp: St
  * as a text box. Ticking a box fills in whatever it is set to fill in, straight away.
  */
 export function StampFieldsForm({ fields, values, disabled, onChange }: { fields: StampField[]; values: Record<string, string>; disabled?: boolean; onChange: (values: Record<string, string>) => void }) {
+  const listId = useId();
   const set = (id: string, value: string) => onChange(setStampField(fields, values, id, value));
   return (
     <div className="stamp-fields-form">
       {fields
         .filter((f) => f.label.trim())
-        .map((f) => {
+        .map((f, index) => {
+          const choicesId = `${listId}-choices-${index}`;
           const choices = f.kind === 'text' ? choicesOf(f) : [];
           const value = values[f.id] ?? '';
           return f.kind === 'choice' ? (
@@ -148,9 +150,9 @@ export function StampFieldsForm({ fields, values, disabled, onChange }: { fields
               ) : (
                 <>
                   {/* A list you can also type in: its choices are suggested. */}
-                  <input value={value} disabled={disabled} list={choices.length ? `stamp-choices-${f.id}` : undefined} onChange={(e) => set(f.id, e.target.value)} />
+                  <input value={value} disabled={disabled} list={choices.length ? choicesId : undefined} onChange={(e) => set(f.id, e.target.value)} />
                   {choices.length > 0 && (
-                    <datalist id={`stamp-choices-${f.id}`}>
+                    <datalist id={choicesId}>
                       {choices.map((c) => (
                         <option key={c} value={c} />
                       ))}
@@ -247,6 +249,36 @@ function sampleValues(fields: StampField[] | undefined): Record<string, string> 
   return values;
 }
 
+/** Longest field name: its {Label} must stay short enough to be read in the wording. */
+const MAX_FIELD_NAME = 256;
+
+/**
+ * What is wrong with a field's name, if anything: a dynamic field's name (filled in by itself), or
+ * another field's. Either would make its {Label} in the wording mean something else.
+ */
+function fieldNameProblem(fields: readonly StampField[], f: StampField): string | null {
+  const label = f.label.trim();
+  if (!label) return null;
+  if (isDynamicFieldName(label)) return `{${label}} is filled in by itself when the stamp is placed. Give this field another name.`;
+  if (fields.some((o) => o.id !== f.id && o.label.trim().toLowerCase() === label.toLowerCase())) return `Another field is called ${label}. Give this field another name.`;
+  return null;
+}
+
+/** A stamp's fields with names that clash renamed (Date 2), for stamps made before such names were refused. The wording is left alone. */
+function withUsableFieldNames(def: StampDef): StampDef {
+  if (!def.fields?.length) return def;
+  const taken = new Set(DYNAMIC_FIELD_NAMES.map((n) => n.toLowerCase()));
+  const fields = def.fields.map((f) => {
+    const base = f.label.trim();
+    if (!base) return f;
+    let label = base;
+    for (let n = 2; taken.has(label.toLowerCase()); n++) label = `${base} ${n}`;
+    taken.add(label.toLowerCase());
+    return label === base ? f : { ...f, label };
+  });
+  return { ...def, fields };
+}
+
 const OPTION_COLOURS = ['#15803d', '#1d4ed8', '#b45309', '#b91c1c', '#6b7280'];
 
 /**
@@ -269,18 +301,18 @@ function StampFieldsBuilder({
   /** A field was added (a picture stamp gives it a place). */
   onAdded?: (field: StampField) => void;
   /** A field was removed: where its {Label} is used, it goes too. */
-  onRemoved: (field: StampField) => void;
+  onRemoved: (field: StampField, label: string | undefined) => void;
 }) {
   /**
    * Each field's last usable name, by id: the one its {Label} in the wording has. A name cleared,
    * or one a dynamic field has, is not used, so the {Label} waits for the next usable name.
    */
   const named = useRef(new Map<string, string>());
-  const usable = (label: string) => !!label.trim() && !isDynamicFieldName(label);
-  for (const f of fields) if (!named.current.has(f.id) && usable(f.label)) named.current.set(f.id, f.label);
+  const usable = (f: StampField, label: string) => !!label.trim() && !fieldNameProblem(fields, { ...f, label });
+  for (const f of fields) if (!named.current.has(f.id) && usable(f, f.label)) named.current.set(f.id, f.label);
   const rename = (f: StampField, label: string) => {
     const prev = named.current.get(f.id) ?? '';
-    if (!usable(label)) return;
+    if (!usable(f, label)) return;
     named.current.set(f.id, label);
     if (prev && prev.trim().toLowerCase() !== label.trim().toLowerCase()) onRename(prev, label);
   };
@@ -304,6 +336,7 @@ function StampFieldsBuilder({
     <div className="stamp-fields-builder">
       {fields.map((f, i) => {
         const others = fields.filter((o) => o.id !== f.id && o.label.trim());
+        const problem = fieldNameProblem(fields, f);
         return (
           <div key={f.id} className="stamp-field-card">
             <div className="stamp-field-head">
@@ -312,10 +345,13 @@ function StampFieldsBuilder({
                 aria-label="Field name"
                 value={f.label}
                 placeholder="Field name"
-                aria-invalid={isDynamicFieldName(f.label) || undefined}
+                maxLength={MAX_FIELD_NAME}
+                aria-invalid={!!problem || undefined}
                 onChange={(e) => {
-                  update(i, { label: e.target.value });
-                  rename(f, e.target.value);
+                  // Braces would end the field's {Label} in the wording.
+                  const label = e.target.value.replace(/[{}]/g, '').slice(0, MAX_FIELD_NAME);
+                  update(i, { label });
+                  rename(f, label);
                 }}
               />
               <button type="button" className="btn small" title={`Use this field in the wording as {${f.label}}`} onClick={() => onInsert(`{${f.label.trim()}}`)}>
@@ -333,15 +369,16 @@ function StampFieldsBuilder({
                 aria-label={`Remove ${f.label}`}
                 onClick={() => {
                   onChange(fields.filter((_, j) => j !== i));
-                  onRemoved({ ...f, label: named.current.get(f.id) ?? f.label });
+                  // Only the name its {Label} has is taken out of the wording.
+                  onRemoved(f, named.current.get(f.id));
                 }}
               >
                 ✕
               </button>
             </div>
-            {isDynamicFieldName(f.label) && (
+            {problem && (
               <p className="stamp-field-warning" role="alert">
-                {`{${f.label.trim()}}`} is filled in by itself when the stamp is placed. Give this field another name.
+                {problem}
               </p>
             )}
             {f.kind === 'text' ? (
@@ -499,12 +536,13 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
     setArtFocus((at) => (at === null || at === i ? null : at > i ? at - 1 : at));
   };
   /** A field removed: a text that only showed it goes, and its {Label} goes from the rest of the wording. */
-  const removeField = (f: StampField) => {
-    if (!f.label.trim()) return;
+  const removeField = (_f: StampField, label: string | undefined) => {
+    // A field never usably named has no {Label} of its own in the wording: nothing to take out.
+    if (!label?.trim()) return;
     if (draft?.art) setArtFocus(null);
     setDraft((d) => {
       if (!d) return d;
-      const strip = (t: string) => removeFieldToken(t, f.label);
+      const strip = (t: string) => removeFieldToken(t, label);
       // Lines and texts that showed only the field go; ones that were blank before stay.
       const lines = d.lines.map(strip).filter((l, k) => l.trim() || !d.lines[k]!.trim());
       if (!d.art) return { ...d, lines };
@@ -581,7 +619,7 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
                   });
                 }}
               />
-              <button className="btn" onClick={() => setDraft(picked.builtIn ? { ...picked, id: crypto.randomUUID(), name: `${picked.name} (copy)`, builtIn: undefined } : { ...picked })}>
+              <button className="btn" onClick={() => setDraft(withUsableFieldNames(picked.builtIn ? { ...picked, id: crypto.randomUUID(), name: `${picked.name} (copy)`, builtIn: undefined } : { ...picked }))}>
                 {picked.builtIn ? 'Copy and Edit…' : 'Edit…'}
               </button>
               <button
@@ -609,7 +647,7 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (draft.name.trim() && draft.lines.some((l) => l.trim()) && !draft.fields?.some((f) => isDynamicFieldName(f.label))) save({ ...draft, name: draft.name.trim() });
+              if (draft.name.trim() && draft.lines.some((l) => l.trim()) && !draft.fields?.some((f) => fieldNameProblem(draft.fields!, f))) save({ ...draft, name: draft.name.trim() });
             }}
           >
             <div className="form-grid">
@@ -699,7 +737,7 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
               <button type="button" className="btn" onClick={() => setDraft(null)}>
                 Cancel
               </button>
-              <button type="submit" className="btn primary" disabled={!draft.name.trim() || !draft.lines.some((l) => l.trim()) || !!draft.fields?.some((f) => isDynamicFieldName(f.label))}>
+              <button type="submit" className="btn primary" disabled={!draft.name.trim() || !draft.lines.some((l) => l.trim()) || !!draft.fields?.some((f) => fieldNameProblem(draft.fields!, f))}>
                 Save Stamp
               </button>
             </div>

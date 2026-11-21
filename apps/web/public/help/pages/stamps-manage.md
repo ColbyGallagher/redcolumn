@@ -38,7 +38,7 @@ A stamp can ask for values when you place it, such as **Checked by** or **Status
 
 | Button | Adds |
 |---|---|
-| **Add Text Field** | A blank to type in. Give it a name (shown as the question). **Starts as** is its default value, and can hold `{User}`, `{Date}` and the other fields above. To pick from a list instead of typing, put one choice per line in **Pick from**; tick **Other text can be typed too** to suggest the choices but allow any text. A field cannot be named like one of the fields above (Date, User and so on). |
+| **Add Text Field** | A blank to type in. Give it a name (shown as the question). **Starts as** is its default value, and can hold `{User}`, `{Date}` and the other fields above. To pick from a list instead of typing, put one choice per line in **Pick from**; tick **Other text can be typed too** to suggest the choices but allow any text. A field cannot be named like one of the fields above (Date, User and so on), or like another field. |
 | **Add Tick Boxes** | A list of boxes, one of which can be ticked. Ticking a box can recolour the stamp and fill in other fields. |
 
 A field is listed under the wording as *Name: value*. To put it somewhere in the wording instead, click **In wording**: this adds `{Name}` (for example `Status: {Status}`). Renaming a field renames it in the wording too, and removing one takes it out of the wording. Use **↑** and **↓** to change the order fields are listed and asked for, and **✕** to remove one.

@@ -228,6 +228,52 @@ test('long labels and appearance strings are read quickly', async () => {
   assert.ok(p.fields[0]!.label.length <= 256);
 });
 
+test('a field shared down a deep chain of parents with very long strings is read quickly', async () => {
+  const long = 'x'.repeat(60_000);
+  const bytes = await widgetsPdf((doc) => {
+      // 15 parents deep, each with long /T, /TU and /DA; 250 widgets share the chain.
+      let parent: unknown = undefined;
+      for (let i = 0; i < 15; i++) parent = doc.context.register(doc.context.obj({ FT: 'Tx', T: PDFString.of(long), TU: PDFString.of(long), DA: PDFString.of(long), V: PDFString.of(long), ...(parent ? { Parent: parent } : {}) } as unknown as Record<string, never>));
+      return Array.from({ length: 250 }, (_, i) => ({ Type: 'Annot', Subtype: 'Widget', Rect: [(i % 25) * 10, Math.floor(i / 25) * 9, (i % 25) * 10 + 9, Math.floor(i / 25) * 9 + 8], T: PDFString.of(`w${i}`), Parent: parent }));
+  });
+  const started = Date.now();
+  const p = await parseStampPdf(bytes);
+  assert.ok(Date.now() - started < 1500, `took ${Date.now() - started} ms`);
+  assert.equal(p.fields.length, 200, 'at most 200 widgets are read as fields');
+  assert.ok(p.fields.every((f) => f.label.length <= 256 && (f.value ?? '').length <= 256));
+});
+
+test('labels and fields on one level make one line, in order: By [who] on [when]', async () => {
+  const label = (text: string, rect: number[]) => ({ Type: 'Annot', Subtype: 'FreeText', Rect: rect, DA: PDFString.of('/Helv 10 Tf 0 g'), Contents: PDFString.of(text) });
+  const p = await parseStampPdf(
+    await widgetsPdf(() => [label('By', [10, 40, 30, 55]), tx([35, 40, 120, 55], { T: PDFString.of('Who') }), label('on', [125, 40, 145, 55]), tx([150, 40, 290, 55], { T: PDFString.of('When') }), label('CHECKED', [10, 70, 290, 95])]),
+  );
+  assert.deepEqual(textStamp(p, 'x').lines, ['CHECKED', 'By {Who} on {When}']);
+});
+
+test('a text box that is hidden or not shown is left out', async () => {
+  const label = (text: string, f: number) => ({ Type: 'Annot', Subtype: 'FreeText', Rect: [10, 40, 290, 60], F: f, DA: PDFString.of('/Helv 10 Tf 0 g'), Contents: PDFString.of(text) });
+  const p = await parseStampPdf(await widgetsPdf(() => [label('Shown', 4), label('Hidden', 2), label('Off screen', 32)]));
+  assert.deepEqual(p.texts.map((t) => t.text), ['Shown']);
+  assert.deepEqual(p.hidden, [1, 2]);
+});
+
+test('thousands of text boxes are read quickly', async () => {
+  const bytes = await widgetsPdf(() => Array.from({ length: 20_000 }, (_, i) => ({ Type: 'Annot', Subtype: 'FreeText', Rect: [i % 100, i % 90, (i % 100) + 5, (i % 90) + 5], Contents: PDFString.of('t') })));
+  // Loading the file itself (pdf-lib) takes what it takes: what is timed is the reading after it.
+  let started = Date.now();
+  await PDFDocument.load(bytes);
+  const load = Date.now() - started;
+  started = Date.now();
+  const p = await parseStampPdf(bytes);
+  const parse = Date.now() - started;
+  assert.ok(parse - load < 1500, `took ${parse} ms, ${load} ms of it loading`);
+  started = Date.now();
+  textStamp(p, 'x');
+  assert.ok(Date.now() - started < 500, `lines took ${Date.now() - started} ms`);
+  assert.equal(p.texts.length, 2000);
+});
+
 test('a tall headline beside a small date stays two lines; only a field joins the label beside it', async () => {
   const head: Box = { ...HEAD, rect: [10, 40, 200, 90], text: 'APPROVED' };
   const date: Box = { ...DATE, rect: [210, 55, 330, 70], text: '&amp;[Date]' };

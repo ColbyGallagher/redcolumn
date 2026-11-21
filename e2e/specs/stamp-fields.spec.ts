@@ -54,15 +54,13 @@ test.describe('stamps with fields', () => {
     await dialog.getByRole('button', { name: 'Add Text Field' }).click();
     await dialog.getByRole('button', { name: 'Add Text Field' }).click();
     const names = dialog.getByLabel('Field name');
-    // Renaming a field renames it in the wording.
-    await names.nth(0).fill('Status');
-    await names.nth(0).blur();
-    await expect(dialog.locator('#stamp-lines')).toHaveValue('CHECKED\nStatus: {Status}');
-    await dialog.getByLabel('Status choices').fill('Open\nClosed');
+    await dialog.getByLabel('Field 1 choices').fill('Open\nClosed');
     await names.nth(1).fill('Checked by');
-    await names.nth(1).blur();
     await dialog.getByLabel('Starts as').nth(1).fill('{User}');
-    await dialog.getByRole('button', { name: 'Save Stamp' }).click();
+    // Renaming a field renames it in the wording as it is typed: Enter saves straight away.
+    await names.nth(0).fill('Status');
+    await expect(dialog.locator('#stamp-lines')).toHaveValue('CHECKED\nStatus: {Status}');
+    await names.nth(0).press('Enter');
     await expect(dialog.locator('.stamp-list li.picked .name')).toHaveText('E2E Checked');
     await dialog.getByRole('button', { name: 'Place' }).click();
 
@@ -128,14 +126,28 @@ test.describe('stamps with fields', () => {
     // The new field is shown by a text of its own.
     await expect(dialog.getByLabel('Text 1', { exact: true })).toHaveValue('{Field 1}');
     // A dynamic field's name is refused; clearing the name and typing another keeps the text's field.
-    await dialog.getByLabel('Field name').fill('Date');
+    const names = dialog.getByLabel('Field name');
+    await names.nth(0).fill('Date');
     await expect(dialog.getByRole('alert')).toContainText('{Date} is filled in by itself');
     await expect(dialog.getByRole('button', { name: 'Save Stamp' })).toBeDisabled();
     await expect(dialog.getByLabel('Text 1', { exact: true })).toHaveValue('{Field 1}');
-    await dialog.getByLabel('Field name').fill('');
-    await dialog.getByLabel('Field name').fill('Reviewer');
+    await names.nth(0).fill('');
+    await names.nth(0).fill('Reviewer');
     await expect(dialog.getByLabel('Text 1', { exact: true })).toHaveValue('{Reviewer}');
     await expect(dialog.getByRole('alert')).toHaveCount(0);
+    // Another field's name is refused too, and leaves both fields' texts alone.
+    await dialog.getByRole('button', { name: 'Add Text Field' }).click();
+    await expect(dialog.getByLabel('Text 2', { exact: true })).toHaveValue('{Field 2}');
+    await names.nth(1).fill('reviewer ');
+    await expect(dialog.getByRole('alert').filter({ hasText: /Another field is called reviewer./ })).toHaveCount(1);
+    await expect(dialog.getByRole('button', { name: 'Save Stamp' })).toBeDisabled();
+    await names.nth(1).fill('Approver');
+    await expect(dialog.getByLabel('Text 1', { exact: true })).toHaveValue('{Reviewer}');
+    await expect(dialog.getByLabel('Text 2', { exact: true })).toHaveValue('{Approver}');
+    // Removing a field removes the text that only showed it.
+    await dialog.getByRole('button', { name: 'Remove Approver' }).click();
+    await expect(dialog.getByLabel('Text 2', { exact: true })).toHaveCount(0);
+    await expect(dialog.getByLabel('Text 1', { exact: true })).toHaveValue('{Reviewer}');
     // Moved down and right with the keyboard: 1% of the box a press, 5% with Shift.
     const handle = dialog.getByRole('button', { name: 'Move text 1', exact: true });
     await handle.focus();
