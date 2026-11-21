@@ -92,6 +92,8 @@ export interface MenuBarProps {
     update?: () => void;
     placeStamp: (id: string) => void;
     openRecent: (id: string) => void;
+    /** Takes every file off the Open Recent list (they stay on the device). */
+    clearRecents?: () => void;
     switchProfile: (id: string) => void;
     showLeft: (tab: LeftTab) => void;
     showBottom: (tab: BottomTab) => void;
@@ -285,6 +287,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
   const Cmd = ({ id, label }: { id: string; label?: string }) => {
     const c = commands.get(id);
     if (!c) return <Item label={label ?? id} disabled />;
+    // Removed by the organisation's policy (desktop/policy.ts).
+    if (c.managed) return null;
     return <Item label={label ?? c.label} shortcut={shortcutLabel(id)} checked={c.checked} disabled={!c.enabled} onClick={run(c.run)} />;
   };
 
@@ -312,7 +316,15 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               {recents.length === 0 ? (
                 <Item label="No recent files" disabled />
               ) : (
-                recents.map((f) => <Item key={f.id} label={f.name} onClick={run(() => on.openRecent(f.id))} />)
+                <>
+                  {recents.map((f) => <Item key={f.id} label={f.name} onClick={run(() => on.openRecent(f.id))} />)}
+                  {on.clearRecents && (
+                    <>
+                      <Sep />
+                      <Item label="Clear Recent Files" onClick={run(() => on.clearRecents?.())} />
+                    </>
+                  )}
+                </>
               )}
             </Submenu>
             <Submenu label="Create">
@@ -772,7 +784,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
           <div className="menu-drop feedback-drop" role="menu">
             {FEEDBACK_ITEMS.map(([id, label]) => {
               const c = commands.get(id);
-              return c ? <Item key={id} label={label} disabled={!c.enabled} onClick={() => { setFeedbackOpen(false); c.run(); }} /> : null;
+              return c && !c.managed ? <Item key={id} label={label} disabled={!c.enabled} onClick={() => { setFeedbackOpen(false); c.run(); }} /> : null;
             })}
           </div>
         )}

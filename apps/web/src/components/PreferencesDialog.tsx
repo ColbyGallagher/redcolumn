@@ -9,6 +9,7 @@ import { AccessPrefs, ActivityPrefs } from './AccessPrefs';
 import { McpPrefs } from './McpPrefs';
 import { OfflinePrefs } from './OfflinePrefs';
 import { desktop } from '../desktop/host';
+import { MANAGED_NOTE, managedPolicy, managedSummary } from '../desktop/policy';
 import { profiles, updateWorkspace } from '../workspace/profiles';
 import { listFiles, saveFile as saveToLibrary, type StoredFile } from '../storage/fileStore';
 import { pickFilesToOpen } from '../storage/diskHandles';
@@ -539,6 +540,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         <C>{check('showRulers', 'Show Rulers')}</C>
         <C>{check('showSpaces', 'Show Spaces')}</C>
         <C>{check('showHyperlinks', 'Show Hyperlink Areas')}</C>
+        <C>{check('importShxText', 'Import AutoCAD SHX Text Comments', { title: 'AutoCAD turns SHX-font text into hidden comments when plotting to PDF (PDFSHX). Off keeps them out of the markups list; search still finds the text. Applies to files opened afterwards.' })}</C>
         {select('linkClick', 'Clicking a Sheet Link', [
           ['preview', 'Previews the sheet beside the plan'],
           ['jump', 'Jumps to the sheet'],
@@ -1057,6 +1059,11 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             ×
           </button>
         </header>
+        {managedPolicy().managed && (
+          <p className="prefs-managed" role="note">
+            {MANAGED_NOTE} {managedSummary().length ? `Turned off on this computer: ${managedSummary().join('; ')}.` : 'Nothing is turned off on this computer.'}
+          </p>
+        )}
         <div className="prefs-body">
           <nav className="prefs-nav" role="tablist" aria-orientation="vertical" aria-label="Categories">
             {visibleCats.map((c) => {

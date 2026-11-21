@@ -29,7 +29,8 @@ export function CommandPalette({ commands, onClose }: Props) {
   const results = useMemo(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
     return commands
-      .map((c, i) => ({ c, i, s: words.length ? score(c, words) : 0 }))
+      // Commands the organisation's policy removes are not offered at all.
+      .map((c, i) => ({ c, i, s: c.managed ? -1 : words.length ? score(c, words) : 0 }))
       .filter((r) => r.s >= 0)
       .sort((a, b) => Number(b.c.enabled) - Number(a.c.enabled) || a.s - b.s || a.i - b.i)
       .map((r) => r.c);

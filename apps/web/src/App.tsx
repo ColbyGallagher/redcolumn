@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -90,7 +90,8 @@ import { LAYOUT_RESET_EVENT, SECTION_KEYS } from './workspace/layoutPrefs';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
-import { setTemplate } from './storage/fileStore';
+import { hideFromRecents, setTemplate } from './storage/fileStore';
+import { recentFiles } from './storage/recents';
 import { attachmentBlob, fileToAttachment, imageToDataUrl, pickAttachment, pickImage } from './markup/pickImage';
 import { adjustPixels, polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
 import { SoundDialog } from './components/SoundDialog';
@@ -240,6 +241,7 @@ import { installPack } from './library/install';
 import { describeCounts } from './library/pack';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
+import { managedPolicy } from './desktop/policy';
 import { hostDocumentId } from './desktop/embedHost';
 import { fileLocationToken, movedFiles, tokenOf } from './desktop/tokens';
 import { SessionFolderDrive } from './studio/drive/folder';
@@ -254,7 +256,8 @@ import { apply as applyAffine, compose as composeAffine, invert as invertStitch,
 import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } from './offline/launch';
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
-import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink } from './fonts/fontNotices';
+import { pickSplitPartner, touchRecent } from './splitPartner';
+import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink, afterFontNotice } from './fonts/fontNotices';
 
 interface Controllers {
   engine: PdfEngine;
@@ -627,6 +630,14 @@ function stampValuesFor(o: OpenFile | null, pageIndex: number): { file: string; 
   return { file: o?.file.name ?? '', page: o?.store.allSheets()[pageIndex]?.number ?? String(pageIndex + 1) };
 }
 
+/** True when the desktop app knows the file a document came from and it is gone from there (moved, renamed or deleted). */
+async function movedAway(id: string): Promise<boolean> {
+  const host = desktop();
+  if (!host?.tokenExists) return false;
+  const token = fileLocationToken(id) ?? tokenOf(await recallHandle(id));
+  return !!token && !(await host.tokenExists(token).catch(() => true));
+}
+
 /** Recent Tools: every look the user draws with (signatures and images excepted: they need their picture). */
 function recordRecent(m: Markup) {
   if (isImageType(m.type)) return;
@@ -949,6 +960,9 @@ export function App() {
   ctlsRef.current = [ctl?.tools, ctlB?.tools];
   useEffect(() => ctlsRef.current.forEach((t) => t?.setSnap(prefs.snapToGeometry)), [prefs.snapToGeometry]);
   useEffect(() => ctlsRef.current.forEach((t) => t?.setShowLinks(prefs.showHyperlinks)), [prefs.showHyperlinks]);
+  useEffect(() => {
+    if (ctl) ctl.engine.includeShxText = prefs.importShxText;
+  }, [ctl, prefs.importShxText]);
   const [open, setOpen] = useState<OpenFile | null>(null);
   const openRef = useRef<OpenFile | null>(null);
   const [openB, setOpenB] = useState<OpenFile | null>(null);
@@ -1004,7 +1018,7 @@ export function App() {
         const text = missingFontsNotice(missing);
         if (text && !fontWarned.current.has(d.file.id)) {
           fontWarned.current.add(d.file.id);
-          setNotice(text);
+          setNotice((current) => afterFontNotice(current, text));
         }
       }
     };
@@ -1302,7 +1316,8 @@ export function App() {
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
   useEffect(() => {
     const host = desktop();
-    if (!host?.onUpdateState) return;
+    // Under the organisation's policy nothing is checked, and nothing about updates is shown.
+    if (!host?.onUpdateState || managedPolicy().disableAutoUpdate) return;
     const off = host.onUpdateState(setUpdateState);
     void host.updateState().then((s) => setUpdateState((prev) => prev ?? s)).catch(() => undefined);
     return off;
@@ -1396,10 +1411,20 @@ export function App() {
     window.addEventListener('nb-assistant-open', open);
     return () => window.removeEventListener('nb-assistant-open', open);
   }, []);
-  const pendingSplit = useRef<File | null>(null);
   /** A library file or a tab waiting for the right pane to exist (Open in Split View, Move to Right Pane). */
   const pendingSplitStored = useRef<{ file: StoredFile; bytes: ArrayBuffer } | null>(null);
   const pendingMove = useRef<OpenFile | null>(null);
+  /** Split View with one file open: once the right pane exists, show the front document in it too. */
+  const pendingMirror = useRef(false);
+  /**
+   * The right pane is a tab-less second view of the left pane's front document, following it
+   * (one document, one markup store, two views). It ends when the right pane is given its own document.
+   */
+  const mirrorRef = useRef(false);
+  /** Where Split View took a tab from, so Unsplit puts it back in the same place. */
+  const splitOrigin = useRef<{ id: string; index: number } | null>(null);
+  /** Documents most recently shown first, for choosing the other side of a split. */
+  const recentOpenIds = useRef<string[]>([]);
   const moveTabRef = useRef<(from: Pane, t: OpenFile) => void>(() => {});
   const canvasMenuRef = useRef<(e: MouseEvent, pane: Pane) => void>(() => {});
   /** Where the pointer last was over a page, for pasting at the cursor. */
@@ -1513,7 +1538,6 @@ export function App() {
   const insertFileRef = useRef<HTMLInputElement>(null);
   const bulkInsertFileRef = useRef<HTMLInputElement>(null);
   const [bulkInsertFiles, setBulkInsertFiles] = useState<File[] | null>(null);
-  const splitFileRef = useRef<HTMLInputElement>(null);
   /** Views to return to after following hyperlinks (Alt+Left). */
   const history = useRef<ViewState[]>([]);
   const [canGoBack, setCanGoBack] = useState(false);
@@ -1602,6 +1626,8 @@ export function App() {
         .catch(console.error),
     [],
   );
+  /** Remove from Recents, Clear Recents: the documents stay on the device. */
+  const removeFromRecents = useCallback((ids: string[]) => void hideFromRecents(ids).then(refreshLibrary).catch(console.error), [refreshLibrary]);
 
   /** A pane's markup tools. Every callback goes through refs or stable setters, so the effects creating them need no dependencies. */
   const createTools = (pane: Pane, viewer: TileViewer) => {
@@ -1700,6 +1726,9 @@ export function App() {
         __nb: {
           engine,
           viewer,
+          get viewerB() {
+            return viewerBRef.current;
+          },
           tools,
           commands: () => commandsRef.current,
           assistant: (method: string, params: unknown) => {
@@ -1739,10 +1768,28 @@ export function App() {
   const tabsRefOf = (pane: Pane) => (pane === 'b' ? tabsBRef : tabsARef);
   const paneParts = (pane: Pane) => ({ c: ctlOf(pane), o: openRefOf(pane).current });
 
+  /** The pane whose tab list holds a pane's documents: a mirrored right pane has no tabs, its document's tab is in the left pane. */
+  const tabPaneOf = (pane: Pane): Pane => (pane === 'b' && mirrorRef.current ? 'a' : pane);
+
   const setTabs = useCallback((pane: Pane, tabs: OpenFile[]) => {
     (pane === 'b' ? tabsBRef : tabsARef).current = tabs;
     (pane === 'b' ? setTabsB : setTabsA)(tabs);
   }, []);
+
+  /** Replaces a tab's document in whichever pane's tab list holds it (the mirror can end while an edit is in flight); false if none does. */
+  const replaceTab = useCallback(
+    (cur: OpenFile, next: OpenFile) => {
+      let replaced = false;
+      for (const p of ['a', 'b'] as const) {
+        const tabs = (p === 'b' ? tabsBRef : tabsARef).current;
+        if (!tabs.includes(cur)) continue;
+        setTabs(p, tabs.map((t) => (t === cur ? next : t)));
+        replaced = true;
+      }
+      return replaced;
+    },
+    [setTabs],
+  );
 
   /** The pane's front document, in its ref and its state. */
   const setFront = useCallback((pane: Pane, packed: OpenFile | null) => {
@@ -1752,11 +1799,16 @@ export function App() {
 
   /** Puts a document (or nothing) in front in a pane, remembering where the previous one was scrolled. */
   const showInPane = useCallback(
-    (pane: Pane, packed: OpenFile | null) => {
+    (pane: Pane, packed: OpenFile | null, follow = false) => {
       const c = pane === 'b' ? ctlB : ctl;
       const cur = openRefOf(pane).current;
+      // A mirrored right pane's view is not what the left pane saved for the same document.
+      const mirrored = pane === 'b' && mirrorRef.current;
       if (cur === packed) return;
-      if (cur && c) savedViews.current.set(cur.file.id, c.viewer.getView());
+      if (pane === 'b' && !follow) mirrorRef.current = false;
+      if (packed) recentOpenIds.current = touchRecent(recentOpenIds.current, packed.file.id);
+      if (cur && c && !mirrored) savedViews.current.set(cur.file.id, c.viewer.getView());
+      if (pane === 'a' && mirrorRef.current && packed && ctlB) showInPane('b', packed, true);
       setFront(pane, packed);
       if (pane === 'a') {
         // Per-document state of the front document.
@@ -2275,6 +2327,14 @@ export function App() {
         const pending = openingFiles.current.get(file.id);
         if (pending) return await pending;
         const opening = (async () => {
+          // A file moved, renamed or deleted on disk since is not opened from here: Save would
+          // write it back where it was. Opened from its new place, it finds its markups again.
+          if (await movedAway(file.id)) {
+            if (confirm(`"${file.name}" is no longer in its folder. It may have been moved, renamed or deleted, so it was not opened. Open it from where it is now with File › Open.
+
+Remove it from the recent files?`)) removeFromRecents([file.id]);
+            return;
+          }
           await openStored(file, await readFile(file.hash), target ?? (split && activePane === 'b' ? 'b' : 'a'));
           await touchFile(file.id);
           void refreshLibrary();
@@ -2289,7 +2349,7 @@ export function App() {
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [openStored, activateTab, refreshLibrary, split, activePane],
+    [openStored, activateTab, refreshLibrary, removeFromRecents, split, activePane],
   );
 
   /** Follows a link to a comment (clicked on an item number in a register): opens its document, then goes to the comment. */
@@ -2375,12 +2435,28 @@ export function App() {
     if (stored) void openStored(stored.file, stored.bytes, 'b');
     const moving = pendingMove.current;
     pendingMove.current = null;
-    if (moving) moveTabRef.current('a', moving);
-    const f = pendingSplit.current;
-    if (!f) return;
-    pendingSplit.current = null;
-    void openNewFile(f, 'b');
-  }, [ctlB, openNewFile, openStored]);
+    if (moving) {
+      moveTabRef.current('a', moving);
+      setActivePane('a');
+    }
+    const mirror = pendingMirror.current;
+    pendingMirror.current = false;
+    if (mirror && openRef.current) {
+      // One document in both panes (one markup store, two views), kept in step.
+      mirrorRef.current = true;
+      showInPane('b', openRef.current, true);
+      setSync('document');
+      setActivePane('a');
+    }
+  }, [ctlB, openStored, showInPane]);
+
+  useEffect(() => {
+    if (!split) {
+      mirrorRef.current = false;
+      splitOrigin.current = null;
+      pendingMirror.current = false;
+    }
+  }, [split]);
 
   // Load the library (the tabs are reopened above, as Preferences › Options says).
   const restored = useRef(false);
@@ -2433,27 +2509,36 @@ export function App() {
    */
   const reopenInPane = useCallback(
     async (cur: OpenFile, pane: Pane, next: OpenFile, keep: 'view' | ((was: number) => number)) => {
-      const c = ctlOf(pane);
-      if (!c) {
+      if (!ctlOf(pane)) {
         void next.doc.close();
         return;
       }
       await hideImported(next.doc, cur.store);
-      setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? next : t)));
-      setFront(pane, next);
-      const { tools, viewer } = c;
-      tools.setSnapSource(async (pageIndex) => {
-        const g = await next.doc.geometry(pageIndex);
-        return new SnapIndex(g.segments, undefined, g.curves);
-      });
-      tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
-      const view = viewer.getView();
-      viewer.setDocument(next.doc);
-      if (keep === 'view') viewer.setView(view);
-      else viewer.goToPage(keep(view.pageIndex));
+      const replaced = replaceTab(cur, next);
+      // Every pane showing this document, by file (a mirrored right pane has no tab to find it by). A tab
+      // that is not in front anywhere only has its tab entry replaced.
+      const showing = (['a', 'b'] as const).filter((p) => ctlOf(p) && openRefOf(p).current?.file.id === cur.file.id);
+      if (!replaced && !showing.length) {
+        // The tab was closed while the edit ran (which closed `cur`'s document): drop the new one.
+        void next.doc.close();
+        return;
+      }
+      for (const p of showing) {
+        const { tools, viewer } = ctlOf(p)!;
+        setFront(p, next);
+        tools.setSnapSource(async (pageIndex) => {
+          const g = await next.doc.geometry(pageIndex);
+          return new SnapIndex(g.segments, undefined, g.curves);
+        });
+        tools.setTextSource((pageIndex) => next.doc.text(pageIndex));
+        const view = viewer.getView();
+        viewer.setDocument(next.doc);
+        if (keep === 'view') viewer.setView(view);
+        else viewer.goToPage(keep(view.pageIndex));
+      }
       void cur.doc.close();
     },
-    [ctl, ctlB, setTabs, setFront],
+    [ctl, ctlB, replaceTab, setFront],
   );
 
   /**
@@ -4338,13 +4423,13 @@ export function App() {
         if (renamed) {
           now = { ...cur, file: renamed };
           markSaved(now);
-          setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? now : t)));
-          if (openRefOf(pane).current === cur) setFront(pane, now);
+          replaceTab(cur, now);
+          for (const p of ['a', 'b'] as const) if (openRefOf(p).current?.file.id === cur.file.id) setFront(p, now);
           void refreshLibrary();
         }
       }
       setSavedTick((n) => n + 1);
-      if (!silent) setNotice(`Saved ${fileName}.`);
+      if (!silent) setNotice((current) => afterFontNotice(current, `Saved ${fileName}.`));
     };
     try {
       // Autosave never asks where to save or downloads: it writes only to a file already chosen.
@@ -4378,7 +4463,7 @@ export function App() {
       if (!silent) setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }
-  }, [setTabs, setFront, refreshLibrary]);
+  }, [replaceTab, setFront, refreshLibrary]);
 
   // Preferences › Document › Autosave: a few seconds after the last edit, documents with changes
   // and a file to write to are saved in the background.
@@ -4417,12 +4502,19 @@ export function App() {
    */
   const closeTab = useCallback(
     (pane: Pane, fileId: string) => {
+      pane = tabPaneOf(pane);
       const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
       const idx = tabs.findIndex((t) => t.file.id === fileId);
       if (idx < 0) return;
       const closing = tabs[idx]!;
       const rest = tabs.filter((_, i) => i !== idx);
       setTabs(pane, rest);
+      // The mirrored right pane follows the left pane's next tab; with none, the mirror and the split end.
+      if (pane === 'a' && mirrorRef.current && openRef.current === closing && !rest.length) {
+        showInPane('b', null);
+        setSplit(false);
+        setActivePane('a');
+      }
       const front = pane === 'b' ? openBRef.current : openRef.current;
       if (front === closing) {
         const next = rest[Math.min(idx, rest.length - 1)] ?? null;
@@ -4496,6 +4588,7 @@ export function App() {
    */
   const requestCloseTab = useCallback(
     async (pane: Pane, fileId: string): Promise<boolean> => {
+      pane = tabPaneOf(pane);
       if (!(await settleUnsaved(pane, fileId))) return false;
       closeTab(pane, fileId);
       return true;
@@ -4593,7 +4686,13 @@ export function App() {
     const bFront = openBRef.current;
     showInPane('b', null);
     setTabs('b', []);
-    setTabs('a', [...tabsARef.current, ...moved]);
+    // The tab Split View took across goes back where it was.
+    const origin = splitOrigin.current;
+    splitOrigin.current = null;
+    const back = origin ? moved.find((t) => t.file.id === origin.id) : undefined;
+    const joined = [...tabsARef.current, ...moved.filter((t) => t !== back)];
+    if (back) joined.splice(Math.min(origin!.index, tabsARef.current.length), 0, back);
+    setTabs('a', joined);
     if (!openRef.current && bFront) showInPane('a', bFront);
     setSplit(false);
     setActivePane('a');
@@ -6479,7 +6578,7 @@ export function App() {
     const form = carried?.stamp?.form;
     const stamp = carried?.stamp
       ? form
-        ? withFieldValues({ id: item.id, name: item.subject || item.label, lines: form.lines, color: form.color, frame: carried.stamp.frame, fields: form.fields }, form.values)
+        ? withFieldValues({ id: item.id, name: item.subject || item.label, ...formStamp(carried.stamp)! }, form.values)
         : { id: item.id, name: item.subject || item.label, lines: carried.stamp.lines, color: item.style.stroke, frame: carried.stamp.frame, ...(carried.stamp.art ? { art: carried.stamp.art } : {}) }
       : undefined;
     tools.setTool(item.tool ?? item.type, {
@@ -6960,16 +7059,28 @@ export function App() {
     window.addEventListener('pointerup', up);
   };
 
+  /**
+   * Split View. With other documents open, the most recently used one goes in the new pane. With only
+   * one open, it is shown on both sides with the views synchronised.
+   */
   const startSplit = () => {
-    if (split) return;
-    splitFileRef.current?.click();
+    const front = openRef.current;
+    if (split || !front) return;
+    const tabs = tabsARef.current;
+    const partnerId = pickSplitPartner(tabs.map((t) => t.file.id), front.file.id, recentOpenIds.current);
+    const partner = tabs.find((t) => t.file.id === partnerId);
+    if (partner) {
+      pendingMove.current = partner;
+      splitOrigin.current = { id: partner.file.id, index: tabs.indexOf(partner) };
+    } else pendingMirror.current = true;
+    setSplit(true);
   };
 
   /** Swaps the two panes' tabs. */
   const swapPanes = () => {
     const a = openRef.current;
     const b = openBRef.current;
-    if (!a || !b || !ctl || !ctlB) return;
+    if (!a || !b || mirrorRef.current || !ctl || !ctlB) return;
     const tabs = tabsARef.current;
     savedViews.current.set(a.file.id, ctl.viewer.getView());
     savedViews.current.set(b.file.id, ctlB.viewer.getView());
@@ -7862,7 +7973,7 @@ export function App() {
             label: 'Open File Location',
             disabled: locationTick < 0 || !hasFileLocation(t.file.id),
             onClick: () => void revealFileLocation(t.file.id).then((ok) => {
-              if (!ok) setError('That file has no folder on this computer.');
+              if (!ok) setError('That file is not in a folder on this computer. It may have been moved, renamed or deleted.');
             }),
           }]
         : []),
@@ -8198,6 +8309,9 @@ export function App() {
     ];
   };
 
+  /** The recent files list (File › Open Recent, File Access › Recents); `locationTick` keeps it current as disk locations load. */
+  const recentList = (templates = true) => recentFiles(library, { count: prefs.recentCount, days: prefs.recentDays, locationOf: locationTick >= 0 ? fileLocationToken : undefined, templates });
+
   /** Right-click on a library file (File Access). */
   const libraryMenu = (f: StoredFile): MenuEntry[] => [
     { label: 'Open', onClick: () => void openFromLibrary(f, 'a') },
@@ -8224,11 +8338,12 @@ export function App() {
           label: 'Open File Location',
           disabled: locationTick < 0 || !hasFileLocation(f.id),
           onClick: () => void revealFileLocation(f.id).then((ok) => {
-            if (!ok) setError('That file has no folder on this computer.');
+            if (!ok) setError('That file is not in a folder on this computer. It may have been moved, renamed or deleted.');
           }),
         }]
       : []),
     SEP,
+    { label: 'Remove from Recents', disabled: !!f.recentHidden, onClick: () => removeFromRecents([f.id]) },
     {
       label: 'Remove from Device…',
       danger: true,
@@ -8824,12 +8939,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       showPanel('bookmarks');
     },
     cycleDocument: (dir) => {
-      const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
-      const front = pane === 'b' ? openBRef.current : openRef.current;
+      const tp = tabPaneOf(pane);
+      const tabs = tp === 'b' ? tabsBRef.current : tabsARef.current;
+      const front = tp === 'b' ? openBRef.current : openRef.current;
       if (tabs.length < 2 || !front) return;
       const i = tabs.findIndex((t) => t.file.id === front.file.id);
       const next = tabs[(i + dir + tabs.length) % tabs.length];
-      if (next) activateTab(pane, next);
+      // From the mirrored right pane the left pane changes and focus stays where it is.
+      if (next) (tp === pane ? activateTab(tp, next) : showInPane(tp, next));
     },
     align: (how) => activeTools?.alignSelected(how),
     nudge: (dx, dy, large) => activeTools?.nudgeScreen(dx, dy, large),
@@ -9293,6 +9410,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       return !snap || snap.isHost || allows(snap.meta, 'saveCopy');
     })(),
     selectionCount: toolsState.selected.size,
+    textSelected: !!toolsState.textSelection,
     hiddenCount: markups.filter((m) => m.hidden).length,
     selectionLocked: selectedMarkups.some((m) => m.locked),
     selectionGrouped: selectedMarkups.some((m) => m.groupId),
@@ -9312,6 +9430,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     canUndo: !!activeOpen && activeOpen.store.undoHistory().length > 0,
     split,
     splitHorizontal,
+    mirrored: mirrorRef.current,
     sync,
     columns: spread.columns,
     cover: spread.cover,
@@ -9334,7 +9453,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     showBottom: bottomOpen,
     tool: toolsState.tool,
     settings: prefs,
-    openTabCount: (pane === 'b' ? tabsB : tabsA).length,
+    openTabCount: (tabPaneOf(pane) === 'b' ? tabsB : tabsA).length,
     leftTab,
     rightTab,
     bottomTab,
@@ -9471,9 +9590,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               if (scope === 'document') return activeOpen ? [fromTab(activeOpen)] : [];
               if (scope === 'page') return activeOpen ? [fromTab(activeOpen, pageIndex)] : [];
               if (scope === 'open') return tabs.map((o) => fromTab(o));
-              return library
-                .filter((f) => !f.template && (!prefs.recentDays || Date.now() - f.lastOpenedAt < prefs.recentDays * 86_400_000))
-                .slice(0, prefs.recentCount)
+              return recentList(false)
                 .map((f) => {
                   const tab = tabs.find((t) => t.file.id === f.id);
                   return tab ? fromTab(tab) : librarySource(f);
@@ -9994,6 +10111,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         ) : (
           <Library
             files={library}
+            recents={recentList()}
+            onClearRecents={() => removeFromRecents(library.map((f) => f.id))}
             activeHash={activeOpen?.file.hash ?? null}
             onOpen={(f) => void openFromLibrary(f)}
             fileMenu={(f, groupEntries) => {
@@ -10188,28 +10307,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           if (files.length && open) setBulkInsertFiles(files);
         }}
       />
-      <input
-        ref={splitFileRef}
-        type="file"
-        accept="application/pdf"
-        hidden
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = '';
-          if (!f) return;
-          pendingSplit.current = f;
-          setSplit(true);
-          setActivePane('b');
-        }}
-      />
       <MenuBar
         commands={commandMap}
         author={author}
         onAuthorChange={persistAuthor}
-        recents={library
-          .filter((f) => !prefs.recentDays || Date.now() - f.lastOpenedAt < prefs.recentDays * 86_400_000)
-          .slice(0, prefs.recentCount)
-          .map((f) => ({ id: f.id, name: f.name }))}
+        recents={recentList().map((f) => ({ id: f.id, name: f.name }))}
         profiles={profileList.map((p) => ({ id: p.id, name: p.name }))}
         activeProfileId={activeProfileId}
         hiddenPanels={ws.hiddenPanels}
@@ -10226,6 +10328,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             const f = library.find((x) => x.id === id);
             if (f) void openFromLibrary(f);
           },
+          clearRecents: () => removeFromRecents(library.map((f) => f.id)),
           switchProfile: (id) => profiles.switchTo(id),
           showLeft: showPanel,
           showBottom: showBottomPanel,
@@ -11517,7 +11620,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           if (!o || !m?.stamp || !form) return null;
           return (
             <FillStampDialog
-              stamp={{ name: m.subject ?? 'Stamp', lines: form.lines, frame: m.stamp.frame, color: form.color, fields: form.fields }}
+              stamp={{ name: m.subject ?? 'Stamp', ...formStamp(m.stamp)! }}
               author={form.placed.user}
               initial={form.values}
               title={m.subject ?? 'Stamp'}

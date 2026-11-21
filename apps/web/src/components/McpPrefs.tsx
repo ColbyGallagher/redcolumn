@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { clientSetups, type AssistantLaunch } from '../desktop/clients';
 import { setAssistantOn } from '../desktop/assistantFlag';
 import { desktop, type AssistantInfo } from '../desktop/host';
+import { MANAGED_NOTE, managedPolicy } from '../desktop/policy';
 
 function platform(): 'win' | 'mac' | 'other' {
   const name = typeof navigator === 'undefined' ? '' : navigator.platform || navigator.userAgent;
@@ -51,6 +52,18 @@ export function McpPrefs() {
     });
   };
 
+  if (managedPolicy().disableAssistant)
+    return (
+      <div className="mcp-prefs">
+        <label className="pref-check">
+          <input type="checkbox" checked={false} disabled />
+          <span>Enable MCP server</span>
+        </label>
+        <p className="pref-note managed-note" role="status">
+          {MANAGED_NOTE} The MCP server is turned off on this computer, so AI clients cannot reach redcolumn.
+        </p>
+      </div>
+    );
   if (!info) return <p className="pref-note">Loading…</p>;
   const launch: AssistantLaunch = { command: info.command, args: info.args, env: info.env };
   const clients = clientSetups(launch, platform());

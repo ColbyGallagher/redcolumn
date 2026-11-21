@@ -65,6 +65,8 @@ export interface AssistantCommand {
   enabled: boolean;
   checked?: boolean;
   run: () => void;
+  /** Removed by the organisation's policy: not listed, and refused like any disabled command. */
+  managed?: true;
 }
 
 /** Text and subject written onto a markup as it is placed. */
@@ -893,6 +895,7 @@ function listCommands(params: unknown, env: AssistantEnv) {
   const onlyAvailable = record(params).available === true;
   const list = [...commands.values()].filter(
     (command) =>
+      !command.managed &&
       (!category || command.category.toLowerCase() === category) &&
       (!onlyAvailable || command.enabled) &&
       (!query || command.id.toLowerCase().includes(query) || command.label.toLowerCase().includes(query)),

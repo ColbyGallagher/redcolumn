@@ -207,7 +207,9 @@ function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString; NBTextMargin
     ...(s.italic ? ['font-style:italic'] : []),
     ...(s.underline || s.strikethrough ? [`text-decoration:${[s.underline && 'underline', s.strikethrough && 'line-through'].filter(Boolean).join(' ')}`] : []),
   ].join('; ');
-  const paragraphs = richParagraphs(m);
+  // Revu reads a paragraph's alignment from its own style (it writes `<p style="text-align:center">`), not the body's.
+  const align = s.textAlign && s.textAlign !== 'left' ? s.textAlign : null;
+  const paragraphs = richParagraphs(m).map((p) => (align ? p.replace(/^<p( \/)?>/, (_t, empty: string | undefined) => `<p style="text-align:${align}"${empty ?? ''}>`) : p));
   const rc = `<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2" style="${escapeXml(ds)}">${paragraphs.join('')}</body>`;
   // The exact padding rides in a private key: the /DS margin cannot say less than 0, and other readers add a point to it.
   return { DS: pdfText(ds), RC: pdfText(rc), ...(s.textMargin !== undefined ? { NBTextMargin: s.textMargin } : {}) };
