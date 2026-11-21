@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { LOW_CONFIDENCE, MARKUP_LABELS, type GroupingProposal, type GroupingStatus, type Markup, type MarkupStore } from '@nb/markup';
+import { LOW_CONFIDENCE, MARKUP_LABELS, type GroupingProposal, type GroupingStatus, type Markup, type MarkupStore, type ReviewFinding, type SourceRef } from '@nb/markup';
+import { ReviewFindings } from './ReviewFindings';
 import { acceptGrouping, deleteGrouping, editGrouping, groupValues, ownsColumn, regroup, rejectGrouping, reopenGrouping } from '../takeoff/groupingColumns';
 
 interface Props {
@@ -10,6 +11,9 @@ interface Props {
   pageLabel: (pageIndex: number) => string;
   onShow: (m: Markup) => void;
   onMessage: (text: string) => void;
+  /** What the AI review pass said, by review item (`column:<id>`). */
+  findings: ReadonlyMap<string, ReviewFinding[]>;
+  onShowSource: (s: SourceRef) => void;
 }
 
 export const GROUPING_STATUS_LABEL: Record<GroupingStatus, string> = { proposed: 'Proposed', review: 'In review', accepted: 'Accepted', rejected: 'Rejected' };
@@ -25,21 +29,23 @@ export const isWaitingGrouping = (g: GroupingProposal) => g.status === 'proposed
  * moves markups between groups, and accepts or rejects it. Columns only group: they never change a
  * quantity.
  */
-export function GroupingReview({ store, me, waitingOnly, pageLabel, onShow, onMessage }: Props) {
+export function GroupingReview({ store, me, waitingOnly, pageLabel, onShow, onMessage, findings, onShowSource }: Props) {
   const all = store.aiReview().columns;
-  const shown = waitingOnly ? all.filter(isWaitingGrouping) : all;
+  // An accepted or rejected column the review pass has an open finding on still waits: for the finding.
+  const findingWaits = (g: GroupingProposal) => (findings.get(`column:${g.id}`) ?? []).some((f) => f.status === 'open' && f.severity !== 'ok');
+  const shown = waitingOnly ? all.filter((g) => isWaitingGrouping(g) || findingWaits(g)) : all;
   if (!shown.length) return <p className="empty">{all.length ? 'No grouping column is waiting for review.' : 'No grouping columns yet. Ask your AI client to group the takeoff (by level, zone, trade...), or run an accepted tool from the Tools tab.'}</p>;
   return (
     <>
       <p className="hint-text takeoff-review-note">Grouping columns only change how markups are grouped and listed. They are text or a drop-down, never a number, so they never change a quantity.</p>
       {shown.map((g) => (
-        <Grouping key={g.id} g={g} store={store} me={me} pageLabel={pageLabel} onShow={onShow} onMessage={onMessage} />
+        <Grouping key={g.id} g={g} store={store} me={me} pageLabel={pageLabel} onShow={onShow} onMessage={onMessage} findings={findings} onShowSource={onShowSource} />
       ))}
     </>
   );
 }
 
-function Grouping({ g, store, me, pageLabel, onShow, onMessage }: { g: GroupingProposal } & Omit<Props, 'waitingOnly'>) {
+function Grouping({ g, store, me, pageLabel, onShow, onMessage, findings, onShowSource }: { g: GroupingProposal } & Omit<Props, 'waitingOnly'>) {
   const [all, setAll] = useState(false);
   const open = isWaitingGrouping(g);
   const readOnly = store.readOnly;
@@ -122,6 +128,7 @@ function Grouping({ g, store, me, pageLabel, onShow, onMessage }: { g: GroupingP
           Show all {g.assignments.length}
         </button>
       )}
+      <ReviewFindings store={store} me={me} findings={findings.get(`column:${g.id}`) ?? []} pageLabel={pageLabel} onShowSource={onShowSource} />
       {g.accepted && (
         <p className="hint-text">
           Accepted by {g.accepted.by}, {when(g.accepted.at)}

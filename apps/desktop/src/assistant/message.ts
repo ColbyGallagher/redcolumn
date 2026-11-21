@@ -34,6 +34,8 @@ export const ASSISTANT_METHODS = [
   'propose_grouping_tool',
   'list_grouping_tools',
   'run_grouping_tool',
+  'get_review_packet',
+  'report_review_findings',
   'start_comparison',
   'get_comparison',
   'report_document_changes',
@@ -628,7 +630,7 @@ const TOOLS: ToolDef[] = [
         action: {
           type: 'object',
           description:
-            'The value each markup gets. { kind: "set", value }; { kind: "copy", from: "subject" | "label" | "layer" | "page" | "sheet" | { column } }; { kind: "zone", zones: [{ name, pageIndex (0-based), polygon: [[x, y], ...] in PDF points }], otherwise }; { kind: "sheet", map: [{ contains, value }], otherwise } (matched against the sheet number and title).',
+            'The value each markup gets. { kind: "set", value }; { kind: "copy", from: "subject" | "label" | "layer" | "page" | "sheet" | { column } }; { kind: "zone", zones: [{ name, pageIndex (0-based), polygon: [[x, y], ...] in PDF points }], otherwise }; { kind: "sheet", map: [{ contains, value }], otherwise } (matched against the sheet number and title as whole words: "LEVEL 1" does not match "LEVEL 10", and "GA" does not match "GA01").',
         },
       },
       required: ['name', 'description', 'reasoning', 'column', 'action'],
@@ -647,6 +649,44 @@ const TOOLS: ToolDef[] = [
     title: 'Run a grouping tool',
     description: 'Runs an accepted tool from the library on a drawing. It proposes a grouping column, recorded against the tool, that waits in Review AI Takeoff › Columns for the person to accept. It changes no markup and no quantity itself. Refused for a tool that is proposed, rejected or turned off.',
     inputSchema: { type: 'object', properties: { document: documentProp, source: { type: 'string', description: 'Your name.' }, tool: { type: 'string', description: 'Tool id or name from list_grouping_tools.' } }, required: ['tool'] },
+    annotations: ADDS,
+  },
+  {
+    name: 'get_review_packet',
+    title: 'Get the takeoff to review',
+    description:
+      'For the optional AI review pass, run in a fresh context (a new conversation or subagent that did not make the takeoff): the takeoff output to check. Every AI result that is not rejected (drawn measurements, assemblies, counts, grouping columns) with its item id, page, geometry, measurement, assembly and the sources it cites; the sheets and their scales; and the instructions. It leaves out the first pass\'s reasoning and confidence on purpose, so the review does not inherit its assumptions. Check each item against the drawing yourself, then call report_review_findings.',
+    inputSchema: { type: 'object', properties: { document: documentProp } },
+    annotations: READS,
+  },
+  {
+    name: 'report_review_findings',
+    title: 'Report review findings',
+    description:
+      'Reports what the review pass found: per item (an item id from get_review_packet) an issue, something to check, or that it is right; and anything the takeoff missed (no item, with a source giving the page and area). Each finding is shown in Review AI Takeoff beside its item, labelled as AI review, and the person accepts or dismisses it. Nothing is applied to the drawing. Up to 1000 findings.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        source: { type: 'string', description: 'Your name, shown as the reviewer.' },
+        findings: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              item: { type: 'string', description: 'Item id from get_review_packet, such as draft:… or count:…. Leave out for something missed.' },
+              severity: { type: 'string', enum: ['issue', 'check', 'ok'], description: 'issue: wrong; check: worth a second look; ok: you agree.' },
+              kind: { type: 'string', enum: ['quantity', 'missed', 'wrong-item', 'scale', 'grouping', 'duplicate', 'other'] },
+              message: { type: 'string', description: 'What you found, for the person.' },
+              expected: { type: 'object', description: 'What you measured or counted instead.', properties: { quantity: { type: 'number' }, unit: { type: 'string' } }, required: ['quantity'] },
+              sources: evidenceProps.sources,
+            },
+            required: ['message'],
+          },
+        },
+      },
+      required: ['findings'],
+    },
     annotations: ADDS,
   },
   {

@@ -846,7 +846,7 @@ async function annotatedBytes(
     assemblies: cur.store.assemblies(),
     estimating: cur.store.estimating(),
     portals: cur.store.portals(),
-    aiReview: cur.store.aiReview(),
+    aiReview: cur.store.aiReviewForSave(),
     places: cur.store.places(),
     // Sheet numbers become the PDF's page labels, so other readers show them too.
     pageLabels: cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null),
@@ -5077,7 +5077,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                 assemblies: store.assemblies(),
                 estimating: store.estimating(),
                 portals: store.portals(),
-                aiReview: store.aiReview(),
+                aiReview: store.aiReviewForSave(),
                 places: store.places(),
               },
             );

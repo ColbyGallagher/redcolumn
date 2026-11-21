@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { LOW_CONFIDENCE, MARKUP_LABELS, type Assembly, type Markup, type MarkupStore, type SourceRef } from '@nb/markup';
 import { itemQuantities } from '../assemblies/quantities';
 import { approveProposals, takeoffProposals, type ApprovalEdit, type TakeoffProposal } from '../assemblies/proposals';
@@ -8,7 +8,11 @@ import { cellsFor, formatNumber, type CellContext } from '../columns/listColumns
 import { GroupingReview, isWaitingGrouping } from './GroupingReview';
 import { ToolLibraryReview } from './ToolLibraryReview';
 import { useToolLibrary } from '../takeoff/toolLibrary';
-import { approveDrafts, clearDecided, rejectDrafts, reopenDrafts, reviewItems, type ReviewItem, type ReviewState } from '../takeoff/aiReview';
+import { ReviewFindings } from './ReviewFindings';
+import { cancelReviewRequest, findingsByItem, liveFindings, needsDecision, requestReviewPass, setReviewPassEnabled } from '../takeoff/reviewPass';
+import { reviewerInstructions } from '../desktop/assistantReviewPass';
+import type { ReviewFinding } from '@nb/markup';
+import { approveDrafts, clearDecided, rejectDrafts, reopenDrafts, reviewItems, waitingCount, type ReviewItem, type ReviewState } from '../takeoff/aiReview';
 
 interface Props {
   store: MarkupStore;
@@ -63,7 +67,10 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
   const editFocus = useRef<string | null>(null);
   const readOnly = store.readOnly;
 
-  const shown = useMemo(() => items.filter((i) => show === 'all' || (i.state === 'pending' && (show === 'pending' || i.low))), [items, show]);
+  const { byItem, missed } = findingsByItem(store);
+  // A decided item the review pass has an open finding on still waits: for the finding.
+  const findingWaits = (key: string) => (byItem.get(key) ?? []).some(needsDecision);
+  const shown = items.filter((i) => show === 'all' || (i.state === 'pending' && (show === 'pending' || i.low)) || findingWaits(i.key));
   const pending = items.filter((i) => i.state === 'pending');
   const pickedPending = pending.filter((i) => picked.has(i.key));
   const sure = pending.filter((i) => !i.low);
@@ -77,6 +84,16 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
     else if (i.rejected) onShowPage(i.rejected.markup.pageIndex);
   };
   const showSource = (s: SourceRef) => (s.rect ? onShowRect(s.pageIndex, s.rect) : onShowPage(s.pageIndex));
+  const shownMissed = show === 'all' ? missed : missed.filter(needsDecision);
+  const pass = store.reviewPass();
+  const copyPrompt = async () => {
+    try {
+      await navigator.clipboard.writeText(reviewerInstructions(documentName));
+      onMessage('Copied. Paste it into a new conversation (or ask your AI client for a subagent) so the review starts fresh.');
+    } catch {
+      onMessage('Could not copy to the clipboard.');
+    }
+  };
 
   /** Approves items of every kind; each kind is its own undo step. */
   const approve = (list: ReviewItem[]) => {
@@ -173,7 +190,7 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
     <aside className="takeoff-review" role="complementary" aria-label="Review AI takeoff" tabIndex={-1} onKeyDown={onKey}>
       <header className="takeoff-review-head">
         <h3>Review AI Takeoff</h3>
-        <span className="hint-text">{pending.length + store.aiReview().columns.filter(isWaitingGrouping).length + tools.filter((t) => t.status === 'proposed').length} waiting</span>
+        <span className="hint-text">{waitingCount(store) + tools.filter((t) => t.status === 'proposed').length} waiting</span>
         <span className="grow" />
         <select aria-label="Show" value={show} onChange={(e) => setShow(e.target.value as Show)}>
           <option value="pending">Waiting for review</option>
@@ -187,8 +204,8 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
       <div className="ar-tabs" role="tablist" aria-label="What to review">
         {(
           [
-            ['takeoff', 'Takeoff', pending.length],
-            ['columns', 'Columns', store.aiReview().columns.filter(isWaitingGrouping).length],
+            ['takeoff', 'Takeoff', pending.length + liveFindings(store).filter((f) => needsDecision(f) && !f.item?.startsWith('column:')).length],
+            ['columns', 'Columns', store.aiReview().columns.filter(isWaitingGrouping).length + liveFindings(store).filter((f) => needsDecision(f) && !!f.item?.startsWith('column:')).length],
             ['tools', 'Tools', tools.filter((t) => t.status === 'proposed').length],
           ] as const
         ).map(([id, label, count]) => (
@@ -200,7 +217,7 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
       </div>
       {tab === 'columns' && (
         <div className="takeoff-review-list">
-          <GroupingReview store={store} me={me} waitingOnly={show !== 'all'} pageLabel={pageLabel} onShow={onShow} onMessage={onMessage} />
+          <GroupingReview store={store} me={me} waitingOnly={show !== 'all'} pageLabel={pageLabel} onShow={onShow} onMessage={onMessage} findings={byItem} onShowSource={showSource} />
         </div>
       )}
       {tab === 'tools' && (
@@ -221,7 +238,37 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
         <span className="grow" />
         <span className="hint-text">A approve · R reject · E edit · N / P next</span>
       </div>
+      <div className="ar-bar ar-pass" aria-label="AI review pass">
+        <label title="Off by default. When on, the AI client is asked to have each takeoff checked again in a fresh context.">
+          <input type="checkbox" checked={pass.enabled} disabled={readOnly} onChange={(e) => setReviewPassEnabled(store, e.target.checked)} /> Review pass after each AI takeoff
+        </label>
+        <span className="grow" />
+        {pass.requested ? (
+          <>
+            <span className="hint-text">Requested by {pass.requested.by}: waiting for your AI client</span>
+            <button type="button" className="btn small" disabled={readOnly} onClick={() => cancelReviewRequest(store)}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button type="button" className="btn small" disabled={readOnly || (!items.length && !store.aiReview().columns.length)} onClick={() => requestReviewPass(store, me)} title="Ask your AI client for a second review, in a fresh context">
+            Request Review Pass
+          </button>
+        )}
+        <button type="button" className="btn small" onClick={copyPrompt} title="Copy the reviewer's instructions, to paste into a new conversation with your AI client">
+          Copy Reviewer Prompt
+        </button>
+      </div>
       <div className="takeoff-review-list" ref={list}>
+        {!!shownMissed.length && (
+          <section className="takeoff-proposal ar-missed" aria-label="Possibly missed">
+            <div className="tp-head">
+              <b>Possibly missed</b>
+              <span className="hint-text">items the AI review says the takeoff does not have</span>
+            </div>
+            <ReviewFindings store={store} me={me} findings={shownMissed} pageLabel={pageLabel} onShowSource={showSource} />
+          </section>
+        )}
         {!shown.length && <p className="empty">{items.length ? 'Nothing waiting for review.' : 'Nothing yet. Ask your AI client (connected to redcolumn) to take off quantities.'}</p>}
         {shown.map((i) => (
           <Item
@@ -256,6 +303,8 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
             onApprove={() => approve([i])}
             onReject={() => reject([i])}
             onReopen={() => reopen(i)}
+            findings={byItem.get(i.key) ?? NO_FINDINGS}
+            me={me}
           />
         ))}
       </div>
@@ -287,6 +336,7 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
 }
 
 const NO_OFF = new Set<number>();
+const NO_FINDINGS: ReviewFinding[] = [];
 
 interface ItemProps {
   item: ReviewItem;
@@ -309,6 +359,9 @@ interface ItemProps {
   onApprove: () => void;
   onReject: () => void;
   onReopen: () => void;
+  /** What the AI review pass said about it. */
+  findings: readonly ReviewFinding[];
+  me: string;
 }
 
 function quantityText(i: ReviewItem, ctx: CellContext, off: ReadonlySet<number>): string {
@@ -343,6 +396,11 @@ function Item(props: ItemProps) {
         </button>
         <span className="tp-value">{quantityText(i, props.ctx, props.off)}</span>
         <span className="grow" />
+        {props.findings.some(needsDecision) && (
+          <span className="ar-kind review" title="The AI review pass has something to say about this">
+            AI review: {props.findings.filter(needsDecision).length}
+          </span>
+        )}
         {i.edits && <span className="ar-edited" title={`Changed by a person: ${i.edits.join(', ')}`}>edited</span>}
         <span className={`tp-state ${i.state}`}>{STATE_LABEL[i.state]}</span>
       </div>
@@ -373,6 +431,7 @@ function Item(props: ItemProps) {
               {i.reasoning}
             </blockquote>
           )}
+          <ReviewFindings store={props.store} me={props.me} findings={props.findings} pageLabel={pageLabel} onShowSource={onShowSource} />
           <Decision {...props} />
           {pending && (
             <div className="tp-actions">

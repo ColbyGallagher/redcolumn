@@ -43,6 +43,30 @@ Keys, while the list has focus:
 - **P** or **↑** previous
 - **Esc** close
 
+## Optional AI review pass
+
+You can have a second AI check the takeoff before you rely on it. The review pass is **off by default**.
+
+The second AI should check the work in a **fresh context**: a new conversation, or a subagent, that did not make the takeoff. It gets only:
+
+- the document.
+- the takeoff output: what was measured, counted and grouped, where it is, and the sources each item cites.
+
+It doesn't get the first pass's reasoning or confidence. That way it checks the work without inheriting the first pass's assumptions. redcolumn never calls a model itself, so your AI client runs the review. It can use the same model or a different one; a strong, different model usually catches more.
+
+On the Takeoff tab:
+
+- **Review pass after each AI takeoff** turns it on for this document. Your AI client is then asked, each time it adds results, to have them reviewed in a fresh context.
+- **Request Review Pass** asks for one now. Your AI client sees the request.
+- **Copy Reviewer Prompt** copies the reviewer's instructions. Paste them into a new conversation with your AI client.
+
+The reviewer reports findings, labelled **AI review** in their own colour so they are never mistaken for the takeoff:
+
+- on an item, such as *the kerb runs on past the crossing*. The item shows **AI review: N**. Open it to see each finding with its sources, and the reviewer's own quantity where it gave one.
+- under **Possibly missed**, for something the takeoff doesn't have, with the page where it is.
+
+Findings are never applied. **Accept Finding** records that you agree, then you fix or reject the item yourself. **Dismiss** records that you don't. Open findings count as waiting, unless the reviewer only agreed with an item.
+
 ## Grouping columns
 
 The **Columns** tab lists custom columns the AI proposed, to group the takeoff the way you need: by level, zone, system, trade or material. A grouping column is text or a drop-down, never a number, so it never changes a quantity.
