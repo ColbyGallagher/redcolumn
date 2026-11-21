@@ -4,6 +4,7 @@ import { VIEWPORT_METHODS, viewportCall } from './assistantViewports';
 import { SYMBOL_METHODS, symbolCall, type SymbolMethod } from './assistantSymbols';
 import { requireScaleFor, SCALE_METHODS, scaleCall, type ScaleMethod } from './assistantScales';
 import { STANDARD_METHODS, standardCall, type AssistantStandards, type StandardMethod } from './assistantStandards';
+import { GROUPING_METHODS, groupingCall, type GroupingMethod } from './assistantGrouping';
 import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 import type { PageRegion, TextWord } from '@nb/pdf-core';
 import { stateOf as proposalState, takeoffProposals, type TakeoffProposal } from '../assemblies/proposals';
@@ -316,7 +317,7 @@ function listMarkups(docs: readonly AssistantDocument[], params: unknown) {
   };
 }
 
-function findMarkup(doc: AssistantDocument, args: Record<string, unknown>): Markup {
+export function findMarkup(doc: AssistantDocument, args: Record<string, unknown>): Markup {
   if (typeof args.id === 'string' && args.id) {
     const found = doc.store.get(args.id);
     if (!found) throw new Error(`No markup ${args.id} is on ${doc.name}.`);
@@ -375,11 +376,11 @@ function setMarkup(docs: readonly AssistantDocument[], params: unknown) {
   return { document: doc.name, markup: publicMarkup(doc, appliedSet(doc, markup.id, patch)) };
 }
 
-function errorText(err: unknown): string {
+export function errorText(err: unknown): string {
   return err instanceof Error && err.message ? err.message : 'That markup cannot be changed.';
 }
 
-function batchItems(raw: unknown, empty: string): Record<string, unknown>[] {
+export function batchItems(raw: unknown, empty: string): Record<string, unknown>[] {
   if (!Array.isArray(raw) || raw.length === 0 || raw.some((item) => !item || typeof item !== 'object' || Array.isArray(item))) throw new Error(empty);
   if (raw.length > MAX_BATCH) throw new Error(`That is ${raw.length} at once. The most is ${MAX_BATCH}: send the rest in another call.`);
   return raw as Record<string, unknown>[];
@@ -1217,6 +1218,7 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if ((VIEWPORT_METHODS as readonly string[]).includes(method)) return viewportCall(docs, method, params);
   if ((SYMBOL_METHODS as readonly string[]).includes(method)) return symbolCall(docs, method as SymbolMethod, params);
   if ((SCALE_METHODS as readonly string[]).includes(method)) return scaleCall(docs, method as ScaleMethod, params);
+  if ((GROUPING_METHODS as readonly string[]).includes(method)) return groupingCall(docs, method as GroupingMethod, params);
   if ((STANDARD_METHODS as readonly string[]).includes(method)) return standardCall(docs, method as StandardMethod, params, env.standards);
   throw new Error('Unknown tool.');
 }

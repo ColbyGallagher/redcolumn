@@ -7094,6 +7094,69 @@ tr.hidden-markup td {
 }
 
 /* Review AI Takeoff: the threshold bar, confidence and kind badges, the open row */
+.ar-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 6px 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ar-tab {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-bottom: 2px solid transparent;
+}
+
+.ar-tab.active {
+  border-bottom-color: var(--brand, #14a39a);
+  font-weight: 600;
+}
+
+.ar-tab:focus-visible {
+  outline: 2px solid var(--brand, #14a39a);
+}
+
+.ar-count {
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  background: rgba(245, 158, 11, 0.3);
+}
+
+.ar-kind.column,
+.ar-kind.tool {
+  background: rgba(20, 163, 154, 0.3);
+}
+
+.ar-groups input {
+  width: 120px;
+}
+
+.ar-groups .ar-edited {
+  margin-left: 4px;
+}
+
+.ar-tool-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.ar-tool-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ar-tool-edit textarea {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}
+
 .ar-bar {
   display: flex;
   align-items: center;

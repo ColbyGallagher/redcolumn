@@ -5,6 +5,9 @@ import { approveProposals, takeoffProposals, type ApprovalEdit, type TakeoffProp
 import { approveCountProposal, countProposals } from '../assemblies/countProposals';
 import { CountMatches } from './CountReview';
 import { cellsFor, formatNumber, type CellContext } from '../columns/listColumns';
+import { GroupingReview, isWaitingGrouping } from './GroupingReview';
+import { ToolLibraryReview } from './ToolLibraryReview';
+import { useToolLibrary } from '../takeoff/toolLibrary';
 import { approveDrafts, clearDecided, rejectDrafts, reopenDrafts, reviewItems, type ReviewItem, type ReviewState } from '../takeoff/aiReview';
 
 interface Props {
@@ -21,8 +24,11 @@ interface Props {
   onShowPage: (pageIndex: number) => void;
   onMessage: (text: string) => void;
   onClose: () => void;
+  /** The document's name, recorded against a grouping tool's use. */
+  documentName: string;
 }
 
+type Tab = 'takeoff' | 'columns' | 'tools';
 type Show = 'pending' | 'low' | 'all';
 
 const n = (v: number | null | undefined) => (v === null || v === undefined ? '—' : formatNumber(v, 2));
@@ -39,7 +45,9 @@ const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? '' : 's'}`;
  * where it came from (click to see it on the drawing) and why, to approve, edit or reject on its
  * own or in bulk. Keys: A approve, R reject, E edit, N / P next and previous.
  */
-export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, onShowPage, onMessage, onClose }: Props) {
+export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, onShowPage, onMessage, onClose, documentName }: Props) {
+  const [tab, setTab] = useState<Tab>('takeoff');
+  const tools = useToolLibrary();
   const [, setTick] = useState(0);
   useEffect(() => store.subscribe(() => setTick((t) => t + 1)), [store]);
   const [threshold, setThreshold] = useState(LOW_CONFIDENCE);
@@ -133,6 +141,12 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
   }, [current]);
 
   const onKey = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      onClose();
+      e.preventDefault();
+      return;
+    }
+    if (tab !== 'takeoff') return;
     const t = e.target as HTMLElement;
     if (e.ctrlKey || e.metaKey || e.altKey || t.closest('input, select, textarea')) return;
     const k = e.key.toLowerCase();
@@ -148,8 +162,7 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
       showItem(cur);
       editFocus.current = cur.key;
       list.current?.querySelector<HTMLElement>(`[data-key="${CSS.escape(cur.key)}"] [data-edit]`)?.focus();
-    } else if (e.key === 'Escape') onClose();
-    else return;
+    } else return;
     e.preventDefault();
     e.stopPropagation();
   };
@@ -158,7 +171,7 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
     <aside className="takeoff-review" role="complementary" aria-label="Review AI takeoff" tabIndex={-1} onKeyDown={onKey}>
       <header className="takeoff-review-head">
         <h3>Review AI Takeoff</h3>
-        <span className="hint-text">{pending.length} waiting</span>
+        <span className="hint-text">{pending.length + store.aiReview().columns.filter(isWaitingGrouping).length + tools.filter((t) => t.status === 'proposed').length} waiting</span>
         <span className="grow" />
         <select aria-label="Show" value={show} onChange={(e) => setShow(e.target.value as Show)}>
           <option value="pending">Waiting for review</option>
@@ -169,6 +182,32 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
           ×
         </button>
       </header>
+      <div className="ar-tabs" role="tablist" aria-label="What to review">
+        {(
+          [
+            ['takeoff', 'Takeoff', pending.length],
+            ['columns', 'Columns', store.aiReview().columns.filter(isWaitingGrouping).length],
+            ['tools', 'Tools', tools.filter((t) => t.status === 'proposed').length],
+          ] as const
+        ).map(([id, label, count]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} className={`ar-tab${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>
+            {label}
+            {count ? <span className="ar-count">{count}</span> : null}
+          </button>
+        ))}
+      </div>
+      {tab === 'columns' && (
+        <div className="takeoff-review-list">
+          <GroupingReview store={store} me={me} waitingOnly={show !== 'all'} pageLabel={pageLabel} onShow={onShow} onMessage={onMessage} />
+        </div>
+      )}
+      {tab === 'tools' && (
+        <div className="takeoff-review-list">
+          <ToolLibraryReview store={store} me={me} documentName={documentName} onMessage={onMessage} onRan={() => setTab('columns')} />
+        </div>
+      )}
+      {tab === 'takeoff' && (
+        <>
       <p className="hint-text takeoff-review-note">
         An AI client made these through the local assistant. Nothing counts towards the takeoff until you approve it: drawn ones are dashed and left out of quantities until then. Check each against its source.
       </p>
@@ -239,6 +278,8 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
           Approve Selected ({pickedPending.length})
         </button>
       </footer>
+        </>
+      )}
     </aside>
   );
 }
