@@ -255,7 +255,7 @@ import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } fr
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
 import { pickSplitPartner, touchRecent } from './splitPartner';
-import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink } from './fonts/fontNotices';
+import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink, afterFontNotice } from './fonts/fontNotices';
 
 interface Controllers {
   engine: PdfEngine;
@@ -1005,7 +1005,7 @@ export function App() {
         const text = missingFontsNotice(missing);
         if (text && !fontWarned.current.has(d.file.id)) {
           fontWarned.current.add(d.file.id);
-          setNotice(text);
+          setNotice((current) => afterFontNotice(current, text));
         }
       }
     };
@@ -4405,7 +4405,7 @@ export function App() {
         }
       }
       setSavedTick((n) => n + 1);
-      if (!silent) setNotice(`Saved ${fileName}.`);
+      if (!silent) setNotice((current) => afterFontNotice(current, `Saved ${fileName}.`));
     };
     try {
       // Autosave never asks where to save or downloads: it writes only to a file already chosen.

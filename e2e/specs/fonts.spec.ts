@@ -108,9 +108,19 @@ test.describe('font picker', () => {
     await app.page.getByRole('button', { name: 'Show installed fonts…' }).click();
     await options(app).filter({ hasText: 'E2E Locked' }).click();
     expect(await textMarkup(app)).toBe('E2E Locked');
+    // The notice line clears itself after a few seconds, so record what it said rather than race it.
+    await app.page.evaluate(() => {
+      const w = window as unknown as { __fontNotices: string[] };
+      w.__fontNotices = [];
+      new MutationObserver(() => {
+        const m = /E2E Locked [^.]*so Helvetica was used in the PDF\./.exec(document.body.textContent ?? '');
+        if (m && !w.__fontNotices.includes(m[0])) w.__fontNotices.push(m[0]);
+      }).observe(document.body, { subtree: true, childList: true, characterData: true });
+    });
     await app.cmd('file.saveAs');
-    await expect(app.page.getByText(/E2E Locked .*so Helvetica was used in the PDF\./)).toBeVisible({ timeout: 30_000 });
-    expect(await app.saved()).toHaveLength(1);
+    await expect.poll(() => app.page.evaluate(() => (window as unknown as { __fontNotices: string[] }).__fontNotices.length), { timeout: 30_000 }).toBeGreaterThan(0);
+    // The notice is shown as the export finishes, a moment before the file is written.
+    await expect.poll(async () => (await app.saved()).length, { timeout: 30_000 }).toBe(1);
   });
 
   test('a document that uses a font this machine lacks says so once', async ({ app }) => {
