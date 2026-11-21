@@ -1746,7 +1746,11 @@ async function readOutline(docId: number): Promise<OutlineItem[]> {
   return walk(0, 0);
 }
 
-function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number): PdfAnnotation[] {
+function isShxTextAnnot(m: WrappedPdfiumModule, annot: number): boolean {
+  return m.FPDFAnnot_GetSubtype(annot) === ANNOT_SQUARE && annotString(m, annot, 'T') === SHX_AUTHOR;
+}
+
+function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number, includeShx = false): PdfAnnotation[] {
   const page = getPage(m, doc, pageIndex);
   const t = userToPageMatrix(m, page);
   const { malloc, free } = m.pdfium.wasmExports;
@@ -1762,6 +1766,8 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
       if (!annot) continue;
       try {
         const subtype = ANNOT_SUBTYPES[m.FPDFAnnot_GetSubtype(annot)] ?? 'Unknown';
+        // AutoCAD's invisible SHX text carriers are left out unless asked for; shxWords() reads them for search regardless.
+        if (!includeShx && isShxTextAnnot(m, annot)) continue;
         const rect = annotRect(m, annot, tmp, t);
         if (!rect) continue;
         const opacity = annotOpacity(m, annot, tmp);
@@ -1842,7 +1848,7 @@ function shxWords(m: WrappedPdfiumModule, page: number, t: Matrix): TextWord[] {
       const annot = m.FPDFPage_GetAnnot(page, i);
       if (!annot) continue;
       try {
-        if (m.FPDFAnnot_GetSubtype(annot) !== ANNOT_SQUARE || annotString(m, annot, 'T') !== SHX_AUTHOR) continue;
+        if (!isShxTextAnnot(m, annot)) continue;
         const text = annotString(m, annot, 'Contents').trim();
         const r = annotRect(m, annot, tmp, t);
         if (!text || !r) continue;
@@ -2131,7 +2137,7 @@ async function handle(req: WorkerRequest) {
       }
       case 'annotations': {
         const m = await lib();
-        reply({ id: req.id, ok: true, type: 'annotations', annotations: readAnnotations(m, getDoc(req.docId), req.pageIndex) });
+        reply({ id: req.id, ok: true, type: 'annotations', annotations: readAnnotations(m, getDoc(req.docId), req.pageIndex, req.includeShx) });
         break;
       }
       case 'hideAnnots': {

@@ -234,7 +234,7 @@ export type WorkerRequest =
   | { id: number; type: 'geometry'; docId: number; pageIndex: number }
   | { id: number; type: 'clipRegion'; docId: number; pageIndex: number; rect: PageRegion }
   | { id: number; type: 'text'; docId: number; pageIndex: number }
-  | { id: number; type: 'annotations'; docId: number; pageIndex: number }
+  | { id: number; type: 'annotations'; docId: number; pageIndex: number; includeShx?: boolean }
   | { id: number; type: 'hideAnnots'; docId: number; pageIndex: number; indices: number[] }
   | { id: number; type: 'edit'; bytes: ArrayBuffer; ops: PageOp[]; inserts: ArrayBuffer[]; rewrite?: boolean }
   | { id: number; type: 'extract'; bytes: ArrayBuffer; pages: number[] }
