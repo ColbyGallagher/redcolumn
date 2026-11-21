@@ -15,29 +15,45 @@ test('opens a PDF', async ({ app }) => {
   expect(app.errors).toEqual([]);
 });
 
-test('every top menu opens without errors', async ({ app }) => {
+test('every menu in the redcolumn menu opens without errors', async ({ app }) => {
   await app.open('plan.pdf');
-  const titles = await app.page.locator('.menubar .menu-title').allInnerTexts();
+  await app.page.locator('.menubar .brand-mark').click();
+  const titles = await app.page.locator('.brand-drop > .menu-sub > .menu-item .label').allInnerTexts();
   expect(titles.length).toBeGreaterThan(5);
   for (const title of titles) {
-    const drop = await app.menu(title.trim());
-    await expect(drop).toBeVisible();
-    expect(await drop.locator('.menu-item').count(), title).toBeGreaterThan(0);
+    const flyout = await app.menu(title.trim());
+    await expect(flyout).toBeVisible();
+    expect(await flyout.locator('.menu-item').count(), title).toBeGreaterThan(0);
   }
   await app.page.keyboard.press('Escape');
   expect(app.errors).toEqual([]);
 });
 
-test('clicking an open menu title closes it, and another title switches to that menu', async ({ app }) => {
-  const title = (name: string) => app.page.locator('.menubar .menu-title', { hasText: new RegExp(`^${name}$`) });
-  const drop = app.page.locator('.menu-drop');
-  await title('File').click();
+test('the redcolumn mark opens and closes its menu, and the toolbar shares its row', async ({ app }) => {
+  const mark = app.page.locator('.menubar .brand-mark');
+  const drop = app.page.locator('.brand-drop');
+  await mark.click();
   await expect(drop).toBeVisible();
-  await title('Edit').click();
-  await expect(title('Edit')).toHaveAttribute('aria-expanded', 'true');
-  await expect(title('File')).toHaveAttribute('aria-expanded', 'false');
-  await title('Edit').click();
+  await expect(mark).toHaveAttribute('aria-expanded', 'true');
+  await mark.click();
   await expect(drop).toHaveCount(0);
-  await expect(title('Edit')).toHaveAttribute('aria-expanded', 'false');
+  await expect(mark).toHaveAttribute('aria-expanded', 'false');
+  // The ribbon's tabs or the simplified toolbar, whichever the profile shows.
+  await expect(app.page.locator('.menubar .menubar-slot > .rb-tabs, .menubar .menubar-slot > .toolbar.tools')).toBeVisible();
+  expect(app.errors).toEqual([]);
+});
+
+test('search, Feedback and Autosave stay in the top bar', async ({ app }) => {
+  await expect(app.page.locator('.menubar .menu-search input')).toBeVisible();
+  const feedback = app.page.locator('.menubar .feedback-btn');
+  await feedback.click();
+  const items = app.page.locator('.feedback-drop .menu-item .label');
+  await expect(items).toHaveText(['Report a Bug / Get Support', 'Suggest a Feature', 'Sponsor redcolumn']);
+  await app.page.keyboard.press('Escape');
+  await expect(app.page.locator('.feedback-drop')).toHaveCount(0);
+  const autosave = app.page.locator('.menubar .autosave-btn');
+  const before = await autosave.getAttribute('aria-checked');
+  await autosave.click();
+  await expect(autosave).toHaveAttribute('aria-checked', before === 'true' ? 'false' : 'true');
   expect(app.errors).toEqual([]);
 });
