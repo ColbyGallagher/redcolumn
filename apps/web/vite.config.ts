@@ -176,6 +176,9 @@ export default defineConfig({
     }),
   ],
   worker: { format: 'es' },
+  // SQLite (the search index, src/search/index) finds its .wasm next to its own module, which
+  // pre-bundling in development would move.
+  optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
   build: {
     rollupOptions: {
       input: {
