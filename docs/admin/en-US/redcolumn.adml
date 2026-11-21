@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitionResources revision="1.0" schemaVersion="1.0">
+  <displayName>redcolumn</displayName>
+  <description>Settings for redcolumn on this computer.</description>
+  <resources>
+    <stringTable>
+      <string id="Category">redcolumn</string>
+      <string id="DisableAutoUpdate">Turn off automatic updates</string>
+      <string id="DisableAutoUpdate_Help">No update checks, downloads or installs, and the update button is hidden. Deploy each new version yourself.</string>
+      <string id="DisableAssistant">Turn off the MCP server</string>
+      <string id="DisableAssistant_Help">AI clients on this computer cannot reach redcolumn. The switch in Preferences is locked off.</string>
+      <string id="DisableCommunityLibrary">Turn off Browse Library</string>
+      <string id="DisableCommunityLibrary_Help">Tools > Browse Library, which lists and downloads trade packs from the public library on GitHub, is removed.</string>
+      <string id="DisableMicrosoftSignIn">Turn off Microsoft sign-in</string>
+      <string id="DisableMicrosoftSignIn_Help">Microsoft sign-in and everything that needs it: OneDrive Projects and Live Sessions, and profile backup to OneDrive. Folders on the computer still work.</string>
+      <string id="DisableExcelSync">Turn off Sync to Excel</string>
+      <string id="DisableExcelSync_Help">Sync to Excel, which drives Excel on this computer, is removed.</string>
+      <string id="DisabledFeatures">Turn off commands</string>
+      <string id="DisabledFeatures_Help">Command IDs to remove from menus, the ribbon, the command palette, shortcuts and the MCP server, one per row. End an ID with .* to remove a group, for example takeoff.*. The list is in the help page Deploy to an organisation (for IT).</string>
+    </stringTable>
+    <presentationTable>
+      <presentation id="DisabledFeatures">
+        <listBox refId="DisabledFeaturesList">Command IDs</listBox>
+      </presentation>
+    </presentationTable>
+  </resources>
+</policyDefinitionResources>

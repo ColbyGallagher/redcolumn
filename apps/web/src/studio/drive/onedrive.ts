@@ -1,6 +1,7 @@
 import type { AccountInfo, IPublicClientApplication } from '@azure/msal-browser';
 import { DriveAuthError, DriveForbiddenError, DriveLockedError, type DriveApi, type DriveFile, type DrivePermission, type DriveProps, type LinkOptions } from './DriveApi';
 import { desktop } from '../../desktop/host';
+import { managedPolicy } from '../../desktop/policy';
 import { requireOnline } from '../../offline/network';
 import { logCloudAction } from './cloudLog';
 import { noteCloudActivity } from './idle';
@@ -15,7 +16,15 @@ const CLIENT_ID = import.meta.env.VITE_MICROSOFT_CLIENT_ID as string | undefined
 /** `common` (work and personal accounts), `consumers`, `organizations`, or one tenant's ID. */
 const TENANT = (import.meta.env.VITE_MICROSOFT_TENANT as string | undefined) || 'common';
 
-export const oneDriveConfigured = !!CLIENT_ID;
+/**
+ * Microsoft sign-in is set up for this build and allowed here. The organisation's policy can turn
+ * it off on the desktop (desktop/policy.ts): the app then behaves as a build without it, and the
+ * main process refuses sign-in and Graph calls as well. The preload sets the policy before any
+ * script runs, so reading it while this module loads is safe.
+ */
+export const oneDriveConfigured = !!CLIENT_ID && !managedPolicy().disableMicrosoftSignIn;
+/** Microsoft sign-in is off because the organisation turned it off (Preferences says so). */
+export const microsoftSignInManagedOff = !!CLIENT_ID && managedPolicy().disableMicrosoftSignIn;
 
 /**
  * Whether Projects and Live Sessions may be kept in OneDrive and shared through it. Off unless the

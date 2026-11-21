@@ -2260,6 +2260,16 @@
   cursor: default;
 }
 
+/* Preferences › the organisation's policy (desktop/policy.ts) turns features off on this computer. */
+.modal p.prefs-managed {
+  margin: 0 20px 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .modal p.prefs-message {
   margin: 0 20px 8px;
   padding: 6px 8px;

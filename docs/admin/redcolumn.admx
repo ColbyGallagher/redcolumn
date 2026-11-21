@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<policyDefinitions revision="1.0" schemaVersion="1.0">
+  <policyNamespaces>
+    <target prefix="redcolumn" namespace="redcolumn.Policies.redcolumn" />
+  </policyNamespaces>
+  <resources minRequiredRevision="1.0" />
+  <categories>
+    <category name="redcolumn" displayName="$(string.Category)" />
+  </categories>
+  <policies>
+    <policy name="DisableAutoUpdate" class="Machine" displayName="$(string.DisableAutoUpdate)" explainText="$(string.DisableAutoUpdate_Help)" key="SOFTWARE\Policies\redcolumn" valueName="DisableAutoUpdate">
+      <parentCategory ref="redcolumn" />
+      <supportedOn ref="windows:SUPPORTED_Windows7" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="DisableAssistant" class="Machine" displayName="$(string.DisableAssistant)" explainText="$(string.DisableAssistant_Help)" key="SOFTWARE\Policies\redcolumn" valueName="DisableAssistant">
+      <parentCategory ref="redcolumn" />
+      <supportedOn ref="windows:SUPPORTED_Windows7" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="DisableCommunityLibrary" class="Machine" displayName="$(string.DisableCommunityLibrary)" explainText="$(string.DisableCommunityLibrary_Help)" key="SOFTWARE\Policies\redcolumn" valueName="DisableCommunityLibrary">
+      <parentCategory ref="redcolumn" />
+      <supportedOn ref="windows:SUPPORTED_Windows7" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="DisableMicrosoftSignIn" class="Machine" displayName="$(string.DisableMicrosoftSignIn)" explainText="$(string.DisableMicrosoftSignIn_Help)" key="SOFTWARE\Policies\redcolumn" valueName="DisableMicrosoftSignIn">
+      <parentCategory ref="redcolumn" />
+      <supportedOn ref="windows:SUPPORTED_Windows7" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="DisableExcelSync" class="Machine" displayName="$(string.DisableExcelSync)" explainText="$(string.DisableExcelSync_Help)" key="SOFTWARE\Policies\redcolumn" valueName="DisableExcelSync">
+      <parentCategory ref="redcolumn" />
+      <supportedOn ref="windows:SUPPORTED_Windows7" />
+      <enabledValue><decimal value="1" /></enabledValue>
+      <disabledValue><decimal value="0" /></disabledValue>
+    </policy>
+    <policy name="DisabledFeatures" class="Machine" displayName="$(string.DisabledFeatures)" explainText="$(string.DisabledFeatures_Help)" presentation="$(presentation.DisabledFeatures)" key="SOFTWARE\Policies\redcolumn\DisabledFeatures">
+      <parentCategory ref="redcolumn" />
+      <supportedOn ref="windows:SUPPORTED_Windows7" />
+      <elements>
+        <list id="DisabledFeaturesList" key="SOFTWARE\Policies\redcolumn\DisabledFeatures" valuePrefix="" />
+      </elements>
+    </policy>
+  </policies>
+</policyDefinitions>

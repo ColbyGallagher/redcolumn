@@ -191,6 +191,44 @@ export function parseDefaultStyle(ds: string, fontSize?: number): Partial<Markup
   return out;
 }
 
+/** Longest /RC read for its styles: the body and paragraph tags come first. */
+const MAX_RC_STYLE_SCAN = 64 * 1024;
+
+/** The `style` attribute of the first `<tag>` in some XHTML that has one, or null. */
+function tagStyle(xhtml: string, tag: string): string | null {
+  const open = new RegExp(`<${tag}\\b([^>]*)>`, 'gi');
+  for (let m = open.exec(xhtml); m; m = open.exec(xhtml)) {
+    const style = /\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')/i.exec(m[1]!);
+    if (style) return (style[1] ?? style[2] ?? '').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+  }
+  return null;
+}
+
+/**
+ * A FreeText annotation's text style (text box, call-out, Cloud+, typewriter, flag): its /DS default
+ * style, with what that leaves out filled from its /RC rich text (the body's style, then the first
+ * paragraph's alignment and line height, as Revu writes them) and its alignment last from /Q.
+ * `fontSize` is the /DA size, to read a line height in pt against.
+ */
+export function freeTextStyle(ds: string | null | undefined, rc: string | null | undefined, quadding: number | null | undefined, fontSize?: number): Partial<MarkupStyle> {
+  const out: Partial<MarkupStyle> = ds ? parseDefaultStyle(ds, fontSize) : {};
+  const fill = (from: Partial<MarkupStyle>, keys?: (keyof MarkupStyle)[]) => {
+    for (const [k, v] of Object.entries(from) as [keyof MarkupStyle, unknown][]) {
+      if (v === undefined || out[k] !== undefined || (keys && !keys.includes(k))) continue;
+      (out as Record<string, unknown>)[k] = v;
+    }
+  };
+  if (rc) {
+    const head = rc.slice(0, MAX_RC_STYLE_SCAN);
+    const body = tagStyle(head, 'body');
+    if (body) fill(parseDefaultStyle(body, out.fontSize ?? fontSize));
+    const p = tagStyle(head, 'p');
+    if (p) fill(parseDefaultStyle(p, out.fontSize ?? fontSize), ['textAlign', 'lineHeight']);
+  }
+  if (out.textAlign === undefined && (quadding === 1 || quadding === 2)) out.textAlign = quadding === 1 ? 'center' : 'right';
+  return out;
+}
+
 /**
  * The family in a CSS font shorthand or font-family list ("Calibri 12pt", "'Segoe UI', sans-serif"):
  * its first name. The three standard families (and generic names) read as keywords; any other name
