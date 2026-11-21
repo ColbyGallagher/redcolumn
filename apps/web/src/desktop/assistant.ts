@@ -1199,15 +1199,19 @@ const TAKEOFF_OUTPUT = new Set(['place_markup', 'place_markups', 'propose_takeof
 
 export async function assistantCall(docs: readonly AssistantDocument[], method: string, params: unknown, env: AssistantEnv = {}): Promise<unknown> {
   const out = await callTool(docs, method, params, env);
-  if (!TAKEOFF_OUTPUT.has(method) || !out || typeof out !== 'object') return out;
+  if (!out || typeof out !== 'object' || Array.isArray(out) || (REVIEW_PASS_METHODS as readonly string[]).includes(method)) return out;
   let doc: AssistantDocument;
   try {
     doc = findDocument(docs, record(params).document);
   } catch {
     return out;
   }
-  if (!doc.store.reviewPass().enabled) return out;
-  return { ...out, reviewPass: 'The person has the AI review pass on for this document. When you have finished the takeoff, have it checked in a fresh context: start a new conversation or subagent that calls get_review_packet and reports with report_review_findings. Do not review it yourself in this conversation.' };
+  const pass = doc.store.reviewPass();
+  const how = 'have it checked in a fresh context: start a new conversation or subagent that calls get_review_packet and reports with report_review_findings. Do not review it yourself in this conversation.';
+  // A person's request reaches the AI client on whatever it calls next, the pass on or not.
+  if (pass.requested) return { ...out, reviewPass: `${pass.requested.by} asked for an AI review pass of the takeoff on ${doc.name}: ${how}` };
+  if (!pass.enabled || !TAKEOFF_OUTPUT.has(method)) return out;
+  return { ...out, reviewPass: `The person has the AI review pass on for this document. When you have finished the takeoff, ${how}` };
 }
 
 async function callTool(docs: readonly AssistantDocument[], method: string, params: unknown, env: AssistantEnv): Promise<unknown> {

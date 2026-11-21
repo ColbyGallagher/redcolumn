@@ -13,7 +13,7 @@ import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
 import { TYPE_INFO } from './types';
 import { unchangedSinceImport } from './digest';
-import { aiReviewEntries, aiReviewFromEntries, aiReviewKey, EMPTY_AI_REVIEW, remapAiOrigin, remapAiReview, sanitizeAiReview, type AiReviewChange, type AiReviewData, type ReviewPassSettings } from './aiReview';
+import { aiReviewEntries, aiReviewFromEntries, aiReviewKey, EMPTY_AI_REVIEW, remapAiOrigin, remapAiReview, sanitizeAiReview, type AiReviewChange, type AiReviewData, type AiReviewKind, type ReviewPassSettings } from './aiReview';
 import { orphanedLinks, planPortalSync, relinkPlan, remapPortals, sanitizePortals, type MarkupChange, type Portal } from './portals';
 
 /** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
@@ -844,6 +844,7 @@ export class MarkupStore {
       if (extras.pageCount !== undefined) this.pageCount = extras.pageCount;
       if (extras.portals?.length && !this.meta.has('portals')) this.meta.set('portals', sanitizePortals(extras.portals, this.pageCount));
       if (extras.aiReview && !this.aiReviewMap.size) this.applyAiReview({ ...sanitizeAiReview(extras.aiReview, this.pageCount) });
+      if (extras.aiReview?.reviewPass?.enabled && !this.meta.has('reviewPass')) this.meta.set('reviewPass', { enabled: true });
       // Copies whose portal the file does not have (or no longer links their page) are ordinary markups.
       this.stripOrphanLinks(sanitizePortals(this.meta.get('portals'), this.pageCount));
       this.meta.set('importedAnnotations', imported);
@@ -1179,11 +1180,11 @@ export class MarkupStore {
     return this.aiReviewSnapshot;
   }
 
-  /**
-   * Adds, replaces or removes entries of the document's AI review list. `byAi`: an AI client added to it, which is saved and
-   * synced but is not a step the person's Undo takes back; a person's decisions are undoable, and
-   * inside `batch` join its step (approving a count with the markups it places).
-   */
+  /** The review list as a saved file keeps it: with the review pass turned on, when it is. */
+  aiReviewForSave(): AiReviewData {
+    return this.reviewPass().enabled ? { ...this.aiReviewSnapshot, reviewPass: { enabled: true } } : this.aiReviewSnapshot;
+  }
+
   /**
    * The optional AI review pass for this document: whether it runs after each AI takeoff
    * (`enabled`, off by default) and a person's request to run one now (`requested`).
@@ -1196,9 +1197,15 @@ export class MarkupStore {
 
   setReviewPass(next: ReviewPassSettings, byAi = false) {
     if (this.locked) return;
+    this.undoManager.stopCapturing();
     this.doc.transact(() => this.meta.set('reviewPass', structuredClone(next)), byAi ? AI : LOCAL);
   }
 
+  /**
+   * Adds, replaces or removes entries of the document's AI review list. `byAi`: an AI client added to it, which is saved and
+   * synced but is not a step the person's Undo takes back; a person's decisions are undoable, and
+   * inside `batch` join its step (approving a count with the markups it places).
+   */
   changeAiReview(change: AiReviewChange, byAi = false) {
     if (this.locked) return;
     this.doc.transact(() => this.applyAiReview(change), byAi ? AI : LOCAL);
@@ -1210,7 +1217,7 @@ export class MarkupStore {
     for (const r of change.rejected ?? []) this.aiReviewMap.set(aiReviewKey('rejected', r.markup.id), structuredClone(r));
     for (const g of change.columns ?? []) this.aiReviewMap.set(aiReviewKey('columns', g.id), structuredClone(g));
     for (const f of change.findings ?? []) this.aiReviewMap.set(aiReviewKey('findings', f.id), structuredClone(f));
-    for (const [kind, ids] of Object.entries(change.remove ?? {}) as [keyof AiReviewData, string[]][]) for (const id of ids) this.aiReviewMap.delete(aiReviewKey(kind, id));
+    for (const [kind, ids] of Object.entries(change.remove ?? {}) as [AiReviewKind, string[]][]) for (const id of ids) this.aiReviewMap.delete(aiReviewKey(kind, id));
   }
 
   /**

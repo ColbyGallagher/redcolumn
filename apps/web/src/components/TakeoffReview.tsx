@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { LOW_CONFIDENCE, MARKUP_LABELS, type Assembly, type Markup, type MarkupStore, type SourceRef } from '@nb/markup';
 import { itemQuantities } from '../assemblies/quantities';
 import { approveProposals, takeoffProposals, type ApprovalEdit, type TakeoffProposal } from '../assemblies/proposals';
@@ -9,7 +9,7 @@ import { GroupingReview, isWaitingGrouping } from './GroupingReview';
 import { ToolLibraryReview } from './ToolLibraryReview';
 import { useToolLibrary } from '../takeoff/toolLibrary';
 import { ReviewFindings } from './ReviewFindings';
-import { cancelReviewRequest, findingsByItem, needsDecision, requestReviewPass, setReviewPassEnabled } from '../takeoff/reviewPass';
+import { cancelReviewRequest, findingsByItem, liveFindings, needsDecision, requestReviewPass, setReviewPassEnabled } from '../takeoff/reviewPass';
 import { reviewerInstructions } from '../desktop/assistantReviewPass';
 import type { ReviewFinding } from '@nb/markup';
 import { approveDrafts, clearDecided, rejectDrafts, reopenDrafts, reviewItems, waitingCount, type ReviewItem, type ReviewState } from '../takeoff/aiReview';
@@ -67,7 +67,10 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
   const editFocus = useRef<string | null>(null);
   const readOnly = store.readOnly;
 
-  const shown = useMemo(() => items.filter((i) => show === 'all' || (i.state === 'pending' && (show === 'pending' || i.low))), [items, show]);
+  const { byItem, missed } = findingsByItem(store);
+  // A decided item the review pass has an open finding on still waits: for the finding.
+  const findingWaits = (key: string) => (byItem.get(key) ?? []).some(needsDecision);
+  const shown = items.filter((i) => show === 'all' || (i.state === 'pending' && (show === 'pending' || i.low)) || (show === 'pending' && findingWaits(i.key)));
   const pending = items.filter((i) => i.state === 'pending');
   const pickedPending = pending.filter((i) => picked.has(i.key));
   const sure = pending.filter((i) => !i.low);
@@ -81,7 +84,6 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
     else if (i.rejected) onShowPage(i.rejected.markup.pageIndex);
   };
   const showSource = (s: SourceRef) => (s.rect ? onShowRect(s.pageIndex, s.rect) : onShowPage(s.pageIndex));
-  const { byItem, missed } = findingsByItem(store);
   const shownMissed = show === 'all' ? missed : missed.filter(needsDecision);
   const pass = store.reviewPass();
   const copyPrompt = async () => {
@@ -202,8 +204,8 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
       <div className="ar-tabs" role="tablist" aria-label="What to review">
         {(
           [
-            ['takeoff', 'Takeoff', pending.length + store.aiReview().findings.filter((f) => needsDecision(f) && !f.item?.startsWith('column:')).length],
-            ['columns', 'Columns', store.aiReview().columns.filter(isWaitingGrouping).length + store.aiReview().findings.filter((f) => needsDecision(f) && !!f.item?.startsWith('column:')).length],
+            ['takeoff', 'Takeoff', pending.length + liveFindings(store).filter((f) => needsDecision(f) && !f.item?.startsWith('column:')).length],
+            ['columns', 'Columns', store.aiReview().columns.filter(isWaitingGrouping).length + liveFindings(store).filter((f) => needsDecision(f) && !!f.item?.startsWith('column:')).length],
             ['tools', 'Tools', tools.filter((t) => t.status === 'proposed').length],
           ] as const
         ).map(([id, label, count]) => (
@@ -249,7 +251,7 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
             </button>
           </>
         ) : (
-          <button type="button" className="btn small" disabled={readOnly || !items.length} onClick={() => requestReviewPass(store, me)} title="Ask your AI client for a second review, in a fresh context">
+          <button type="button" className="btn small" disabled={readOnly || (!items.length && !store.aiReview().columns.length)} onClick={() => requestReviewPass(store, me)} title="Ask your AI client for a second review, in a fresh context">
             Request Review Pass
           </button>
         )}

@@ -69,8 +69,7 @@ function reportReviewFindings(docs: readonly AssistantDocument[], params: unknow
   const doc = findDocument(docs, args.document);
   const store = doc.store;
   if (store.readOnly) throw new Error(`${doc.name} is read-only.`);
-  const items = batchItems(args.findings, 'Give findings: a list of { item (from get_review_packet) or none for something missed, severity, kind, message, sources }.');
-  if (items.length > MAX_FINDINGS) throw new Error(`That is ${items.length} findings. The most is ${MAX_FINDINGS}.`);
+  const items = batchItems(args.findings, 'Give findings: a list of { item (from get_review_packet) or none for something missed, severity, kind, message, sources }.', MAX_FINDINGS);
   const known = new Set([...reviewItems(store).map((i) => i.key), ...store.aiReview().columns.map((g) => `column:${g.id}`)]);
   const source = sourceName(args.source === undefined ? 'AI reviewer' : args.source);
   const now = Date.now();

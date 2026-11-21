@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { MarkupStore } from '@nb/markup';
+import { MarkupStore, planPageOps, sanitizeAiReview } from '@nb/markup';
 import { parseScaleText } from '@nb/measure';
 import { assistantCall, type AssistantDocument } from '../desktop/assistant.ts';
-import { waitingCount } from './aiReview.ts';
+import { clearDecided, rejectDrafts, waitingCount } from './aiReview.ts';
 import { decideFindings, findingsByItem, requestReviewPass, setReviewPassEnabled } from './reviewPass.ts';
 
 async function drawing(): Promise<AssistantDocument> {
@@ -67,4 +67,35 @@ test('the reviewer sees the output and its sources, not the first pass’s reaso
   decideFindings(d.store, [byItem.get(`draft:${id}`)![0]!.id], 'accepted', 'Hana');
   assert.equal(waitingCount(d.store), 1);
   assert.equal(d.store.aiReview().findings.find((f) => f.id === missed[0]!.id)!.decided!.by, 'Hana');
+});
+
+test('a request reaches the AI client on its next call; findings about an item that is gone stop waiting and are cleared', async () => {
+  const d = await drawing();
+  const placed = (await assistantCall([d], 'place_markups', { page: 1, markups: [{ type: 'length', points: [[0, 0], [100, 0]] }] })) as { placed: { id: string }[]; reviewPass?: string };
+  assert.equal(placed.reviewPass, undefined, 'off, and nothing asked for');
+  requestReviewPass(d.store, 'Hana');
+  const next = (await assistantCall([d], 'list_markups', {})) as { reviewPass?: string };
+  assert.match(next.reviewPass!, /Hana asked for an AI review pass/);
+  const id = placed.placed[0]!.id;
+  await assistantCall([d], 'report_review_findings', { findings: [{ item: `draft:${id}`, kind: 'quantity', message: 'Too long.' }] });
+  assert.equal(waitingCount(d.store), 2);
+  rejectDrafts(d.store, [id], 'Hana');
+  clearDecided(d.store);
+  assert.equal(waitingCount(d.store), 0, 'the draft is gone, so its finding is no longer waiting');
+  assert.equal(d.store.aiReview().findings.length, 0, 'and Clear Decided forgot it');
+});
+
+test('the review pass setting is saved in the file; a missed finding goes with its only page', async () => {
+  const d = await drawing();
+  setReviewPassEnabled(d.store, true);
+  const saved = d.store.aiReviewForSave();
+  assert.deepEqual(saved.reviewPass, { enabled: true });
+  const back = sanitizeAiReview(JSON.parse(JSON.stringify(saved)));
+  const store = await MarkupStore.open(`review-pass-load-${Math.random()}`, { persist: false });
+  store.importAnnotations([], [], {}, { aiReview: back });
+  assert.equal(store.reviewPass().enabled, true);
+
+  await assistantCall([d], 'report_review_findings', { findings: [{ message: 'A pit is missing.', kind: 'missed', sources: [{ page: 2, bbox: { x: 1, y: 1, w: 2, h: 2 } }] }] });
+  d.store.remapPages(planPageOps(2, [{ type: 'delete', pages: [1] }]), [0, 1].map(() => ({ width: 842, height: 595 })));
+  assert.equal(d.store.aiReview().findings.length, 0);
 });

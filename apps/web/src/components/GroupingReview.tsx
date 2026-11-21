@@ -31,7 +31,9 @@ export const isWaitingGrouping = (g: GroupingProposal) => g.status === 'proposed
  */
 export function GroupingReview({ store, me, waitingOnly, pageLabel, onShow, onMessage, findings, onShowSource }: Props) {
   const all = store.aiReview().columns;
-  const shown = waitingOnly ? all.filter(isWaitingGrouping) : all;
+  // An accepted or rejected column the review pass has an open finding on still waits: for the finding.
+  const findingWaits = (g: GroupingProposal) => (findings.get(`column:${g.id}`) ?? []).some((f) => f.status === 'open' && f.severity !== 'ok');
+  const shown = waitingOnly ? all.filter((g) => isWaitingGrouping(g) || findingWaits(g)) : all;
   if (!shown.length) return <p className="empty">{all.length ? 'No grouping column is waiting for review.' : 'No grouping columns yet. Ask your AI client to group the takeoff (by level, zone, trade...), or run an accepted tool from the Tools tab.'}</p>;
   return (
     <>

@@ -65,7 +65,12 @@ export interface AiReviewData {
   columns: GroupingProposal[];
   /** What an optional second AI pass, in a fresh context, found wrong or missing (see `ReviewFinding`). */
   findings: ReviewFinding[];
+  /** In a saved file only: the review pass was turned on for this document (`MarkupStore.reviewPass`). */
+  reviewPass?: { enabled: true };
 }
+
+/** The kinds of entry the review list holds, one store map key each. */
+export type AiReviewKind = Exclude<keyof AiReviewData, 'reviewPass'>;
 
 /** What a review finding is about. */
 export type FindingKind = 'quantity' | 'missed' | 'wrong-item' | 'scale' | 'grouping' | 'duplicate' | 'other';
@@ -230,11 +235,12 @@ function findingOf(v: unknown, pageCount?: number): ReviewFinding | null {
 export function sanitizeAiReview(raw: unknown, pageCount?: number): AiReviewData {
   if (!isObj(raw)) return EMPTY_AI_REVIEW;
   const list = <T>(v: unknown, of: (x: unknown, n?: number) => T | null) => (Array.isArray(v) ? v.flatMap((x) => of(x, pageCount) ?? []) : []);
-  return { takeoff: list(raw.takeoff, takeoffOf), counts: list(raw.counts, countOf), rejected: list(raw.rejected, rejectedOf), columns: list(raw.columns, sanitizeGrouping), findings: list(raw.findings, findingOf) };
+  const pass = isObj(raw.reviewPass) && raw.reviewPass.enabled === true;
+  return { takeoff: list(raw.takeoff, takeoffOf), counts: list(raw.counts, countOf), rejected: list(raw.rejected, rejectedOf), columns: list(raw.columns, sanitizeGrouping), findings: list(raw.findings, findingOf), ...(pass ? { reviewPass: { enabled: true } } : {}) };
 }
 
 export function isEmptyAiReview(d: AiReviewData): boolean {
-  return !d.takeoff.length && !d.counts.length && !d.rejected.length && !d.columns.length && !d.findings.length;
+  return !d.takeoff.length && !d.counts.length && !d.rejected.length && !d.columns.length && !d.findings.length && !d.reviewPass;
 }
 
 /** An AI draft: made by an AI client and not yet approved. Drawn dashed and left out of quantities. */
@@ -326,7 +332,11 @@ export function remapAiReview(
       return [{ ...r, markup: remapAiOrigin(turnMarkup(r.markup, n), r.markup.pageIndex, to, turn, turnRect) }];
     }),
     columns: d.columns,
-    findings: d.findings.map(withSources),
+    // A missed-item finding is only where its sources are: with every source page deleted, it goes.
+    findings: d.findings.flatMap((f) => {
+      const moved = withSources(f);
+      return !f.item && f.sources?.length && !moved.sources?.length ? [] : [moved];
+    }),
   };
 }
 
@@ -349,13 +359,13 @@ export interface AiReviewChange {
   rejected?: RejectedDraft[];
   columns?: GroupingProposal[];
   findings?: ReviewFinding[];
-  remove?: Partial<Record<keyof AiReviewData, string[]>>;
+  remove?: Partial<Record<AiReviewKind, string[]>>;
 }
 
-const PREFIX: Record<keyof AiReviewData, string> = { takeoff: 't:', counts: 'c:', rejected: 'r:', columns: 'g:', findings: 'f:' };
+const PREFIX: Record<AiReviewKind, string> = { takeoff: 't:', counts: 'c:', rejected: 'r:', columns: 'g:', findings: 'f:' };
 
 /** The key an entry is kept under in the store's `aiReview` map. */
-export function aiReviewKey(kind: keyof AiReviewData, id: string): string {
+export function aiReviewKey(kind: AiReviewKind, id: string): string {
   return PREFIX[kind] + id;
 }
 

@@ -10,11 +10,30 @@ import type { MarkupStore, ReviewFinding } from '@nb/markup';
 /** Findings that still need a person: open, and not just the reviewer agreeing. */
 export const needsDecision = (f: ReviewFinding) => f.status === 'open' && f.severity !== 'ok';
 
+/** Whether the item a finding is about is still in the review list (it may be rejected and cleared, or deleted). */
+export function findingItemExists(store: MarkupStore, item: string): boolean {
+  const review = store.aiReview();
+  const [kind, id] = [item.slice(0, item.indexOf(':')), item.slice(item.indexOf(':') + 1)];
+  if (kind === 'draft') return !!store.get(id)?.ai || review.rejected.some((r) => r.markup.id === id);
+  if (kind === 'assembly') return review.takeoff.some((p) => p.id === id);
+  if (kind === 'count') return review.counts.some((c) => c.id === id);
+  if (kind === 'column') return review.columns.some((g) => g.id === id);
+  return false;
+}
+
+/**
+ * The findings there is something to act on: about an item still listed, or a missed item. Those
+ * about an item that is gone are left out (and of the count waiting); Clear Decided forgets them.
+ */
+export function liveFindings(store: MarkupStore): ReviewFinding[] {
+  return store.aiReview().findings.filter((f) => !f.item || findingItemExists(store, f.item));
+}
+
 /** Findings by the review item they are about (`draft:<id>`...), and those about nothing listed (missed). */
 export function findingsByItem(store: MarkupStore): { byItem: Map<string, ReviewFinding[]>; missed: ReviewFinding[] } {
   const byItem = new Map<string, ReviewFinding[]>();
   const missed: ReviewFinding[] = [];
-  for (const f of store.aiReview().findings) {
+  for (const f of liveFindings(store)) {
     if (!f.item) missed.push(f);
     else byItem.set(f.item, [...(byItem.get(f.item) ?? []), f]);
   }
@@ -29,9 +48,11 @@ export function decideFindings(store: MarkupStore, ids: readonly string[], statu
   store.changeAiReview({ findings: list.map(({ decided: _d, ...f }) => (status === 'open' ? { ...f, status } : { ...f, status, decided: { by, at } })) });
 }
 
-/** Forgets every finding a person has decided. */
+/** Forgets every finding a person has decided, and those about an item that is gone. */
 export function clearDecidedFindings(store: MarkupStore) {
-  store.changeAiReview({ remove: { findings: store.aiReview().findings.filter((f) => f.status !== 'open').map((f) => f.id) } });
+  const live = new Set(liveFindings(store).map((f) => f.id));
+  const gone = store.aiReview().findings.filter((f) => f.status !== 'open' || !live.has(f.id)).map((f) => f.id);
+  if (gone.length) store.changeAiReview({ remove: { findings: gone } });
 }
 
 export function setReviewPassEnabled(store: MarkupStore, enabled: boolean) {
