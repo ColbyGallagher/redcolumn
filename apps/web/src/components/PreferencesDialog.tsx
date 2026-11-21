@@ -9,6 +9,7 @@ import { AccessPrefs, ActivityPrefs } from './AccessPrefs';
 import { McpPrefs } from './McpPrefs';
 import { OfflinePrefs } from './OfflinePrefs';
 import { desktop } from '../desktop/host';
+import { MANAGED_NOTE, managedPolicy, managedSummary } from '../desktop/policy';
 import { profiles, updateWorkspace } from '../workspace/profiles';
 import { listFiles, saveFile as saveToLibrary, type StoredFile } from '../storage/fileStore';
 import { pickFilesToOpen } from '../storage/diskHandles';
@@ -1057,6 +1058,11 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             ×
           </button>
         </header>
+        {managedPolicy().managed && (
+          <p className="prefs-managed" role="note">
+            {MANAGED_NOTE} {managedSummary().length ? `Turned off on this computer: ${managedSummary().join('; ')}.` : 'Nothing is turned off on this computer.'}
+          </p>
+        )}
         <div className="prefs-body">
           <nav className="prefs-nav" role="tablist" aria-orientation="vertical" aria-label="Categories">
             {visibleCats.map((c) => {

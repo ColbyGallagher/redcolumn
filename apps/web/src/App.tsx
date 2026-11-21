@@ -241,6 +241,7 @@ import { installPack } from './library/install';
 import { describeCounts } from './library/pack';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
+import { managedPolicy } from './desktop/policy';
 import { hostDocumentId } from './desktop/embedHost';
 import { fileLocationToken, movedFiles, tokenOf } from './desktop/tokens';
 import { SessionFolderDrive } from './studio/drive/folder';
@@ -1312,7 +1313,8 @@ export function App() {
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
   useEffect(() => {
     const host = desktop();
-    if (!host?.onUpdateState) return;
+    // Under the organisation's policy nothing is checked, and nothing about updates is shown.
+    if (!host?.onUpdateState || managedPolicy().disableAutoUpdate) return;
     const off = host.onUpdateState(setUpdateState);
     void host.updateState().then((s) => setUpdateState((prev) => prev ?? s)).catch(() => undefined);
     return off;

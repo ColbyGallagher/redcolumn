@@ -287,6 +287,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
   const Cmd = ({ id, label }: { id: string; label?: string }) => {
     const c = commands.get(id);
     if (!c) return <Item label={label ?? id} disabled />;
+    // Removed by the organisation's policy (desktop/policy.ts).
+    if (c.managed) return null;
     return <Item label={label ?? c.label} shortcut={shortcutLabel(id)} checked={c.checked} disabled={!c.enabled} onClick={run(c.run)} />;
   };
 
@@ -782,7 +784,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
           <div className="menu-drop feedback-drop" role="menu">
             {FEEDBACK_ITEMS.map(([id, label]) => {
               const c = commands.get(id);
-              return c ? <Item key={id} label={label} disabled={!c.enabled} onClick={() => { setFeedbackOpen(false); c.run(); }} /> : null;
+              return c && !c.managed ? <Item key={id} label={label} disabled={!c.enabled} onClick={() => { setFeedbackOpen(false); c.run(); }} /> : null;
             })}
           </div>
         )}

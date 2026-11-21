@@ -5,6 +5,7 @@ import {
   microsoftAccess,
   microsoftSignedInSince,
   microsoftTokenPlace,
+  microsoftSignInManagedOff,
   microsoftUser,
   oneDriveConfigured,
   setStaySignedInToMicrosoft,
@@ -14,6 +15,7 @@ import {
   subscribeMicrosoftUser,
 } from '../studio/drive/onedrive';
 import { desktop } from '../desktop/host';
+import { MANAGED_NOTE } from '../desktop/policy';
 import { checkLocalKey, localEncryptionAvailable, localEncryptionOn, requestLocalEncryption } from '../storage/localCrypto';
 
 /** What each OneDrive access level lets the app do, in the words PRIVACY.md uses. */
@@ -54,7 +56,9 @@ export function AccessPrefs() {
     <div className="access-prefs">
       <section>
         <h4>Microsoft (OneDrive)</h4>
-        {!oneDriveConfigured ? (
+        {microsoftSignInManagedOff ? (
+          <p className="access-note managed-note">{MANAGED_NOTE} Microsoft sign-in is turned off on this computer.</p>
+        ) : !oneDriveConfigured ? (
           <p className="access-note">Microsoft sign-in is not set up for this site.</p>
         ) : ms ? (
           <>
