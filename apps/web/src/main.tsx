@@ -4,6 +4,7 @@ import { registerSW } from 'virtual:pwa-register';
 import { installDesktopBridge } from './desktop/bridge';
 import { desktop } from './desktop/host';
 import { installLogCapture } from './help/logs';
+import { logManagedPolicy } from './desktop/policy';
 import { installLocalEncryption } from './storage/localCrypto';
 import { rewriteLibrary } from './storage/fileStore';
 import { startIdleSignOut } from './studio/drive/idle';
@@ -28,6 +29,7 @@ if (window.top !== window.self) {
 
 installTheme();
 installLogCapture();
+logManagedPolicy();
 installDesktopBridge();
 installDialogDrag();
 installDialogFocus();

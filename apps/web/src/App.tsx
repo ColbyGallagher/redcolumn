@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -90,7 +90,8 @@ import { LAYOUT_RESET_EVENT, SECTION_KEYS } from './workspace/layoutPrefs';
 import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
-import { setTemplate } from './storage/fileStore';
+import { hideFromRecents, setTemplate } from './storage/fileStore';
+import { recentFiles } from './storage/recents';
 import { attachmentBlob, fileToAttachment, imageToDataUrl, pickAttachment, pickImage } from './markup/pickImage';
 import { adjustPixels, polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
 import { SoundDialog } from './components/SoundDialog';
@@ -240,6 +241,7 @@ import { installPack } from './library/install';
 import { describeCounts } from './library/pack';
 import { droppedPdfs, forgetHandle, handleOf, hasFileLocation, pickFilesToOpen, primeFileLocations, recallHandle, rememberHandle, revealFileLocation, saveAsWithPicker, subscribeFileLocations, writeToHandle } from './storage/diskHandles';
 import { desktop, type UpdateState } from './desktop/host';
+import { managedPolicy } from './desktop/policy';
 import { hostDocumentId } from './desktop/embedHost';
 import { fileLocationToken, movedFiles, tokenOf } from './desktop/tokens';
 import { SessionFolderDrive } from './studio/drive/folder';
@@ -626,6 +628,14 @@ function lastStamp(): StampDef {
 /** A stamp's {File} and {Page}: the document's name and the page's sheet number (or page number). */
 function stampValuesFor(o: OpenFile | null, pageIndex: number): { file: string; page: string } {
   return { file: o?.file.name ?? '', page: o?.store.allSheets()[pageIndex]?.number ?? String(pageIndex + 1) };
+}
+
+/** True when the desktop app knows the file a document came from and it is gone from there (moved, renamed or deleted). */
+async function movedAway(id: string): Promise<boolean> {
+  const host = desktop();
+  if (!host?.tokenExists) return false;
+  const token = fileLocationToken(id) ?? tokenOf(await recallHandle(id));
+  return !!token && !(await host.tokenExists(token).catch(() => true));
 }
 
 /** Recent Tools: every look the user draws with (signatures and images excepted: they need their picture). */
@@ -1303,7 +1313,8 @@ export function App() {
   const [updateState, setUpdateState] = useState<UpdateState | null>(null);
   useEffect(() => {
     const host = desktop();
-    if (!host?.onUpdateState) return;
+    // Under the organisation's policy nothing is checked, and nothing about updates is shown.
+    if (!host?.onUpdateState || managedPolicy().disableAutoUpdate) return;
     const off = host.onUpdateState(setUpdateState);
     void host.updateState().then((s) => setUpdateState((prev) => prev ?? s)).catch(() => undefined);
     return off;
@@ -1410,7 +1421,7 @@ export function App() {
   /** Where Split View took a tab from, so Unsplit puts it back in the same place. */
   const splitOrigin = useRef<{ id: string; index: number } | null>(null);
   /** Documents most recently shown first, for choosing the other side of a split. */
-  const recentFiles = useRef<string[]>([]);
+  const recentOpenIds = useRef<string[]>([]);
   const moveTabRef = useRef<(from: Pane, t: OpenFile) => void>(() => {});
   const canvasMenuRef = useRef<(e: MouseEvent, pane: Pane) => void>(() => {});
   /** Where the pointer last was over a page, for pasting at the cursor. */
@@ -1612,6 +1623,8 @@ export function App() {
         .catch(console.error),
     [],
   );
+  /** Remove from Recents, Clear Recents: the documents stay on the device. */
+  const removeFromRecents = useCallback((ids: string[]) => void hideFromRecents(ids).then(refreshLibrary).catch(console.error), [refreshLibrary]);
 
   /** A pane's markup tools. Every callback goes through refs or stable setters, so the effects creating them need no dependencies. */
   const createTools = (pane: Pane, viewer: TileViewer) => {
@@ -1790,7 +1803,7 @@ export function App() {
       const mirrored = pane === 'b' && mirrorRef.current;
       if (cur === packed) return;
       if (pane === 'b' && !follow) mirrorRef.current = false;
-      if (packed) recentFiles.current = touchRecent(recentFiles.current, packed.file.id);
+      if (packed) recentOpenIds.current = touchRecent(recentOpenIds.current, packed.file.id);
       if (cur && c && !mirrored) savedViews.current.set(cur.file.id, c.viewer.getView());
       if (pane === 'a' && mirrorRef.current && packed && ctlB) showInPane('b', packed, true);
       setFront(pane, packed);
@@ -2311,6 +2324,14 @@ export function App() {
         const pending = openingFiles.current.get(file.id);
         if (pending) return await pending;
         const opening = (async () => {
+          // A file moved, renamed or deleted on disk since is not opened from here: Save would
+          // write it back where it was. Opened from its new place, it finds its markups again.
+          if (await movedAway(file.id)) {
+            if (confirm(`"${file.name}" is no longer in its folder. It may have been moved, renamed or deleted, so it was not opened. Open it from where it is now with File › Open.
+
+Remove it from the recent files?`)) removeFromRecents([file.id]);
+            return;
+          }
           await openStored(file, await readFile(file.hash), target ?? (split && activePane === 'b' ? 'b' : 'a'));
           await touchFile(file.id);
           void refreshLibrary();
@@ -2325,7 +2346,7 @@ export function App() {
         setError(err instanceof Error ? err.message : String(err));
       }
     },
-    [openStored, activateTab, refreshLibrary, split, activePane],
+    [openStored, activateTab, refreshLibrary, removeFromRecents, split, activePane],
   );
 
   /** Follows a link to a comment (clicked on an item number in a register): opens its document, then goes to the comment. */
@@ -6554,7 +6575,7 @@ export function App() {
     const form = carried?.stamp?.form;
     const stamp = carried?.stamp
       ? form
-        ? withFieldValues({ id: item.id, name: item.subject || item.label, lines: form.lines, color: form.color, frame: carried.stamp.frame, fields: form.fields }, form.values)
+        ? withFieldValues({ id: item.id, name: item.subject || item.label, ...formStamp(carried.stamp)! }, form.values)
         : { id: item.id, name: item.subject || item.label, lines: carried.stamp.lines, color: item.style.stroke, frame: carried.stamp.frame, ...(carried.stamp.art ? { art: carried.stamp.art } : {}) }
       : undefined;
     tools.setTool(item.tool ?? item.type, {
@@ -7043,7 +7064,7 @@ export function App() {
     const front = openRef.current;
     if (split || !front) return;
     const tabs = tabsARef.current;
-    const partnerId = pickSplitPartner(tabs.map((t) => t.file.id), front.file.id, recentFiles.current);
+    const partnerId = pickSplitPartner(tabs.map((t) => t.file.id), front.file.id, recentOpenIds.current);
     const partner = tabs.find((t) => t.file.id === partnerId);
     if (partner) {
       pendingMove.current = partner;
@@ -7949,7 +7970,7 @@ export function App() {
             label: 'Open File Location',
             disabled: locationTick < 0 || !hasFileLocation(t.file.id),
             onClick: () => void revealFileLocation(t.file.id).then((ok) => {
-              if (!ok) setError('That file has no folder on this computer.');
+              if (!ok) setError('That file is not in a folder on this computer. It may have been moved, renamed or deleted.');
             }),
           }]
         : []),
@@ -8285,6 +8306,9 @@ export function App() {
     ];
   };
 
+  /** The recent files list (File › Open Recent, File Access › Recents); `locationTick` keeps it current as disk locations load. */
+  const recentList = (templates = true) => recentFiles(library, { count: prefs.recentCount, days: prefs.recentDays, locationOf: locationTick >= 0 ? fileLocationToken : undefined, templates });
+
   /** Right-click on a library file (File Access). */
   const libraryMenu = (f: StoredFile): MenuEntry[] => [
     { label: 'Open', onClick: () => void openFromLibrary(f, 'a') },
@@ -8311,11 +8335,12 @@ export function App() {
           label: 'Open File Location',
           disabled: locationTick < 0 || !hasFileLocation(f.id),
           onClick: () => void revealFileLocation(f.id).then((ok) => {
-            if (!ok) setError('That file has no folder on this computer.');
+            if (!ok) setError('That file is not in a folder on this computer. It may have been moved, renamed or deleted.');
           }),
         }]
       : []),
     SEP,
+    { label: 'Remove from Recents', disabled: !!f.recentHidden, onClick: () => removeFromRecents([f.id]) },
     {
       label: 'Remove from Device…',
       danger: true,
@@ -9562,9 +9587,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               if (scope === 'document') return activeOpen ? [fromTab(activeOpen)] : [];
               if (scope === 'page') return activeOpen ? [fromTab(activeOpen, pageIndex)] : [];
               if (scope === 'open') return tabs.map((o) => fromTab(o));
-              return library
-                .filter((f) => !f.template && (!prefs.recentDays || Date.now() - f.lastOpenedAt < prefs.recentDays * 86_400_000))
-                .slice(0, prefs.recentCount)
+              return recentList(false)
                 .map((f) => {
                   const tab = tabs.find((t) => t.file.id === f.id);
                   return tab ? fromTab(tab) : librarySource(f);
@@ -10085,6 +10108,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         ) : (
           <Library
             files={library}
+            recents={recentList()}
+            onClearRecents={() => removeFromRecents(library.map((f) => f.id))}
             activeHash={activeOpen?.file.hash ?? null}
             onOpen={(f) => void openFromLibrary(f)}
             fileMenu={(f, groupEntries) => {
@@ -10283,10 +10308,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         commands={commandMap}
         author={author}
         onAuthorChange={persistAuthor}
-        recents={library
-          .filter((f) => !prefs.recentDays || Date.now() - f.lastOpenedAt < prefs.recentDays * 86_400_000)
-          .slice(0, prefs.recentCount)
-          .map((f) => ({ id: f.id, name: f.name }))}
+        recents={recentList().map((f) => ({ id: f.id, name: f.name }))}
         profiles={profileList.map((p) => ({ id: p.id, name: p.name }))}
         activeProfileId={activeProfileId}
         hiddenPanels={ws.hiddenPanels}
@@ -10303,6 +10325,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             const f = library.find((x) => x.id === id);
             if (f) void openFromLibrary(f);
           },
+          clearRecents: () => removeFromRecents(library.map((f) => f.id)),
           switchProfile: (id) => profiles.switchTo(id),
           showLeft: showPanel,
           showBottom: showBottomPanel,
@@ -11594,7 +11617,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           if (!o || !m?.stamp || !form) return null;
           return (
             <FillStampDialog
-              stamp={{ name: m.subject ?? 'Stamp', lines: form.lines, frame: m.stamp.frame, color: form.color, fields: form.fields }}
+              stamp={{ name: m.subject ?? 'Stamp', ...formStamp(m.stamp)! }}
               author={form.placed.user}
               initial={form.values}
               title={m.subject ?? 'Stamp'}

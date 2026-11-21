@@ -19,7 +19,11 @@ The **Stamp** button on the toolbar places the stamp you used last.
 
 ## Built-in stamps
 
-Approved · Approved as Noted · Reviewed · Revise and Resubmit · Rejected · For Construction · Not for Construction · Preliminary · Draft · Void · Confidential
+Approved · Approved as Noted · Reviewed · Revise and Resubmit · Rejected · For Construction · Not for Construction · Preliminary · Draft · Void · Superseded · Confidential · Submittal Review
+
+## Stamps with fields
+
+Some stamps ask for values when you place them (**Submittal Review** asks for its action, for example). A small window opens with a box or list for each field and a preview: fill them in and click **Place**. To change the values later, double-click the stamp, or use **Stamp Fields** in the [Properties](#properties) panel. To add fields to your own stamps, see [Add fields to fill in](#stamps-manage).
 
 Stamps with a second line show **By** *your name* **on** *today's date*. Your name comes from the **Author** box in the Edit menu (see [Preferences](#preferences)).
 
