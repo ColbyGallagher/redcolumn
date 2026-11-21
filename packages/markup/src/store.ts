@@ -13,7 +13,7 @@ import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
 import { TYPE_INFO } from './types';
 import { unchangedSinceImport } from './digest';
-import { aiReviewEntries, aiReviewFromEntries, aiReviewKey, EMPTY_AI_REVIEW, remapAiOrigin, remapAiReview, sanitizeAiReview, type AiReviewChange, type AiReviewData } from './aiReview';
+import { aiReviewEntries, aiReviewFromEntries, aiReviewKey, EMPTY_AI_REVIEW, remapAiOrigin, remapAiReview, sanitizeAiReview, type AiReviewChange, type AiReviewData, type ReviewPassSettings } from './aiReview';
 import { orphanedLinks, planPortalSync, relinkPlan, remapPortals, sanitizePortals, type MarkupChange, type Portal } from './portals';
 
 /** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
@@ -1184,6 +1184,21 @@ export class MarkupStore {
    * synced but is not a step the person's Undo takes back; a person's decisions are undoable, and
    * inside `batch` join its step (approving a count with the markups it places).
    */
+  /**
+   * The optional AI review pass for this document: whether it runs after each AI takeoff
+   * (`enabled`, off by default) and a person's request to run one now (`requested`).
+   */
+  reviewPass(): ReviewPassSettings {
+    const raw = this.meta.get('reviewPass') as Partial<ReviewPassSettings> | undefined;
+    const r = raw?.requested;
+    return { enabled: raw?.enabled === true, ...(r && typeof r.by === 'string' && typeof r.at === 'number' ? { requested: { by: r.by, at: r.at } } : {}) };
+  }
+
+  setReviewPass(next: ReviewPassSettings, byAi = false) {
+    if (this.locked) return;
+    this.doc.transact(() => this.meta.set('reviewPass', structuredClone(next)), byAi ? AI : LOCAL);
+  }
+
   changeAiReview(change: AiReviewChange, byAi = false) {
     if (this.locked) return;
     this.doc.transact(() => this.applyAiReview(change), byAi ? AI : LOCAL);
@@ -1194,6 +1209,7 @@ export class MarkupStore {
     for (const p of change.counts ?? []) this.aiReviewMap.set(aiReviewKey('counts', p.id), structuredClone(p));
     for (const r of change.rejected ?? []) this.aiReviewMap.set(aiReviewKey('rejected', r.markup.id), structuredClone(r));
     for (const g of change.columns ?? []) this.aiReviewMap.set(aiReviewKey('columns', g.id), structuredClone(g));
+    for (const f of change.findings ?? []) this.aiReviewMap.set(aiReviewKey('findings', f.id), structuredClone(f));
     for (const [kind, ids] of Object.entries(change.remove ?? {}) as [keyof AiReviewData, string[]][]) for (const id of ids) this.aiReviewMap.delete(aiReviewKey(kind, id));
   }
 
@@ -1569,7 +1585,7 @@ function describeChange(
   if (changed.has(aiReview as never)) return 'Review AI takeoff';
   if (changed.has(meta as never)) {
     const keys = (changed.get(meta as never)?.[0] as Y.YMapEvent<unknown> | undefined)?.keysChanged;
-    return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('items') ? 'Edit items' : keys?.has('productLists') ? 'Edit product lists' : keys?.has('templates') ? 'Edit takeoff templates' : keys?.has('manualStitch') ? 'Edit stitching' : keys?.has('geo') ? 'Georeference page' : keys?.has('portals') ? 'Edit portals' : 'Edit columns';
+    return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('items') ? 'Edit items' : keys?.has('productLists') ? 'Edit product lists' : keys?.has('templates') ? 'Edit takeoff templates' : keys?.has('manualStitch') ? 'Edit stitching' : keys?.has('geo') ? 'Georeference page' : keys?.has('portals') ? 'Edit portals' : keys?.has('reviewPass') ? 'AI review pass' : 'Edit columns';
   }
   return 'Edit';
 }

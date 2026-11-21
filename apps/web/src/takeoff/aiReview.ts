@@ -94,10 +94,12 @@ export function waitingKeys(store: MarkupStore): Set<string> {
   for (const p of review.takeoff) if (takeoffState(p, store.get(p.markupId)) === 'pending') out.add(`assembly:${p.id}`);
   for (const c of review.counts) if (countStateOf(c, store) === 'pending') out.add(`count:${c.id}`);
   for (const g of review.columns) if (g.status === 'proposed' || g.status === 'review') out.add(`column:${g.id}`);
+  // What the AI review pass found, until a person accepts or dismisses it.
+  for (const f of review.findings) if (f.status === 'open' && f.severity !== 'ok') out.add(`finding:${f.id}`);
   return out;
 }
 
-/** How many AI results are waiting for a person: drafts, proposals and grouping columns. */
+/** How many AI results are waiting for a person: drafts, proposals, grouping columns and review findings. */
 export function waitingCount(store: MarkupStore): number {
   return waitingKeys(store).size;
 }

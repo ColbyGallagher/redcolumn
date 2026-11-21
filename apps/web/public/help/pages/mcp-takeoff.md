@@ -78,4 +78,26 @@ The client can suggest which [assembly](#assemblies) fits each measurement, and 
 
 **Limits:** refused for a tool that is proposed, rejected or turned off. It never changes a markup or a quantity itself.
 
+## get_review_packet
+
+**Does:** gives a reviewer the takeoff to check, for the optional [AI review pass](#ai-review). It returns:
+
+- every AI result that is not rejected, with its item id, page, geometry, measurement, assembly and sources.
+- the sheets and their scales.
+- the instructions.
+
+It leaves out the first pass's reasoning and confidence on purpose.
+
+**Limits:** it changes nothing. Run it in a fresh conversation or subagent, not the one that made the takeoff.
+
+**Model:** a strong model. A different one from the first pass is better.
+
+## report_review_findings
+
+**Does:** reports what the reviewer found. A finding is about an item (`issue`, `check` or `ok`, with a kind such as `quantity` or `wrong-item`) or about something missed (with the page and area where it is). It can give the reviewer's own quantity and its sources.
+
+**Where you see it:** in {{Tools > Takeoff > Review AI Takeoff…}}, labelled **AI review**, beside the item it is about. You accept or dismiss each finding. Nothing is applied.
+
+**Limits:** 1000 findings a call. A missed item must say where it is.
+
 Back to [Connect an AI client](#mcp).

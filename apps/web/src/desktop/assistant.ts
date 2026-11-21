@@ -5,6 +5,7 @@ import { SYMBOL_METHODS, symbolCall, type SymbolMethod } from './assistantSymbol
 import { requireScaleFor, SCALE_METHODS, scaleCall, type ScaleMethod } from './assistantScales';
 import { STANDARD_METHODS, standardCall, type AssistantStandards, type StandardMethod } from './assistantStandards';
 import { GROUPING_METHODS, groupingCall, type GroupingMethod } from './assistantGrouping';
+import { REVIEW_PASS_METHODS, reviewPassCall, type ReviewPassMethod } from './assistantReviewPass';
 import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 import type { PageRegion, TextWord } from '@nb/pdf-core';
 import { stateOf as proposalState, takeoffProposals, type TakeoffProposal } from '../assemblies/proposals';
@@ -186,7 +187,7 @@ function publicDocument(doc: AssistantDocument) {
   };
 }
 
-function measurement(doc: AssistantDocument, markup: Markup): string | undefined {
+export function measurement(doc: AssistantDocument, markup: Markup): string | undefined {
   if (!isMeasureKind(markup.type) || markup.points.length === 0) return undefined;
   return measureLabel(markup.type, markup.points, doc.store.scaleOf(markup), measureProps(markup));
 }
@@ -1059,6 +1060,7 @@ function listTakeoffProposals(docs: readonly AssistantDocument[], params: unknow
     // Measurements the assistant drew, and where each stands.
     drafts: doc.store.all().flatMap((m) => (m.ai ? [{ id: m.id, ...(m.seq !== undefined ? { seq: m.seq } : {}), type: m.type, page: m.pageIndex + 1, state: m.ai.status === 'pending' ? 'pending' : 'approved', ...(m.ai.review ? { approvedBy: m.ai.review.by } : {}) }] : [])),
     rejectedDrafts: doc.store.aiReview().rejected.map((r) => ({ id: r.markup.id, type: r.markup.type, page: r.markup.pageIndex + 1, rejectedBy: r.by })),
+    reviewPass: { enabled: doc.store.reviewPass().enabled, requested: !!doc.store.reviewPass().requested, findings: doc.store.aiReview().findings.length },
   };
 }
 
@@ -1192,7 +1194,23 @@ function reportDocumentChanges(params: unknown) {
   };
 }
 
+/** Tools that add AI output for review: with the review pass on, their reply asks for one. */
+const TAKEOFF_OUTPUT = new Set(['place_markup', 'place_markups', 'propose_takeoff', 'propose_counts', 'propose_grouping_column', 'run_grouping_tool']);
+
 export async function assistantCall(docs: readonly AssistantDocument[], method: string, params: unknown, env: AssistantEnv = {}): Promise<unknown> {
+  const out = await callTool(docs, method, params, env);
+  if (!TAKEOFF_OUTPUT.has(method) || !out || typeof out !== 'object') return out;
+  let doc: AssistantDocument;
+  try {
+    doc = findDocument(docs, record(params).document);
+  } catch {
+    return out;
+  }
+  if (!doc.store.reviewPass().enabled) return out;
+  return { ...out, reviewPass: 'The person has the AI review pass on for this document. When you have finished the takeoff, have it checked in a fresh context: start a new conversation or subagent that calls get_review_packet and reports with report_review_findings. Do not review it yourself in this conversation.' };
+}
+
+async function callTool(docs: readonly AssistantDocument[], method: string, params: unknown, env: AssistantEnv): Promise<unknown> {
   if (method === 'list_open_documents') return { documents: assistantDocuments(docs).map(publicDocument) };
   if (method === 'list_markups') return listMarkups(docs, params);
   if (method === 'set_markup') return setMarkup(docs, params);
@@ -1218,6 +1236,7 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   if ((VIEWPORT_METHODS as readonly string[]).includes(method)) return viewportCall(docs, method, params);
   if ((SYMBOL_METHODS as readonly string[]).includes(method)) return symbolCall(docs, method as SymbolMethod, params);
   if ((SCALE_METHODS as readonly string[]).includes(method)) return scaleCall(docs, method as ScaleMethod, params);
+  if ((REVIEW_PASS_METHODS as readonly string[]).includes(method)) return reviewPassCall(docs, method as ReviewPassMethod, params);
   if ((GROUPING_METHODS as readonly string[]).includes(method)) return groupingCall(docs, method as GroupingMethod, params);
   if ((STANDARD_METHODS as readonly string[]).includes(method)) return standardCall(docs, method as StandardMethod, params, env.standards);
   throw new Error('Unknown tool.');

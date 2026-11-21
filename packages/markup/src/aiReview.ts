@@ -63,9 +63,39 @@ export interface AiReviewData {
   rejected: RejectedDraft[];
   /** Grouping columns an AI client (or a tool) proposed (see `aiGrouping.ts`). */
   columns: GroupingProposal[];
+  /** What an optional second AI pass, in a fresh context, found wrong or missing (see `ReviewFinding`). */
+  findings: ReviewFinding[];
 }
 
-export const EMPTY_AI_REVIEW: AiReviewData = Object.freeze({ takeoff: [], counts: [], rejected: [], columns: [] }) as AiReviewData;
+/** What a review finding is about. */
+export type FindingKind = 'quantity' | 'missed' | 'wrong-item' | 'scale' | 'grouping' | 'duplicate' | 'other';
+export const FINDING_KINDS: readonly FindingKind[] = ['quantity', 'missed', 'wrong-item', 'scale', 'grouping', 'duplicate', 'other'];
+
+/**
+ * One thing an AI review pass reported: run on demand, in a fresh context that sees only the
+ * document and the takeoff output (not the first pass's working or reasoning). It is about one item
+ * in the review list (`item`, a review key such as `draft:<id>`), or none for something missed. It
+ * is never applied: a person accepts or dismisses each one.
+ */
+export interface ReviewFinding {
+  id: string;
+  /** The review item it is about (`draft:`, `assembly:`, `count:` or `column:` and an id); none for something missed. */
+  item?: string;
+  /** `issue`: something is wrong; `check`: worth a second look; `ok`: the reviewer agrees. */
+  severity: 'issue' | 'check' | 'ok';
+  kind: FindingKind;
+  message: string;
+  /** What the reviewer measured or counted instead. */
+  expected?: { quantity: number; unit?: string };
+  sources?: SourceRef[];
+  /** The reviewing AI client's name. */
+  source: string;
+  createdAt: number;
+  status: 'open' | 'accepted' | 'dismissed';
+  decided?: { by: string; at: number };
+}
+
+export const EMPTY_AI_REVIEW: AiReviewData = Object.freeze({ takeoff: [], counts: [], rejected: [], columns: [], findings: [] }) as AiReviewData;
 
 /** Below this confidence an AI result is flagged, and listed first. */
 export const LOW_CONFIDENCE = 0.6;
@@ -172,15 +202,39 @@ function rejectedOf(v: unknown, pageCount?: number): RejectedDraft | null {
   return { markup: m, by: v.by, at: v.at };
 }
 
+function findingOf(v: unknown, pageCount?: number): ReviewFinding | null {
+  if (!isObj(v) || typeof v.id !== 'string' || typeof v.message !== 'string') return null;
+  const severity = v.severity === 'issue' || v.severity === 'check' || v.severity === 'ok' ? v.severity : 'check';
+  const kind = typeof v.kind === 'string' && (FINDING_KINDS as readonly string[]).includes(v.kind) ? (v.kind as FindingKind) : 'other';
+  const status = v.status === 'accepted' || v.status === 'dismissed' ? v.status : 'open';
+  const e = v.expected;
+  const expected = isObj(e) && finite(e.quantity) ? { quantity: e.quantity, ...(typeof e.unit === 'string' ? { unit: e.unit.slice(0, 20) } : {}) } : undefined;
+  const sources = sanitizeSources(v.sources, pageCount);
+  const decided = decision(v.decided);
+  return {
+    id: v.id,
+    ...(typeof v.item === 'string' && v.item ? { item: v.item.slice(0, 200) } : {}),
+    severity,
+    kind,
+    message: text(v.message),
+    ...(expected ? { expected } : {}),
+    ...(sources ? { sources } : {}),
+    source: text(v.source, 80) || 'AI reviewer',
+    createdAt: finite(v.createdAt) ? v.createdAt : 0,
+    status,
+    ...(decided ? { decided } : {}),
+  };
+}
+
 /** Checks what a file or a Live Session peer wrote: anything malformed is dropped. */
 export function sanitizeAiReview(raw: unknown, pageCount?: number): AiReviewData {
   if (!isObj(raw)) return EMPTY_AI_REVIEW;
   const list = <T>(v: unknown, of: (x: unknown, n?: number) => T | null) => (Array.isArray(v) ? v.flatMap((x) => of(x, pageCount) ?? []) : []);
-  return { takeoff: list(raw.takeoff, takeoffOf), counts: list(raw.counts, countOf), rejected: list(raw.rejected, rejectedOf), columns: list(raw.columns, sanitizeGrouping) };
+  return { takeoff: list(raw.takeoff, takeoffOf), counts: list(raw.counts, countOf), rejected: list(raw.rejected, rejectedOf), columns: list(raw.columns, sanitizeGrouping), findings: list(raw.findings, findingOf) };
 }
 
 export function isEmptyAiReview(d: AiReviewData): boolean {
-  return !d.takeoff.length && !d.counts.length && !d.rejected.length && !d.columns.length;
+  return !d.takeoff.length && !d.counts.length && !d.rejected.length && !d.columns.length && !d.findings.length;
 }
 
 /** An AI draft: made by an AI client and not yet approved. Drawn dashed and left out of quantities. */
@@ -272,6 +326,7 @@ export function remapAiReview(
       return [{ ...r, markup: remapAiOrigin(turnMarkup(r.markup, n), r.markup.pageIndex, to, turn, turnRect) }];
     }),
     columns: d.columns,
+    findings: d.findings.map(withSources),
   };
 }
 
@@ -293,10 +348,11 @@ export interface AiReviewChange {
   /** Keyed by the rejected markup's id. */
   rejected?: RejectedDraft[];
   columns?: GroupingProposal[];
+  findings?: ReviewFinding[];
   remove?: Partial<Record<keyof AiReviewData, string[]>>;
 }
 
-const PREFIX: Record<keyof AiReviewData, string> = { takeoff: 't:', counts: 'c:', rejected: 'r:', columns: 'g:' };
+const PREFIX: Record<keyof AiReviewData, string> = { takeoff: 't:', counts: 'c:', rejected: 'r:', columns: 'g:', findings: 'f:' };
 
 /** The key an entry is kept under in the store's `aiReview` map. */
 export function aiReviewKey(kind: keyof AiReviewData, id: string): string {
@@ -310,12 +366,13 @@ export function aiReviewEntries(d: AiReviewData): Map<string, unknown> {
     ...d.counts.map((p) => [aiReviewKey('counts', p.id), p] as const),
     ...d.rejected.map((r) => [aiReviewKey('rejected', r.markup.id), r] as const),
     ...d.columns.map((g) => [aiReviewKey('columns', g.id), g] as const),
+    ...d.findings.map((f) => [aiReviewKey('findings', f.id), f] as const),
   ]);
 }
 
 /** The review list from the store's map entries, checked as it is read (oldest first). */
 export function aiReviewFromEntries(entries: Iterable<[string, unknown]>, pageCount?: number): AiReviewData {
-  const out: AiReviewData = { takeoff: [], counts: [], rejected: [], columns: [] };
+  const out: AiReviewData = { takeoff: [], counts: [], rejected: [], columns: [], findings: [] };
   for (const [key, v] of entries) {
     if (key.startsWith(PREFIX.takeoff)) {
       const p = takeoffOf(v, pageCount);
@@ -329,11 +386,23 @@ export function aiReviewFromEntries(entries: Iterable<[string, unknown]>, pageCo
     } else if (key.startsWith(PREFIX.columns)) {
       const g = sanitizeGrouping(v);
       if (g) out.columns.push(g);
+    } else if (key.startsWith(PREFIX.findings)) {
+      const f = findingOf(v, pageCount);
+      if (f) out.findings.push(f);
     }
   }
   out.takeoff.sort((a, b) => a.createdAt - b.createdAt);
   out.counts.sort((a, b) => a.createdAt - b.createdAt);
   out.rejected.sort((a, b) => a.at - b.at);
   out.columns.sort((a, b) => a.createdAt - b.createdAt);
+  out.findings.sort((a, b) => a.createdAt - b.createdAt);
   return out;
+}
+
+/** The optional AI review pass for a document (see `MarkupStore.reviewPass`). */
+export interface ReviewPassSettings {
+  /** Run a review pass after each AI takeoff. Off by default. */
+  enabled: boolean;
+  /** A person asked for a review pass now; cleared when the reviewer reports. */
+  requested?: { by: string; at: number };
 }
