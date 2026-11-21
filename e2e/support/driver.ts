@@ -40,6 +40,8 @@ export interface MarkupInfo {
   measurement?: string;
   hidden?: boolean;
   locked?: boolean;
+  /** Custom column values, by column name. */
+  fields?: Record<string, string>;
 }
 
 export interface CommandInfo {
