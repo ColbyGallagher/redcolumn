@@ -7,7 +7,12 @@ import { ContextMenu, type ContextMenuState, type MenuEntry } from './ContextMen
 import { usePersistedState } from '../workspace/layoutPrefs';
 
 interface Props {
+  /** Every document on the device: groups and a filter look through all of them. */
   files: StoredFile[];
+  /** The recent files list (Preferences › Recent Files); all of `files` when not given. */
+  recents?: StoredFile[];
+  /** Clear Recents: empties the list (the files stay on the device). */
+  onClearRecents?: () => void;
   activeHash: string | null;
   onOpen: (file: StoredFile) => void;
   onRemove: (file: StoredFile) => void;
@@ -30,7 +35,7 @@ function formatSize(bytes: number) {
  * File Access: documents stored on this device (available offline), as Recents plus the user's
  * own groups for quick access. Drag a file onto a group, or right-click it.
  */
-export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu, reveal }: Props) {
+export function Library({ files, recents: recentList = files, onClearRecents, activeHash, onOpen, onRemove, fileMenu: appMenu, reveal }: Props) {
   const root = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!reveal) return;
@@ -160,7 +165,14 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
     else fileGroups.rename(n.id, name);
   };
 
-  const recents = files.filter(matches);
+  const recentsMenu = (e: ReactMouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setMenu({ x: e.clientX, y: e.clientY, items: [{ label: 'Clear Recents', disabled: !recentList.length, onClick: () => onClearRecents?.() }] });
+  };
+
+  // A filter finds any document on the device, not just the recent ones.
+  const recents = q ? files.filter(matches) : recentList;
 
   return (
     <div className="library" ref={root}>
@@ -220,20 +232,26 @@ export function Library({ files, activeHash, onOpen, onRemove, fileMenu: appMenu
       )}
 
       <section className="file-group recents">
-        <div className="group-head">
+        <div className="group-head" onContextMenu={onClearRecents ? recentsMenu : undefined}>
           <button className="group-toggle" aria-expanded={recentsOpen} onClick={() => setRecentsOpen((o) => !o)}>
             <span className="caret">{recentsOpen ? '▾' : '▸'}</span>
             <span className="group-icon" aria-hidden="true">
               ⏱
             </span>
             <span className="group-name">Recents</span>
-            <span className="count">{files.length}</span>
+            <span className="count">{recents.length}</span>
           </button>
+          {onClearRecents && (
+            <button className="icon" title="Recents options" aria-label="Recents options" onClick={recentsMenu}>
+              ⋯
+            </button>
+          )}
         </div>
         {recentsOpen && (
           <ul>
             {recents.map((f) => row(f))}
             {files.length === 0 && <li className="group-empty">Opened PDFs are kept here for offline use.</li>}
+            {files.length > 0 && !recents.length && <li className="group-empty">{q ? 'No files match.' : 'No recent files. Type in Filter files to find any file on this device.'}</li>}
           </ul>
         )}
       </section>

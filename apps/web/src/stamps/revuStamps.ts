@@ -24,7 +24,7 @@ async function renderArtwork(bytes: ArrayBuffer, p: ParsedStamp): Promise<string
     try {
       const page = doc.pages[0];
       if (!page) return null;
-      await doc.hideAnnotations(0, p.texts.map((t) => t.annot));
+      await doc.hideAnnotations(0, [...p.texts.map((t) => t.annot), ...p.hidden]);
       const x = Math.floor(p.box.x * ART_SCALE);
       const y = Math.floor((page.height - p.box.y - p.box.h) * ART_SCALE);
       const w = Math.max(1, Math.ceil(p.box.w * ART_SCALE));
