@@ -1,110 +1,54 @@
 import { useSyncExternalStore } from 'react';
-import type { Markup, MarkupStore, TakeoffApproval } from '@nb/markup';
+import { sanitizeAiReview, type Markup, type MarkupStore, type TakeoffApproval, type TakeoffProposal } from '@nb/markup';
 
 /**
  * Takeoff proposals: an AI client (through the local MCP server) suggests the assembly for a
- * measurement, with its reasoning, and a person approves or rejects each one in Takeoff Review.
- * Proposals are kept apart from the document, on this device, until approved: nothing reaches the
- * takeoff until a person approves it. An approval is written onto the measurement (its assembly,
- * and a record of who approved which proposal, when), so it saves with the document and undoes
- * like any edit. Rejections stay here.
+ * measurement, with its reasoning, and a person approves or rejects each one in Review AI Takeoff.
+ * Proposals are kept in the document (`MarkupStore.aiReview`), so they save with the file and
+ * everyone in a Live Session reviews the same list; nothing reaches the takeoff until a person
+ * approves it. An approval is written onto the measurement (its assembly, and a record of who
+ * approved which proposal, when), so it undoes like any edit. Rejections stay in the list.
  */
 
-export interface ProposedQuantity {
-  item: string;
-  quantity: number;
-  unit?: string;
-}
-
-export interface TakeoffProposal {
-  id: string;
-  markupId: string;
-  assemblyId: string;
-  /** Why the AI chose this assembly for this measurement. */
-  reasoning: string;
-  /** The quantities the AI expects, to check against what the assembly works out. */
-  expected?: ProposedQuantity[];
-  /** Who proposed it: the AI client's name. */
-  source: string;
-  createdAt: number;
-  /** Set when a person rejects it (approvals are on the measurement). */
-  rejected?: { by: string; at: number };
-}
+export type { ProposedQuantity, TakeoffProposal } from '@nb/markup';
 
 export type ProposalState = 'pending' | 'approved' | 'rejected';
 
-const KEY = (fileHash: string) => `nb.takeoffProposals.${fileHash}`;
-
-function load(fileHash: string): TakeoffProposal[] {
-  try {
-    const raw = localStorage.getItem(KEY(fileHash));
-    const list = raw ? (JSON.parse(raw) as unknown) : [];
-    return Array.isArray(list) ? (list.filter((p) => p && typeof p.id === 'string' && typeof p.markupId === 'string' && typeof p.assemblyId === 'string') as TakeoffProposal[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-/** Proposals by document (its file hash), kept in this browser's storage. */
-class ProposalStore {
-  private cache = new Map<string, TakeoffProposal[]>();
-  private listeners = new Set<() => void>();
-
-  list(fileHash: string): TakeoffProposal[] {
-    let list = this.cache.get(fileHash);
-    if (!list) this.cache.set(fileHash, (list = load(fileHash)));
-    return list;
-  }
-
-  private save(fileHash: string, list: TakeoffProposal[]) {
-    this.cache.set(fileHash, list);
-    try {
-      localStorage.setItem(KEY(fileHash), JSON.stringify(list));
-    } catch {
-      // Kept for this visit only.
-    }
-    this.listeners.forEach((l) => l());
-  }
+/** Proposals by document. AI clients add them; a person's decisions are undoable edits. */
+export const takeoffProposals = {
+  list(store: MarkupStore): TakeoffProposal[] {
+    return store.aiReview().takeoff;
+  },
 
   /** Adds proposals. A new one for a measurement replaces its older pending one. */
-  add(fileHash: string, proposals: TakeoffProposal[]) {
+  add(store: MarkupStore, proposals: TakeoffProposal[]) {
     const fresh = new Set(proposals.map((p) => p.markupId));
-    this.save(fileHash, [...this.list(fileHash).filter((p) => p.rejected || !fresh.has(p.markupId)), ...proposals]);
-  }
+    const stale = this.list(store).filter((p) => !p.rejected && fresh.has(p.markupId) && stateOf(p, store.get(p.markupId)) === 'pending');
+    store.changeAiReview({ takeoff: proposals, remove: { takeoff: stale.map((p) => p.id) } }, true);
+  },
 
-  reject(fileHash: string, ids: readonly string[], by: string) {
+  reject(store: MarkupStore, ids: readonly string[], by: string) {
     const at = Date.now();
-    this.save(
-      fileHash,
-      this.list(fileHash).map((p) => (ids.includes(p.id) ? { ...p, rejected: { by, at } } : p)),
-    );
-  }
+    store.changeAiReview({ takeoff: this.list(store).filter((p) => ids.includes(p.id)).map((p) => ({ ...p, rejected: { by, at } })) });
+  },
 
   /** Takes a rejection back (it is pending again). */
-  reopen(fileHash: string, ids: readonly string[]) {
-    this.save(
-      fileHash,
-      this.list(fileHash).map((p) => (ids.includes(p.id) ? { ...p, rejected: undefined } : p)),
-    );
-  }
+  reopen(store: MarkupStore, ids: readonly string[]) {
+    store.changeAiReview({ takeoff: this.list(store).filter((p) => ids.includes(p.id)).map(({ rejected: _r, ...p }) => p) });
+  },
 
   /** Forgets decided proposals. */
-  clearDecided(fileHash: string, store: MarkupStore) {
-    this.save(fileHash, this.list(fileHash).filter((p) => stateOf(p, store.get(p.markupId)) === 'pending'));
-  }
+  clearDecided(store: MarkupStore) {
+    store.changeAiReview({ remove: { takeoff: this.list(store).filter((p) => stateOf(p, store.get(p.markupId)) !== 'pending').map((p) => p.id) } });
+  },
+};
 
-  subscribe = (l: () => void) => {
-    this.listeners.add(l);
-    return () => void this.listeners.delete(l);
-  };
-}
-
-export const takeoffProposals = new ProposalStore();
-
-export function useTakeoffProposals(fileHash: string | null): TakeoffProposal[] {
-  return useSyncExternalStore(takeoffProposals.subscribe, () => (fileHash ? takeoffProposals.list(fileHash) : NONE));
-}
 const NONE: TakeoffProposal[] = [];
+const noop = () => () => {};
+
+export function useTakeoffProposals(store: MarkupStore | null): TakeoffProposal[] {
+  return useSyncExternalStore(store ? (l) => store.subscribe(l) : noop, () => (store ? store.aiReview().takeoff : NONE));
+}
 
 /** Approved when the measurement carries this proposal's approval (so an undo makes it pending again). */
 export function stateOf(p: TakeoffProposal, m: Markup | undefined): ProposalState {
@@ -140,11 +84,48 @@ export function approveProposals(store: MarkupStore, proposals: readonly Takeoff
       const edit = edits[p.id] ?? {};
       const assemblyId = edit.assemblyId ?? p.assemblyId;
       const overrides = edit.overrides && Object.keys(edit.overrides).length ? edit.overrides : undefined;
-      const approval: TakeoffApproval = { by, at, proposalId: p.id, source: p.source, ...(p.reasoning ? { reasoning: p.reasoning } : {}), ...(assemblyId !== p.assemblyId || overrides ? { edited: true } : {}) };
+      const approval: TakeoffApproval = {
+        by,
+        at,
+        proposalId: p.id,
+        source: p.source,
+        ...(p.reasoning ? { reasoning: p.reasoning } : {}),
+        ...(assemblyId !== p.assemblyId || overrides ? { edited: true } : {}),
+        ...(assemblyId !== p.assemblyId ? { proposedAssemblyId: p.assemblyId } : {}),
+        ...(p.confidence !== undefined ? { confidence: p.confidence } : {}),
+      };
       store.update(m.id, { assemblyId, assemblyOverrides: overrides, takeoffApproval: approval });
       if (store.get(m.id)?.takeoffApproval?.proposalId === p.id) approved.push(p.id);
       else skipped.push(p.id);
     }
   });
   return { approved, skipped };
+}
+
+/**
+ * Proposals from before they were kept in the document lived in this browser's storage: they move
+ * into the document once, the first time it is opened here and can be edited.
+ */
+export function migrateLocalProposals(store: MarkupStore) {
+  if (store.readOnly) return;
+  const take = (key: string): unknown[] => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return [];
+      localStorage.removeItem(key);
+      const list = JSON.parse(raw) as unknown;
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  };
+  const takeoff = take(`nb.takeoffProposals.${store.fileHash}`);
+  const counts = take(`nb.countProposals.${store.fileHash}`);
+  if (!takeoff.length && !counts.length) return;
+  const known = store.aiReview();
+  const have = new Set([...known.takeoff, ...known.counts].map((p) => p.id));
+  // Checked like a file's or a peer's: anything malformed is dropped.
+  const keep = <T extends { id: string }>(list: T[]) => list.filter((p) => !have.has(p.id));
+  const checked = sanitizeAiReview({ takeoff, counts });
+  store.changeAiReview({ takeoff: keep(checked.takeoff), counts: keep(checked.counts) }, true);
 }

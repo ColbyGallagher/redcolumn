@@ -1,3 +1,4 @@
+import { isAiDraft } from './aiReview';
 import { DEFAULT_SCALE, labelAnchor, measureLabel, polygonCentroid, type Scale } from '@nb/measure';
 import { spaceName } from './spaces';
 import { layoutParagraphs } from './textLists';
@@ -448,7 +449,9 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   ctx.strokeStyle = style.stroke;
   ctx.lineJoin = 'round';
   ctx.lineCap = m.type === 'highlighter' ? 'butt' : 'round';
-  const dash = style.dashArray ?? dashPattern(style.dash, lineWidth);
+  // An AI draft no person has approved yet is drawn dashed, whatever its own line, so it reads as a proposal.
+  const draftDash = isAiDraft(m) ? Math.max(lineWidth, 2 / (Number.isFinite(zoom) ? zoom : 1)) : 0;
+  const dash = draftDash ? [draftDash * 5, draftDash * 3] : (style.dashArray ?? dashPattern(style.dash, lineWidth));
   for (const part of styledParts(markupShape(m), style.lineStyle, style.width, style.lineStyle ? canvasMeasure(ctx) : () => 0)) {
     if (part.art) {
       paintArt(ctx, part.art);

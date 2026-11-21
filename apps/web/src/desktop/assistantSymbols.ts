@@ -1,11 +1,12 @@
 import { rasterSearch, templateSegments, toGray, crop, visualSearch, type GrayImage, type SearchRect } from '@nb/measure';
+import { evidenceOf, sourceName } from './assistantEvidence';
 import { countProposals, countStateOf, recalledMatch, rememberMatches, type CountMatch } from '../assemblies/countProposals';
 import { findDocument, pageIndexOf, record, type AssistantDocument } from './assistant';
 
 /**
  * Auto count. `find_symbol_matches` runs the app's own symbol search (vector line work, or pixels on
  * a scanned sheet) for repeats of an example symbol. `propose_counts` stages the ones the AI client
- * chooses as a count proposal, which waits in Takeoff Review for a person to approve. The language
+ * chooses as a count proposal, which waits in Review AI Takeoff for a person to approve. The language
  * model is the client's: redcolumn only searches and stages.
  */
 export const SYMBOL_METHODS = ['find_symbol_matches', 'propose_counts', 'list_count_proposals'] as const;
@@ -136,7 +137,9 @@ function proposeCounts(docs: readonly AssistantDocument[], params: unknown) {
   if (!reasoning) throw new Error('say why (reasoning), so the person can check it');
   if (!Array.isArray(args.matches) || !args.matches.length) throw new Error('Give matches: matchIds from find_symbol_matches, or { page, bbox } items.');
   if (args.matches.length > MAX_PROPOSED) throw new Error(`That is ${args.matches.length} matches. The most is ${MAX_PROPOSED}.`);
-  const source = typeof args.source === 'string' && args.source.trim() ? args.source.trim().slice(0, 80) : 'AI assistant';
+  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
+  const source = sourceName(args.source);
+  const { confidence, sources } = evidenceOf(args, doc.pageCount);
   const matches: CountMatch[] = [];
   const seen = new Set<string>();
   args.matches.forEach((item: unknown, n) => {
@@ -158,13 +161,13 @@ function proposeCounts(docs: readonly AssistantDocument[], params: unknown) {
       throw new Error(`Match ${n + 1}: ${err instanceof Error ? err.message : 'not a match'}`);
     }
   });
-  const proposal = { id: crypto.randomUUID(), subject, reasoning, source, createdAt: Date.now(), matches };
-  countProposals.add(doc.store.fileHash, proposal);
+  const proposal = { id: crypto.randomUUID(), subject, reasoning, source, createdAt: Date.now(), matches, ...(confidence !== undefined ? { confidence } : {}), ...(sources ? { sources } : {}) };
+  countProposals.add(doc.store, proposal);
   return {
     document: doc.name,
     proposalId: proposal.id,
     proposed: matches.length,
-    note: 'Waiting for review: the person checks the matches and approves or rejects them in Tools › Takeoff › Review AI Proposals. Nothing is placed until they approve.',
+    note: 'Waiting for review: the person checks the matches and approves or rejects them in Review AI Takeoff (Takeoff tab). Nothing is placed until they approve.',
   };
 }
 
@@ -172,7 +175,7 @@ function listCountProposals(docs: readonly AssistantDocument[], params: unknown)
   const doc = findDocument(docs, record(params).document);
   return {
     document: doc.name,
-    proposals: countProposals.list(doc.store.fileHash).map((p) => {
+    proposals: countProposals.list(doc.store).map((p) => {
       const state = countStateOf(p, doc.store);
       return {
         id: p.id,
