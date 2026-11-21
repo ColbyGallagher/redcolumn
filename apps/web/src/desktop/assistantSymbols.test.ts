@@ -77,17 +77,17 @@ test('propose_counts stages a proposal; the drawing is unchanged until a person 
   const listed = (await assistantCall([d], 'list_count_proposals', {})) as { proposals: { state: string; matches: number; pages: number[]; subject: string }[] };
   assert.deepEqual(listed.proposals.map((p) => [p.state, p.matches, p.pages, p.subject]), [['pending', 5, [1, 2], 'Detector']]);
 
-  const proposal = countProposals.list(d.store.fileHash).find((p) => p.id === made.proposalId)!;
+  const proposal = countProposals.list(d.store).find((p) => p.id === made.proposalId)!;
   // The person turns the last match off, then approves.
   assert.equal(approveCountProposal(d.store, proposal, 'Bea', new Set([4])), 4);
   const counts = d.store.all().filter((m) => m.type === 'count');
   assert.deepEqual(counts.map((c) => [c.pageIndex, c.points.length, c.subject]).sort(), [[0, 3, 'Detector'], [1, 1, 'Detector']]);
-  const updated = countProposals.list(d.store.fileHash).find((p) => p.id === made.proposalId)!;
+  const updated = countProposals.list(d.store).find((p) => p.id === made.proposalId)!;
   assert.equal(countStateOf(updated, d.store), 'approved');
   const after = (await assistantCall([d], 'list_count_proposals', {})) as { proposals: { state: string; approvedBy: string; counted: number }[] };
   assert.deepEqual([after.proposals[0]!.state, after.proposals[0]!.approvedBy, after.proposals[0]!.counted], ['approved', 'Bea', 4]);
 
   d.store.undo();
   assert.equal(d.store.all().filter((m) => m.type === 'count').length, 0, 'one undo takes both counts back');
-  assert.equal(countStateOf(countProposals.list(d.store.fileHash).find((p) => p.id === made.proposalId)!, d.store), 'pending');
+  assert.equal(countStateOf(countProposals.list(d.store).find((p) => p.id === made.proposalId)!, d.store), 'pending');
 });

@@ -12,6 +12,8 @@ export { parseBpx, type BpxColumn, type BpxCustomColumn, type BpxProfile } from 
 export * from './columns';
 export * from './assemblies';
 export * from './portals';
+export * from './aiReview';
+export * from './aiGrouping';
 export * from './estimating';
 export { AI_LINK, IMPORT_VERSION, MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type PageClip, type StoredLink, type StoredStitchGroup, type StoredMatchLine, type StoredManualStitch } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';

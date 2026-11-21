@@ -863,7 +863,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Cmd id="tools.assemblies" size="large" />
               <Stack>
                 <Cmd id="tools.quantities" />
-                <Cmd id="tools.takeoffReview" label="Takeoff Review" />
+                <Cmd id="tools.takeoffReview" label="Review AI Takeoff" />
                 <Cmd id="takeoff.items" label="Items" />
               </Stack>
               <Stack>

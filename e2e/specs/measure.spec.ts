@@ -245,10 +245,13 @@ test.describe('assemblies', () => {
     const made = await app.assistant<{ proposed: number }>('propose_takeoff', { source: 'Claude', proposals: [{ id: run!.id, assembly: 'Stud wall', reasoning: 'A partition run.', expected: [{ item: 'Studs', quantity: 11 }] }] });
     expect(made.proposed).toBe(1);
     // The review opens by itself; the drawing is unchanged until a person approves.
-    const review = page.getByRole('complementary', { name: 'Takeoff review' });
+    const review = page.getByRole('complementary', { name: 'Review AI takeoff' });
     await expect(review).toBeVisible();
     const proposal = review.locator('.takeoff-proposal');
     await expect(proposal).toHaveCount(1);
+    // No confidence given: flagged to look at first. Opening it shows the details.
+    await expect(proposal.locator('.ar-conf')).toHaveText('⚑ ?');
+    await proposal.locator('.tp-measure').click();
     await expect(proposal).toContainText('A partition run.');
     // 22 ft at 2 ft spacing: 12 studs, where the AI expected 11 (flagged).
     await expect(proposal.locator('td.num').nth(1)).toHaveText('12.00');
@@ -276,8 +279,9 @@ test.describe('assemblies', () => {
     await app.cmd('edit.undo');
     await expect.poll(async () => (await app.raw())[0]!.assemblyId).toBeUndefined();
     await expect(review.locator('.takeoff-proposal')).toHaveCount(1);
-    // Rejecting keeps it out of the takeoff.
-    await review.locator('.takeoff-proposal').getByRole('button', { name: 'Reject', exact: true }).click();
+    // Rejecting keeps it out of the takeoff (R, with the row open).
+    await review.locator('.takeoff-proposal .tp-measure').click();
+    await review.locator('.takeoff-proposal .tp-measure').press('r');
     await expect(review.locator('.takeoff-proposal')).toHaveCount(0);
     const states = await app.assistant<{ proposals: { state: string }[] }>('list_takeoff_proposals');
     expect(states.proposals.map((p) => p.state)).toEqual(['rejected']);

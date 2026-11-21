@@ -224,7 +224,7 @@ export interface CommandActions {
   takeoffQuantities: () => void;
   /** Tools › Scripts: rules that find markups and change them. */
   scripts: () => void;
-  /** Tools › Takeoff › Review AI Proposals. */
+  /** Tools › Takeoff › Review AI Takeoff: what an AI client drew and proposed, to approve or reject. */
   takeoffReview: () => void;
   /** Takeoff › Cutout: draws a hole in the selected area. */
   cutout: () => void;
@@ -639,7 +639,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     { ...cmd('draw.arc', 'Tools', 'Arc (3-point)', a.toggleArc, doc && s.editable && (s.canArc || s.arcArmed), s.arcArmed), hint: 'Start a polylength or area first' },
     cmd('takeoff.hip', 'Tools', 'Hip Length', () => a.hipValley('hip'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'hip'),
     cmd('takeoff.valley', 'Tools', 'Valley Length', () => a.hipValley('valley'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'valley'),
-    cmd('tools.takeoffReview', 'Tools', 'Review AI Proposals…', a.takeoffReview, doc),
+    cmd('tools.takeoffReview', 'Tools', 'Review AI Takeoff…', a.takeoffReview, doc),
     cmd('takeoff.items', 'Tools', 'Items…', a.manageItems, doc),
     cmd('takeoff.productLists', 'Tools', 'Product Lists…', a.manageProductLists, doc),
     cmd('takeoff.templates', 'Tools', 'Takeoff Templates…', a.manageTemplates, doc),

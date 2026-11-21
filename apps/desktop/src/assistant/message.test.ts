@@ -69,6 +69,13 @@ test('initialize and tools/list answer even when the app is closed', async () =>
     'find_symbol_matches',
     'propose_counts',
     'list_count_proposals',
+    'propose_grouping_column',
+    'list_grouping_columns',
+    'propose_grouping_tool',
+    'list_grouping_tools',
+    'run_grouping_tool',
+    'get_review_packet',
+    'report_review_findings',
     'start_comparison',
     'get_comparison',
     'report_document_changes',
@@ -104,7 +111,7 @@ test('initialize and tools/list answer even when the app is closed', async () =>
 test('reads say they are read-only, and nothing else does', async () => {
   const list = JSON.parse((await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' }), async () => ({}))) ?? '') as { result: { tools: { name: string; annotations: { readOnlyHint: boolean; destructiveHint: boolean } }[] } };
   const reads = list.result.tools.filter((t) => t.annotations.readOnlyHint).map((t) => t.name);
-  assert.deepEqual(reads, ['list_open_documents', 'list_markups', 'list_commands', 'get_page', 'get_page_image', 'get_page_text', 'list_assemblies', 'list_takeoff_proposals', 'find_symbol_matches', 'list_count_proposals', 'get_comparison', 'get_stitching', 'get_stitch_image', 'list_viewports', 'get_sheet_info', 'get_drawing_standard', 'list_sheet_links', 'get_sheet_graph']);
+  assert.deepEqual(reads, ['list_open_documents', 'list_markups', 'list_commands', 'get_page', 'get_page_image', 'get_page_text', 'list_assemblies', 'list_takeoff_proposals', 'find_symbol_matches', 'list_count_proposals', 'list_grouping_columns', 'list_grouping_tools', 'get_review_packet', 'get_comparison', 'get_stitching', 'get_stitch_image', 'list_viewports', 'get_sheet_info', 'get_drawing_standard', 'list_sheet_links', 'get_sheet_graph']);
   // Only the tools that remove things, or run any command, are flagged destructive.
   const flagged = list.result.tools.filter((t) => t.annotations.destructiveHint).map((t) => t.name);
   assert.deepEqual(flagged, ['run_command', 'delete_markups', 'delete_match_lines']);

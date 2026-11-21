@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, isAiDraft, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -76,8 +76,9 @@ import { SheetScaleReview } from './components/SheetScaleReview';
 import { isNotToScale, scaleReviewRows, type PageScan } from './measure/scaleReview';
 import { pageReadings } from './measure/scaleCheck';
 import { proposeViews } from './measure/viewScales';
-import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
-import { countProposals, countStateOf } from './assemblies/countProposals';
+import { migrateLocalProposals } from './assemblies/proposals';
+import { waitingKeys as aiWaitingKeys } from './takeoff/aiReview';
+import { toolLibrary } from './takeoff/toolLibrary';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -845,6 +846,7 @@ async function annotatedBytes(
     assemblies: cur.store.assemblies(),
     estimating: cur.store.estimating(),
     portals: cur.store.portals(),
+    aiReview: cur.store.aiReviewForSave(),
     places: cur.store.places(),
     // Sheet numbers become the PDF's page labels, so other readers show them too.
     pageLabels: cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null),
@@ -5075,6 +5077,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                 assemblies: store.assemblies(),
                 estimating: store.estimating(),
                 portals: store.portals(),
+                aiReview: store.aiReviewForSave(),
                 places: store.places(),
               },
             );
@@ -6389,40 +6392,44 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const activeStudioDoc = studioDocOf(activeOpen?.file.id);
   const activeReadOnly = useSyncExternalStore(activeOpen ? (l) => activeOpen.store.subscribe(l) : noSubscribe, () => activeOpen?.store.readOnly ?? false);
 
-  // Takeoff proposals from an AI client open Takeoff Review, so a person sees them straight away.
-  const activeHash = activeOpen?.store.fileHash ?? null;
+  // A grouping tool an AI client proposes for the library opens the review too.
   useEffect(() => {
-    if (!activeHash || !activeOpen) return;
-    const store = activeOpen.store;
-    const waiting = () => takeoffProposals.list(activeHash).filter((p) => proposalState(p, store.get(p.markupId)) === 'pending').length;
-    let seen = waiting();
-    // Ones that came while another document was in front are mentioned once it is.
-    if (seen) setNotice(`${seen} takeoff proposal${seen === 1 ? ' is' : 's are'} waiting for your review in Tools › Takeoff › Review AI Proposals.`);
-    return takeoffProposals.subscribe(() => {
-      const now = waiting();
+    const proposed = () => toolLibrary.list().filter((t) => t.status === 'proposed').length;
+    let seen = proposed();
+    return toolLibrary.subscribe(() => {
+      const now = proposed();
       if (now > seen) {
         setTakeoffReviewOpen(true);
-        setNotice(`${now} takeoff proposal${now === 1 ? ' is' : 's are'} waiting for your review. Nothing is added to the takeoff until you approve it.`);
+        setNotice('An AI client proposed a grouping tool. Review it in Takeoff › Review AI Takeoff › Tools: it cannot run until you accept it.');
       }
       seen = now;
     });
-  }, [activeHash, activeOpen]);
+  }, []);
 
-  // Count proposals an AI client staged (find_symbol_matches, then propose_counts) open the same review panel.
+  // AI results (drafts, assembly and count proposals) open Review AI Takeoff, so a person sees them straight away.
   useEffect(() => {
-    if (!activeHash || !activeOpen) return;
+    if (!activeOpen) return;
     const store = activeOpen.store;
-    const waiting = () => countProposals.list(activeHash).filter((p) => countStateOf(p, store) === 'pending').length;
-    let seen = waiting();
-    return countProposals.subscribe(() => {
-      const now = waiting();
-      if (now > seen) {
-        setTakeoffReviewOpen(true);
-        setNotice('A count proposal is waiting for your review. Nothing is counted until you approve it.');
+    // Proposals from before they were kept in the document move into it.
+    migrateLocalProposals(store);
+    // Everything seen waiting so far: a person's own Undo, Review Again or deleting an approved
+    // measurement brings one back, and that is no reason to open the panel. Only new ones are.
+    const seen = aiWaitingKeys(store);
+    // Ones that came while another document was in front are mentioned once it is.
+    if (seen.size) setNotice(`${seen.size} AI result${seen.size === 1 ? ' is' : 's are'} waiting for your review in Takeoff › Review AI Takeoff.`);
+    return store.subscribe(() => {
+      const now = aiWaitingKeys(store);
+      let fresh = false;
+      for (const k of now) if (!seen.has(k)) {
+        seen.add(k);
+        fresh = true;
       }
-      seen = now;
+      if (fresh) {
+        setTakeoffReviewOpen(true);
+        setNotice(`${now.size} AI result${now.size === 1 ? ' is' : 's are'} waiting for your review. Nothing counts towards the takeoff until you approve it.`);
+      }
     });
-  }, [activeHash, activeOpen]);
+  }, [activeOpen]);
 
 
   /** Stitch to New Page: the group's sheets joined on one new last page, with copies of their markups. */
@@ -6598,7 +6605,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const takeoffTotals = (list: readonly Markup[]): string[] => {
     const totals = new Map<MeasureKind, { value: number; scale: Scale; n: number }>();
     for (const m of list) {
-      if (!isMeasureKind(m.type) || m.type === 'angle') continue;
+      // AI drafts wait for review: left out of totals, as in reports.
+      if (!isMeasureKind(m.type) || m.type === 'angle' || isAiDraft(m)) continue;
       const scale = scaleOf(m);
       const kind = measureKindOf(m);
       const t = totals.get(kind) ?? { value: 0, scale, n: 0 };
@@ -11880,8 +11888,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             const viewer = activePaneRef.current === 'b' && ctlB ? ctlB.viewer : ctl?.viewer;
             if (!viewer) return;
             viewer.goToPage(pageIndex);
-            viewer.zoomToRect({ x: r.x - r.w * 3, y: r.y - r.h * 3, w: r.w * 7, h: r.h * 7 }, 1, pageIndex);
+            // A small symbol shows with its surroundings; a large source (a legend, a schedule) with a margin.
+            const pad = Math.max(24, Math.min(Math.max(r.w, r.h) * 3, 200));
+            viewer.zoomToRect({ x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 }, 1, pageIndex);
           }}
+          onShowPage={(pageIndex) => (activePaneRef.current === 'b' && ctlB ? ctlB.viewer : ctl?.viewer)?.goToPage(pageIndex)}
+          documentName={activeOpen.file.name}
           onMessage={setNotice}
           onClose={() => setTakeoffReviewOpen(false)}
         />
