@@ -43,6 +43,44 @@ Keys, while the list has focus:
 - **P** or **↑** previous
 - **Esc** close
 
+## Grouping columns
+
+The **Columns** tab lists custom columns the AI proposed, to group the takeoff the way you need: by level, zone, system, trade or material. A grouping column is text or a drop-down, never a number, so it never changes a quantity.
+
+Each column shows:
+
+- its **status**: *Proposed*. It becomes *In review* once you change it, then *Accepted* or *Rejected*.
+- how many markups fall in each group.
+- the AI's reasoning, and the reason it gave for each markup.
+
+Before accepting a column you can:
+
+- **rename** it, or switch it between drop-down and text.
+- **regroup** a markup by typing or picking another group. The AI's value stays beside yours.
+
+**Accept Column** adds the column to the document's [custom columns](#list-columns) and gives each markup its value, as one undo step. If the document already has a column of that name, that column is filled. After that, the column works like any other: you can edit it in the Markups list and group by it.
+
+To remove a decided column:
+
+- **Delete** forgets a rejected one.
+- **Forget** removes an accepted column's record but leaves the column in the document.
+- **Delete Column** removes it from the document too.
+
+## Grouping tools
+
+The **Tools** tab is the grouping tool library on this computer. A tool is a rule the AI proposed for reuse on later takeoffs, such as *group doors by fire rating*, *group by level from the sheet title* or *tag what is inside a zone*. A tool is never code. Each one is:
+
+- a **filter**: which markups. It can check the type, subject, label, layer, page, or another column's value.
+- an **action**: the value each picked markup gets in the tool's column. It can set a fixed value, copy the subject, label, layer, page, sheet or a column, use the name of the zone the markup is in, or map words in the sheet title to a value.
+
+Each tool shows what it does, its rule in words, and why the AI made it.
+
+- A proposed tool cannot run. **Accept Tool** or **Reject** it.
+- **Edit** changes its name, description, column or rule. The rule is checked before it is saved.
+- **Turn Off** keeps an accepted tool in the library without running it.
+- **Delete** removes it. Groupings it already made stay as they are.
+- **Run on This Document** proposes a grouping column. It waits on the Columns tab like any other, marked with the tool that made it, and the tool lists where it was used. A tool never changes the drawing or a quantity by itself.
+
 ## Who changed what
 
 redcolumn keeps what the AI made beside what you change. An approved row says who approved it and when. If you changed the shape, subject or assembly first, the row is marked **edited** and shows the AI's version. An assembly approved with a different assembly says which one the AI proposed. Approved counts record which proposal placed them.

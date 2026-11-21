@@ -1187,6 +1187,7 @@ export class MarkupStore {
     for (const p of change.takeoff ?? []) this.aiReviewMap.set(aiReviewKey('takeoff', p.id), structuredClone(p));
     for (const p of change.counts ?? []) this.aiReviewMap.set(aiReviewKey('counts', p.id), structuredClone(p));
     for (const r of change.rejected ?? []) this.aiReviewMap.set(aiReviewKey('rejected', r.markup.id), structuredClone(r));
+    for (const g of change.columns ?? []) this.aiReviewMap.set(aiReviewKey('columns', g.id), structuredClone(g));
     for (const [kind, ids] of Object.entries(change.remove ?? {}) as [keyof AiReviewData, string[]][]) for (const id of ids) this.aiReviewMap.delete(aiReviewKey(kind, id));
   }
 

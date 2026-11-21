@@ -1,3 +1,4 @@
+import { sanitizeGrouping, type GroupingProposal } from './aiGrouping';
 import type { AiMethod, AiOrigin, Markup, Point, ProposedQuantity, Rect, SourceKind, SourceRef } from './model';
 
 /**
@@ -60,9 +61,11 @@ export interface AiReviewData {
   takeoff: TakeoffProposal[];
   counts: CountProposal[];
   rejected: RejectedDraft[];
+  /** Grouping columns an AI client (or a tool) proposed (see `aiGrouping.ts`). */
+  columns: GroupingProposal[];
 }
 
-export const EMPTY_AI_REVIEW: AiReviewData = Object.freeze({ takeoff: [], counts: [], rejected: [] }) as AiReviewData;
+export const EMPTY_AI_REVIEW: AiReviewData = Object.freeze({ takeoff: [], counts: [], rejected: [], columns: [] }) as AiReviewData;
 
 /** Below this confidence an AI result is flagged, and listed first. */
 export const LOW_CONFIDENCE = 0.6;
@@ -167,11 +170,11 @@ function rejectedOf(v: unknown, pageCount?: number): RejectedDraft | null {
 export function sanitizeAiReview(raw: unknown, pageCount?: number): AiReviewData {
   if (!isObj(raw)) return EMPTY_AI_REVIEW;
   const list = <T>(v: unknown, of: (x: unknown, n?: number) => T | null) => (Array.isArray(v) ? v.flatMap((x) => of(x, pageCount) ?? []) : []);
-  return { takeoff: list(raw.takeoff, takeoffOf), counts: list(raw.counts, countOf), rejected: list(raw.rejected, rejectedOf) };
+  return { takeoff: list(raw.takeoff, takeoffOf), counts: list(raw.counts, countOf), rejected: list(raw.rejected, rejectedOf), columns: list(raw.columns, sanitizeGrouping) };
 }
 
 export function isEmptyAiReview(d: AiReviewData): boolean {
-  return !d.takeoff.length && !d.counts.length && !d.rejected.length;
+  return !d.takeoff.length && !d.counts.length && !d.rejected.length && !d.columns.length;
 }
 
 /** An AI draft: made by an AI client and not yet approved. Drawn dashed and left out of quantities. */
@@ -262,6 +265,7 @@ export function remapAiReview(
       if (n === null) return [];
       return [{ ...r, markup: remapAiOrigin(turnMarkup(r.markup, n), r.markup.pageIndex, to, turn, turnRect) }];
     }),
+    columns: d.columns,
   };
 }
 
@@ -282,10 +286,11 @@ export interface AiReviewChange {
   counts?: CountProposal[];
   /** Keyed by the rejected markup's id. */
   rejected?: RejectedDraft[];
+  columns?: GroupingProposal[];
   remove?: Partial<Record<keyof AiReviewData, string[]>>;
 }
 
-const PREFIX: Record<keyof AiReviewData, string> = { takeoff: 't:', counts: 'c:', rejected: 'r:' };
+const PREFIX: Record<keyof AiReviewData, string> = { takeoff: 't:', counts: 'c:', rejected: 'r:', columns: 'g:' };
 
 /** The key an entry is kept under in the store's `aiReview` map. */
 export function aiReviewKey(kind: keyof AiReviewData, id: string): string {
@@ -294,7 +299,7 @@ export function aiReviewKey(kind: keyof AiReviewData, id: string): string {
 
 /** The review list from the store's map entries, checked as it is read (oldest first). */
 export function aiReviewFromEntries(entries: Iterable<[string, unknown]>, pageCount?: number): AiReviewData {
-  const out: AiReviewData = { takeoff: [], counts: [], rejected: [] };
+  const out: AiReviewData = { takeoff: [], counts: [], rejected: [], columns: [] };
   for (const [key, v] of entries) {
     if (key.startsWith(PREFIX.takeoff)) {
       const p = takeoffOf(v, pageCount);
@@ -305,10 +310,14 @@ export function aiReviewFromEntries(entries: Iterable<[string, unknown]>, pageCo
     } else if (key.startsWith(PREFIX.rejected)) {
       const r = rejectedOf(v, pageCount);
       if (r) out.rejected.push(r);
+    } else if (key.startsWith(PREFIX.columns)) {
+      const g = sanitizeGrouping(v);
+      if (g) out.columns.push(g);
     }
   }
   out.takeoff.sort((a, b) => a.createdAt - b.createdAt);
   out.counts.sort((a, b) => a.createdAt - b.createdAt);
   out.rejected.sort((a, b) => a.at - b.at);
+  out.columns.sort((a, b) => a.createdAt - b.createdAt);
   return out;
 }

@@ -27,7 +27,7 @@ test('sanitize: keeps good entries and drops malformed ones, confidences outside
   assert.deepEqual(out.takeoff.map((p) => [p.id, p.confidence]), [['t1', 0.7], ['t2', undefined]]);
   assert.deepEqual(out.counts.map((c) => [c.id, c.matches.length]), [['c1', 1], ['c2', 0]]);
   assert.deepEqual(out.rejected.map((r) => r.markup.id), ['r1']);
-  assert.deepEqual(sanitizeAiReview('nonsense'), { takeoff: [], counts: [], rejected: [] });
+  assert.deepEqual(sanitizeAiReview('nonsense'), { takeoff: [], counts: [], rejected: [], columns: [] });
 });
 
 test('a draft is left out of quantities until approved; a person’s edits show against what the AI made', () => {
@@ -81,7 +81,7 @@ test('PDF: drafts are saved hidden and the review list in the catalog; both come
   const doc = await PDFDocument.create();
   doc.addPage([400, 400]);
   const bytes = (await doc.save()).slice().buffer as ArrayBuffer;
-  const review: AiReviewData = { takeoff: [takeoff('t1', { confidence: 0.8 })], counts: [count('c1')], rejected: [] };
+  const review: AiReviewData = { takeoff: [takeoff('t1', { confidence: 0.8 })], counts: [count('c1')], rejected: [], columns: [] };
   const saved = await exportWithAnnotations(bytes, [length('d', 0, { ai: ai() }), length('e', 0, { ai: ai({ status: 'approved' }) })], { aiReview: review });
   const extras = (await readPdfExtras(saved))!;
   assert.deepEqual(extras.aiReview, review);
@@ -91,6 +91,6 @@ test('PDF: drafts are saved hidden and the review list in the catalog; both come
   store.importAnnotations([], [], {}, { aiReview: extras.aiReview });
   assert.deepEqual(store.aiReview(), review);
   await store.destroy();
-  const cleared = await exportWithAnnotations(saved.slice().buffer as ArrayBuffer, [], { aiReview: { takeoff: [], counts: [], rejected: [] } });
+  const cleared = await exportWithAnnotations(saved.slice().buffer as ArrayBuffer, [], { aiReview: { takeoff: [], counts: [], rejected: [], columns: [] } });
   assert.equal((await readPdfExtras(cleared))!.aiReview, undefined);
 });

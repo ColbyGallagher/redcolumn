@@ -84,13 +84,14 @@ export function reviewItems(store: MarkupStore, threshold = LOW_CONFIDENCE): Rev
   return items.sort((a, b) => rank(a.state) - rank(b.state) || (a.confidence ?? -1) - (b.confidence ?? -1) || (a.pageIndex ?? 1e9) - (b.pageIndex ?? 1e9) || a.at - b.at);
 }
 
-/** How many AI results are waiting for a person. */
+/** How many AI results are waiting for a person: drafts, proposals and grouping columns. */
 export function waitingCount(store: MarkupStore): number {
   const review = store.aiReview();
   let n = 0;
   for (const m of store.all()) if (isAiDraft(m)) n++;
   for (const p of review.takeoff) if (takeoffState(p, store.get(p.markupId)) === 'pending') n++;
   for (const c of review.counts) if (countStateOf(c, store) === 'pending') n++;
+  for (const g of review.columns) if (g.status === 'proposed' || g.status === 'review') n++;
   return n;
 }
 
