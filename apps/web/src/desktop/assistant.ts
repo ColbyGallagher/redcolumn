@@ -1209,8 +1209,8 @@ export async function assistantCall(docs: readonly AssistantDocument[], method: 
   const pass = doc.store.reviewPass();
   const how = 'have it checked in a fresh context: start a new conversation or subagent that calls get_review_packet and reports with report_review_findings. Do not review it yourself in this conversation.';
   // A person's request reaches the AI client on whatever it calls next, the pass on or not.
-  if (pass.requested) return { ...out, reviewPass: `${pass.requested.by} asked for an AI review pass of the takeoff on ${doc.name}: ${how}` };
-  if (!pass.enabled || !TAKEOFF_OUTPUT.has(method)) return out;
+  if (pass.requested && !pass.requested.taken) return { ...out, reviewPass: `${pass.requested.by} asked for an AI review pass of the takeoff on ${doc.name}: ${how}` };
+  if (!pass.enabled || pass.requested || !TAKEOFF_OUTPUT.has(method)) return out;
   return { ...out, reviewPass: `The person has the AI review pass on for this document. When you have finished the takeoff, ${how}` };
 }
 

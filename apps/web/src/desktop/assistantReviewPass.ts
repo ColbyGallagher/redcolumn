@@ -52,6 +52,8 @@ function getReviewPacket(docs: readonly AssistantDocument[], params: unknown) {
     .filter((g) => g.status !== 'rejected')
     .map((g) => ({ item: `column:${g.id}`, kind: 'column', name: g.name, status: g.status, groups: g.assignments.map((a) => ({ markupId: a.markupId, value: a.value })) }));
   const pass = store.reviewPass();
+  // The reviewer has the request now: its own calls are not reminded to start a review.
+  if (pass.requested && !pass.requested.taken && !store.readOnly) store.setReviewPass({ ...pass, requested: { ...pass.requested, taken: Date.now() } }, true);
   return {
     document: doc.name,
     pageCount: doc.pageCount,

@@ -1192,7 +1192,7 @@ export class MarkupStore {
   reviewPass(): ReviewPassSettings {
     const raw = this.meta.get('reviewPass') as Partial<ReviewPassSettings> | undefined;
     const r = raw?.requested;
-    return { enabled: raw?.enabled === true, ...(r && typeof r.by === 'string' && typeof r.at === 'number' ? { requested: { by: r.by, at: r.at } } : {}) };
+    return { enabled: raw?.enabled === true, ...(r && typeof r.by === 'string' && typeof r.at === 'number' ? { requested: { by: r.by, at: r.at, ...(typeof r.taken === 'number' ? { taken: r.taken } : {}) } } : {}) };
   }
 
   setReviewPass(next: ReviewPassSettings, byAi = false) {

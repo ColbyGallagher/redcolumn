@@ -88,7 +88,7 @@ export type RuleAction =
   | { kind: 'copy'; from: 'subject' | 'label' | 'layer' | 'page' | 'sheet' | { column: string } }
   /** The name of the zone the markup's centre is in. */
   | { kind: 'zone'; zones: Zone[]; otherwise?: string; /** The document the zones were drawn on: they are its page coordinates. */ document?: string }
-  /** Sheet titles or numbers mapped to values ("LEVEL 1" → "L1"): the first pattern the sheet's title or number contains. */
+  /** Sheet titles or numbers mapped to values ("LEVEL 1" → "L1"): the first pattern found as whole words in the sheet's title or number. */
   | { kind: 'sheet'; map: { contains: string; value: string }[]; otherwise?: string };
 
 export interface GroupingTool {

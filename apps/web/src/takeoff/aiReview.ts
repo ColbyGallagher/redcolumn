@@ -161,9 +161,11 @@ export function reopenDrafts(store: MarkupStore, ids: readonly string[]) {
 /** Forgets rejected drafts, decided proposals and decided review findings, leaving what is still waiting. */
 export function clearDecided(store: MarkupStore) {
   const review = store.aiReview();
-  const rejected = review.rejected.map((r) => r.markup.id);
-  const takeoff = review.takeoff.filter((p) => takeoffState(p, store.get(p.markupId)) !== 'pending').map((p) => p.id);
-  const counts = review.counts.filter((c) => countStateOf(c, store) !== 'pending').map((c) => c.id);
+  // A decided item the review pass has a finding on that still needs a decision stays, with it.
+  const waits = new Set(liveFindings(store).filter(needsDecision).flatMap((f) => (f.item ? [f.item] : [])));
+  const rejected = review.rejected.map((r) => r.markup.id).filter((id) => !waits.has(`draft:${id}`));
+  const takeoff = review.takeoff.filter((p) => takeoffState(p, store.get(p.markupId)) !== 'pending' && !waits.has(`assembly:${p.id}`)).map((p) => p.id);
+  const counts = review.counts.filter((c) => countStateOf(c, store) !== 'pending' && !waits.has(`count:${c.id}`)).map((c) => c.id);
   // Findings about what is forgotten go with it, as do decided ones and those about an item already gone.
   const forgotten = new Set([...rejected.map((id) => `draft:${id}`), ...takeoff.map((id) => `assembly:${id}`), ...counts.map((id) => `count:${id}`)]);
   const live = new Set(liveFindings(store).map((f) => f.id));

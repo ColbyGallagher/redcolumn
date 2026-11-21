@@ -70,7 +70,7 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
   const { byItem, missed } = findingsByItem(store);
   // A decided item the review pass has an open finding on still waits: for the finding.
   const findingWaits = (key: string) => (byItem.get(key) ?? []).some(needsDecision);
-  const shown = items.filter((i) => show === 'all' || (i.state === 'pending' && (show === 'pending' || i.low)) || (show === 'pending' && findingWaits(i.key)));
+  const shown = items.filter((i) => show === 'all' || (i.state === 'pending' && (show === 'pending' || i.low)) || findingWaits(i.key));
   const pending = items.filter((i) => i.state === 'pending');
   const pickedPending = pending.filter((i) => picked.has(i.key));
   const sure = pending.filter((i) => !i.low);

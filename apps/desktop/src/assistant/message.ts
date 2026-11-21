@@ -630,7 +630,7 @@ const TOOLS: ToolDef[] = [
         action: {
           type: 'object',
           description:
-            'The value each markup gets. { kind: "set", value }; { kind: "copy", from: "subject" | "label" | "layer" | "page" | "sheet" | { column } }; { kind: "zone", zones: [{ name, pageIndex (0-based), polygon: [[x, y], ...] in PDF points }], otherwise }; { kind: "sheet", map: [{ contains, value }], otherwise } (matched against the sheet number and title).',
+            'The value each markup gets. { kind: "set", value }; { kind: "copy", from: "subject" | "label" | "layer" | "page" | "sheet" | { column } }; { kind: "zone", zones: [{ name, pageIndex (0-based), polygon: [[x, y], ...] in PDF points }], otherwise }; { kind: "sheet", map: [{ contains, value }], otherwise } (matched against the sheet number and title as whole words: "LEVEL 1" does not match "LEVEL 10", and "GA" does not match "GA01").',
         },
       },
       required: ['name', 'description', 'reasoning', 'column', 'action'],

@@ -414,5 +414,5 @@ export interface ReviewPassSettings {
   /** Run a review pass after each AI takeoff. Off by default. */
   enabled: boolean;
   /** A person asked for a review pass now; cleared when the reviewer reports. */
-  requested?: { by: string; at: number };
+  requested?: { by: string; at: number; /** When a reviewer fetched get_review_packet for it: no more reminders. */ taken?: number };
 }

@@ -80,8 +80,11 @@ test('a request reaches the AI client on its next call; findings about an item t
   await assistantCall([d], 'report_review_findings', { findings: [{ item: `draft:${id}`, kind: 'quantity', message: 'Too long.' }] });
   assert.equal(waitingCount(d.store), 2);
   rejectDrafts(d.store, [id], 'Hana');
-  clearDecided(d.store);
+  assert.equal(waitingCount(d.store), 1, 'rejected, the draft is still listed: its finding waits');
+  // Its record goes (a peer forgot it): the finding is about nothing listed now.
+  d.store.changeAiReview({ remove: { rejected: [id] } });
   assert.equal(waitingCount(d.store), 0, 'the draft is gone, so its finding is no longer waiting');
+  clearDecided(d.store);
   assert.equal(d.store.aiReview().findings.length, 0, 'and Clear Decided forgot it');
 });
 
@@ -98,4 +101,19 @@ test('the review pass setting is saved in the file; a missed finding goes with i
   await assistantCall([d], 'report_review_findings', { findings: [{ message: 'A pit is missing.', kind: 'missed', sources: [{ page: 2, bbox: { x: 1, y: 1, w: 2, h: 2 } }] }] });
   d.store.remapPages(planPageOps(2, [{ type: 'delete', pages: [1] }]), [0, 1].map(() => ({ width: 842, height: 595 })));
   assert.equal(d.store.aiReview().findings.length, 0);
+});
+
+test('the reviewer is not reminded once it has the packet; Clear Decided keeps a decided item while a finding on it waits', async () => {
+  const d = await drawing();
+  const placed = (await assistantCall([d], 'place_markups', { page: 1, markups: [{ type: 'length', points: [[0, 0], [100, 0]] }] })) as { placed: { id: string }[] };
+  const id = placed.placed[0]!.id;
+  rejectDrafts(d.store, [id], 'Hana');
+  requestReviewPass(d.store, 'Hana');
+  await assistantCall([d], 'get_review_packet', {});
+  const after = (await assistantCall([d], 'list_markups', {})) as { reviewPass?: string };
+  assert.equal(after.reviewPass, undefined, 'the reviewer’s own calls are not told to start a review');
+  await assistantCall([d], 'report_review_findings', { findings: [{ item: `draft:${id}`, kind: 'wrong-item', message: 'This kerb was right.' }] });
+  clearDecided(d.store);
+  assert.equal(d.store.aiReview().rejected.length, 1, 'kept while its finding waits');
+  assert.equal(d.store.aiReview().findings.length, 1);
 });
