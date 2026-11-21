@@ -92,6 +92,8 @@ export function waitingCount(store: MarkupStore): number {
   for (const p of review.takeoff) if (takeoffState(p, store.get(p.markupId)) === 'pending') n++;
   for (const c of review.counts) if (countStateOf(c, store) === 'pending') n++;
   for (const g of review.columns) if (g.status === 'proposed' || g.status === 'review') n++;
+  // What the AI review pass found, until a person accepts or dismisses it.
+  for (const f of review.findings) if (f.status === 'open' && f.severity !== 'ok') n++;
   return n;
 }
 

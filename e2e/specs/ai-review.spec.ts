@@ -125,3 +125,50 @@ test.describe('Review AI Takeoff: grouping columns and tools', () => {
     expect((await app.markups()).map((m) => m.fields?.Trade)).toEqual([undefined, undefined]);
   });
 });
+
+test.describe('Review AI Takeoff: the optional review pass', () => {
+  test.beforeEach(async ({ app }) => {
+    await app.open('plan.pdf');
+    await app.calibrate();
+  });
+
+  test('off by default; requested, a fresh-context reviewer’s findings show beside the item and change nothing', async ({ app }) => {
+    const { page } = app;
+    const placed = await app.assistant<{ placed: { id: string }[]; reviewPass?: string }>('place_markups', { source: 'Claude', page: 1, markups: [{ type: 'length', points: [[300, 450], [500, 450]], subject: 'Kerb', confidence: 0.9, reasoning: 'first-pass thinking' }] });
+    expect(placed.reviewPass).toBeUndefined();
+    const id = placed.placed[0]!.id;
+    const review = page.getByRole('complementary', { name: 'Review AI takeoff' });
+    await expect(review).toBeVisible();
+    const pass = review.getByLabel('Review pass after each AI takeoff');
+    await expect(pass).not.toBeChecked();
+    await review.getByRole('button', { name: 'Request Review Pass' }).click();
+    await expect(review).toContainText('waiting for your AI client');
+
+    // The reviewer's packet has the output, not the reasoning.
+    const packet = await app.assistant<{ items: { item: string }[]; requested?: unknown }>('get_review_packet');
+    expect(JSON.stringify(packet)).not.toContain('first-pass thinking');
+    expect(packet.requested).toBeTruthy();
+    await app.assistant('report_review_findings', {
+      source: 'Reviewer',
+      findings: [
+        { item: `draft:${id}`, severity: 'issue', kind: 'quantity', message: 'The kerb stops short of the corner.', expected: { quantity: 25, unit: 'ft' } },
+        { kind: 'missed', message: 'A second kerb run on the north side.', sources: [{ page: 1, bbox: { x: 300, y: 300, w: 200, h: 10 } }] },
+      ],
+    });
+    await expect(review).not.toContainText('waiting for your AI client');
+    const missed = review.getByRole('region', { name: 'Possibly missed' });
+    await expect(missed).toContainText('A second kerb run on the north side.');
+    const row = review.locator('.takeoff-proposal', { hasText: 'Kerb' }).filter({ has: page.locator('.tp-measure') }).first();
+    await expect(row.locator(':scope > .tp-head .ar-kind.review')).toHaveText('AI review: 1');
+    await row.locator('.tp-measure').click();
+    const finding = row.getByRole('list', { name: 'AI review findings' });
+    await expect(finding).toContainText('The kerb stops short of the corner.');
+    await finding.getByRole('button', { name: 'Accept Finding' }).click();
+    await expect(row.locator(':scope > .tp-head .ar-kind.review')).toHaveCount(0);
+    await missed.getByRole('button', { name: 'Dismiss' }).click();
+    await expect(missed).toHaveCount(0);
+    // Nothing was applied: the draft is still the AI's, waiting.
+    const raw = ((await app.raw()) as unknown as { id: string; ai?: { status: string } }[]).find((m) => m.id === id)!;
+    expect(raw.ai!.status).toBe('pending');
+  });
+});
