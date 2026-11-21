@@ -58,6 +58,9 @@ async function open(persist: boolean): Promise<{ store: SearchStore; persistent:
 }
 
 self.onmessage = async (e: MessageEvent<IndexRequest>) => {
+  // Only the page that started this worker can post to it, and its messages carry no origin: one
+  // from any other origin is ignored.
+  if (e.origin && e.origin !== self.location.origin) return;
   const { id, op, args, persist } = e.data;
   try {
     ready ??= open(persist);
