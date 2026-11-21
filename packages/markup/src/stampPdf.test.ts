@@ -168,6 +168,73 @@ test('a stamp with form fields places as a picture stamp asking for them, with e
   assert.equal(textStamp(p, 't1').lines[0], 'Checked by {Checked by}');
 });
 
+/** A one-page stamp PDF whose annotations are the given dicts (built by `make`). */
+async function widgetsPdf(make: (doc: PDFDocument) => unknown[], page: [number, number] = [300, 100]) {
+  const doc = await PDFDocument.create();
+  const p = doc.addPage(page);
+  p.node.set(PDFName.of('ArtBox'), doc.context.obj([0, 0, page[0], page[1]]));
+  p.node.set(PDFName.of('Annots'), doc.context.obj(make(doc).map((a) => doc.context.register(doc.context.obj(a as Record<string, never>)))));
+  return doc.save();
+}
+const tx = (rect: number[], extra: Record<string, unknown>) => ({ Type: 'Annot', Subtype: 'Widget', FT: 'Tx', Rect: rect, DA: PDFString.of('/Helv 10 Tf 0 g'), ...extra });
+
+test('a field named like a dynamic field keeps its own value under another name', async () => {
+  const p = await parseStampPdf(await widgetsPdf(() => [tx([10, 60, 290, 90], { T: PDFString.of('Date'), V: PDFString.of('15/03/2025') })]));
+  assert.deepEqual(p.fields, [{ id: 'Date', label: 'Date 2', kind: 'text', value: '15/03/2025' }]);
+  assert.deepEqual(p.texts.map((t) => t.text), ['{Date 2}']);
+  const def = textStamp(p, 'd');
+  const c = resolveStamp(def, { user: 'A', file: 'f.pdf', page: '1', now: new Date(2026, 9, 5) });
+  assert.deepEqual(c.lines, ['15/03/2025'], 'its value, not today, and no extra "Date:" line');
+});
+
+test('a widget that cannot be read stays part of the picture instead of failing the import', async () => {
+  const p = await parseStampPdf(await widgetsPdf(() => [tx([10, 60, 290, 90], { T: PDFString.of('Odd'), Parent: 5 }), tx([10, 10, 290, 40], { T: PDFString.of('Fine') })]));
+  // The malformed /Parent is ignored, so this field still reads.
+  assert.deepEqual(p.fields.map((f) => f.label), ['Odd', 'Fine']);
+  const broken = await parseStampPdf(await widgetsPdf((doc) => [tx([10, 60, 290, 90], { T: PDFString.of('Bad'), AA: { C: { S: 'JavaScript', JS: doc.context.register(doc.context.obj({ Filter: 'FlateDecode' })) } } })]));
+  assert.ok(broken);
+});
+
+test('a hidden field is not a field, and is left out of the picture', async () => {
+  const p = await parseStampPdf(await widgetsPdf(() => [tx([10, 60, 290, 90], { T: PDFString.of('Secret'), F: 2 }), tx([10, 30, 290, 55], { T: PDFString.of('Off screen'), F: 32 }), tx([10, 5, 290, 25], { T: PDFString.of('Shown'), F: 4 })]));
+  assert.deepEqual(p.fields.map((f) => f.label), ['Shown']);
+  assert.deepEqual(p.hidden, [0, 1]);
+});
+
+test('a list’s [export, shown] pairs give the shown text, and a list you can type in stays editable', async () => {
+  const p = await parseStampPdf(
+    await widgetsPdf(() => [
+      { ...tx([10, 60, 290, 90], { T: PDFString.of('St'), V: PDFString.of('c'), DV: PDFString.of('o') }), FT: 'Ch', Ff: 1 << 17, Opt: [[PDFString.of('o'), PDFString.of('Open')], [PDFString.of('c'), PDFString.of('Closed')]] },
+      { ...tx([10, 10, 290, 40], { T: PDFString.of('Who') }), FT: 'Ch', Ff: (1 << 17) | (1 << 18), Opt: [PDFString.of('Ann'), PDFString.of('Bo')] },
+    ]),
+  );
+  assert.deepEqual(p.fields, [
+    { id: 'St', label: 'St', kind: 'text', value: 'Closed', choices: ['Open', 'Closed'] },
+    { id: 'Who', label: 'Who', kind: 'text', value: '', choices: ['Ann', 'Bo'], editable: true },
+  ]);
+});
+
+test('script strings with \\u and \\x escapes are read', async () => {
+  const p = await parseStampPdf(await widgetsPdf(() => [tx([10, 60, 290, 90], { T: PDFString.of('Q'), AA: { C: { S: 'JavaScript', JS: PDFString.of('event.value = app.response("Gepr\\\\u00fcft von\\\\x3a");') } } })]));
+  assert.equal(p.fields[0]!.label, 'Geprüft von');
+});
+
+test('long labels and appearance strings are read quickly', async () => {
+  const spaces = ' '.repeat(200_000);
+  const started = Date.now();
+  const p = await parseStampPdf(await widgetsPdf(() => [tx([10, 60, 290, 90], { T: PDFString.of('x'), TU: PDFString.of(`a${spaces}b${spaces}:`), DA: PDFString.of(`/${'F'.repeat(100_000)}${spaces}`) })]));
+  assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+  assert.equal(p.fields.length, 1);
+  assert.ok(p.fields[0]!.label.length <= 256);
+});
+
+test('a tall headline beside a small date stays two lines; only a field joins the label beside it', async () => {
+  const head: Box = { ...HEAD, rect: [10, 40, 200, 90], text: 'APPROVED' };
+  const date: Box = { ...DATE, rect: [210, 55, 330, 70], text: '&amp;[Date]' };
+  const p = await parseStampPdf(await stampPdf([head, date], { artBox: [0, 0, 340, 100] }));
+  assert.deepEqual(textStamp(p, 'x').lines, ['APPROVED', '{Date}']);
+});
+
 // Run with REVU_SETTINGS_DIR pointing at a Revu settings folder to read every stamp it has.
 const dir = process.env.REVU_SETTINGS_DIR;
 test("Revu's own stamps all read", { skip: dir ? false : 'REVU_SETTINGS_DIR is not set' }, async () => {

@@ -38,10 +38,10 @@ A stamp can ask for values when you place it, such as **Checked by** or **Status
 
 | Button | Adds |
 |---|---|
-| **Add Text Field** | A blank to type in. Give it a name (shown as the question). **Starts as** is its default value, and can hold `{User}`, `{Date}` and the other fields above. To pick from a list instead of typing, put one choice per line in **Pick from**. |
+| **Add Text Field** | A blank to type in. Give it a name (shown as the question). **Starts as** is its default value, and can hold `{User}`, `{Date}` and the other fields above. To pick from a list instead of typing, put one choice per line in **Pick from**; tick **Other text can be typed too** to suggest the choices but allow any text. A field cannot be named like one of the fields above (Date, User and so on). |
 | **Add Tick Boxes** | A list of boxes, one of which can be ticked. Ticking a box can recolour the stamp and fill in other fields. |
 
-A field is listed under the wording as *Name: value*. To put it somewhere in the wording instead, click **In wording**: this adds `{Name}` (for example `Status: {Status}`). Renaming a field renames it in the wording too. Use **↑** and **↓** to change the order fields are listed and asked for, and **✕** to remove one.
+A field is listed under the wording as *Name: value*. To put it somewhere in the wording instead, click **In wording**: this adds `{Name}` (for example `Status: {Status}`). Renaming a field renames it in the wording too, and removing one takes it out of the wording. Use **↑** and **↓** to change the order fields are listed and asked for, and **✕** to remove one.
 
 When you place the stamp, one small window asks for the values, with a preview. To change them later, double-click the stamp, or use **Stamp Fields** in the [Properties](#properties) panel. `{User}`, `{Date}` and the like keep what they were when the stamp was placed.
 
@@ -70,9 +70,9 @@ Stamp PDFs with form fields (dynamic stamps from other PDF tools) come in with t
 
 - A text field whose script fills in the user's name, the date or time, or the file name becomes `{User}`, `{Date}`, `{Time}` or `{File}`.
 - A text field that asks a question when the stamp is placed becomes a field with that question as its name (and its default value, if it has one).
-- Any other text field, and a list (drop-down), becomes a field to fill in: a list keeps its choices.
+- Any other text field, and a list (drop-down), becomes a field to fill in: a list keeps its choices (a list you can type in stays one). A field whose name is one of the fields above, such as Date, is renamed (Date 2) so it keeps its own value.
 
-Not brought across: scripts that do anything else (they are never run; the field is a blank to fill in instead), tick boxes and buttons (they stay part of the picture), and the pages after the first of a stamp file that holds several stamps.
+Not brought across: scripts that do anything else (they are never run; the field is a blank to fill in instead), tick boxes and buttons (they stay part of the picture), hidden fields (left out), and the pages after the first of a stamp file that holds several stamps.
 
 ## Change or delete a stamp
 

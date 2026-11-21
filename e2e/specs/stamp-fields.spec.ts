@@ -127,9 +127,15 @@ test.describe('stamps with fields', () => {
     await dialog.getByRole('button', { name: 'Add Text Field' }).click();
     // The new field is shown by a text of its own.
     await expect(dialog.getByLabel('Text 1', { exact: true })).toHaveValue('{Field 1}');
+    // A dynamic field's name is refused; clearing the name and typing another keeps the text's field.
+    await dialog.getByLabel('Field name').fill('Date');
+    await expect(dialog.getByRole('alert')).toContainText('{Date} is filled in by itself');
+    await expect(dialog.getByRole('button', { name: 'Save Stamp' })).toBeDisabled();
+    await expect(dialog.getByLabel('Text 1', { exact: true })).toHaveValue('{Field 1}');
+    await dialog.getByLabel('Field name').fill('');
     await dialog.getByLabel('Field name').fill('Reviewer');
-    await dialog.getByLabel('Field name').blur();
     await expect(dialog.getByLabel('Text 1', { exact: true })).toHaveValue('{Reviewer}');
+    await expect(dialog.getByRole('alert')).toHaveCount(0);
     // Moved down and right with the keyboard: 1% of the box a press, 5% with Shift.
     const handle = dialog.getByRole('button', { name: 'Move text 1', exact: true });
     await handle.focus();

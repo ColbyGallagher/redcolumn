@@ -5,7 +5,7 @@ import { exportWithAnnotations } from './export.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
 import { readPdfExtras } from './pdfExtras.ts';
-import { DEFAULT_STAMPS, fillStampFieldsNow, formStamp, refillStamp, renameFieldToken, resolveStamp, setStampField, stampAspect, stampFieldValues, stampFormColor, stampLayout } from './stamp.ts';
+import { DEFAULT_STAMPS, fillStampFieldsNow, formStamp, isDynamicFieldName, refillStamp, removeFieldToken, renameFieldToken, resolveStamp, setStampField, stampAspect, stampFieldValues, stampFormColor, stampLayout } from './stamp.ts';
 
 const values = { user: 'Jane Doe', file: 'A-101.pdf', page: 'A-101', now: new Date(2026, 0, 2, 9, 30) };
 
@@ -199,6 +199,24 @@ test('a picture stamp with fields saves its filled-in text in its appearance and
   assert.deepEqual(back!.stamp!.form, stamp.form);
   const again = refillStamp(back!.stamp!, { ...back!.stamp!.form!.values, status: 'Rejected' })!;
   assert.equal(again.stamp.art!.texts[1]!.text, 'Rejected');
+});
+
+test('a field named like a dynamic field is its own value, not the dynamic one, and is not listed again', () => {
+  const field = { id: 'd', label: 'Date', kind: 'text' as const, value: '15/03/2025' };
+  const text = resolveStamp({ lines: ['ISSUED', 'On {Date}'], frame: 'box', fields: [field] }, values);
+  assert.deepEqual(text.lines, ['ISSUED', 'On 15/03/2025']);
+  const art = resolveStamp({ ...checkedArt, fields: [field], art: { ...checkedArt.art, texts: [{ ...checkedArt.art.texts[2]!, text: '{date}' }] } }, values);
+  assert.deepEqual(art.art!.texts.map((t) => t.text), ['15/03/2025']);
+  // A value is not read for names again: a typed "{Status}" stays as typed.
+  const two = resolveStamp({ lines: ['{A} {B}'], frame: 'box', fields: [{ id: 'a', label: 'A', kind: 'text', value: '{B}' }, { id: 'b', label: 'B', kind: 'text', value: 'x' }] }, values);
+  assert.deepEqual(two.lines, ['{B} x']);
+  assert.ok(isDynamicFieldName(' date ') && isDynamicFieldName('YYYY') && !isDynamicFieldName('Date 2'));
+});
+
+test('removing a field takes its {Label} out of the wording, closing up the spaces', () => {
+  assert.equal(removeFieldToken('Checked by {Checked by} today', 'checked by'), 'Checked by today');
+  assert.equal(removeFieldToken('{Status}', 'Status'), '');
+  assert.equal(removeFieldToken('{Other}  spaced', 'Status'), '{Other}  spaced', 'left alone when not used');
 });
 
 test('a text field with choices is filled in like any other, and its choices are kept', () => {

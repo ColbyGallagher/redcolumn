@@ -3032,6 +3032,20 @@
   position: relative;
 }
 
+.stamp-field-warning {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.stamp-field-head input[aria-invalid='true'] {
+  border-color: #b91c1c;
+}
+
+.stamp-field-check input {
+  flex: none;
+}
+
 .stamp-art-handle {
   position: absolute;
   box-sizing: border-box;

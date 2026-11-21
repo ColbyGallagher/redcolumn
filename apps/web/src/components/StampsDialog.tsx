@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { DEFAULT_STYLES, drawMarkup, fillStampFieldsNow, onImageLoad, renameFieldToken, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampFieldValues, stampFormColor, type Markup, type StampArtText, type StampDef, type StampField, type StampOption } from '@nb/markup';
+import { DEFAULT_STYLES, drawMarkup, fillStampFieldsNow, isDynamicFieldName, onImageLoad, removeFieldToken, renameFieldToken, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampFieldValues, stampFormColor, type Markup, type StampArtText, type StampDef, type StampField, type StampOption } from '@nb/markup';
 import { importStampFiles, STAMP_FILE_ACCEPT } from '../stamps/imageStamps';
 import { stampLibrary, updateWorkspace, useWorkspace } from '../workspace/profiles';
 
@@ -15,6 +15,9 @@ interface Props {
 function blankStamp(): StampDef {
   return { id: crypto.randomUUID(), name: 'New Stamp', lines: ['CHECKED', 'By {User} on {Date}'], color: '#1d4ed8', frame: 'rounded' };
 }
+
+/** How far in from the preview's edge the stamp is drawn, so its frame is not cut off. */
+const PREVIEW_INSET = 2;
 
 /** A stamp drawn as it would be placed now (fields filled in with sample values, or `values`). */
 export function StampPreview({ stamp, author, width = 180, values }: { stamp: Pick<StampDef, 'lines' | 'frame' | 'color' | 'art' | 'fields'>; author: string; width?: number; values?: Record<string, string> }) {
@@ -39,8 +42,8 @@ export function StampPreview({ stamp, author, width = 180, values }: { stamp: Pi
       type: 'stamp',
       pageIndex: 0,
       points: [
-        [2, 2],
-        [width - 2, height - 2],
+        [PREVIEW_INSET, PREVIEW_INSET],
+        [width - PREVIEW_INSET, height - PREVIEW_INSET],
       ],
       style: { ...DEFAULT_STYLES.stamp, stroke: color, width: 2 },
       stamp: content,
@@ -63,6 +66,9 @@ function ArtTextPositioner({ stamp, author, width, values, onMove }: { stamp: St
   const height = Math.max(24, Math.round(width / art.aspect));
   const drag = useRef<{ i: number; x: number; y: number; cx: number; cy: number } | null>(null);
   const clamp = (v: number, size: number) => Math.max(0, Math.min(1 - Math.min(1, size), v));
+  // The preview draws the stamp inset by PREVIEW_INSET on each side: the handles follow it.
+  const w = width - PREVIEW_INSET * 2;
+  const h = height - PREVIEW_INSET * 2;
   return (
     <div className="stamp-art-positioner" style={{ width, height }}>
       <StampPreview stamp={stamp} author={author} width={width} values={values} />
@@ -74,7 +80,7 @@ function ArtTextPositioner({ stamp, author, width, values, onMove }: { stamp: St
           className="stamp-art-handle"
           aria-label={`Move text ${i + 1}`}
           title={`${t.text} (drag to move)`}
-          style={{ left: t.x * width, top: t.y * height, width: t.w * width, height: t.h * height }}
+          style={{ left: PREVIEW_INSET + t.x * w, top: PREVIEW_INSET + t.y * h, width: t.w * w, height: t.h * h }}
           onPointerDown={(e) => {
             e.preventDefault();
             e.currentTarget.setPointerCapture?.(e.pointerId);
@@ -83,7 +89,7 @@ function ArtTextPositioner({ stamp, author, width, values, onMove }: { stamp: St
           onPointerMove={(e) => {
             const d = drag.current;
             if (!d || d.i !== i) return;
-            onMove(i, clamp(d.x + (e.clientX - d.cx) / width, t.w), clamp(d.y + (e.clientY - d.cy) / height, t.h));
+            onMove(i, clamp(d.x + (e.clientX - d.cx) / w, t.w), clamp(d.y + (e.clientY - d.cy) / h, t.h));
           }}
           onPointerUp={() => (drag.current = null)}
           onPointerCancel={() => (drag.current = null)}
@@ -110,8 +116,10 @@ export function StampFieldsForm({ fields, values, disabled, onChange }: { fields
     <div className="stamp-fields-form">
       {fields
         .filter((f) => f.label.trim())
-        .map((f) =>
-          f.kind === 'choice' ? (
+        .map((f) => {
+          const choices = f.kind === 'text' ? choicesOf(f) : [];
+          const value = values[f.id] ?? '';
+          return f.kind === 'choice' ? (
             <fieldset key={f.id} className="stamp-choice">
               <legend>{f.label}</legend>
               {(f.options ?? [])
@@ -127,22 +135,32 @@ export function StampFieldsForm({ fields, values, disabled, onChange }: { fields
           ) : (
             <label key={f.id} className="stamp-text-field">
               <span>{f.label}</span>
-              {choicesOf(f).length ? (
-                <select value={values[f.id] ?? ''} disabled={disabled} onChange={(e) => set(f.id, e.target.value)}>
+              {choices.length && !f.editable ? (
+                <select value={value} disabled={disabled} onChange={(e) => set(f.id, e.target.value)}>
                   <option value="" />
                   {/* A value not in the list (typed before the list was made) stays pickable. */}
-                  {[...choicesOf(f), ...(values[f.id] && !choicesOf(f).includes(values[f.id]!) ? [values[f.id]!] : [])].map((c) => (
+                  {[...choices, ...(value && !choices.includes(value) ? [value] : [])].map((c) => (
                     <option key={c} value={c}>
                       {c}
                     </option>
                   ))}
                 </select>
               ) : (
-                <input value={values[f.id] ?? ''} disabled={disabled} onChange={(e) => set(f.id, e.target.value)} />
+                <>
+                  {/* A list you can also type in: its choices are suggested. */}
+                  <input value={value} disabled={disabled} list={choices.length ? `stamp-choices-${f.id}` : undefined} onChange={(e) => set(f.id, e.target.value)} />
+                  {choices.length > 0 && (
+                    <datalist id={`stamp-choices-${f.id}`}>
+                      {choices.map((c) => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
+                  )}
+                </>
               )}
             </label>
-          ),
-        )}
+          );
+        })}
     </div>
   );
 }
@@ -241,6 +259,7 @@ function StampFieldsBuilder({
   onInsert,
   onRename,
   onAdded,
+  onRemoved,
 }: {
   fields: StampField[];
   onChange: (fields: StampField[]) => void;
@@ -249,9 +268,22 @@ function StampFieldsBuilder({
   onRename: (from: string, to: string) => void;
   /** A field was added (a picture stamp gives it a place). */
   onAdded?: (field: StampField) => void;
+  /** A field was removed: where its {Label} is used, it goes too. */
+  onRemoved: (field: StampField) => void;
 }) {
-  /** The name of the field being renamed, as it was before. */
-  const renaming = useRef<string | null>(null);
+  /**
+   * Each field's last usable name, by id: the one its {Label} in the wording has. A name cleared,
+   * or one a dynamic field has, is not used, so the {Label} waits for the next usable name.
+   */
+  const named = useRef(new Map<string, string>());
+  const usable = (label: string) => !!label.trim() && !isDynamicFieldName(label);
+  for (const f of fields) if (!named.current.has(f.id) && usable(f.label)) named.current.set(f.id, f.label);
+  const rename = (f: StampField, label: string) => {
+    const prev = named.current.get(f.id) ?? '';
+    if (!usable(label)) return;
+    named.current.set(f.id, label);
+    if (prev && prev.trim().toLowerCase() !== label.trim().toLowerCase()) onRename(prev, label);
+  };
   const update = (i: number, patch: Partial<StampField>) => onChange(fields.map((f, j) => (j === i ? { ...f, ...patch } : f)));
   const setOption = (i: number, k: number, patch: Partial<StampOption>) => update(i, { options: (fields[i]!.options ?? []).map((o, j) => (j === k ? { ...o, ...patch } : o)) });
   const move = (i: number, by: number) => {
@@ -280,12 +312,10 @@ function StampFieldsBuilder({
                 aria-label="Field name"
                 value={f.label}
                 placeholder="Field name"
-                onFocus={() => (renaming.current = f.label)}
-                onChange={(e) => update(i, { label: e.target.value })}
-                onBlur={(e) => {
-                  const from = renaming.current;
-                  renaming.current = null;
-                  if (from !== null && from.trim() && e.target.value.trim() && from.trim() !== e.target.value.trim()) onRename(from, e.target.value);
+                aria-invalid={isDynamicFieldName(f.label) || undefined}
+                onChange={(e) => {
+                  update(i, { label: e.target.value });
+                  rename(f, e.target.value);
                 }}
               />
               <button type="button" className="btn small" title={`Use this field in the wording as {${f.label}}`} onClick={() => onInsert(`{${f.label.trim()}}`)}>
@@ -297,10 +327,23 @@ function StampFieldsBuilder({
               <button type="button" className="btn small" aria-label="Move down" disabled={i === fields.length - 1} onClick={() => move(i, 1)}>
                 ↓
               </button>
-              <button type="button" className="btn small" aria-label={`Remove ${f.label}`} onClick={() => onChange(fields.filter((_, j) => j !== i))}>
+              <button
+                type="button"
+                className="btn small"
+                aria-label={`Remove ${f.label}`}
+                onClick={() => {
+                  onChange(fields.filter((_, j) => j !== i));
+                  onRemoved({ ...f, label: named.current.get(f.id) ?? f.label });
+                }}
+              >
                 ✕
               </button>
             </div>
+            {isDynamicFieldName(f.label) && (
+              <p className="stamp-field-warning" role="alert">
+                {`{${f.label.trim()}}`} is filled in by itself when the stamp is placed. Give this field another name.
+              </p>
+            )}
             {f.kind === 'text' ? (
               <>
                 <label className="stamp-field-row">
@@ -316,10 +359,16 @@ function StampFieldsBuilder({
                     placeholder="Any text (or one choice per line)"
                     onChange={(e) => {
                       const choices = e.target.value.split('\n');
-                      update(i, { choices: choices.some((c) => c.trim()) ? choices : undefined });
+                      update(i, { choices: choices.some((c) => c.trim()) ? choices : undefined, ...(choices.some((c) => c.trim()) ? {} : { editable: undefined }) });
                     }}
                   />
                 </label>
+                {!!f.choices?.some((c) => c.trim()) && (
+                  <label className="stamp-field-row stamp-field-check">
+                    <input type="checkbox" checked={!!f.editable} onChange={(e) => update(i, { editable: e.target.checked || undefined })} />
+                    <span>Other text can be typed too</span>
+                  </label>
+                )}
               </>
             ) : (
               <table className="stamp-options">
@@ -426,7 +475,7 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
   const [artFocus, setArtFocus] = useState<number | null>(null);
 
   const save = (raw: StampDef) => {
-    const def = raw.fields ? { ...raw, fields: raw.fields.map((f) => (f.choices ? { ...f, choices: choicesOf(f).length ? choicesOf(f) : undefined } : f)) } : raw;
+    const def = raw.fields ? { ...raw, fields: raw.fields.map((f) => (f.choices || f.editable ? { ...f, choices: choicesOf(f).length ? choicesOf(f) : undefined, editable: choicesOf(f).length && f.editable ? true : undefined } : f)) } : raw;
     updateWorkspace((w) => ({ ...w, stamps: w.stamps.some((s) => s.id === def.id) ? w.stamps.map((s) => (s.id === def.id ? def : s)) : [...w.stamps, def] }));
     setPickedId(def.id);
     setDraft(null);
@@ -443,6 +492,25 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
   const addArtText = (text: string) => {
     setArtFocus(draft?.art?.texts.length ?? 0);
     setArtTexts((texts) => [...texts, { text, x: 0.1, y: Math.min(0.8, 0.1 + texts.length * 0.2), w: 0.8, h: 0.18, size: 0.14, color: '#000000', bold: false, italic: false, align: 'center' }]);
+  };
+  const removeArtText = (i: number) => {
+    setArtTexts((texts) => texts.filter((_, j) => j !== i));
+    // The text typed in last keeps its place in the list.
+    setArtFocus((at) => (at === null || at === i ? null : at > i ? at - 1 : at));
+  };
+  /** A field removed: a text that only showed it goes, and its {Label} goes from the rest of the wording. */
+  const removeField = (f: StampField) => {
+    if (!f.label.trim()) return;
+    if (draft?.art) setArtFocus(null);
+    setDraft((d) => {
+      if (!d) return d;
+      const strip = (t: string) => removeFieldToken(t, f.label);
+      // Lines and texts that showed only the field go; ones that were blank before stay.
+      const lines = d.lines.map(strip).filter((l, k) => l.trim() || !d.lines[k]!.trim());
+      if (!d.art) return { ...d, lines };
+      const texts = d.art.texts.map((t) => ({ ...t, text: strip(t.text) })).filter((t, k) => t.text.trim() || !d.art!.texts[k]!.text.trim());
+      return { ...d, art: { ...d.art, texts }, lines: texts.length ? texts.map((t) => t.text) : [d.name] };
+    });
   };
   const setFields = (fields: StampField[]) => setDraft((d) => (d ? { ...d, fields: fields.length ? fields : undefined } : d));
   /** A field renamed: wherever its {Label} is used, the new name. */
@@ -541,7 +609,7 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
           <form
             onSubmit={(e) => {
               e.preventDefault();
-              if (draft.name.trim() && draft.lines.some((l) => l.trim())) save({ ...draft, name: draft.name.trim() });
+              if (draft.name.trim() && draft.lines.some((l) => l.trim()) && !draft.fields?.some((f) => isDynamicFieldName(f.label))) save({ ...draft, name: draft.name.trim() });
             }}
           >
             <div className="form-grid">
@@ -570,7 +638,7 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
                         <label className="stamp-art-bold" title="Bold">
                           <input type="checkbox" aria-label={`Text ${i + 1} bold`} checked={t.bold} onChange={(e) => setArtText(i, { bold: e.target.checked })} />B
                         </label>
-                        <button type="button" className="btn small" aria-label={`Remove text ${i + 1}`} onClick={() => setArtTexts((texts) => texts.filter((_, j) => j !== i))}>
+                        <button type="button" className="btn small" aria-label={`Remove text ${i + 1}`} onClick={() => removeArtText(i)}>
                           ✕
                         </button>
                       </div>
@@ -588,7 +656,7 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
                     ))}
                   </div>
                   <label>Fields</label>
-                  <StampFieldsBuilder fields={draft.fields ?? []} onChange={setFields} onInsert={insertField} onRename={renameField} onAdded={(f) => addArtText(`{${f.label}}`)} />
+                  <StampFieldsBuilder fields={draft.fields ?? []} onChange={setFields} onInsert={insertField} onRename={renameField} onRemoved={removeField} onAdded={(f) => addArtText(`{${f.label}}`)} />
                 </>
               ) : (
                 <>
@@ -611,7 +679,7 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
                     <option value="none">None</option>
                   </select>
                   <label>Fields</label>
-                  <StampFieldsBuilder fields={draft.fields ?? []} onChange={setFields} onInsert={insertField} onRename={renameField} />
+                  <StampFieldsBuilder fields={draft.fields ?? []} onChange={setFields} onInsert={insertField} onRename={renameField} onRemoved={removeField} />
                 </>
               )}
             </div>
@@ -631,7 +699,7 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
               <button type="button" className="btn" onClick={() => setDraft(null)}>
                 Cancel
               </button>
-              <button type="submit" className="btn primary" disabled={!draft.name.trim() || !draft.lines.some((l) => l.trim())}>
+              <button type="submit" className="btn primary" disabled={!draft.name.trim() || !draft.lines.some((l) => l.trim()) || !!draft.fields?.some((f) => isDynamicFieldName(f.label))}>
                 Save Stamp
               </button>
             </div>

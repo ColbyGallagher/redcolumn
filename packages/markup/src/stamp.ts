@@ -68,6 +68,8 @@ export interface StampField {
   value?: string;
   /** text: the values to pick from, offered as a list when it is filled in. */
   choices?: string[];
+  /** text with choices: any other text can be typed as well. */
+  editable?: boolean;
 }
 
 /** How a stamp's line is drawn: plain (centred), a box (ticked or not), or a filled-in field. */
@@ -109,6 +111,12 @@ export const STAMP_FIELDS: { token: string; label: string }[] = [
   { token: '{mm}', label: 'Month number (01–12)' },
   { token: '{yyyy}', label: 'Year (2026)' },
 ];
+
+/** The dynamic fields' names (User, Date, ...): a field of a stamp's own cannot have one. */
+export const DYNAMIC_FIELD_NAMES: readonly string[] = STAMP_FIELDS.map((f) => f.token.slice(1, -1));
+
+/** Whether a field name is a dynamic field's, whatever its case. */
+export const isDynamicFieldName = (label: string) => DYNAMIC_FIELD_NAMES.some((n) => n.toLowerCase() === label.trim().toLowerCase());
 
 const stamp = (id: string, name: string, color: string, second = 'By {User} on {Date}'): StampDef => ({ id: `builtin-${id}`, name, lines: [name.toUpperCase(), ...(second ? [second] : [])], color, frame: 'rounded', builtIn: true });
 
@@ -235,27 +243,31 @@ export function resolveStamp(def: Pick<StampDef, 'lines' | 'frame' | 'art' | 'fi
   const vals = { ...stampFieldValues(fields), ...values };
   const shown = (f: StampField) => (f.kind === 'text' ? fill(vals[f.id] ?? '') : (vals[f.id] ?? ''));
   const placed = { user: v.user, file: v.file, page: v.page, ...(v.path ? { path: v.path } : {}), now: v.now.getTime() };
+  // Each {Name} in one pass: a field of the stamp's own first (so one named Date is its own value,
+  // not today's date), else a dynamic field. A value filled in is not read for names again.
+  const byLabel = new Map<string, StampField>();
+  for (const f of fields) if (!byLabel.has(f.label.trim().toLowerCase())) byLabel.set(f.label.trim().toLowerCase(), f);
+  const used = new Set<string>();
+  const fillLine = (raw: string) =>
+    raw.replace(/\{([^{}]{1,256})\}/g, (token, name: string) => {
+      const f = byLabel.get(name.trim().toLowerCase());
+      if (!f) return fill(token);
+      used.add(f.id);
+      return shown(f);
+    });
   if (def.art) {
     // Each text in its place, with the fields it names filled in.
-    const fillText = (s: string) => fields.reduce((line, f) => line.replace(fieldToken(f), () => shown(f)), fill(s));
-    const texts = def.art.texts.map((t) => ({ ...t, text: fillText(t.text) })).filter((t) => t.text.trim());
+    const texts = def.art.texts.map((t) => ({ ...t, text: fillLine(t.text) })).filter((t) => t.text.trim());
     const content: StampContent = { lines: texts.map((t) => t.text), frame: 'none', art: { ...def.art, texts } };
     if (!fields.length) return content;
     return { ...content, form: { lines: [...def.lines], color: def.color ?? '#000000', fields: structuredClone(fields), values: vals, placed, artTexts: structuredClone(def.art.texts) } };
   }
   if (!fields.length) return { lines: def.lines.map(fill).filter((l) => l.trim()), frame: def.frame };
   // The wording, with {Label} for each field it uses; those fields are not listed again.
-  const used = new Set<string>();
   const lines: string[] = [];
   const kinds: StampLineKind[] = [];
   for (const raw of def.lines) {
-    let line = fill(raw);
-    for (const f of fields) {
-      const re = fieldToken(f);
-      if (!re.test(line)) continue;
-      used.add(f.id);
-      line = line.replace(re, () => shown(f));
-    }
+    const line = fillLine(raw);
     if (!line.trim()) continue;
     lines.push(line);
     kinds.push('line');
@@ -297,6 +309,12 @@ export function formStamp(content: StampContent): Pick<StampDef, 'lines' | 'fram
   if (!form) return null;
   const art = form.artTexts && content.art ? { image: content.art.image, aspect: content.art.aspect, texts: structuredClone(form.artTexts) } : undefined;
   return { lines: [...form.lines], frame: content.frame, color: form.color, fields: structuredClone(form.fields), ...(art ? { art } : {}) };
+}
+
+/** Text with a field's `{Label}` taken out (the field was removed), spaces closed up. */
+export function removeFieldToken(text: string, label: string): string {
+  if (!label.trim() || !fieldToken({ label }).test(text)) return text;
+  return text.replace(fieldToken({ label }), '').replace(/ {2,}/g, ' ').trim();
 }
 
 /** A field's `{Label}` in wording, renamed: `from` becomes `to` wherever it is used. */
