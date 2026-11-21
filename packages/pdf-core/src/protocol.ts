@@ -50,6 +50,12 @@ export interface PdfAnnotation {
   objectNumber?: number;
   /** /DA default appearance string (FreeText font and colour). */
   da: string;
+  /** FreeText only: /DS default style string (alignment, margin, line height), when present. */
+  ds?: string;
+  /** FreeText only: /RC rich text (XHTML), when present. */
+  rc?: string;
+  /** FreeText only: /Q quadding (0 left, 1 centre, 2 right), when present. */
+  quadding?: number;
   /** Lossless markup data this app writes into annotations it exports (JSON), if present. */
   appData: string;
   flags: number;

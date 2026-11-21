@@ -991,6 +991,18 @@ function annotColor(m: WrappedPdfiumModule, annot: number, type: 0 | 1, ptr: num
   return hex();
 }
 
+/**
+ * A FreeText annotation's text layout keys: /DS and /RC (where Bluebeam and Acrobat keep alignment,
+ * margin and line height) and /Q. Read here too so text keeps its layout when the raw dictionaries
+ * could not be read (a file too large for them, or one that would not parse).
+ */
+function freeTextLayout(m: WrappedPdfiumModule, annot: number, ptr: number): Pick<PdfAnnotation, 'ds' | 'rc' | 'quadding'> {
+  const ds = annotString(m, annot, 'DS');
+  const rc = annotString(m, annot, 'RC');
+  const q = m.FPDFAnnot_GetNumberValue(annot, 'Q', ptr) ? m.pdfium.HEAPF32[ptr >> 2]! : null;
+  return { ...(ds ? { ds } : {}), ...(rc ? { rc } : {}), ...(q === 0 || q === 1 || q === 2 ? { quadding: q } : {}) };
+}
+
 /** Constant opacity (/CA), 0..1. */
 function annotOpacity(m: WrappedPdfiumModule, annot: number, ptr: number): number {
   if (m.EPDFAnnot_GetOpacity(annot, ptr)) return m.pdfium.HEAPU32[ptr >> 2]! / 255;
@@ -1816,6 +1828,7 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
           multiply: m.EPDFAnnot_GetBlendMode(annot) === BLEND_MULTIPLY,
           objectNumber: m.EPDFAnnot_GetObjectNumber(annot),
           da: annotString(m, annot, 'DA'),
+          ...(subtype === 'FreeText' ? freeTextLayout(m, annot, tmp) : {}),
           appData: annotString(m, annot, APP_DATA_KEY),
           flags: m.FPDFAnnot_GetFlags(annot),
           vertices: subtype === 'Polygon' || subtype === 'PolyLine' ? readPoints(m, t, (buf, len) => m.FPDFAnnot_GetVertices(annot, buf, len)) : [],

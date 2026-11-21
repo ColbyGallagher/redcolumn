@@ -86,6 +86,8 @@ export interface RedcolumnDesktop {
   /** Open and Save As use native dialogs so the main process can remember the path. */
   nativeFiles: boolean;
   printMode: PrintMode;
+  /** The organisation's policy, read by the main process at startup (read it through desktop/policy.ts). Absent in desktop apps from before managed policy. */
+  policy?: unknown;
   tokenForFile(file: File): Promise<string | null>;
   /** `kind` narrows the dialog to pictures or opens it to any file; the default is PDFs and pictures. */
   pickOpen(kind?: 'document' | 'image' | 'any'): Promise<DesktopToken[] | null>;
@@ -93,6 +95,8 @@ export interface RedcolumnDesktop {
   readToken(token: string): Promise<Uint8Array>;
   writeToken(token: string, data: Uint8Array): Promise<boolean>;
   showInFolder(token: string): Promise<boolean>;
+  /** False when the file has been moved, renamed or deleted since. Absent in desktop apps from before the check. */
+  tokenExists?(token: string): Promise<boolean>;
   /** Drops a remembered path, for a document removed from this device. */
   forgetToken(token: string): Promise<boolean>;
   takeLaunchFiles(): Promise<DesktopToken[]>;
