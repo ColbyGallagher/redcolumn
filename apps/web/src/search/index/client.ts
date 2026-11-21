@@ -1,9 +1,9 @@
 import type { PageText } from '@nb/sheets';
 import { localEncryptionOn } from '../../storage/localCrypto';
-import type { Candidates, DocContent, Note } from './store';
+import type { Candidates, DocContent, Note, Related } from './store';
 import type { IndexOp, IndexRequest, IndexResponse } from './index.worker';
 
-export type { Candidates, Note } from './store';
+export type { Candidates, Note, Related } from './store';
 
 /**
  * The search index from the page: each call is sent to the index's worker. The index is only a
@@ -73,4 +73,11 @@ export const searchIndex = {
   fields: (key: string) => call<Note[]>('fields', key),
   setFields: (key: string, fields: readonly Note[]) => call<void>('setFields', key, fields).then(() => {}),
   clear: () => call<void>('clear').then(() => {}),
+  /**
+   * Whether search by meaning is available here (the desktop app ships its model), and how many
+   * pages of `keys` are embedded so far. Starts embedding any that are not.
+   */
+  semanticStatus: (keys: readonly string[]) => call<{ available: boolean; done: number; total: number }>('semanticStatus', keys),
+  /** Pages of `keys` about what `query` asks, best first; null without the model. */
+  related: (keys: readonly string[], query: string, limit: number) => call<Related[]>('related', keys, query, limit),
 };
