@@ -20,6 +20,8 @@ export class PdfEngine {
   private stallTimer: ReturnType<typeof setInterval> | null = null;
   private docs = new Set<PdfDocument>();
   private failureListeners = new Set<(err: Error) => void>();
+  /** List AutoCAD's invisible SHX text annotations (PDFSHX) among a page's annotations; off by default. */
+  includeShxText = false;
 
   constructor() {
     this.spawn();
@@ -325,7 +327,7 @@ export class PdfEngine {
 
   /** @internal */
   async pageAnnotations(docId: number, pageIndex: number): Promise<PdfAnnotation[]> {
-    const res = await this.call({ type: 'annotations', docId, pageIndex });
+    const res = await this.call({ type: 'annotations', docId, pageIndex, includeShx: this.includeShxText });
     if (res.type !== 'annotations') throw new Error('Unexpected response');
     return res.annotations;
   }

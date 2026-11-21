@@ -1825,20 +1825,233 @@ select[size] {
   user-select: none;
 }
 
-/* Brand ribbon: the redcolumn mark at the head of the menu bar. */
+/* The redcolumn mark at the head of the menu bar: it opens the one menu holding File, Edit, View… */
+.brand-menu {
+  flex: none;
+  align-items: stretch;
+}
+
 .brand-mark {
+  position: relative;
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 7px;
-  padding: 0 14px 0 10px;
+  min-height: 30px;
+  padding: 0 10px 0 10px;
   margin-right: 4px;
+  border: 0;
   border-right: 1px solid var(--tint);
+  background: none;
   color: var(--text);
+  font: inherit;
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  pointer-events: none;
+  cursor: pointer;
+}
+
+.brand-mark:hover,
+.brand-menu.open .brand-mark {
+  background: var(--surface-active);
+}
+
+.brand-mark:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.brand-caret {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+/* A newer version of the desktop app is ready: the menu's Update item says what to do. */
+.brand-badge {
+  position: absolute;
+  top: 5px;
+  left: 24px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--ribbon);
+}
+
+.brand-drop {
+  min-width: 300px;
+}
+
+/* The search box sits at the right of the row: small until it is focused, then wide enough to read results. */
+.menubar .menu-search {
+  flex: 0 1 210px;
+  min-width: 0;
+  margin: 0 6px 0 4px;
+  transition: flex-basis 0.15s ease;
+}
+
+.menubar .menu-search:focus-within {
+  flex-basis: 340px;
+}
+
+/* In the ribbon's tab strip the search sits just left of the Customize Ribbon and Toolbar Display buttons. */
+.rb-search-slot {
+  display: flex;
+  flex: 0 1 auto;
+  align-self: center;
+  min-width: 28px;
+  margin-bottom: 3px;
+}
+
+/* Autosave: the disk icon with a switch beside it, so on and off read at a glance. */
+.switch-track {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 14px;
+  border-radius: 7px;
+  background: var(--tint-strong);
+  transition: background 0.15s ease;
+}
+
+.switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.autosave-btn.on .switch-track {
+  background: var(--accent);
+}
+
+.autosave-btn.on .switch-thumb {
+  background: #fff;
+  transform: translateX(12px);
+}
+
+/* Feedback menu and Autosave: small icon buttons at the end of the row. */
+.menubar-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  align-self: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.menubar-icon-btn:hover,
+.feedback-menu.open .menubar-icon-btn {
+  background: var(--surface-active);
+  color: var(--text);
+}
+
+.menubar-icon-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.autosave-btn.on {
+  color: var(--text);
+}
+
+.feedback-menu .feedback-drop {
+  right: 0;
+  left: auto;
+  min-width: 200px;
+}
+
+.feedback-menu {
+  margin-right: 2px;
+}
+
+/* Tight rows: Feedback drops its word, and the search shrinks to its magnifier until it is focused. */
+@media (max-width: 1180px) {
+  .feedback-label {
+    display: none;
+  }
+  .menubar .menu-search {
+    flex: 0 0 28px;
+    margin: 0 2px;
+  }
+  .menubar .menu-search:focus-within {
+    flex-basis: 28px;
+  }
+  .menubar .menu-search {
+    height: 24px;
+  }
+  .menubar .menu-search input {
+    width: 28px;
+    padding: 0;
+    cursor: pointer;
+  }
+  .menubar .menu-search input::placeholder {
+    color: transparent;
+  }
+  .menubar .menu-search input:focus {
+    position: absolute;
+    top: 0;
+    right: 0;
+    z-index: 60;
+    width: 260px;
+    padding: 0 8px 0 26px;
+    cursor: text;
+  }
+  .menubar .menu-search input:focus::placeholder {
+    color: var(--muted);
+  }
+}
+
+/* The rest of the row: the ribbon's tabs (see Ribbon.tsx), or empty space that drags the desktop window. */
+.menubar-slot {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-end;
+}
+
+.menubar .rb-tabs {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 6px 0 2px;
+  border-bottom: 0;
+}
+
+.menubar .rb-tab {
+  flex: none;
+}
+
+/* The selected tab covers the menu bar's bottom edge, so it runs into the commands below. */
+.menubar .rb-tab[aria-selected='true'] {
+  z-index: 1;
+}
+
+/* The simplified toolbar in the menu bar's row: it takes the bar's look rather than framing itself. */
+.menubar .toolbar.tools {
+  flex: 1;
+  align-self: center;
+  min-width: 0;
+  padding: 2px 8px 2px 4px;
+  border-bottom: 0;
+  background: none;
+  box-shadow: none;
+}
+
+/* With the tabs up in the menu bar, a collapsed ribbon has nothing left to frame. */
+.ribbon.tabs-up.collapsed {
+  border-bottom: 0;
 }
 
 .brand-col {
@@ -1864,7 +2077,9 @@ select[size] {
     app-region: drag;
   }
   .menubar .menu,
-  .menubar button {
+  .menubar button,
+  .menubar input,
+  .menubar select {
     -webkit-app-region: no-drag;
     app-region: no-drag;
   }
@@ -1881,68 +2096,10 @@ select[size] {
 }
 .titlebar-overlay .menubar .menu,
 .titlebar-overlay .menubar button,
-.titlebar-overlay .menubar .menu-search {
+.titlebar-overlay .menubar input,
+.titlebar-overlay .menubar select {
   -webkit-app-region: no-drag;
   app-region: no-drag;
-}
-
-/* Search sits in the middle of the space between the menus and the window buttons, so it never
-   covers either; on narrow windows it shrinks rather than sliding under the buttons. */
-.titlebar-overlay .menubar .menu-search {
-  min-width: 96px;
-  margin: 0 auto;
-}
-
-.install-app-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: center;
-  margin: 0 8px 0 auto;
-  padding: 3px 12px;
-  border: 0;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #fff;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.install-app-btn:hover {
-  filter: brightness(1.12);
-}
-
-/* Desktop app: a newer version exists, is downloading, or is ready to restart into. */
-.update-app-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  align-self: center;
-  margin: 0 8px 0 0;
-  padding: 3px 12px;
-  border: 0;
-  border-radius: 4px;
-  background: var(--accent);
-  color: #fff;
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.update-app-btn:hover:not(:disabled) {
-  filter: brightness(1.12);
-}
-
-.update-app-btn.busy {
-  background: var(--tint-strong);
-  color: var(--text);
-  font-weight: 500;
-  cursor: default;
 }
 
 .menu {

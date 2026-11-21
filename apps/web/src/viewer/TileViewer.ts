@@ -1679,6 +1679,14 @@ export class TileViewer {
   }
 
   private onWheel = (e: WheelEvent) => {
+    this.applyWheel(e);
+    // A pan drag (middle button held) stores the pan it began from. A wheel zoom or scroll moves the
+    // view under it, so the next pointer move would snap back to that stale origin and the page would
+    // jump. Rebase the drag on the view as the wheel left it, from where the pointer is now.
+    if (this.drag) this.drag = { x: e.clientX, y: e.clientY, panX: this.panX, panY: this.panY };
+  };
+
+  private applyWheel(e: WheelEvent) {
     e.preventDefault();
     const rect = this.canvas.getBoundingClientRect();
     // By default the wheel scrolls a continuous column of pages and zooms elsewhere, as in CAD
@@ -1713,7 +1721,7 @@ export class TileViewer {
       return;
     }
     this.zoomBy(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015 * sensitivity)), x, y);
-  };
+  }
 
   /** Last wheel event in single page view, and whether the trackpad gesture it belongs to has already scrolled or turned a page. */
   private pageWheel = { t: -Infinity, used: false };
