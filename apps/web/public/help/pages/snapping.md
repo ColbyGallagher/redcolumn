@@ -13,7 +13,7 @@ Use the switches in the status bar:
 ![The snap switches in the status bar](img/status-snap.png)
 
 1. **Snap Grid** — to the dots of the [grid](#view-aids) ([[Ctrl+Shift+F9]]).
-2. **Snap Content** — to lines, ends, midpoints, centres and crossings in the PDF drawing ([[Ctrl+Shift+F8]]).
+2. **Snap Content** — to lines, ends, midpoints, centres and crossings in the PDF drawing, and in box [Snapshots](#tool-snapshot) pasted onto it ([[Ctrl+Shift+F8]]).
 3. **Snap Markup** — to your other markups ([[Ctrl+Shift+F7]]): every corner and the middle of each side of a rectangle, the centre and the top, bottom and sides of a circle or ellipse, the ends and middles of lines, and anywhere along their outlines.
 4. **Polar** — Polar Tracking ([[Ctrl+Shift+F10]]).
 5. **Track** — Object Snap Tracking ([[Ctrl+Shift+F11]]).

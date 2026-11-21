@@ -17,6 +17,7 @@ import { useFloatingPopup } from './useFloatingPopup';
 import { ColorMenu } from './ColorMenu';
 import { commonCapabilities, distinctIdentities, identityOf, identityPatch, sharedIdentity, styleMixed, toolIdentity, type IdentityField } from '../markup/selectionFormat';
 import { saveToolBack } from '../toolchest/saveBack';
+import { useMenubarSlot } from './menubarSlot';
 import type { TakeoffAssemblyProps } from './RibbonAssembly';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
@@ -282,7 +283,8 @@ export function toolTitle(tool: Tool) {
 export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, markups, selectedStyle, cloudBubble, geometry, selection, enabled, visibleTools, author, onPlaceStamp, onNewStamp, onManageStamps, onUndo, onRedo, toolbarMenu }: ToolBarProps) {
   const shown = ({ tool }: { tool: Tool }) => !visibleTools || visibleTools.includes(tool);
   const toolsPick = (tool: Tool) => tools.setTool(tool);
-  return (
+  const slot = useMenubarSlot();
+  const row = (
     <div className="toolbar tools">
       {[MARKUP_GROUPS, MEASURE_GROUPS].map((groups, i) => (
         <Fragment key={i}>
@@ -335,6 +337,8 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, ma
       )}
     </div>
   );
+  // In the menu bar's row, beside the redcolumn menu; without one, under it.
+  return slot ? createPortal(row, slot) : row;
 }
 
 export type StyleControlsProps = Pick<ToolBarProps, 'tools' | 'state' | 'styleType' | 'textType' | 'textMarkupStyle' | 'markups' | 'selectedStyle' | 'cloudBubble' | 'geometry' | 'selection' | 'enabled'>;

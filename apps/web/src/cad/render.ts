@@ -1,7 +1,7 @@
 import { CadReadError } from './dxf';
 import { aciRgb, trueRgb, type Rgb } from './aci';
 import { headerNum, num, nums, pt, str, type Block, type Drawing, type Entity, type Groups, type Layer } from './drawing';
-import { apply, applyV, arcCmds, bspline, bulgeCmds, circleM, meanScale, ocs, polyPath, rotate, scale, then, throughPoints, translate, type Cmd, type M, type P } from './geom';
+import { apply, applyV, arcCmds, arcInterval, bspline, bulgeCmds, circleM, meanScale, ocs, polyPath, rotate, scale, then, throughPoints, translate, type Cmd, type M, type P } from './geom';
 import { styledRgb, type PlotStyleTable } from './ctb';
 import { decodeSpecial, mtextHeightRuns, mtextParagraphs, type HeightRun } from './text';
 
@@ -366,9 +366,7 @@ function renderEntity(c: Ctx, e: Entity) {
     }
     case 'ARC': {
       const m = then(circleM(pt(g, 10), num(g, 40)), om(c, e));
-      const a0 = (num(g, 50) * Math.PI) / 180;
-      let a1 = (num(g, 51) * Math.PI) / 180;
-      while (a1 <= a0) a1 += 2 * Math.PI;
+      const [a0, a1] = arcInterval(((num(g, 50) % 360) * Math.PI) / 180, ((num(g, 51) % 360) * Math.PI) / 180);
       emit(c, strokeOf(c, e, arcCmds(m, a0, a1, true)));
       return;
     }
@@ -379,9 +377,7 @@ function renderEntity(c: Ctx, e: Entity) {
       const ratio = num(g, 40, 1);
       const flip = e.extrusion[2] < 0 ? -1 : 1;
       const m: M = then([maj[0], maj[1], -maj[1] * ratio * flip, maj[0] * ratio * flip, ctr[0], ctr[1]], c.m);
-      const t0 = num(g, 41, 0);
-      let t1 = num(g, 42, 2 * Math.PI);
-      while (t1 <= t0) t1 += 2 * Math.PI;
+      const [t0, t1] = arcInterval(num(g, 41, 0), num(g, 42, 2 * Math.PI));
       const full = Math.abs(t1 - t0 - 2 * Math.PI) < 1e-9;
       emit(c, strokeOf(c, e, [...arcCmds(m, t0, t1, true), ...(full ? [['Z'] as Cmd] : [])]));
       return;
@@ -962,18 +958,28 @@ export function readHatch(g: Groups): HatchData {
     while (i < g.length && g[i]![0] !== code) i++;
     return i < g.length ? Number(g[i++]![1]) : 0;
   };
+  // A count can never exceed the groups left, and all counts together are bounded.
+  let remainingWork = 100_000;
+  const count = (value: number) => {
+    if (!Number.isSafeInteger(value) || value < 0 || value > g.length - i || value > remainingWork)
+      throw new Error('Invalid or excessive HATCH item count. The drawing may be truncated.');
+    remainingWork -= value;
+    return value;
+  };
   const next = () => g[i++]!;
   const peek = () => g[i]?.[0];
   const solid = num(g, 70) === 1;
   const loops: Cmd[][] = [];
-  const count91 = at(91);
+  const flags: number[] = [];
+  const count91 = count(at(91));
   for (let l = 0; l < count91 && i < g.length; l++) {
     const type = at(92);
+    flags.push(type);
     const d: Cmd[] = [];
     if (type & 2) {
       const hasBulge = at(72);
       at(73); // closed flag: hatch loops are closed whatever it says
-      const n = at(93);
+      const n = count(at(93));
       const verts: { p: P; bulge: number }[] = [];
       for (let k = 0; k < n; k++) {
         const x = at(10);
@@ -984,7 +990,7 @@ export function readHatch(g: Groups): HatchData {
       }
       d.push(...bulgePath(verts, true));
     } else {
-      const n = at(93);
+      const n = count(at(93));
       let cur: P | null = null;
       const goTo = (p: P) => {
         if (!cur) d.push(['M', p[0], p[1]]);
@@ -1007,21 +1013,11 @@ export function readHatch(g: Groups): HatchData {
             const ratio = at(40);
             m = [maj[0], maj[1], -maj[1] * ratio, maj[0] * ratio, ctr[0], ctr[1]];
           }
-          const s = (at(50) * Math.PI) / 180;
-          const e = (at(51) * Math.PI) / 180;
+          const s = ((at(50) % 360) * Math.PI) / 180;
+          const e = ((at(51) % 360) * Math.PI) / 180;
           const ccw = at(73) !== 0;
-          let a0: number;
-          let a1: number;
-          if (ccw) {
-            a0 = s;
-            a1 = e;
-            while (a1 <= a0) a1 += 2 * Math.PI;
-          } else {
-            // Clockwise edges store complementary angles (360 - a).
-            a0 = -s;
-            a1 = -e;
-            while (a1 >= a0) a1 -= 2 * Math.PI;
-          }
+          // Clockwise edges store complementary angles (360 - a).
+          const [a0, a1] = arcInterval(ccw ? s : -s, ccw ? e : -e, ccw);
           goTo(apply(m, [Math.cos(a0), Math.sin(a0)]));
           d.push(...arcCmds(m, a0, a1, false));
           cur = apply(m, [Math.cos(a1), Math.sin(a1)]);
@@ -1029,8 +1025,8 @@ export function readHatch(g: Groups): HatchData {
           const degree = at(94);
           at(73);
           at(74);
-          const nk = at(95);
-          const nc = at(96);
+          const nk = count(at(95));
+          const nc = count(at(96));
           const knots: number[] = [];
           for (let q = 0; q < nk; q++) knots.push(at(40));
           const ctrl: P[] = [];
@@ -1060,19 +1056,24 @@ export function readHatch(g: Groups): HatchData {
     const j = g.findIndex(([code]) => code === 78);
     if (j >= 0) {
       i = j + 1;
-      const n = Number(g[j]![1]);
+      const n = count(Number(g[j]![1]));
       for (let k = 0; k < n; k++) {
         const angle = (at(53) * Math.PI) / 180;
         const base: P = [at(43), at(44)];
         const offset: P = [at(45), at(46)];
-        const nd = at(79);
+        const nd = count(at(79));
         const dashes: number[] = [];
         for (let q = 0; q < nd; q++) dashes.push(at(49));
         lines.push({ angle, base, offset, dashes });
       }
     }
   }
-  return { solid, loops, lines };
+  // The island style (75) picks which loops count before the even-odd fill: Normal keeps all,
+  // Outer keeps external and outermost loops, Ignore only the external ones.
+  const style = num(g, 75);
+  if (!Number.isInteger(style) || style < 0 || style > 2) throw new Error('Invalid hatch island style.');
+  const selected = loops.filter((_, index) => style === 0 || (flags[index]! & (style === 1 ? 17 : 1)) !== 0);
+  return { solid, loops: selected, lines };
 }
 
 function hatch(c: Ctx, e: Entity) {
@@ -1117,6 +1118,10 @@ function hatch(c: Ctx, e: Entity) {
     const proj = corners.map((q) => ((q[0] - line.base[0]) * nrm[0] + (q[1] - line.base[1]) * nrm[1]) / spacing);
     const k0 = Math.floor(Math.min(...proj));
     const k1 = Math.ceil(Math.max(...proj));
+    if (!Number.isSafeInteger(k0) || !Number.isSafeInteger(k1) || k1 - k0 > MAX_HATCH_SEGMENTS) {
+      count(c, 'HATCH (pattern too dense)');
+      return;
+    }
     const period = line.dashes.reduce((a, b) => a + Math.abs(b), 0);
     // A line of nothing but gaps draws nothing (and would otherwise step along forever).
     if (line.dashes.length && !line.dashes.some((d) => d >= 0)) continue;

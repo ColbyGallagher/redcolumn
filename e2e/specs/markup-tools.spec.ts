@@ -292,6 +292,36 @@ test.describe('markup tools', () => {
     await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
   });
 
+  test('snapshot: a rectangle stays vector, and its lines snap where it is pasted', async ({ app }) => {
+    // The room on plan.pdf is a box from (300, 200) to (500, 300); copy it with some space round it.
+    await app.tool('snapshot');
+    await app.drag([280, 180], [520, 320]);
+    await expect.poll(async () => (await app.command('edit.paste')).enabled).toBe(true);
+    await app.cmd('edit.paste');
+    const picture = (await app.raw()).find((m) => m.type === 'image')!;
+    const vector = picture.vector as { pdf: string; width: number; height: number } | undefined;
+    expect(vector).toBeTruthy();
+    expect(vector!.width).toBeCloseTo(240, 1);
+    expect(vector!.height).toBeCloseTo(140, 1);
+    expect(Buffer.from(vector!.pdf, 'base64').subarray(0, 5).toString()).toBe('%PDF-');
+    // Move it clear of the drawing: the room's top-left corner is then at (620, 470).
+    await app.page.evaluate((id) => {
+      const store = window.__nb.tools.store as unknown as { update(id: string, patch: object): void };
+      store.update(id, { points: [[600, 450], [840, 590]] });
+    }, picture.id as string);
+    await app.tool('line');
+    // Its first point lands on the corner of the copied room, which only the Snapshot has there.
+    await expect
+      .poll(async () => {
+        // Only lines from earlier tries go; the picture stays.
+        await app.page.evaluate(() => window.__nb.tools.store.remove(window.__nb.tools.store.all().filter((m) => m.type === 'line').map((m) => m.id)));
+        await app.drag([621.5, 471.5], [700, 640]);
+        const line = (await app.markups()).find((m) => m.type === 'line');
+        return line?.points[0]?.map((v) => Math.round(v * 100) / 100);
+      })
+      .toEqual([620, 470]);
+  });
+
   test('snapshot: clicking the corners copies an outlined area, adds no markup', async ({ app }) => {
     await app.tool('snapshot');
     await app.clicks([A, C, B, A]);

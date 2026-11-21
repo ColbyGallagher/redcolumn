@@ -21,6 +21,8 @@ export function warningText(w: CadWarning): string {
     case 'unsupported':
       if (w.type === 'objects that could not be read') return `${plural(w.count, 'object')} could not be read and are left out.`;
       return `${plural(w.count, ...entityWord(w.type))} not drawn (${describe(w.type)}).`;
+    case 'model-fit':
+      return `Model space is fitted at ${w.scale}. This may differ from a scale written in the drawing; check the intended sheet size and a known length before measuring.`;
     case 'units-assumed':
       return `The drawing does not say its units; they are taken as ${w.unit}. Check a known length before measuring.`;
     case 'nonstandard-scale':

@@ -652,7 +652,7 @@ test.describe('page labels and scales from regions', () => {
     test.use({ toolbar: 'ribbon' });
 
     test('tools.bulkRedact on the Bulk tab covers the boxes', async ({ app }) => {
-      const ribbon = app.page.locator('.ribbon');
+      const ribbon = app.page.locator('.ribbon, .rb-tabs');
       await ribbon.getByRole('tab', { name: 'Bulk' }).click();
       await ribbon.locator('[data-ribbon-command="tools.bulkRedact"]').click();
       const panel = app.page.locator('.label-regions');

@@ -10,7 +10,8 @@ const roomAt = (dy: number): Pt[] => {
   return [...pts, pts[0]!];
 };
 
-const ribbon = (app: App) => app.page.locator('.ribbon');
+// The ribbon's commands, and its tabs, which sit in the menu bar's row.
+const ribbon = (app: App) => app.page.locator('.ribbon, .rb-tabs');
 /** A 10'-0" per 100 pt scale on page 1, set directly: the calibrate clicks can land outside the canvas in the
  * smaller desktop window under the full ribbon, and these tests only need a scale, not the calibrate flow. */
 const setScale = (app: App) =>
