@@ -960,6 +960,9 @@ export function App() {
   ctlsRef.current = [ctl?.tools, ctlB?.tools];
   useEffect(() => ctlsRef.current.forEach((t) => t?.setSnap(prefs.snapToGeometry)), [prefs.snapToGeometry]);
   useEffect(() => ctlsRef.current.forEach((t) => t?.setShowLinks(prefs.showHyperlinks)), [prefs.showHyperlinks]);
+  useEffect(() => {
+    if (ctl) ctl.engine.includeShxText = prefs.importShxText;
+  }, [ctl, prefs.importShxText]);
   const [open, setOpen] = useState<OpenFile | null>(null);
   const openRef = useRef<OpenFile | null>(null);
   const [openB, setOpenB] = useState<OpenFile | null>(null);

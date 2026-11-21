@@ -540,6 +540,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         <C>{check('showRulers', 'Show Rulers')}</C>
         <C>{check('showSpaces', 'Show Spaces')}</C>
         <C>{check('showHyperlinks', 'Show Hyperlink Areas')}</C>
+        <C>{check('importShxText', 'Import AutoCAD SHX Text Comments', { title: 'AutoCAD turns SHX-font text into hidden comments when plotting to PDF (PDFSHX). Off keeps them out of the markups list; search still finds the text. Applies to files opened afterwards.' })}</C>
         {select('linkClick', 'Clicking a Sheet Link', [
           ['preview', 'Previews the sheet beside the plan'],
           ['jump', 'Jumps to the sheet'],
