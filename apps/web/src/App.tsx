@@ -1419,7 +1419,7 @@ export function App() {
   /** Where Split View took a tab from, so Unsplit puts it back in the same place. */
   const splitOrigin = useRef<{ id: string; index: number } | null>(null);
   /** Documents most recently shown first, for choosing the other side of a split. */
-  const recentFiles = useRef<string[]>([]);
+  const recentOpenIds = useRef<string[]>([]);
   const moveTabRef = useRef<(from: Pane, t: OpenFile) => void>(() => {});
   const canvasMenuRef = useRef<(e: MouseEvent, pane: Pane) => void>(() => {});
   /** Where the pointer last was over a page, for pasting at the cursor. */
@@ -1801,7 +1801,7 @@ export function App() {
       const mirrored = pane === 'b' && mirrorRef.current;
       if (cur === packed) return;
       if (pane === 'b' && !follow) mirrorRef.current = false;
-      if (packed) recentFiles.current = touchRecent(recentFiles.current, packed.file.id);
+      if (packed) recentOpenIds.current = touchRecent(recentOpenIds.current, packed.file.id);
       if (cur && c && !mirrored) savedViews.current.set(cur.file.id, c.viewer.getView());
       if (pane === 'a' && mirrorRef.current && packed && ctlB) showInPane('b', packed, true);
       setFront(pane, packed);
@@ -7062,7 +7062,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const front = openRef.current;
     if (split || !front) return;
     const tabs = tabsARef.current;
-    const partnerId = pickSplitPartner(tabs.map((t) => t.file.id), front.file.id, recentFiles.current);
+    const partnerId = pickSplitPartner(tabs.map((t) => t.file.id), front.file.id, recentOpenIds.current);
     const partner = tabs.find((t) => t.file.id === partnerId);
     if (partner) {
       pendingMove.current = partner;
