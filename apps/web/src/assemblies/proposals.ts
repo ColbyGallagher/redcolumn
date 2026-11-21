@@ -73,16 +73,18 @@ export function approveProposals(store: MarkupStore, proposals: readonly Takeoff
   const approved: string[] = [];
   const skipped: string[] = [];
   const at = Date.now();
+  const exists = new Set(store.assemblies().map((a) => a.id));
   store.checkpoint();
   store.batch(() => {
     for (const p of proposals) {
       const m = store.get(p.markupId);
-      if (!m || m.locked || store.readOnly) {
+      const edit = edits[p.id] ?? {};
+      const assemblyId = edit.assemblyId ?? p.assemblyId;
+      // An assembly deleted since it was proposed cannot be approved: choose another first.
+      if (!m || m.locked || store.readOnly || !exists.has(assemblyId)) {
         skipped.push(p.id);
         continue;
       }
-      const edit = edits[p.id] ?? {};
-      const assemblyId = edit.assemblyId ?? p.assemblyId;
       const overrides = edit.overrides && Object.keys(edit.overrides).length ? edit.overrides : undefined;
       const approval: TakeoffApproval = {
         by,

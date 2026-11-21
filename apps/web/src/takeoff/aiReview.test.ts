@@ -4,7 +4,9 @@ import { MarkupStore, type Assembly } from '@nb/markup';
 import { parseScaleText } from '@nb/measure';
 import { assistantCall, type AssistantDocument } from '../desktop/assistant.ts';
 import { rollup } from '../assemblies/quantities.ts';
-import { approveDrafts, clearDecided, rejectDrafts, reopenDrafts, reviewItems, waitingCount } from './aiReview.ts';
+import { approveDrafts, clearDecided, rejectDrafts, reopenDrafts, reviewItems, waitingCount, waitingKeys } from './aiReview.ts';
+import { approveCountProposal } from '../assemblies/countProposals.ts';
+import { approveProposals } from '../assemblies/proposals.ts';
 
 const kerb: Assembly = { id: 'kerb', name: 'Kerb', variables: [], items: [{ id: 'k', name: 'Kerb', unit: 'm', formula: '[Length]' }] };
 
@@ -84,4 +86,32 @@ test('propose_takeoff and propose_counts carry confidence and sources into the r
   assert.deepEqual(items.map((i) => [i.kind, i.confidence, i.sources.map((s) => s.pageIndex)]), [['assembly', 0.55, [1]], ['count', 0.8, []]]);
   const listed = (await assistantCall([d], 'list_takeoff_proposals', {})) as { drafts: { state: string }[] };
   assert.deepEqual(listed.drafts.map((x) => x.state), ['approved']);
+});
+
+test('an approved count lists once, not each markup it placed; an assembly deleted since it was proposed is not approved', async () => {
+  const d = await drawing();
+  await assistantCall([d], 'propose_counts', { source: 'Claude', subject: 'Pit', reasoning: 'legend symbol', confidence: 0.8, matches: [{ page: 1, bbox: { x: 1, y: 1, w: 4, h: 4 } }, { page: 1, bbox: { x: 20, y: 1, w: 4, h: 4 } }] });
+  const count = d.store.aiReview().counts[0]!;
+  assert.ok(approveCountProposal(d.store, count, 'Hana', new Set()));
+  assert.deepEqual(reviewItems(d.store).map((i) => [i.kind, i.state]), [['count', 'approved']]);
+
+  const placed = (await assistantCall([d], 'place_markups', { page: 1, markups: [{ type: 'length', points: [[0, 0], [100, 0]] }] })) as { placed: { id: string }[] };
+  approveDrafts(d.store, [placed.placed[0]!.id], 'Hana');
+  await assistantCall([d], 'propose_takeoff', { source: 'Claude', proposals: [{ id: placed.placed[0]!.id, assembly: 'Kerb', reasoning: 'a kerb' }] });
+  d.store.setAssemblies([]);
+  const r = approveProposals(d.store, d.store.aiReview().takeoff, 'Hana');
+  assert.deepEqual([r.approved.length, r.skipped.length], [0, 1]);
+  assert.equal(d.store.get(placed.placed[0]!.id)!.assemblyId, undefined);
+});
+
+test('waiting keys: what a person brings back (Undo, Review Again) is an item already seen', async () => {
+  const d = await drawing();
+  const placed = (await assistantCall([d], 'place_markups', { page: 1, markups: [{ type: 'length', points: [[0, 0], [100, 0]] }] })) as { placed: { id: string }[] };
+  const id = placed.placed[0]!.id;
+  const seen = waitingKeys(d.store);
+  assert.deepEqual([...seen], [`draft:${id}`]);
+  rejectDrafts(d.store, [id], 'Hana');
+  assert.equal(waitingKeys(d.store).size, 0);
+  reopenDrafts(d.store, [id]);
+  assert.ok([...waitingKeys(d.store)].every((k) => seen.has(k)));
 });

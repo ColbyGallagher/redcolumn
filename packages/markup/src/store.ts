@@ -920,8 +920,22 @@ export class MarkupStore {
       this.meta.delete('stitch');
       if (this.meta.has('manualStitch')) this.meta.set('manualStitch', mapManualStitch(this.manualStitchSnapshot, to, turn));
       if (this.aiReviewMap.size) {
-        this.aiReviewMap.clear();
-        this.applyAiReview({ ...remapAiReview(this.aiReviewSnapshot, to, turn, turnRect, (m, n) => ({ ...m, pageIndex: n, ...mapGeometry(m, (p) => turn(m.pageIndex, p)) })) });
+        // Read without the page filter (the page count may not have caught up with an insert), and
+        // write back only the entries that changed, so a peer's decision on another one is kept.
+        const was = aiReviewFromEntries(this.aiReviewMap.entries());
+        const next = remapAiReview(was, to, turn, turnRect, (m, n) => ({ ...m, pageIndex: n, ...mapGeometry(m, (p) => turn(m.pageIndex, p)) }));
+        const keep = new Map<string, unknown>([
+          ...next.takeoff.map((p) => [aiReviewKey('takeoff', p.id), p] as const),
+          ...next.counts.map((p) => [aiReviewKey('counts', p.id), p] as const),
+          ...next.rejected.map((r) => [aiReviewKey('rejected', r.markup.id), r] as const),
+        ]);
+        const old = new Map<string, unknown>([
+          ...was.takeoff.map((p) => [aiReviewKey('takeoff', p.id), p] as const),
+          ...was.counts.map((p) => [aiReviewKey('counts', p.id), p] as const),
+          ...was.rejected.map((r) => [aiReviewKey('rejected', r.markup.id), r] as const),
+        ]);
+        for (const key of old.keys()) if (!keep.has(key)) this.aiReviewMap.delete(key);
+        for (const [key, v] of keep) if (JSON.stringify(v) !== JSON.stringify(old.get(key))) this.aiReviewMap.set(key, structuredClone(v));
       }
       if (this.meta.has('portals')) {
         const portals = remapPortals(this.portalSnapshot, to);
@@ -1198,7 +1212,7 @@ export class MarkupStore {
     if (this.pageCount === count) return;
     this.pageCount = count;
     this.portalRaw = undefined;
-    this.refresh(new Map([[this.meta as Y.AbstractType<any>, null]]));
+    this.refresh(new Map<Y.AbstractType<any>, unknown>([[this.meta, null], [this.aiReviewMap, null]]));
   }
 
   /**

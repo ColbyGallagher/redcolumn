@@ -1,4 +1,4 @@
-import type { AiMethod, AiOrigin, Markup, Point, ProposedQuantity, Rect, SourceKind, SourceRef } from './model';
+import { MARKUP_TYPES, type AiMethod, type AiOrigin, type Markup, type Point, type ProposedQuantity, type Rect, type SourceKind, type SourceRef } from './model';
 
 /**
  * What an AI client proposed for a document and a person has not taken into the drawing: an
@@ -157,9 +157,15 @@ function countOf(v: unknown, pageCount?: number): CountProposal | null {
 
 function rejectedOf(v: unknown, pageCount?: number): RejectedDraft | null {
   if (!isObj(v) || !isObj(v.markup) || typeof v.by !== 'string' || !finite(v.at)) return null;
-  const m = v.markup as unknown as Markup;
-  if (typeof m.id !== 'string' || typeof m.type !== 'string' || !Number.isInteger(m.pageIndex) || !Array.isArray(m.points)) return null;
-  if (pageCount !== undefined && m.pageIndex >= pageCount) return null;
+  const raw = v.markup as unknown as Markup;
+  // Review Again puts this markup back in the drawing: check it as the importer checks NBData.
+  if (typeof raw.id !== 'string' || !MARKUP_TYPES.includes(raw.type) || !Number.isInteger(raw.pageIndex) || raw.pageIndex < 0) return null;
+  if (!Array.isArray(raw.points) || !raw.points.length || !raw.points.every((p) => Array.isArray(p) && finite(p[0]) && finite(p[1]))) return null;
+  if (!isObj(raw.style)) return null;
+  if (pageCount !== undefined && raw.pageIndex >= pageCount) return null;
+  const { ai: rawAi, pdfAnnot: _stale, ...rest } = raw;
+  const ai = sanitizeAiOrigin(rawAi, pageCount);
+  const m = { ...rest, ...(ai ? { ai } : {}) } as Markup;
   return { markup: m, by: v.by, at: v.at };
 }
 

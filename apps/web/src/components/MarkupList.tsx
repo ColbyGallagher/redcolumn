@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { isMeasureKind, measureKindOf, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
+import { isAiDraft, isMeasureKind, measureKindOf, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, type MeasureKind, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import {
@@ -473,7 +473,8 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     const out = new Map<MeasureKind, { value: number; scale: Scale; n: number }>();
     for (const r of rows) {
       const m = r.markup;
-      if (!isMeasureKind(m.type) || m.type === 'angle') continue;
+      // AI drafts wait for review: left out of totals, as in reports.
+      if (!isMeasureKind(m.type) || m.type === 'angle' || isAiDraft(m)) continue;
       const scale = scaleOf(m);
       const kind = measureKindOf(m);
       const t = out.get(kind) ?? { value: 0, scale, n: 0 };

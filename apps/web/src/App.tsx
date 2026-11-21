@@ -4,7 +4,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, boundsOf, isAiDraft, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -77,7 +77,7 @@ import { isNotToScale, scaleReviewRows, type PageScan } from './measure/scaleRev
 import { pageReadings } from './measure/scaleCheck';
 import { proposeViews } from './measure/viewScales';
 import { migrateLocalProposals } from './assemblies/proposals';
-import { waitingCount as aiWaitingCount } from './takeoff/aiReview';
+import { waitingKeys as aiWaitingKeys } from './takeoff/aiReview';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -6397,16 +6397,22 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const store = activeOpen.store;
     // Proposals from before they were kept in the document move into it.
     migrateLocalProposals(store);
-    let seen = aiWaitingCount(store);
+    // Everything seen waiting so far: a person's own Undo, Review Again or deleting an approved
+    // measurement brings one back, and that is no reason to open the panel. Only new ones are.
+    const seen = aiWaitingKeys(store);
     // Ones that came while another document was in front are mentioned once it is.
-    if (seen) setNotice(`${seen} AI result${seen === 1 ? ' is' : 's are'} waiting for your review in Takeoff › Review AI Takeoff.`);
+    if (seen.size) setNotice(`${seen.size} AI result${seen.size === 1 ? ' is' : 's are'} waiting for your review in Takeoff › Review AI Takeoff.`);
     return store.subscribe(() => {
-      const now = aiWaitingCount(store);
-      if (now > seen) {
-        setTakeoffReviewOpen(true);
-        setNotice(`${now} AI result${now === 1 ? ' is' : 's are'} waiting for your review. Nothing counts towards the takeoff until you approve it.`);
+      const now = aiWaitingKeys(store);
+      let fresh = false;
+      for (const k of now) if (!seen.has(k)) {
+        seen.add(k);
+        fresh = true;
       }
-      seen = now;
+      if (fresh) {
+        setTakeoffReviewOpen(true);
+        setNotice(`${now.size} AI result${now.size === 1 ? ' is' : 's are'} waiting for your review. Nothing counts towards the takeoff until you approve it.`);
+      }
     });
   }, [activeOpen]);
 
@@ -6584,7 +6590,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const takeoffTotals = (list: readonly Markup[]): string[] => {
     const totals = new Map<MeasureKind, { value: number; scale: Scale; n: number }>();
     for (const m of list) {
-      if (!isMeasureKind(m.type) || m.type === 'angle') continue;
+      // AI drafts wait for review: left out of totals, as in reports.
+      if (!isMeasureKind(m.type) || m.type === 'angle' || isAiDraft(m)) continue;
       const scale = scaleOf(m);
       const kind = measureKindOf(m);
       const t = totals.get(kind) ?? { value: 0, scale, n: 0 };

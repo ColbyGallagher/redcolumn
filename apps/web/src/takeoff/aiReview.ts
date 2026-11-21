@@ -48,8 +48,10 @@ const isLow = (c: number | undefined, threshold: number) => c === undefined || c
 export function reviewItems(store: MarkupStore, threshold = LOW_CONFIDENCE): ReviewItem[] {
   const review = store.aiReview();
   const items: ReviewItem[] = [];
+  // Count markups an approved count placed are listed under that count, not one by one.
+  const placed = new Set(review.counts.flatMap((c) => c.placed?.markupIds ?? []));
   for (const m of store.all()) {
-    if (!m.ai) continue;
+    if (!m.ai || (placed.has(m.id) && !isAiDraft(m))) continue;
     const pending = isAiDraft(m);
     const edits = aiEdits(m);
     items.push({
@@ -84,14 +86,19 @@ export function reviewItems(store: MarkupStore, threshold = LOW_CONFIDENCE): Rev
   return items.sort((a, b) => rank(a.state) - rank(b.state) || (a.confidence ?? -1) - (b.confidence ?? -1) || (a.pageIndex ?? 1e9) - (b.pageIndex ?? 1e9) || a.at - b.at);
 }
 
+/** The AI results waiting for a person, by `ReviewItem.key`. */
+export function waitingKeys(store: MarkupStore): Set<string> {
+  const review = store.aiReview();
+  const out = new Set<string>();
+  for (const m of store.all()) if (isAiDraft(m)) out.add(`draft:${m.id}`);
+  for (const p of review.takeoff) if (takeoffState(p, store.get(p.markupId)) === 'pending') out.add(`assembly:${p.id}`);
+  for (const c of review.counts) if (countStateOf(c, store) === 'pending') out.add(`count:${c.id}`);
+  return out;
+}
+
 /** How many AI results are waiting for a person. */
 export function waitingCount(store: MarkupStore): number {
-  const review = store.aiReview();
-  let n = 0;
-  for (const m of store.all()) if (isAiDraft(m)) n++;
-  for (const p of review.takeoff) if (takeoffState(p, store.get(p.markupId)) === 'pending') n++;
-  for (const c of review.counts) if (countStateOf(c, store) === 'pending') n++;
-  return n;
+  return waitingKeys(store).size;
 }
 
 const noop = () => () => {};

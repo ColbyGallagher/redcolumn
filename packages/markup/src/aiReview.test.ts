@@ -77,6 +77,37 @@ test('store: proposals and drafts follow pages that are deleted and turned', asy
   await store.destroy();
 });
 
+test('store: inserting pages keeps proposals on the pages after them, and only changed entries are rewritten', async () => {
+  const store = await MarkupStore.open(`ai-insert-${Math.random()}`, { persist: false });
+  store.setPageCount(3);
+  store.changeAiReview({ counts: [count('c0', 0), count('c2', 2)], rejected: [{ markup: length('r', 2, { ai: ai({ sources: [{ pageIndex: 2 }] }) }), by: 'Hana', at: 1 }] }, true);
+  const writes: string[] = [];
+  store.aiReviewMap.observe((e) => writes.push(...e.keysChanged));
+  // Two pages go in at the start: everything moves on by two, past the old page count.
+  store.remapPages(planPageOps(3, [{ type: 'insert', source: 0, at: 0 }], [2]), [0, 1, 2].map(() => ({ width: 200, height: 100 })));
+  store.setPageCount(5);
+  assert.deepEqual(store.aiReview().counts.map((c) => [c.id, c.matches[0]!.pageIndex]), [['c0', 2], ['c2', 4]]);
+  assert.deepEqual(store.aiReview().rejected.map((r) => r.markup.pageIndex), [4]);
+  // A second operation must not lose them either.
+  writes.length = 0;
+  store.remapPages(planPageOps(5, [{ type: 'rotate', pages: [0], quarterTurns: 1 }]), [0, 1, 2, 3, 4].map(() => ({ width: 200, height: 100 })));
+  assert.equal(store.aiReview().counts.length, 2);
+  assert.deepEqual(writes, [], 'nothing on the turned page, so nothing rewritten');
+  await store.destroy();
+});
+
+test('sanitize: a rejected draft from a peer is checked like a markup from a file before Review Again can restore it', () => {
+  const out = sanitizeAiReview({
+    rejected: [
+      { markup: { id: 'a', type: 'length', pageIndex: 0, points: [[0, 0], [1, 1]] }, by: 'Hana', at: 1 },
+      { markup: { ...length('b'), type: 'bogus' }, by: 'Hana', at: 1 },
+      { markup: { ...length('c'), points: [[0, 'x']] }, by: 'Hana', at: 1 },
+      { markup: { ...length('d'), ai: { status: 'weird' } }, by: 'Hana', at: 1 },
+    ],
+  });
+  assert.deepEqual(out.rejected.map((r) => [r.markup.id, r.markup.ai]), [['d', undefined]], 'no style, unknown type and bad points dropped; a bad ai record is removed');
+});
+
 test('PDF: drafts are saved hidden and the review list in the catalog; both come back on opening', async () => {
   const doc = await PDFDocument.create();
   doc.addPage([400, 400]);

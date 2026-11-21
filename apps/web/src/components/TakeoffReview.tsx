@@ -274,6 +274,13 @@ function quantityText(i: ReviewItem, ctx: CellContext, off: ReadonlySet<number>)
   return m ? (cellsFor(m, ctx).measurement?.text ?? '') : '';
 }
 
+/** An assembly proposal needs its measurement and an assembly that still exists. */
+function approvable({ item: i, assemblies, edit }: ItemProps): boolean {
+  if (i.kind !== 'assembly' || !i.takeoff) return true;
+  const id = edit.assemblyId ?? i.takeoff.assemblyId;
+  return !!i.markup && assemblies.some((a) => a.id === id);
+}
+
 function Item(props: ItemProps) {
   const { item: i, open, picked, readOnly, pageLabel, onOpen, onPick, onShowSource, onApprove, onReject, onReopen } = props;
   const pending = i.state === 'pending';
@@ -329,7 +336,7 @@ function Item(props: ItemProps) {
               <button type="button" className="btn small" onClick={onReject}>
                 Reject
               </button>
-              <button type="button" className="btn small primary" disabled={readOnly} onClick={onApprove}>
+              <button type="button" className="btn small primary" disabled={readOnly || !approvable(props)} title={approvable(props) ? undefined : 'Its measurement or assembly is gone: choose another assembly, or reject it'} onClick={onApprove}>
                 Approve
               </button>
             </div>
