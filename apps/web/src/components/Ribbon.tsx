@@ -1,7 +1,9 @@
 import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Command } from '../commands/appCommands';
-import { settings, useSettings } from '../settings/settings';
+import type { LengthUnit } from '@nb/measure';
+import { DEFAULT_UNIT_CHOICES, settings, switchUnitSystem, useSettings, type Settings, type UnitSystem } from '../settings/settings';
+import { ScaleControl } from './ScaleControl';
 import { shortcutLabel } from '../commands/shortcuts';
 import { isMarkupTool, toolLabel, type Tool } from '../markup/MarkupTools';
 import { FOLLOW_START, followFormat } from '../markup/selectionFormat';
@@ -13,7 +15,7 @@ import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './Conte
 import { loadEstimatingLibrary } from '../assemblies/estimatingLibrary';
 import { StampMenu } from './StampsDialog';
 import { RibbonAssembly } from './RibbonAssembly';
-import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
+import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps, type UnitsScaleProps } from './ToolBar';
 
 /** A 16 × 16 line icon for a ribbon button, drawn in the text colour. */
 function ic(d: string, extra?: ReactNode): ReactNode {
@@ -611,6 +613,57 @@ function SlopePicker() {
 }
 
 
+const LENGTH_NAMES: Record<LengthUnit, string> = { mm: 'Millimetres (mm)', cm: 'Centimetres (cm)', m: 'Metres (m)', km: 'Kilometres (km)', in: 'Inches (in)', ft: 'Feet (ft)', yd: 'Yards (yd)', mi: 'Miles (mi)' };
+
+/**
+ * Markup Format › Units & Scale: the measuring units (the Preferences › Units settings, so there is one
+ * source of truth) and the current page's scale, close at hand while measuring. Changing the units
+ * rewords the page's scale, and with it every measurement on the page.
+ */
+function UnitsScale({ scale, disabled, onPreset, onCustom, onUnitsChanged }: UnitsScaleProps) {
+  const prefs = useSettings();
+  const change = (patch: Partial<Settings>) => {
+    settings.set(patch);
+    onUnitsChanged();
+  };
+  return (
+    <div className="rb-props">
+      <div className="prop-cluster">
+        <div className="prop-cluster-items">
+          <div className="prop-line">
+            <label className="field">
+              Units
+              <select aria-label="Units" value={prefs.unitSystem} disabled={disabled} onChange={(e) => change(switchUnitSystem(prefs, e.target.value as UnitSystem))}>
+                <option value="metric">Metric</option>
+                <option value="imperial">Imperial</option>
+              </select>
+            </label>
+          </div>
+          <div className="prop-line">
+            <label className="field">
+              Length
+              <select aria-label="Length unit" value={prefs.lengthUnit} disabled={disabled} onChange={(e) => change({ lengthUnit: e.target.value as LengthUnit })}>
+                {DEFAULT_UNIT_CHOICES[prefs.unitSystem].length.map((u) => (
+                  <option key={u} value={u}>
+                    {LENGTH_NAMES[u]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div className="prop-cluster">
+        <div className="prop-cluster-items">
+          <div className="prop-line">
+            <ScaleControl scale={scale} disabled={disabled} onPreset={onPreset} onCustom={onCustom} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * The top toolbar as a ribbon, as in Word, Excel and AutoCAD: tabs of commands in labelled groups.
  * Buttons come from the command table, so they disable themselves when what is selected cannot
@@ -797,6 +850,11 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <div className="rb-props">
                   <MarkupFields {...toolbar} />
                 </div>
+              </Group>
+            )}
+            {toolbar.unitsScale && (
+              <Group label="Units & Scale" wide>
+                <UnitsScale {...toolbar.unitsScale} />
               </Group>
             )}
             {properties}

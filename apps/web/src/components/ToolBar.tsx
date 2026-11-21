@@ -215,6 +215,18 @@ const WIDTHS = [0.5, 1, 1.5, 2, 3, 5, 8, 12, 16, 24];
 /** The highlighter sweeps wide bands. */
 const HIGHLIGHT_WIDTHS = [4, 8, 12, 16, 20, 30, 40, 60, 80, 100, 150, 200];
 
+/** What the Units & Scale group works on: the current page's scale, set the same way the navigation bar's scale list does. */
+export interface UnitsScaleProps {
+  scale: Scale | null;
+  disabled: boolean;
+  /** A scale picked from the list. */
+  onPreset: (scale: Scale) => void;
+  /** Opens the custom scale dialog. */
+  onCustom: () => void;
+  /** The default units (Preferences › Units) changed: the page scale is reworded to match. */
+  onUnitsChanged: () => void;
+}
+
 export interface ToolBarProps {
   tools: MarkupTools;
   state: ToolsState;
@@ -235,6 +247,11 @@ export interface ToolBarProps {
   /** The selected markups (select mode, two or more), whose shared style the Format tab edits together. */
   selection?: { markups: readonly Markup[]; store: MarkupStore } | null;
   enabled: boolean;
+  /**
+   * The Markup Format tab's Units & Scale group: set while a measure tool is active or measurements are
+   * selected (null otherwise, and the group is left out).
+   */
+  unitsScale?: UnitsScaleProps | null;
   /** The document's markup layers, offered by the Layer field. */
   layerNames?: readonly string[];
   /** Asks for a new layer's name (the Layer field's "New layer…"). */

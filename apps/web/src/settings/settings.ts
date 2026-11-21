@@ -84,6 +84,25 @@ export function withDefaultUnits(scale: Scale, s: Settings = current): Scale {
   return next;
 }
 
+/**
+ * A page scale shown in the default units (Preferences › Units): lengths in the default length unit,
+ * areas and volumes in theirs. The ratio (metres per point) is untouched, so every measurement on the
+ * page keeps its real size and only its wording changes. Inch fractions only apply to ft and in.
+ */
+export function scaleInDefaultUnits(scale: Scale, s: Settings = current): Scale {
+  const fractions = scale.feetInches && (s.lengthUnit === 'ft' || s.lengthUnit === 'in');
+  return {
+    ...scale,
+    unit: s.lengthUnit,
+    areaUnit: s.areaUnit,
+    volumeUnit: s.volumeUnit,
+    areaLabel: undefined,
+    volumeLabel: undefined,
+    feetInches: fractions,
+    precision: fractions ? scale.precision : UNIT_PRECISION[s.lengthUnit],
+  };
+}
+
 /** A Sets category: sheets whose tag value starts with `filter` belong to it. */
 export interface SetCategory {
   name: string;
