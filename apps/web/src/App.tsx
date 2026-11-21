@@ -2,7 +2,7 @@ import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncE
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
-import { IMPORT_VERSION, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
+import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
@@ -932,6 +932,9 @@ async function rewriteSigned(doc: PdfDocument, what: string): Promise<boolean> {
   const { signatures } = await doc.info();
   return !signatures || confirm(`This file is digitally signed. ${what} writes the file again, so its ${signatures === 1 ? 'signature' : `${signatures} signatures`} will no longer be valid. Continue?`);
 }
+
+/** Largest vector Snapshot kept in a markup (its PDF); a larger one is copied as a picture only. */
+const MAX_VECTOR_SNAPSHOT_BYTES = 8 * 1024 * 1024;
 
 export function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -5792,6 +5795,38 @@ export function App() {
     if (!p.pinned) setLinkPreviews((ps) => ps.filter((x) => x.id !== id));
   };
 
+  /**
+   * The area of a Snapshot as vector content: the page cut to it as a PDF of its own, with the
+   * markups over it (unless left out) as a see-through picture drawn over that. Null when the page
+   * cannot be cut, or the result is too large to keep in a markup.
+   */
+  const vectorSnapshot = async (o: OpenFile, pageIndex: number, region: { x0: number; y0: number; w: number; h: number; scale: number; canvas: HTMLCanvasElement }, withMarkups: boolean): Promise<VectorPicture | null> => {
+    const { x0, y0, w, h, scale } = region;
+    let bytes: ArrayBuffer;
+    try {
+      bytes = await o.doc.clipRegion(pageIndex, { x: x0, y: y0, w, h });
+    } catch (err) {
+      console.error('Cutting the Snapshot area out of the page failed', err);
+      return null;
+    }
+    if (bytes.byteLength > MAX_VECTOR_SNAPSHOT_BYTES) return null;
+    let overlay: string | undefined;
+    const store = o.store;
+    const over = (b: { x: number; y: number; w: number; h: number }) => b.x < x0 + w && b.x + b.w > x0 && b.y < y0 + h && b.y + b.h > y0;
+    if (withMarkups && store.forPage(pageIndex).some((m) => !m.hidden && over(markupBounds(m)))) {
+      const c = document.createElement('canvas');
+      c.width = region.canvas.width;
+      c.height = region.canvas.height;
+      const g = c.getContext('2d')!;
+      g.scale(scale, scale);
+      g.translate(-x0, -y0);
+      const legends = { all: () => store.all(), scaleFor: (p: number) => store.scaleFor(p), scaleOf: (m: Markup) => store.scaleOf(m) };
+      for (const m of store.forPage(pageIndex).sort((a, b) => a.createdAt - b.createdAt)) drawMarkup(g, m, scale, store.scaleOf(m), legends);
+      overlay = c.toDataURL('image/png');
+    }
+    return { pdf: bytesToBase64(new Uint8Array(bytes)), width: w, height: h, ...(overlay ? { overlay } : {}) };
+  };
+
   // Snapshot: the area as a picture (with its markups) on the clipboard; Ctrl+V pastes it as an image markup.
   // With a `polygon` the picture is the outline's box with everything outside the outline see-through.
   snapshotRef.current = (pane, pageIndex, rect, withMarkups = true, polygon) => {
@@ -5818,8 +5853,24 @@ export function App() {
       }
       const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/png'));
       if (!blob) return;
+      // A rectangle also keeps the area as vector content (Preferences › Snapshot), as Revu does:
+      // sharp at any zoom and snapped to like the drawing. The picture stays for everything else.
+      const vector = !polygon && settings.get().snapshotVector ? await vectorSnapshot(o, pageIndex, region, withMarkups) : null;
       const now = Date.now();
-      const markup: Markup = { id: 'snapshot', type: 'image', pageIndex, points: [[x0, y0], [x0 + w, y0 + h]], style: { ...DEFAULT_STYLES.image }, image: canvas.toDataURL('image/png'), subject: 'Snapshot', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now };
+      const markup: Markup = {
+        id: 'snapshot',
+        type: 'image',
+        pageIndex,
+        points: [[x0, y0], [x0 + w, y0 + h]],
+        style: { ...DEFAULT_STYLES.image },
+        image: canvas.toDataURL('image/png'),
+        ...(vector ? { vector } : {}),
+        subject: 'Snapshot',
+        status: 'none',
+        author: authorRef.current,
+        createdAt: now,
+        modifiedAt: now,
+      };
       // Also on the app's own clipboard, so pasting works where the system clipboard is off limits.
       clipboard.current = [markup];
       // Pasted back from the system clipboard, the picture is recognised by its pixel size and placed
@@ -10094,6 +10145,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         const target = e.target as HTMLElement;
         // Text fields keep the browser's own menu (spelling, copy and paste).
         if (target.closest('input, textarea, select, [contenteditable]')) return;
+        // The ribbon's tabs sit in the menu bar's row; the ribbon shows its own menu for them.
+        if (target.closest('.rb-tabs')) return;
         if (target.closest('.rail')) showMenu(e, panelsMenu(target.closest<HTMLElement>('[data-panel]')?.dataset.panel as LeftTab | undefined));
         else if (target.closest('.toolbar.tools')) showMenu(e, toolbarMenu(e));
         else if (target.closest('.menubar, .toolbar,.statusbar, .doc-tabs, .tabs, .panel.side > h2')) showMenu(e, layoutMenu());
@@ -10880,7 +10933,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 const now = store.get(m.id);
                 if (!now?.image || now.locked || !store.mayEdit(now) || now.image !== source) return setPictureColoursFor(null);
                 store.checkpoint();
-                store.batch(() => store.update(m.id, { image }));
+                // New colours are in the picture only, so a vector Snapshot becomes a plain picture.
+                store.batch(() => store.update(m.id, { image, vector: undefined }));
                 setPictureColoursFor(null);
               }}
             />

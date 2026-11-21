@@ -22,6 +22,7 @@
  */
 import { execFile } from 'node:child_process';
 import fs from 'node:fs/promises';
+import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 
 /** What the page and the main process act on. */
@@ -282,17 +283,24 @@ export function policyFilePath(platform: NodeJS.Platform = process.platform): st
 /** The file's part, or null when there is no file. */
 export async function readPolicyFile(file: string): Promise<PolicyPart | null> {
   const source = file;
+  let handle: FileHandle | null = null;
   try {
-    const stat = await fs.stat(file).catch((err: NodeJS.ErrnoException) => {
-      if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return null;
+    // Open once and check the same file we read, so it cannot be swapped between the check and the read.
+    try {
+      handle = await fs.open(file, 'r');
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code === 'ENOENT' || code === 'ENOTDIR') return null;
       throw err;
-    });
-    if (!stat) return null;
+    }
+    const stat = await handle.stat();
     if (!stat.isFile()) return lockedDown(source, 'it is not a file.');
     if (stat.size > MAX_FILE) return lockedDown(source, `it is larger than ${MAX_FILE / 1024} KB.`);
-    return parsePolicyJson(source, await fs.readFile(file, 'utf8'));
+    return parsePolicyJson(source, await handle.readFile('utf8'));
   } catch (err) {
     return lockedDown(source, `it could not be read (${err instanceof Error ? err.message : String(err)}).`);
+  } finally {
+    await handle?.close().catch(() => undefined);
   }
 }
 

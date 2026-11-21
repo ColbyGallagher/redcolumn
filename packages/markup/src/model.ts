@@ -390,6 +390,12 @@ export interface Markup {
    * whole picture is kept, so a crop can be undone or widened later; unset shows all of it.
    */
   crop?: ImageCrop;
+  /**
+   * A Snapshot that stayed vector: the area of the page as a PDF of its own, drawn sharp at any
+   * zoom, snapped to like the drawing and written to PDF as vector content. `image` keeps the
+   * same area as a picture, for anything that cannot use the PDF.
+   */
+  vector?: VectorPicture;
   signature?: SignatureInfo;
   /** Locked markups cannot be moved, reshaped, restyled or deleted; their status and comments stay editable. */
   locked?: boolean;
@@ -484,6 +490,20 @@ export const DEFAULT_STYLES = Object.fromEntries(MARKUP_TYPES.map((t) => [t, TYP
 
 /** Each type's name, as shown in menus and the markups list. */
 export const MARKUP_LABELS = Object.fromEntries(MARKUP_TYPES.map((t) => [t, TYPE_INFO[t].label])) as Record<MarkupType, string>;
+
+/** A Snapshot kept as vector content (`Markup.vector`). */
+export interface VectorPicture {
+  /** The area as a one-page PDF, base64. */
+  pdf: string;
+  /** Its page's size as shown (its /Rotate applied), in points: the area's size when taken. */
+  width: number;
+  height: number;
+  /** The markups that were over the area, as a see-through PNG data URL the size of the page, drawn over it. */
+  overlay?: string;
+  /** Turned over left to right (`flipX`) or top to bottom (`flipY`) since it was taken. */
+  flipX?: boolean;
+  flipY?: boolean;
+}
 
 /** A part of a picture, as fractions of its width and height from its top-left corner. */
 export interface ImageCrop {

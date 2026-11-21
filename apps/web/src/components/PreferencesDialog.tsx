@@ -573,6 +573,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             ))}
           </select>
         </Row>
+        <C>{check('snapshotVector', 'Keep Snapshots Vector', { title: 'A rectangular Snapshot keeps the drawing as lines, so it stays sharp when zoomed in and can be snapped to' })}</C>
         <C>{check('confirmDelete', 'Confirm before Deleting Markups')}</C>
       </Grid>
     ),

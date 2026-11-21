@@ -4,6 +4,9 @@ import { test } from 'node:test';
 import { PDFDocument, PDFArray, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
 import { convertCad } from './convert';
 import { readDxf } from './dxf';
+import { arcCmds, arcInterval } from './geom';
+import { readHatch } from './render';
+import type { Groups } from './drawing';
 import { writePdf } from './pdf';
 import { planSheets } from './sheets';
 import { mtextHeightRuns } from './text';
@@ -92,4 +95,51 @@ test('styled MTEXT crop validation includes the same oblique shear as its PDF ma
   const scale = { label: '1:1', ratio: 1, standard: true, unit: 'mm' as const, feetInches: false, unitsPerPoint: 25.4 / 72 };
   const sheet = { name: 'Model', width: 100, height: 100, prims: [prim], viewports: [], pageScale: scale, scaleChecks: [] };
   await assert.rejects(writePdf([sheet], fonts, { title: 'Oblique bounds', source: 'synthetic' }), /Model-space MTEXT exceeds/);
+});
+
+test('arc angles of any size take one bounded turn and never stall', () => {
+  const near = (a: number, b: number) => assert.ok(Math.abs(a - b) < 1e-9, `${a} vs ${b}`);
+  const [a0, a1] = arcInterval(0, Math.PI / 2);
+  near(a0, 0); near(a1, Math.PI / 2);
+  const [f0, f1] = arcInterval(1, 1); // start == end is a full turn
+  near(f1 - f0, 2 * Math.PI);
+  const [c0, c1] = arcInterval(Math.PI / 2, 0, false);
+  near(c0 - c1, Math.PI / 2);
+  assert.throws(() => arcInterval(Number.NaN, 1));
+  assert.throws(() => arcInterval(0, Infinity));
+  assert.ok(Math.abs(arcInterval(1e300, 3)[1] - arcInterval(1e300, 3)[0]) <= 2 * Math.PI);
+  assert.throws(() => arcCmds([1, 0, 0, 1, 0, 0], 0, 20, true), /Invalid CAD curve geometry/);
+});
+
+test('an ARC with a huge or non-finite angle converts without hanging', async () => {
+  const arc = (a: number | string) => dxf([...frame, 0, 'ARC', 10, 50, 20, 50, 40, 10, 50, a, 51, 90]);
+  const { pdf } = await convertCad('arc.dxf', arc(1e300), { fonts });
+  assert.ok((await PDFDocument.load(pdf)).getPageCount() === 1);
+});
+
+const hatchGroups = (style: number): Groups => [
+  [70, '0'], [75, String(style)], [91, '2'],
+  [92, '3'], [72, '0'], [73, '1'], [93, '4'], [10, '0'], [20, '0'], [10, '10'], [20, '0'], [10, '10'], [20, '10'], [10, '0'], [20, '10'],
+  [97, '0'],
+  [92, '18'], [72, '0'], [73, '1'], [93, '4'], [10, '2'], [20, '2'], [10, '4'], [20, '2'], [10, '4'], [20, '4'], [10, '2'], [20, '4'],
+  [97, '0'],
+];
+
+test('hatch island style picks which loops fill', () => {
+  // Loop flags: external+polyline (3), then outermost+polyline (18, no external bit).
+  assert.equal(readHatch(hatchGroups(0)).loops.length, 2); // Normal: all loops, even-odd
+  assert.equal(readHatch(hatchGroups(1)).loops.length, 2); // Outer: external and outermost
+  assert.equal(readHatch(hatchGroups(2)).loops.length, 1); // Ignore: external only
+  assert.throws(() => readHatch(hatchGroups(3)), /island style/);
+});
+
+test('hatch counts beyond the data are refused, not looped over', () => {
+  const g: Groups = [[70, '0'], [75, '0'], [91, '1'], [92, '1'], [93, '999999999']];
+  assert.throws(() => readHatch(g), /excessive HATCH item count/);
+});
+
+test('a model-only conversion tells the user the scale it was fitted at', async () => {
+  const { report } = await convertCad('fit.dxf', dxf(frame), { fonts });
+  const note = report.warnings.find((w) => w.kind === 'model-fit');
+  assert.ok(note && note.kind === 'model-fit' && note.scale === report.pages[0]!.scale);
 });
