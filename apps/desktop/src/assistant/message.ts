@@ -607,7 +607,7 @@ const TOOLS: ToolDef[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        document: { ...documentProp, description: 'The document a zone action\'s pages are on. The active document when omitted.' },
+        document: { ...documentProp, description: 'The document a zone action\'s pages are on. The active document when omitted. A zone tool runs on that document only: its polygons are that document\'s page positions.' },
         source: { type: 'string', description: 'Your name.' },
         name: { type: 'string' },
         description: { type: 'string', description: 'What it does, in a sentence, for the person deciding whether it is appropriate.' },

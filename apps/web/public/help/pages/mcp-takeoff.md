@@ -63,7 +63,7 @@ The client can suggest which [assembly](#assemblies) fits each measurement, and 
 
 - `set` a fixed value.
 - `copy` the subject, label, layer, page, sheet or a column.
-- name the `zone` the markup is in.
+- name the `zone` the markup is in. Zones are page positions on one document, so a zone tool runs on that document only.
 - map words in the `sheet` title to a value.
 
 **Limits:** rules only, never code. It cannot run until you accept it.

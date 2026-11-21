@@ -141,14 +141,16 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
   }, [current]);
 
   const onKey = (e: KeyboardEvent) => {
+    const t = e.target as HTMLElement;
+    // Typing in a field (a tool's rule, a column name): its keys are its own, Escape included.
+    if (t.closest('input, select, textarea')) return;
     if (e.key === 'Escape') {
       onClose();
       e.preventDefault();
       return;
     }
     if (tab !== 'takeoff') return;
-    const t = e.target as HTMLElement;
-    if (e.ctrlKey || e.metaKey || e.altKey || t.closest('input, select, textarea')) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toLowerCase();
     if (k === 'n' || k === 'j' || e.key === 'ArrowDown') move(1);
     else if (k === 'p' || k === 'k' || e.key === 'ArrowUp') move(-1);

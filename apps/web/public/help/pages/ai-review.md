@@ -71,7 +71,7 @@ To remove a decided column:
 The **Tools** tab is the grouping tool library on this computer. A tool is a rule the AI proposed for reuse on later takeoffs, such as *group doors by fire rating*, *group by level from the sheet title* or *tag what is inside a zone*. A tool is never code. Each one is:
 
 - a **filter**: which markups. It can check the type, subject, label, layer, page, or another column's value.
-- an **action**: the value each picked markup gets in the tool's column. It can set a fixed value, copy the subject, label, layer, page, sheet or a column, use the name of the zone the markup is in, or map words in the sheet title to a value.
+- an **action**: the value each picked markup gets in the tool's column. It can set a fixed value, copy the subject, label, layer, page, sheet or a column, use the name of the zone the markup is in (a zone tool runs only on the document its zones were drawn on), or map words in the sheet title to a value.
 
 Each tool shows what it does, its rule in words, and why the AI made it.
 

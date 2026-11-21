@@ -29,8 +29,7 @@ function proposeGroupingColumn(docs: readonly AssistantDocument[], params: unkno
   if (!type) throw new Error('type has to be choice (a drop-down) or text. Grouping columns are never numbers: they group, and never change a quantity.');
   const { reasoning, confidence } = evidenceOf(args, doc.pageCount);
   if (!reasoning) throw new Error('say how you grouped them (reasoning), so the person can check it');
-  const items = batchItems(args.assignments, 'Give assignments: a list of { id or seq, value, reasoning }.');
-  if (items.length > MAX_ASSIGNMENTS) throw new Error(`That is ${items.length} assignments. The most is ${MAX_ASSIGNMENTS}.`);
+  const items = batchItems(args.assignments, 'Give assignments: a list of { id or seq, value, reasoning }.', MAX_ASSIGNMENTS);
   const seen = new Set<string>();
   const assignments: GroupingAssignment[] = items.map((item, n) => {
     try {
@@ -117,6 +116,8 @@ function proposeGroupingTool(docs: readonly AssistantDocument[], params: unknown
     const doc = findDocument(docs, args.document);
     const bad = action.zones.find((z) => z.pageIndex >= doc.pageCount);
     if (bad) throw new Error(`Zone ${bad.name} is on page ${bad.pageIndex + 1}, past the end of ${doc.name}.`);
+    // They are that document's page coordinates: the tool runs on it only.
+    action = { ...action, document: doc.name };
   }
   const tool: GroupingTool = { id: crypto.randomUUID(), name, description, reasoning, source: sourceName(args.source), createdAt: Date.now(), status: 'proposed', column, filter, action };
   toolLibrary.propose(tool);

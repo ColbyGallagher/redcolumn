@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { LOW_CONFIDENCE, MARKUP_LABELS, type GroupingProposal, type GroupingStatus, type Markup, type MarkupStore } from '@nb/markup';
-import { acceptGrouping, deleteGrouping, editGrouping, groupValues, regroup, rejectGrouping, reopenGrouping } from '../takeoff/groupingColumns';
+import { acceptGrouping, deleteGrouping, editGrouping, groupValues, ownsColumn, regroup, rejectGrouping, reopenGrouping } from '../takeoff/groupingColumns';
 
 interface Props {
   store: MarkupStore;
@@ -154,7 +154,7 @@ function Grouping({ g, store, me, pageLabel, onShow, onMessage }: { g: GroupingP
             {g.accepted ? 'Forget' : 'Delete'}
           </button>
         )}
-        {g.accepted && (
+        {g.accepted && ownsColumn(store, g) && (
           <button type="button" className="btn small" disabled={readOnly} title="Delete the column from the document (markups keep the values stored for it). Undo takes it back." onClick={() => deleteGrouping(store, g.id, true)}>
             Delete Column
           </button>

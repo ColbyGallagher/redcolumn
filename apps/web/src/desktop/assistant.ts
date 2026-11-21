@@ -380,9 +380,9 @@ export function errorText(err: unknown): string {
   return err instanceof Error && err.message ? err.message : 'That markup cannot be changed.';
 }
 
-export function batchItems(raw: unknown, empty: string): Record<string, unknown>[] {
+export function batchItems(raw: unknown, empty: string, max = MAX_BATCH): Record<string, unknown>[] {
   if (!Array.isArray(raw) || raw.length === 0 || raw.some((item) => !item || typeof item !== 'object' || Array.isArray(item))) throw new Error(empty);
-  if (raw.length > MAX_BATCH) throw new Error(`That is ${raw.length} at once. The most is ${MAX_BATCH}: send the rest in another call.`);
+  if (raw.length > max) throw new Error(`That is ${raw.length} at once. The most is ${max}: send the rest in another call.`);
   return raw as Record<string, unknown>[];
 }
 

@@ -12,15 +12,18 @@ import { ruleContext } from './groupingColumns';
 
 const KEY = 'nb.groupingTools';
 
-function load(): GroupingTool[] {
+/** What storage holds, or null when it cannot be read (no storage: the copy here is all there is). */
+function read(): GroupingTool[] | null {
   try {
     const raw = localStorage.getItem(KEY);
     const list = raw ? (JSON.parse(raw) as unknown) : [];
     return Array.isArray(list) ? list.flatMap((t) => sanitizeTool(t) ?? []) : [];
   } catch {
-    return [];
+    return null;
   }
 }
+
+const load = (): GroupingTool[] => read() ?? [];
 
 class ToolLibrary {
   private cache: GroupingTool[] | null = null;
@@ -30,9 +33,21 @@ class ToolLibrary {
     return (this.cache ??= load());
   }
 
+  /** By id, or by name: a tool that may run before a proposed one, before a rejected one. */
   get(idOrName: string): GroupingTool | undefined {
     const wanted = idOrName.trim().toLowerCase();
-    return this.list().find((t) => t.id === idOrName) ?? this.list().find((t) => t.name.trim().toLowerCase() === wanted);
+    const byId = this.list().find((t) => t.id === idOrName);
+    if (byId) return byId;
+    const named = this.list().filter((t) => t.name.trim().toLowerCase() === wanted);
+    const rank = (t: GroupingTool) => (toolRuns(t) ? 0 : t.status === 'accepted' ? 1 : t.status === 'proposed' ? 2 : 3);
+    return named.sort((x, y) => rank(x) - rank(y) || y.createdAt - x.createdAt)[0];
+  }
+
+  /** Read again before each change: another window may have saved since (it shares the storage). */
+  private fresh(): GroupingTool[] {
+    const stored = read();
+    if (stored) this.cache = stored;
+    return this.list();
   }
 
   private save(list: GroupingTool[]) {
@@ -48,11 +63,11 @@ class ToolLibrary {
   /** Adds an AI client's tool, waiting for a person. One with the same name that is still proposed is replaced. */
   propose(tool: GroupingTool) {
     const same = (t: GroupingTool) => t.status === 'proposed' && t.name.trim().toLowerCase() === tool.name.trim().toLowerCase();
-    this.save([...this.list().filter((t) => !same(t)), tool]);
+    this.save([...this.fresh().filter((t) => !same(t)), tool]);
   }
 
   private change(id: string, patch: (t: GroupingTool) => GroupingTool) {
-    this.save(this.list().map((t) => (t.id === id ? patch(t) : t)));
+    this.save(this.fresh().map((t) => (t.id === id ? patch(t) : t)));
   }
 
   accept(id: string, by: string) {
@@ -73,7 +88,7 @@ class ToolLibrary {
   }
 
   delete(id: string) {
-    this.save(this.list().filter((t) => t.id !== id));
+    this.save(this.fresh().filter((t) => t.id !== id));
   }
 
   recordUse(id: string, use: NonNullable<GroupingTool['uses']>[number]) {
@@ -94,6 +109,13 @@ class ToolLibrary {
 
 export const toolLibrary = new ToolLibrary();
 
+// Another window (desktop windows share this storage) changed the library: show its version.
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('storage', (e) => {
+    if (e.key === KEY || e.key === null) toolLibrary.reload();
+  });
+}
+
 export function useToolLibrary(): GroupingTool[] {
   return useSyncExternalStore(toolLibrary.subscribe, () => toolLibrary.list());
 }
@@ -107,6 +129,8 @@ export function useToolLibrary(): GroupingTool[] {
 export function runToolOn(store: MarkupStore, tool: GroupingTool, by: string, documentName: string, ai?: string): GroupingProposal {
   if (!toolRuns(tool)) throw new Error(tool.status !== 'accepted' ? `“${tool.name}” is not accepted yet: a person accepts it in Review AI Takeoff › Tools first.` : `“${tool.name}” is turned off.`);
   if (store.readOnly) throw new Error(`${documentName} is read-only.`);
+  const a = tool.action;
+  if (a.kind === 'zone' && a.document && a.document !== documentName) throw new Error(`“${tool.name}” groups by zones drawn on ${a.document}: they are that document's page positions, so it runs on that document only.`);
   const assignments = runTool(tool, store.all(), ruleContext(store));
   if (!assignments.length) throw new Error(`“${tool.name}” matched nothing on ${documentName}.`);
   const at = Date.now();

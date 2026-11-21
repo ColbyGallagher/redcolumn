@@ -76,13 +76,12 @@ export function acceptGrouping(store: MarkupStore, id: string, by: string): { co
         skipped++;
         continue;
       }
-      const fields = { ...m.fields };
-      if (a.value) fields[column.id] = a.value;
-      else delete fields[column.id];
-      store.update(m.id, { fields: Object.keys(fields).length ? fields : undefined });
+      // No value proposed: whatever the markup has in the column (a person's own) stays.
+      if (!a.value) continue;
+      store.update(m.id, { fields: { ...m.fields, [column.id]: a.value } });
       written++;
     }
-    store.changeAiReview({ columns: [{ ...g, status: 'accepted', accepted: { by, at: Date.now(), columnId: column.id } }] });
+    store.changeAiReview({ columns: [{ ...g, status: 'accepted', accepted: { by, at: Date.now(), columnId: column.id, ...(existing ? {} : { created: true }) } }] });
   });
   return { columnId: column.id, written, skipped };
 }
@@ -102,15 +101,26 @@ export function reopenGrouping(store: MarkupStore, id: string) {
 }
 
 /**
- * Deletes a grouping. An accepted one's column is deleted too (with `withColumn`), as one undo
- * step; the markups keep their stored values, as when a column is deleted by hand.
+ * Whether Delete Column may delete an accepted grouping's column: only one accepting made, and
+ * that no other accepted grouping fills. A column a person made, or shares, is theirs to delete.
+ */
+export function ownsColumn(store: MarkupStore, g: GroupingProposal): boolean {
+  const acc = g.accepted;
+  if (!acc?.created) return false;
+  return !store.aiReview().columns.some((o) => o.id !== g.id && o.accepted?.columnId === acc.columnId);
+}
+
+/**
+ * Deletes a grouping. An accepted one's column is deleted too (with `withColumn`, and only when
+ * `ownsColumn`), as one undo step; the markups keep their stored values, as when a column is
+ * deleted by hand.
  */
 export function deleteGrouping(store: MarkupStore, id: string, withColumn: boolean) {
   const g = groupingById(store, id);
   if (!g) return;
   store.checkpoint();
   store.batch(() => {
-    if (withColumn && g.accepted) {
+    if (withColumn && g.accepted && ownsColumn(store, g)) {
       const set = store.columnSet();
       store.setColumnSet({ ...set, columns: set.columns.filter((c) => c.id !== g.accepted!.columnId) });
     }

@@ -50,8 +50,11 @@ export interface GroupingProposal {
   assignments: GroupingAssignment[];
   /** The tool that made it, when a tool did. */
   toolUse?: ToolUse;
-  /** Set on accepting: the document column it became, and who accepted it. */
-  accepted?: { by: string; at: number; columnId: string };
+  /**
+   * Set on accepting: the document column it became, and who accepted it. `created` when accepting
+   * made the column (not when it filled one of the same name already there).
+   */
+  accepted?: { by: string; at: number; columnId: string; created?: boolean };
   rejected?: { by: string; at: number };
 }
 
@@ -84,7 +87,7 @@ export type RuleAction =
   /** The markup's own subject, label, layer, page number or sheet number, or another column's value. */
   | { kind: 'copy'; from: 'subject' | 'label' | 'layer' | 'page' | 'sheet' | { column: string } }
   /** The name of the zone the markup's centre is in. */
-  | { kind: 'zone'; zones: Zone[]; otherwise?: string }
+  | { kind: 'zone'; zones: Zone[]; otherwise?: string; /** The document the zones were drawn on: they are its page coordinates. */ document?: string }
   /** Sheet titles or numbers mapped to values ("LEVEL 1" → "L1"): the first pattern the sheet's title or number contains. */
   | { kind: 'sheet'; map: { contains: string; value: string }[]; otherwise?: string };
 
@@ -172,7 +175,7 @@ export function checkAction(raw: unknown): RuleAction {
       });
       return { name: z.name.slice(0, 200), pageIndex: z.pageIndex as number, polygon };
     });
-    return { kind: 'zone', zones, ...(typeof raw.otherwise === 'string' ? { otherwise: raw.otherwise.slice(0, 200) } : {}) };
+    return { kind: 'zone', zones, ...(typeof raw.otherwise === 'string' ? { otherwise: raw.otherwise.slice(0, 200) } : {}), ...(typeof raw.document === 'string' && raw.document ? { document: raw.document.slice(0, 500) } : {}) };
   }
   if (raw.kind === 'sheet') {
     if (!Array.isArray(raw.map) || !raw.map.length) throw new Error('a sheet action needs map: [{ contains, value }]');
@@ -225,10 +228,22 @@ export function actionValue(m: Markup, a: RuleAction, ctx: RuleContext): string 
     case 'sheet': {
       const s = ctx.sheets[m.pageIndex];
       const text = `${lower(s?.number)} ${lower(s?.title)}`;
-      const hit = a.map.find((e) => text.includes(lower(e.contains)));
+      const hit = a.map.find((e) => containsWord(text, lower(e.contains)));
       return hit?.value ?? a.otherwise ?? null;
     }
   }
+}
+
+/** `needle` in `text`, not as part of a longer word or number: "level 1" is not in "level 10". */
+function containsWord(text: string, needle: string): boolean {
+  if (!needle) return false;
+  const word = (c: string | undefined) => !!c && /[\p{L}\p{N}]/u.test(c);
+  for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + 1)) {
+    const before = !word(needle[0]) || !word(text[at - 1]);
+    const after = !word(needle[needle.length - 1]) || !word(text[at + needle.length]);
+    if (before && after) return true;
+  }
+  return false;
 }
 
 /** Runs a tool over markups: the grouping it proposes, with a reason per markup. AI drafts are grouped too. */
@@ -237,7 +252,8 @@ export function runTool(tool: Pick<GroupingTool, 'name' | 'filter' | 'action'>, 
   for (const m of markups) {
     if (!matchesFilter(m, tool.filter, ctx)) continue;
     const value = actionValue(m, tool.action, ctx);
-    if (value === null) continue;
+    // No value is no proposal: a markup's own value in the column is never cleared by a tool.
+    if (value === null || !value.trim()) continue;
     out.push({ markupId: m.id, value, reasoning: `${tool.name}: ${describeRuleAction(tool.action)}` });
   }
   return out;
@@ -285,7 +301,7 @@ export function sanitizeGrouping(v: unknown): GroupingProposal | null {
   const t = v.toolUse;
   const toolUse = isObj(t) && typeof t.toolId === 'string' && typeof t.toolName === 'string' && finite(t.at) && typeof t.by === 'string' ? { toolId: t.toolId, toolName: t.toolName.slice(0, 200), at: t.at, by: t.by.slice(0, 200) } : undefined;
   const acc = v.accepted;
-  const accepted = isObj(acc) && typeof acc.by === 'string' && finite(acc.at) && typeof acc.columnId === 'string' ? { by: acc.by, at: acc.at, columnId: acc.columnId } : undefined;
+  const accepted = isObj(acc) && typeof acc.by === 'string' && finite(acc.at) && typeof acc.columnId === 'string' ? { by: acc.by, at: acc.at, columnId: acc.columnId, ...(acc.created === true ? { created: true } : {}) } : undefined;
   const rejected = decision(v.rejected);
   const c = conf(v.confidence);
   const options = Array.isArray(v.options) ? v.options.filter((o): o is string => typeof o === 'string').map((o) => o.slice(0, 200)) : undefined;
