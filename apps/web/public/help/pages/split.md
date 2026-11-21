@@ -8,11 +8,11 @@ Split the drawing area in two to look at two documents (or two parts of the same
 
 1. Choose {{View > Split Vertical}} (or press [[Ctrl+2]]) for left and right panes.
    Choose {{View > Split Horizontal}} (or press [[Ctrl+H]]) for top and bottom panes.
-2. Pick the PDF to show in the second pane and click **Open**.
+2. With two or more files open, the active file stays in one pane and the file you used most recently before it goes in the other. With only one file open, it is shown on both sides and **Synchronise Document** is turned on, so the panes scroll and zoom together. Both views are the same document: a markup you add in one pane appears in the other, and Undo and Save work as usual.
 
 Each pane has its own tabs, zoom and page. Click in a pane to make it the active one: menus and tools work on the active pane.
 
-> **Tip:** You can also right-click a tab and choose **Open in Split View**.
+To show a different file in the second pane, click in it and open the file (or right-click a file in the Files panel and choose **Open in Split View**). You can also right-click a tab and choose **Move to Right Pane**.
 
 ## Move them together (Sync)
 
