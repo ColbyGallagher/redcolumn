@@ -333,7 +333,7 @@ test.describe('view', () => {
     await expect.poll(async () => (await app.command('view.syncDocument')).checked).toBe(true);
     expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
     // Switch Panes has nothing to swap.
-    await app.cmd('view.switchPanes');
+    expect((await app.command('view.switchPanes')).enabled).toBe(false);
     expect(await app.documents()).toHaveLength(1);
     expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
     await app.cmd('view.unsplit');
@@ -357,6 +357,34 @@ test.describe('view', () => {
       .toBe(true);
   });
 
+  test('page edits made in the mirrored right pane keep both panes and the tab in step', async ({ app }) => {
+    await app.tool('rect');
+    await app.drag([300, 450], [350, 500]);
+    await app.cmd('view.split');
+    await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
+    await expect.poll(() => app.page.evaluate(() => !!window.__nb.viewerB?.pageSize(0))).toBe(true);
+    const sizes = () => app.page.evaluate(() => [window.__nb.viewer.pageSize(0), window.__nb.viewerB?.pageSize(0)]);
+    const [before] = await sizes();
+    // Rotate with the right pane active.
+    await app.page.locator('main.stage').nth(1).click({ position: { x: 5, y: 5 } });
+    await app.cmd('document.rotatePages');
+    await expect
+      .poll(async () => {
+        const [a, b] = await sizes();
+        return !!a && !!b && a.width === b.width && a.height === b.height && a.width === before!.height;
+      })
+      .toBe(true);
+    expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
+    // Closing the edited document from the right pane asks about the changes, then closes the tab and ends the split.
+    await app.cmd('file.close');
+    const dialog = app.page.getByRole('dialog', { name: 'Save changes?' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole('button', { name: "Don't Save" }).click();
+    await expect.poll(async () => (await app.documents()).length).toBe(0);
+    await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
+    await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
+  });
+
   for (const from of ['left', 'right'] as const) {
     test(`closing the document from the ${from} pane while mirrored closes both views`, async ({ app }) => {
       await app.cmd('view.split');
@@ -373,7 +401,7 @@ test.describe('view', () => {
     await app.cmd('view.split');
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
     await app.open('plan-rev1.pdf');
-    await app.cmd('view.switchPanes');
+    expect((await app.command('view.switchPanes')).enabled).toBe(false);
     expect(await app.documents()).toHaveLength(2);
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2);
     // Closing from the right pane closes the file in front (plan-rev1.pdf); plan.pdf stays, still split.

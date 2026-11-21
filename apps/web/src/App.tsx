@@ -1752,6 +1752,9 @@ export function App() {
   const tabsRefOf = (pane: Pane) => (pane === 'b' ? tabsBRef : tabsARef);
   const paneParts = (pane: Pane) => ({ c: ctlOf(pane), o: openRefOf(pane).current });
 
+  /** The pane whose tab list holds a pane's documents: a mirrored right pane has no tabs, its document's tab is in the left pane. */
+  const tabPaneOf = (pane: Pane): Pane => (pane === 'b' && mirrorRef.current ? 'a' : pane);
+
   const setTabs = useCallback((pane: Pane, tabs: OpenFile[]) => {
     (pane === 'b' ? tabsBRef : tabsARef).current = tabs;
     (pane === 'b' ? setTabsB : setTabsA)(tabs);
@@ -2393,11 +2396,14 @@ export function App() {
     if (stored) void openStored(stored.file, stored.bytes, 'b');
     const moving = pendingMove.current;
     pendingMove.current = null;
-    if (moving) moveTabRef.current('a', moving);
-    if (moving) setActivePane('a');
-    if (pendingMirror.current && openRef.current) {
+    if (moving) {
+      moveTabRef.current('a', moving);
+      setActivePane('a');
+    }
+    const mirror = pendingMirror.current;
+    pendingMirror.current = false;
+    if (mirror && openRef.current) {
       // One document in both panes (one markup store, two views), kept in step.
-      pendingMirror.current = false;
       mirrorRef.current = true;
       showInPane('b', openRef.current, true);
       setSync('document');
@@ -2406,7 +2412,11 @@ export function App() {
   }, [ctlB, openStored, showInPane]);
 
   useEffect(() => {
-    if (!split) mirrorRef.current = false;
+    if (!split) {
+      mirrorRef.current = false;
+      splitOrigin.current = null;
+      pendingMirror.current = false;
+    }
   }, [split]);
 
   // Load the library (the tabs are reopened above, as Preferences › Options says).
@@ -2465,10 +2475,12 @@ export function App() {
         return;
       }
       await hideImported(next.doc, cur.store);
-      setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? next : t)));
-      // Every pane showing this document, by file: a mirrored right pane has no tab to find it by.
+      const tp = tabPaneOf(pane);
+      setTabs(tp, tabsRefOf(tp).current.map((t) => (t === cur ? next : t)));
+      // Every pane showing this document, by file (a mirrored right pane has no tab to find it by). A tab
+      // that is not in front anywhere only has its tab entry replaced.
       const showing = (['a', 'b'] as const).filter((p) => ctlOf(p) && openRefOf(p).current?.file.id === cur.file.id);
-      for (const p of showing.length ? showing : [pane]) {
+      for (const p of showing) {
         const { tools, viewer } = ctlOf(p)!;
         setFront(p, next);
         tools.setSnapSource(async (pageIndex) => {
@@ -4368,8 +4380,9 @@ export function App() {
         if (renamed) {
           now = { ...cur, file: renamed };
           markSaved(now);
-          setTabs(pane, tabsRefOf(pane).current.map((t) => (t === cur ? now : t)));
-          if (openRefOf(pane).current === cur) setFront(pane, now);
+          const tp = tabPaneOf(pane);
+          setTabs(tp, tabsRefOf(tp).current.map((t) => (t === cur ? now : t)));
+          for (const p of ['a', 'b'] as const) if (openRefOf(p).current?.file.id === cur.file.id) setFront(p, now);
           void refreshLibrary();
         }
       }
@@ -4447,8 +4460,7 @@ export function App() {
    */
   const closeTab = useCallback(
     (pane: Pane, fileId: string) => {
-      // A mirrored right pane has no tabs of its own: its document's tab is in the left pane.
-      if (pane === 'b' && mirrorRef.current) pane = 'a';
+      pane = tabPaneOf(pane);
       const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
       const idx = tabs.findIndex((t) => t.file.id === fileId);
       if (idx < 0) return;
@@ -4534,7 +4546,7 @@ export function App() {
    */
   const requestCloseTab = useCallback(
     async (pane: Pane, fileId: string): Promise<boolean> => {
-      if (pane === 'b' && mirrorRef.current) pane = 'a';
+      pane = tabPaneOf(pane);
       if (!(await settleUnsaved(pane, fileId))) return false;
       closeTab(pane, fileId);
       return true;
@@ -8881,12 +8893,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       showPanel('bookmarks');
     },
     cycleDocument: (dir) => {
-      const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
-      const front = pane === 'b' ? openBRef.current : openRef.current;
+      const tp = tabPaneOf(pane);
+      const tabs = tp === 'b' ? tabsBRef.current : tabsARef.current;
+      const front = tp === 'b' ? openBRef.current : openRef.current;
       if (tabs.length < 2 || !front) return;
       const i = tabs.findIndex((t) => t.file.id === front.file.id);
       const next = tabs[(i + dir + tabs.length) % tabs.length];
-      if (next) activateTab(pane, next);
+      if (next) activateTab(tp, next);
     },
     align: (how) => activeTools?.alignSelected(how),
     nudge: (dx, dy, large) => activeTools?.nudgeScreen(dx, dy, large),
@@ -9369,6 +9382,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     canUndo: !!activeOpen && activeOpen.store.undoHistory().length > 0,
     split,
     splitHorizontal,
+    mirrored: mirrorRef.current,
     sync,
     columns: spread.columns,
     cover: spread.cover,
@@ -9391,7 +9405,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     showBottom: bottomOpen,
     tool: toolsState.tool,
     settings: prefs,
-    openTabCount: (pane === 'b' && !mirrorRef.current ? tabsB : tabsA).length,
+    openTabCount: (tabPaneOf(pane) === 'b' ? tabsB : tabsA).length,
     leftTab,
     rightTab,
     bottomTab,
