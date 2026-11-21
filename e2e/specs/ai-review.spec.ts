@@ -84,3 +84,44 @@ test.describe('Review AI Takeoff', () => {
     expect(Object.fromEntries(listed.drafts.map((d) => [d.id, d.state]))).toEqual({ [sure]: 'approved', [unsure]: 'pending' });
   });
 });
+
+test.describe('Review AI Takeoff: grouping columns and tools', () => {
+  test.beforeEach(async ({ app }) => {
+    await app.open('plan.pdf');
+  });
+
+  test('a grouping column is renamed, regrouped and accepted; a tool runs only once accepted', async ({ app }) => {
+    const { page } = app;
+    await app.assistant('place_markups', { page: 1, markups: [{ type: 'rect', points: [[100, 100], [150, 150]], subject: 'Door' }, { type: 'rect', points: [[300, 100], [350, 150]], subject: 'Door' }] });
+    const [a, b] = (await app.markups()).map((m) => m.id) as [string, string];
+    await app.assistant('propose_grouping_column', { source: 'Claude', name: 'Zone', reasoning: 'Left and right of the corridor', assignments: [{ id: a, value: 'West', reasoning: 'left of the corridor' }, { id: b, value: 'West' }] });
+    const review = page.getByRole('complementary', { name: 'Review AI takeoff' });
+    await expect(review).toBeVisible();
+    await review.getByRole('tab', { name: /Columns/ }).click();
+    // Located by position: its name (and so its label) changes below.
+    const card = review.locator('.takeoff-proposal').first();
+    await expect(card).toHaveAttribute('aria-label', 'Grouping column: Zone');
+    await expect(card).toContainText('left of the corridor');
+    await expect(card.locator('.tp-state')).toHaveText('Proposed');
+    await card.getByLabel('Column name').fill('Wing');
+    await card.getByLabel('Group').nth(1).fill('East');
+    await expect(card.locator('.tp-state')).toHaveText('In review');
+    await expect(card).toHaveAttribute('aria-label', 'Grouping column: Wing');
+    await card.getByRole('button', { name: 'Accept Column' }).click();
+    await expect.poll(async () => (await app.markups()).map((m) => m.fields?.Wing)).toEqual(['West', 'East']);
+
+    // A tool: proposed, it cannot run; accepted, a run proposes a column for review.
+    await app.assistant('propose_grouping_tool', { source: 'Claude', name: 'Doors', description: 'Every door in one group', reasoning: 'Doors are priced together', column: 'Trade', filter: { subject: 'Door' }, action: { kind: 'set', value: 'Joinery' } });
+    await review.getByRole('tab', { name: /Tools/ }).click();
+    const tool = review.getByRole('article', { name: 'Tool: Doors' });
+    await expect(tool).toContainText('subject contains “Door” → Trade: set to “Joinery”');
+    await expect(tool.getByRole('button', { name: 'Run on This Document' })).toHaveCount(0);
+    await tool.getByRole('button', { name: 'Accept Tool' }).click();
+    await tool.getByRole('button', { name: 'Run on This Document' }).click();
+    // It lands on the Columns tab, marked with the tool that made it.
+    const made = review.getByRole('article', { name: 'Grouping column: Trade' });
+    await expect(made).toContainText('made by the tool “Doors”');
+    await expect(made.locator('.tp-state')).toHaveText('Proposed');
+    expect((await app.markups()).map((m) => m.fields?.Trade)).toEqual([undefined, undefined]);
+  });
+});

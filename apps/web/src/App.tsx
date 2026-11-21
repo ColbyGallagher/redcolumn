@@ -78,6 +78,7 @@ import { pageReadings } from './measure/scaleCheck';
 import { proposeViews } from './measure/viewScales';
 import { migrateLocalProposals } from './assemblies/proposals';
 import { waitingKeys as aiWaitingKeys } from './takeoff/aiReview';
+import { toolLibrary } from './takeoff/toolLibrary';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -6391,6 +6392,20 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const activeStudioDoc = studioDocOf(activeOpen?.file.id);
   const activeReadOnly = useSyncExternalStore(activeOpen ? (l) => activeOpen.store.subscribe(l) : noSubscribe, () => activeOpen?.store.readOnly ?? false);
 
+  // A grouping tool an AI client proposes for the library opens the review too.
+  useEffect(() => {
+    const proposed = () => toolLibrary.list().filter((t) => t.status === 'proposed').length;
+    let seen = proposed();
+    return toolLibrary.subscribe(() => {
+      const now = proposed();
+      if (now > seen) {
+        setTakeoffReviewOpen(true);
+        setNotice('An AI client proposed a grouping tool. Review it in Takeoff › Review AI Takeoff › Tools: it cannot run until you accept it.');
+      }
+      seen = now;
+    });
+  }, []);
+
   // AI results (drafts, assembly and count proposals) open Review AI Takeoff, so a person sees them straight away.
   useEffect(() => {
     if (!activeOpen) return;
@@ -11878,6 +11893,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             viewer.zoomToRect({ x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 }, 1, pageIndex);
           }}
           onShowPage={(pageIndex) => (activePaneRef.current === 'b' && ctlB ? ctlB.viewer : ctl?.viewer)?.goToPage(pageIndex)}
+          documentName={activeOpen.file.name}
           onMessage={setNotice}
           onClose={() => setTakeoffReviewOpen(false)}
         />

@@ -86,17 +86,18 @@ export function reviewItems(store: MarkupStore, threshold = LOW_CONFIDENCE): Rev
   return items.sort((a, b) => rank(a.state) - rank(b.state) || (a.confidence ?? -1) - (b.confidence ?? -1) || (a.pageIndex ?? 1e9) - (b.pageIndex ?? 1e9) || a.at - b.at);
 }
 
-/** The AI results waiting for a person, by `ReviewItem.key`. */
+/** The AI results waiting for a person, by `ReviewItem.key` (grouping columns as `column:id`). */
 export function waitingKeys(store: MarkupStore): Set<string> {
   const review = store.aiReview();
   const out = new Set<string>();
   for (const m of store.all()) if (isAiDraft(m)) out.add(`draft:${m.id}`);
   for (const p of review.takeoff) if (takeoffState(p, store.get(p.markupId)) === 'pending') out.add(`assembly:${p.id}`);
   for (const c of review.counts) if (countStateOf(c, store) === 'pending') out.add(`count:${c.id}`);
+  for (const g of review.columns) if (g.status === 'proposed' || g.status === 'review') out.add(`column:${g.id}`);
   return out;
 }
 
-/** How many AI results are waiting for a person. */
+/** How many AI results are waiting for a person: drafts, proposals and grouping columns. */
 export function waitingCount(store: MarkupStore): number {
   return waitingKeys(store).size;
 }

@@ -13,7 +13,7 @@ import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
 import { TYPE_INFO } from './types';
 import { unchangedSinceImport } from './digest';
-import { aiReviewFromEntries, aiReviewKey, EMPTY_AI_REVIEW, remapAiOrigin, remapAiReview, sanitizeAiReview, type AiReviewChange, type AiReviewData } from './aiReview';
+import { aiReviewEntries, aiReviewFromEntries, aiReviewKey, EMPTY_AI_REVIEW, remapAiOrigin, remapAiReview, sanitizeAiReview, type AiReviewChange, type AiReviewData } from './aiReview';
 import { orphanedLinks, planPortalSync, relinkPlan, remapPortals, sanitizePortals, type MarkupChange, type Portal } from './portals';
 
 /** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
@@ -924,16 +924,8 @@ export class MarkupStore {
         // write back only the entries that changed, so a peer's decision on another one is kept.
         const was = aiReviewFromEntries(this.aiReviewMap.entries());
         const next = remapAiReview(was, to, turn, turnRect, (m, n) => ({ ...m, pageIndex: n, ...mapGeometry(m, (p) => turn(m.pageIndex, p)) }));
-        const keep = new Map<string, unknown>([
-          ...next.takeoff.map((p) => [aiReviewKey('takeoff', p.id), p] as const),
-          ...next.counts.map((p) => [aiReviewKey('counts', p.id), p] as const),
-          ...next.rejected.map((r) => [aiReviewKey('rejected', r.markup.id), r] as const),
-        ]);
-        const old = new Map<string, unknown>([
-          ...was.takeoff.map((p) => [aiReviewKey('takeoff', p.id), p] as const),
-          ...was.counts.map((p) => [aiReviewKey('counts', p.id), p] as const),
-          ...was.rejected.map((r) => [aiReviewKey('rejected', r.markup.id), r] as const),
-        ]);
+        const keep = aiReviewEntries(next);
+        const old = aiReviewEntries(was);
         for (const key of old.keys()) if (!keep.has(key)) this.aiReviewMap.delete(key);
         for (const [key, v] of keep) if (JSON.stringify(v) !== JSON.stringify(old.get(key))) this.aiReviewMap.set(key, structuredClone(v));
       }
@@ -1201,6 +1193,7 @@ export class MarkupStore {
     for (const p of change.takeoff ?? []) this.aiReviewMap.set(aiReviewKey('takeoff', p.id), structuredClone(p));
     for (const p of change.counts ?? []) this.aiReviewMap.set(aiReviewKey('counts', p.id), structuredClone(p));
     for (const r of change.rejected ?? []) this.aiReviewMap.set(aiReviewKey('rejected', r.markup.id), structuredClone(r));
+    for (const g of change.columns ?? []) this.aiReviewMap.set(aiReviewKey('columns', g.id), structuredClone(g));
     for (const [kind, ids] of Object.entries(change.remove ?? {}) as [keyof AiReviewData, string[]][]) for (const id of ids) this.aiReviewMap.delete(aiReviewKey(kind, id));
   }
 
