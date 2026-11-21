@@ -2992,8 +2992,82 @@
   width: 100%;
 }
 
-.stamp-field-row input {
+.stamp-field-row input,
+.stamp-field-row textarea {
   flex: 1;
+}
+
+.stamp-field-row > span {
+  min-width: 64px;
+}
+
+/* A picture stamp's texts: one row each, and handles over the preview to drag them into place. */
+.stamps-dialog .form-grid > label:has(+ .stamp-art-texts) {
+  align-self: start;
+  padding-top: 6px;
+}
+
+.stamp-art-texts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stamp-art-text {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.stamp-art-text > input:first-child {
+  flex: 1;
+  min-width: 80px;
+}
+
+.stamp-art-text input[type='number'] {
+  width: 52px;
+}
+
+.stamp-art-bold {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: bold;
+}
+
+.stamp-art-positioner {
+  position: relative;
+}
+
+.stamp-field-warning {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.stamp-field-head input[aria-invalid='true'] {
+  border-color: #b91c1c;
+}
+
+.stamp-field-check input {
+  flex: none;
+}
+
+.stamp-art-handle {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed var(--accent);
+  cursor: move;
+  touch-action: none;
+}
+
+.stamp-art-handle:hover,
+.stamp-art-handle:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  outline: none;
 }
 
 .stamp-options {

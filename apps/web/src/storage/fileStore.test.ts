@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { contentHash, listFiles, replaceFileContent, saveFile } from './fileStore.ts';
+import { contentHash, hideFromRecents, listFiles, replaceFileContent, saveFile, touchFile } from './fileStore.ts';
 
 /** An in-memory stand-in for the Origin Private File System the library keeps its files in. */
 function opfs() {
@@ -103,4 +103,15 @@ test('a host-supplied id nobody has yet opens a new entry under it', async () =>
   assert.equal(stored.id, 'host-record-9');
   assert.equal(stored.hash, await sha256(a));
   assert.equal((await listFiles()).length, 1);
+});
+
+test('a file taken off the recent list stays on the device and returns to the list when opened again', async () => {
+  opfs();
+  const first = await saveFile('A-101.pdf', a);
+  const second = await saveFile('A-102.pdf', b);
+  await hideFromRecents([first.id, second.id]);
+  assert.deepEqual((await listFiles()).map((f) => [f.name, f.recentHidden]).sort(), [['A-101.pdf', true], ['A-102.pdf', true]]);
+  await touchFile(first.id);
+  await saveFile('A-102.pdf', b);
+  assert.deepEqual((await listFiles()).map((f) => f.recentHidden), [undefined, undefined]);
 });

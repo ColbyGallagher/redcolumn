@@ -92,6 +92,8 @@ export interface MenuBarProps {
     update?: () => void;
     placeStamp: (id: string) => void;
     openRecent: (id: string) => void;
+    /** Takes every file off the Open Recent list (they stay on the device). */
+    clearRecents?: () => void;
     switchProfile: (id: string) => void;
     showLeft: (tab: LeftTab) => void;
     showBottom: (tab: BottomTab) => void;
@@ -314,7 +316,15 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
               {recents.length === 0 ? (
                 <Item label="No recent files" disabled />
               ) : (
-                recents.map((f) => <Item key={f.id} label={f.name} onClick={run(() => on.openRecent(f.id))} />)
+                <>
+                  {recents.map((f) => <Item key={f.id} label={f.name} onClick={run(() => on.openRecent(f.id))} />)}
+                  {on.clearRecents && (
+                    <>
+                      <Sep />
+                      <Item label="Clear Recent Files" onClick={run(() => on.clearRecents?.())} />
+                    </>
+                  )}
+                </>
               )}
             </Submenu>
             <Submenu label="Create">

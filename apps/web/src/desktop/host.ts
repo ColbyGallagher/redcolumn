@@ -95,6 +95,8 @@ export interface RedcolumnDesktop {
   readToken(token: string): Promise<Uint8Array>;
   writeToken(token: string, data: Uint8Array): Promise<boolean>;
   showInFolder(token: string): Promise<boolean>;
+  /** False when the file has been moved, renamed or deleted since. Absent in desktop apps from before the check. */
+  tokenExists?(token: string): Promise<boolean>;
   /** Drops a remembered path, for a document removed from this device. */
   forgetToken(token: string): Promise<boolean>;
   takeLaunchFiles(): Promise<DesktopToken[]>;
