@@ -13,6 +13,7 @@ import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
 import { TYPE_INFO } from './types';
 import { unchangedSinceImport } from './digest';
+import { aiReviewFromEntries, aiReviewKey, EMPTY_AI_REVIEW, remapAiOrigin, remapAiReview, sanitizeAiReview, type AiReviewChange, type AiReviewData } from './aiReview';
 import { orphanedLinks, planPortalSync, relinkPlan, remapPortals, sanitizePortals, type MarkupChange, type Portal } from './portals';
 
 /** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
@@ -86,6 +87,8 @@ export interface ImportedExtras {
   pageCount?: number;
   /** Portals the file was saved with (/NBPortals); taken when the document has none. */
   portals?: Portal[];
+  /** AI proposals waiting for review the file was saved with (/NBAIReview); taken when the document has none. */
+  aiReview?: AiReviewData;
   /** The file's map registrations (geospatial PDFs); replaces those recorded before. */
   geo?: GeoRegion[];
 }
@@ -145,6 +148,8 @@ const DETECTION = Symbol('detection');
 const NUMBERING = Symbol('numbering');
 /** The copies a portal keeps in step with a local edit: undone with it, and never synced again in turn. */
 const PORTAL = Symbol('portal');
+/** What an AI client adds through the assistant for a person to review: saved and synced, never undone by the person's Undo. */
+const AI = Symbol('ai');
 const NO_PORTALS: Portal[] = [];
 
 /**
@@ -177,6 +182,8 @@ export class MarkupStore {
   readonly outline: Y.Map<unknown>;
   /** Small document-level flags (e.g. whether link detection has run). */
   readonly meta: Y.Map<unknown>;
+  /** AI proposals waiting for review and rejected AI drafts, one entry each (see `aiReview.ts`). */
+  readonly aiReviewMap: Y.Map<unknown>;
   /** The file contents the markups belong to (`current`: a {@link FileState}), so undo can step over file changes. */
   readonly files: Y.Map<FileState>;
   private fileStepping = false;
@@ -197,6 +204,7 @@ export class MarkupStore {
   private geoSnapshot: GeoRegion[] = NO_GEO;
   private portalRaw: unknown = undefined;
   private portalSnapshot: Portal[] = NO_PORTALS;
+  private aiReviewSnapshot: AiReviewData = EMPTY_AI_REVIEW;
   /** The document's page count when known (portals' pages past it are ignored). */
   private pageCount: number | undefined = undefined;
   private columnRaw: unknown = undefined;
@@ -224,10 +232,11 @@ export class MarkupStore {
     this.outline = this.doc.getMap('outline');
     this.viewports = this.doc.getMap<Viewport>('viewports');
     this.files = this.doc.getMap<FileState>('files');
-    this.undoManager = new Y.UndoManager([this.map, this.scales, this.sheets, this.links, this.outline, this.viewports, this.files, this.meta], { trackedOrigins: new Set<unknown>([LOCAL, PORTAL]), captureTimeout: 300 });
+    this.aiReviewMap = this.doc.getMap('aiReview');
+    this.undoManager = new Y.UndoManager([this.map, this.scales, this.sheets, this.links, this.outline, this.viewports, this.files, this.meta, this.aiReviewMap], { trackedOrigins: new Set<unknown>([LOCAL, PORTAL]), captureTimeout: 300 });
     // Each undo step is labelled with what it did, for the Undo History list.
     const label = (event: { stackItem: { meta: Map<unknown, unknown> }; changedParentTypes: Map<Y.AbstractType<Y.YEvent<never>>, Y.YEvent<never>[]> }) => {
-      const text = event.changedParentTypes.has(this.files as never) ? (this.files.get('current')?.label || 'Change document') : describeChange(event.changedParentTypes, this.map, this.scales, this.viewports, this.outline, this.meta);
+      const text = event.changedParentTypes.has(this.files as never) ? (this.files.get('current')?.label || 'Change document') : describeChange(event.changedParentTypes, this.map, this.scales, this.viewports, this.outline, this.meta, this.aiReviewMap);
       const had = event.stackItem.meta.get('label') as string | undefined;
       // Changes merged into one step (typing, dragging) keep the first description unless it said less.
       if (!had || had === 'Edit') event.stackItem.meta.set('label', text);
@@ -245,7 +254,7 @@ export class MarkupStore {
     this.persistence = persist ? persistenceFactory(`nb-markups-${fileHash}`, this.doc) : null;
     this.doc.on('afterTransaction', (tr: Y.Transaction) => {
       // Edits made here, and undoing or redoing them (not loading, detection or other people's edits).
-      if (tr.changed.size && (tr.origin === LOCAL || tr.origin === PORTAL || tr.origin === this.undoManager)) this.edits++;
+      if (tr.changed.size && (tr.origin === LOCAL || tr.origin === PORTAL || tr.origin === AI || tr.origin === this.undoManager)) this.edits++;
       // Portals: what this edit means for the other copies, worked out against the markups before it.
       const portalChanges = tr.origin === LOCAL && !this.fileStepping && this.portalSnapshot.length ? this.changedMarkups(tr) : null;
       if (tr.changed.size) this.refresh(tr.changed);
@@ -328,6 +337,8 @@ export class MarkupStore {
     if (has(this.sheets)) this.sheetSnapshot = Object.fromEntries([...this.sheets.entries()].map(([k, v]) => [Number(k), v]));
     if (has(this.links)) this.linkSnapshot = [...this.links.values()];
     if (has(this.viewports)) this.viewportSnapshot = [...this.viewports.values()];
+    // Checked as it is read: Live Session peers write this map too.
+    if (has(this.aiReviewMap)) this.aiReviewSnapshot = this.aiReviewMap.size ? aiReviewFromEntries(this.aiReviewMap.entries(), this.pageCount) : EMPTY_AI_REVIEW;
     if (has(this.meta)) {
       this.stitchSnapshot = (this.meta.get('stitch') as StoredStitchGroup[] | undefined) ?? NO_STITCH;
       const manual = this.meta.get('manualStitch') as StoredManualStitch | undefined;
@@ -832,6 +843,7 @@ export class MarkupStore {
       if (extras.estimating) this.writeEstimating(mergeEstimating(this.estimating(), extras.estimating));
       if (extras.pageCount !== undefined) this.pageCount = extras.pageCount;
       if (extras.portals?.length && !this.meta.has('portals')) this.meta.set('portals', sanitizePortals(extras.portals, this.pageCount));
+      if (extras.aiReview && !this.aiReviewMap.size) this.applyAiReview({ ...sanitizeAiReview(extras.aiReview, this.pageCount) });
       // Copies whose portal the file does not have (or no longer links their page) are ordinary markups.
       this.stripOrphanLinks(sanitizePortals(this.meta.get('portals'), this.pageCount));
       this.meta.set('importedAnnotations', imported);
@@ -868,7 +880,8 @@ export class MarkupStore {
         const n = to(m.pageIndex);
         if (n === null) this.map.delete(id);
         else {
-          const next: Markup = { ...m, pageIndex: n, ...mapGeometry(m, (p) => turn(m.pageIndex, p)) };
+          const moved: Markup = { ...m, pageIndex: n, ...mapGeometry(m, (p) => turn(m.pageIndex, p)) };
+          const next: Markup = m.ai ? remapAiOrigin(moved, m.pageIndex, to, turn, turnRect) : moved;
           // Hyperlinks to a page follow it; one whose target page was deleted loses its action.
           if (m.link?.kind === 'page') {
             const t = to(m.link.pageIndex);
@@ -906,6 +919,10 @@ export class MarkupStore {
       this.meta.set('importedSpaces', spaces);
       this.meta.delete('stitch');
       if (this.meta.has('manualStitch')) this.meta.set('manualStitch', mapManualStitch(this.manualStitchSnapshot, to, turn));
+      if (this.aiReviewMap.size) {
+        this.aiReviewMap.clear();
+        this.applyAiReview({ ...remapAiReview(this.aiReviewSnapshot, to, turn, turnRect, (m, n) => ({ ...m, pageIndex: n, ...mapGeometry(m, (p) => turn(m.pageIndex, p)) })) });
+      }
       if (this.meta.has('portals')) {
         const portals = remapPortals(this.portalSnapshot, to);
         if (portals.length) this.meta.set('portals', portals);
@@ -1149,6 +1166,28 @@ export class MarkupStore {
   /** The document's portals (Experimental; stable until they change). */
   portals(): Portal[] {
     return this.portalSnapshot;
+  }
+
+  /** AI proposals waiting for review, and the AI drafts a person rejected (see `aiReview.ts`). */
+  aiReview(): AiReviewData {
+    return this.aiReviewSnapshot;
+  }
+
+  /**
+   * Adds, replaces or removes entries of the document's AI review list. `byAi`: an AI client added to it, which is saved and
+   * synced but is not a step the person's Undo takes back; a person's decisions are undoable, and
+   * inside `batch` join its step (approving a count with the markups it places).
+   */
+  changeAiReview(change: AiReviewChange, byAi = false) {
+    if (this.locked) return;
+    this.doc.transact(() => this.applyAiReview(change), byAi ? AI : LOCAL);
+  }
+
+  private applyAiReview(change: AiReviewChange) {
+    for (const p of change.takeoff ?? []) this.aiReviewMap.set(aiReviewKey('takeoff', p.id), structuredClone(p));
+    for (const p of change.counts ?? []) this.aiReviewMap.set(aiReviewKey('counts', p.id), structuredClone(p));
+    for (const r of change.rejected ?? []) this.aiReviewMap.set(aiReviewKey('rejected', r.markup.id), structuredClone(r));
+    for (const [kind, ids] of Object.entries(change.remove ?? {}) as [keyof AiReviewData, string[]][]) for (const id of ids) this.aiReviewMap.delete(aiReviewKey(kind, id));
   }
 
   /**
@@ -1489,6 +1528,7 @@ function describeChange(
   viewports: Y.Map<Viewport>,
   outline: Y.Map<unknown>,
   meta: Y.Map<unknown>,
+  aiReview: Y.Map<unknown>,
 ): string {
   const ev = changed.get(markups as never)?.[0] as Y.YMapEvent<Markup> | undefined;
   if (ev) {
@@ -1519,6 +1559,7 @@ function describeChange(
   if (changed.has(scales as never)) return 'Set scale';
   if (changed.has(viewports as never)) return 'Change viewports';
   if (changed.has(outline as never)) return 'Edit bookmarks';
+  if (changed.has(aiReview as never)) return 'Review AI takeoff';
   if (changed.has(meta as never)) {
     const keys = (changed.get(meta as never)?.[0] as Y.YMapEvent<unknown> | undefined)?.keysChanged;
     return keys?.has('assemblies') ? 'Edit assemblies' : keys?.has('items') ? 'Edit items' : keys?.has('productLists') ? 'Edit product lists' : keys?.has('templates') ? 'Edit takeoff templates' : keys?.has('manualStitch') ? 'Edit stitching' : keys?.has('geo') ? 'Georeference page' : keys?.has('portals') ? 'Edit portals' : 'Edit columns';

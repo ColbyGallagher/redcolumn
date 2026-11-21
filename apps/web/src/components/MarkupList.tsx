@@ -1122,8 +1122,8 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                     key={m.id}
                     data-id={m.id}
                     data-key={m.id}
-                    className={`${selected.has(m.id) ? 'selected' : ''}${line.nested ? ' nested-row' : ''}${missing.size ? ' has-missing' : ''}${m.hidden ? ' hidden-markup' : ''}`}
-                    title={m.hidden ? 'Hidden on the page (right-click › Show)' : undefined}
+                    className={`${selected.has(m.id) ? 'selected' : ''}${line.nested ? ' nested-row' : ''}${missing.size ? ' has-missing' : ''}${m.hidden ? ' hidden-markup' : ''}${m.ai?.status === 'pending' ? ' ai-draft' : ''}`}
+                    title={m.hidden ? 'Hidden on the page (right-click › Show)' : m.ai?.status === 'pending' ? `AI draft from ${m.ai.source}: left out of quantities until approved (Takeoff › Review AI Takeoff)` : undefined}
                     onMouseDown={(e) => onRowPointer(m.id, e, !!line.nested)}
                     onContextMenu={(e) => {
                       e.preventDefault();

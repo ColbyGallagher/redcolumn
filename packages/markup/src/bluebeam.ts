@@ -8,6 +8,7 @@ import { METERS_PER_UNIT, type LengthUnit, type Scale } from '@nb/measure';
 import type { ColumnType, CustomColumn, MarkupStatusDef } from './columns';
 import type { Assembly } from './assemblies';
 import type { Portal } from './portals';
+import type { AiReviewData } from './aiReview';
 import type { Estimating } from './estimating';
 import type { Markup, MarkupStyle, Point, Rect } from './model';
 import { MAX_FONT_STRING, familyFromPdfName, findLengths, trimQuotesAndSpace, type FontFamily } from './fonts';
@@ -74,6 +75,8 @@ export interface PdfExtras {
   estimating?: Estimating;
   /** The document's portals, as saved by this app (/NBPortals). */
   portals?: Portal[];
+  /** AI proposals waiting for review, as saved by this app (/NBAIReview). */
+  aiReview?: AiReviewData;
   /** Other tools' stamps drawn to pictures (PNG data URLs), by `pageIndex:annotIndex`. */
   appearances?: Map<string, string>;
 }

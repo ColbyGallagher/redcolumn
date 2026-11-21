@@ -56,7 +56,7 @@ Choose {{Tools > Takeoff > Takeoff Quantities…}} to add up every measurement's
 
 ## Review a takeoff an AI proposed
 
-In the desktop app, an AI client connected through the local MCP server (File › Preferences › MCP) can **propose** a takeoff: which assembly each measurement should use, why, and the quantities it expects. A proposal changes nothing. It waits for you in {{Tools > Takeoff > Review AI Proposals…}}, a panel beside the sheet that opens by itself when proposals arrive.
+In the desktop app, an AI client connected through the local MCP server (File › Preferences › MCP) can **propose** a takeoff: which assembly each measurement should use, why, and the quantities it expects. A proposal changes nothing. It waits for you in {{Tools > Takeoff > Review AI Takeoff…}}, a panel beside the sheet that opens by itself when proposals arrive.
 
 For each proposal you see the measurement (click its name to show it on the sheet), the proposed assembly, its variables, each item's formula and quantity, and the AI's reasoning. Where the AI expected a different quantity than the assembly works out, it is marked ⚠.
 

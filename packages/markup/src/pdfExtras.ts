@@ -1,7 +1,8 @@
 import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, PDFRef, type PDFObject } from 'pdf-lib';
 import { arr, dict, nameOf, num, PdfName, refNum, str, type PdfDictValue, type PdfExtras, type PdfPageExtras, type PdfValue } from './bluebeam';
 import { toPdfValue } from './pdfValue';
-import { ASSEMBLIES_KEY, ESTIMATING_KEY, PORTALS_KEY, pageMatrix } from './export';
+import { AI_REVIEW_KEY, ASSEMBLIES_KEY, ESTIMATING_KEY, PORTALS_KEY, pageMatrix } from './export';
+import { isEmptyAiReview, sanitizeAiReview, type AiReviewData } from './aiReview';
 import { sanitizePortals, type Portal } from './portals';
 import { sanitizeAssemblies, type Assembly } from './assemblies';
 import { sanitizeEstimating, type Estimating } from './estimating';
@@ -75,7 +76,8 @@ export async function readPdfExtras(bytes: ArrayBuffer | Uint8Array): Promise<Pd
   const assemblies = readAssemblies(str(value(doc.catalog.get(PDFName.of(ASSEMBLIES_KEY)), ASSEMBLIES_KEY, 0)));
   const estimating = readEstimating(str(value(doc.catalog.get(PDFName.of(ESTIMATING_KEY)), ESTIMATING_KEY, 0)));
   const portals = readPortals(str(value(doc.catalog.get(PDFName.of(PORTALS_KEY)), PORTALS_KEY, 0)), pages.length);
-  return { pages, ocgNames, columns, statusDefs, images, ...(assemblies.length ? { assemblies } : {}), ...(estimating ? { estimating } : {}), ...(portals.length ? { portals } : {}) };
+  const aiReview = readAiReview(str(value(doc.catalog.get(PDFName.of(AI_REVIEW_KEY)), AI_REVIEW_KEY, 0)), pages.length);
+  return { pages, ocgNames, columns, statusDefs, images, ...(assemblies.length ? { assemblies } : {}), ...(estimating ? { estimating } : {}), ...(portals.length ? { portals } : {}), ...(aiReview ? { aiReview } : {}) };
 }
 
 /** The /BBox of an annotation's normal appearance stream, or null. */
@@ -101,6 +103,16 @@ function readEstimating(json: string | null): Estimating | null {
   try {
     const out = sanitizeEstimating(JSON.parse(json));
     return out.items.length || out.productLists.length || out.templates.length ? out : null;
+  } catch {
+    return null;
+  }
+}
+
+function readAiReview(json: string | null, pageCount: number): AiReviewData | null {
+  if (!json) return null;
+  try {
+    const out = sanitizeAiReview(JSON.parse(json), pageCount);
+    return isEmptyAiReview(out) ? null : out;
   } catch {
     return null;
   }

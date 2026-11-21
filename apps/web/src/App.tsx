@@ -76,8 +76,8 @@ import { SheetScaleReview } from './components/SheetScaleReview';
 import { isNotToScale, scaleReviewRows, type PageScan } from './measure/scaleReview';
 import { pageReadings } from './measure/scaleCheck';
 import { proposeViews } from './measure/viewScales';
-import { stateOf as proposalState, takeoffProposals } from './assemblies/proposals';
-import { countProposals, countStateOf } from './assemblies/countProposals';
+import { migrateLocalProposals } from './assemblies/proposals';
+import { waitingCount as aiWaitingCount } from './takeoff/aiReview';
 import type { MeasureDefaults } from './components/MeasurementsPanel';
 import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
@@ -845,6 +845,7 @@ async function annotatedBytes(
     assemblies: cur.store.assemblies(),
     estimating: cur.store.estimating(),
     portals: cur.store.portals(),
+    aiReview: cur.store.aiReview(),
     places: cur.store.places(),
     // Sheet numbers become the PDF's page labels, so other readers show them too.
     pageLabels: cur.doc.pages.map((_, i) => cur.store.allSheets()[i]?.number || null),
@@ -5072,6 +5073,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                 assemblies: store.assemblies(),
                 estimating: store.estimating(),
                 portals: store.portals(),
+                aiReview: store.aiReview(),
                 places: store.places(),
               },
             );
@@ -6386,40 +6388,24 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const activeStudioDoc = studioDocOf(activeOpen?.file.id);
   const activeReadOnly = useSyncExternalStore(activeOpen ? (l) => activeOpen.store.subscribe(l) : noSubscribe, () => activeOpen?.store.readOnly ?? false);
 
-  // Takeoff proposals from an AI client open Takeoff Review, so a person sees them straight away.
-  const activeHash = activeOpen?.store.fileHash ?? null;
+  // AI results (drafts, assembly and count proposals) open Review AI Takeoff, so a person sees them straight away.
   useEffect(() => {
-    if (!activeHash || !activeOpen) return;
+    if (!activeOpen) return;
     const store = activeOpen.store;
-    const waiting = () => takeoffProposals.list(activeHash).filter((p) => proposalState(p, store.get(p.markupId)) === 'pending').length;
-    let seen = waiting();
+    // Proposals from before they were kept in the document move into it.
+    migrateLocalProposals(store);
+    let seen = aiWaitingCount(store);
     // Ones that came while another document was in front are mentioned once it is.
-    if (seen) setNotice(`${seen} takeoff proposal${seen === 1 ? ' is' : 's are'} waiting for your review in Tools › Takeoff › Review AI Proposals.`);
-    return takeoffProposals.subscribe(() => {
-      const now = waiting();
+    if (seen) setNotice(`${seen} AI result${seen === 1 ? ' is' : 's are'} waiting for your review in Takeoff › Review AI Takeoff.`);
+    return store.subscribe(() => {
+      const now = aiWaitingCount(store);
       if (now > seen) {
         setTakeoffReviewOpen(true);
-        setNotice(`${now} takeoff proposal${now === 1 ? ' is' : 's are'} waiting for your review. Nothing is added to the takeoff until you approve it.`);
+        setNotice(`${now} AI result${now === 1 ? ' is' : 's are'} waiting for your review. Nothing counts towards the takeoff until you approve it.`);
       }
       seen = now;
     });
-  }, [activeHash, activeOpen]);
-
-  // Count proposals an AI client staged (find_symbol_matches, then propose_counts) open the same review panel.
-  useEffect(() => {
-    if (!activeHash || !activeOpen) return;
-    const store = activeOpen.store;
-    const waiting = () => countProposals.list(activeHash).filter((p) => countStateOf(p, store) === 'pending').length;
-    let seen = waiting();
-    return countProposals.subscribe(() => {
-      const now = waiting();
-      if (now > seen) {
-        setTakeoffReviewOpen(true);
-        setNotice('A count proposal is waiting for your review. Nothing is counted until you approve it.');
-      }
-      seen = now;
-    });
-  }, [activeHash, activeOpen]);
+  }, [activeOpen]);
 
 
   /** Stitch to New Page: the group's sheets joined on one new last page, with copies of their markups. */
@@ -11877,8 +11863,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             const viewer = activePaneRef.current === 'b' && ctlB ? ctlB.viewer : ctl?.viewer;
             if (!viewer) return;
             viewer.goToPage(pageIndex);
-            viewer.zoomToRect({ x: r.x - r.w * 3, y: r.y - r.h * 3, w: r.w * 7, h: r.h * 7 }, 1, pageIndex);
+            // A small symbol shows with its surroundings; a large source (a legend, a schedule) with a margin.
+            const pad = Math.max(24, Math.min(Math.max(r.w, r.h) * 3, 200));
+            viewer.zoomToRect({ x: r.x - pad, y: r.y - pad, w: r.w + pad * 2, h: r.h + pad * 2 }, 1, pageIndex);
           }}
+          onShowPage={(pageIndex) => (activePaneRef.current === 'b' && ctlB ? ctlB.viewer : ctl?.viewer)?.goToPage(pageIndex)}
           onMessage={setNotice}
           onClose={() => setTakeoffReviewOpen(false)}
         />

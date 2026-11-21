@@ -7,6 +7,7 @@ import { STANDARD_METHODS, standardCall, type AssistantStandards, type StandardM
 import { isMeasureKind, measureLabel, scaleEquation } from '@nb/measure';
 import type { PageRegion, TextWord } from '@nb/pdf-core';
 import { stateOf as proposalState, takeoffProposals, type TakeoffProposal } from '../assemblies/proposals';
+import { aiDraftOf, evidenceOf, publicAi, sourceName, type Evidence } from './assistantEvidence';
 import { MEASURED_NAMES } from '../assemblies/quantities';
 import { documentParagraphs, exactMatches, type AiDecision, type ChangeKind, type Paragraph } from '../compare/semantic';
 import { semanticCompare, type SemanticState } from '../compare/semanticStore';
@@ -214,6 +215,7 @@ function publicMarkup(doc: AssistantDocument, markup: Markup, brief = false) {
     ...(Object.keys(fields).length ? { fields } : {}),
     ...(markup.hidden ? { hidden: true } : {}),
     ...(markup.locked ? { locked: true } : {}),
+    ...publicAi(markup),
   };
 }
 
@@ -521,7 +523,7 @@ function placeOnStore(doc: AssistantDocument, type: MarkupType, pageIndex: numbe
 /** Cloud+ and Smart Fill are tools, not markup types: they make markups from a gesture. */
 const GESTURE_TOOLS = new Set(['cloudPlus', 'dynamicFill']);
 
-async function placeGesture(doc: AssistantDocument, tool: string, pageIndex: number, points: Point[], extras: PlaceExtras, env: AssistantEnv) {
+async function placeGesture(doc: AssistantDocument, tool: string, pageIndex: number, points: Point[], extras: PlaceExtras, env: AssistantEnv, draft: DraftInfo) {
   const label = tool === 'cloudPlus' ? 'Cloud+' : 'Smart Fill';
   const tools = env.toolsFor?.(doc.id) ?? null;
   if (!tools?.owns(doc.store)) throw new Error(`${doc.name} has to be the drawing on screen for ${label}.`);
@@ -535,8 +537,30 @@ async function placeGesture(doc: AssistantDocument, tool: string, pageIndex: num
   if (points.length !== 1) throw new Error('Smart Fill needs one point inside a closed outline.');
   requireScaleFor(doc, 'area', pageIndex, points[0]);
   const markup = await tools.fill(pageIndex, points[0]!, extras);
-  return { document: doc.name, markup: publicMarkup(doc, markup) };
+  return { document: doc.name, markup: publicMarkup(doc, asDraft(doc, markup, draft)), note: DRAFT_NOTE };
 }
+
+/** What makes an AI-drawn measurement a draft: who drew it, its evidence, and the assembly it is for. */
+interface DraftInfo {
+  source: string;
+  evidence: Evidence;
+  assemblyId?: string;
+}
+
+function draftInfo(doc: AssistantDocument, args: Record<string, unknown>, item: Record<string, unknown> = args): DraftInfo {
+  return { source: sourceName(args.source), evidence: evidenceOf(item, doc.pageCount), ...(item.assembly !== undefined ? { assemblyId: assemblyOf(doc, item.assembly).id } : {}) };
+}
+
+/** Marks a measurement the assistant just drew as an AI draft, waiting for a person in Review AI Takeoff. */
+function asDraft(doc: AssistantDocument, m: Markup, info: DraftInfo): Markup {
+  const placed = info.assemblyId ? { ...m, assemblyId: info.assemblyId } : m;
+  const ai = aiDraftOf(placed, info.source, info.evidence);
+  if (!ai) return m;
+  doc.store.update(m.id, { ai, ...(info.assemblyId ? { assemblyId: info.assemblyId } : {}) });
+  return doc.store.get(m.id) ?? m;
+}
+
+const DRAFT_NOTE = 'Measurements you draw are AI drafts: dashed on the drawing and left out of quantities until the person approves each one in Review AI Takeoff (Takeoff tab). They may edit it first.';
 
 async function placeMarkup(docs: readonly AssistantDocument[], params: unknown, env: AssistantEnv) {
   const args = record(params);
@@ -544,7 +568,8 @@ async function placeMarkup(docs: readonly AssistantDocument[], params: unknown, 
   if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
   if (args.page === undefined) throw new Error('Say which page to draw on.');
   const pageIndex = pageIndexOf(doc, args.page);
-  if (typeof args.type === 'string' && GESTURE_TOOLS.has(args.type)) return placeGesture(doc, args.type, pageIndex, pointsOf(args.points), extrasOf(args), env);
+  const draft = draftInfo(doc, args);
+  if (typeof args.type === 'string' && GESTURE_TOOLS.has(args.type)) return placeGesture(doc, args.type, pageIndex, pointsOf(args.points), extrasOf(args), env, draft);
   const type = markupType(args.type);
   refuseFileType(type);
   const points = pointsOf(args.points);
@@ -552,8 +577,14 @@ async function placeMarkup(docs: readonly AssistantDocument[], params: unknown, 
   requireScaleFor(doc, type, pageIndex, points[0]);
   const extras = extrasOf(args);
   const tools = env.toolsFor?.(doc.id) ?? null;
-  const markup = tools?.owns(doc.store) ? tools.place(type, pageIndex, points, extras) : placeOnStore(doc, type, pageIndex, expandPlaced(type, points), extras);
-  return { document: doc.name, markup: publicMarkup(doc, markup) };
+  let markup: Markup | null = null;
+  doc.store.batch(() => {
+    const placed = tools?.owns(doc.store) ? tools.place(type, pageIndex, points, extras) : placeOnStore(doc, type, pageIndex, expandPlaced(type, points), extras);
+    markup = asDraft(doc, placed, draft);
+  });
+  if (!markup) throw new Error(`${doc.name} is read-only.`);
+  const made: Markup = markup;
+  return { document: doc.name, markup: publicMarkup(doc, made), ...(made.ai ? { note: DRAFT_NOTE } : {}) };
 }
 
 /**
@@ -578,7 +609,7 @@ function placeMarkups(docs: readonly AssistantDocument[], params: unknown, env: 
       const points = pointsOf(item.points);
       requirePoints(type, points);
       requireScaleFor(doc, type, pageIndex, points[0]);
-      return { type, pageIndex, points, extras: extrasOf(item) };
+      return { type, pageIndex, points, extras: extrasOf(item), draft: draftInfo(doc, args, item) };
     } catch (err) {
       throw new Error(`${where}: ${errorText(err)}`);
     }
@@ -588,16 +619,17 @@ function placeMarkups(docs: readonly AssistantDocument[], params: unknown, env: 
   const placed: Markup[] = [];
   doc.store.checkpoint();
   doc.store.batch(() => {
-    for (const { type, pageIndex, points, extras } of plan) {
-      placed.push(owned ? owned.place(type, pageIndex, points, extras) : placeOnStore(doc, type, pageIndex, expandPlaced(type, points), extras));
+    for (const { type, pageIndex, points, extras, draft } of plan) {
+      placed.push(asDraft(doc, owned ? owned.place(type, pageIndex, points, extras) : placeOnStore(doc, type, pageIndex, expandPlaced(type, points), extras), draft));
     }
   });
   return {
     document: doc.name,
     placed: placed.map((m) => {
       const seq = doc.store.get(m.id)?.seq;
-      return { id: m.id, ...(seq !== undefined ? { seq } : {}), type: m.type, page: m.pageIndex + 1 };
+      return { id: m.id, ...(seq !== undefined ? { seq } : {}), type: m.type, page: m.pageIndex + 1, ...(m.ai ? { draft: true } : {}) };
     }),
+    ...(placed.some((m) => m.ai) ? { note: DRAFT_NOTE } : {}),
   };
 }
 
@@ -977,12 +1009,13 @@ function assemblyOf(doc: AssistantDocument, raw: unknown) {
   return found;
 }
 
-/** Proposals go to Takeoff Review; nothing reaches the takeoff until a person approves each one. */
+/** Proposals go to Review AI Takeoff; nothing reaches the takeoff until a person approves each one. */
 function proposeTakeoff(docs: readonly AssistantDocument[], params: unknown) {
   const args = record(params);
   const doc = findDocument(docs, args.document);
   const items = batchItems(args.proposals, 'Give proposals: a list of { id or seq, assembly, reasoning }.');
-  const source = typeof args.source === 'string' && args.source.trim() ? args.source.trim().slice(0, 80) : 'AI assistant';
+  if (doc.store.readOnly) throw new Error(`${doc.name} is read-only.`);
+  const source = sourceName(args.source);
   const now = Date.now();
   // Every proposal is checked before any is kept.
   const proposals: TakeoffProposal[] = items.map((item, n) => {
@@ -990,26 +1023,19 @@ function proposeTakeoff(docs: readonly AssistantDocument[], params: unknown) {
       const markup = findMarkup(doc, item);
       if (!isMeasureKind(markup.type)) throw new Error(`markup ${markup.seq ?? markup.id} is a ${markup.type}, not a measurement`);
       const assembly = assemblyOf(doc, item.assembly);
-      const reasoning = typeof item.reasoning === 'string' ? item.reasoning.trim().slice(0, 2000) : '';
+      const { reasoning, expected, confidence, sources } = evidenceOf(item, doc.pageCount);
       if (!reasoning) throw new Error('say why (reasoning), so the person can check it');
-      const expected = Array.isArray(item.expected)
-        ? item.expected.flatMap((e: unknown) => {
-            const r = record(e);
-            const quantity = typeof r.quantity === 'number' ? r.quantity : Number(r.quantity);
-            return typeof r.item === 'string' && Number.isFinite(quantity) ? [{ item: r.item, quantity, ...(typeof r.unit === 'string' ? { unit: r.unit } : {}) }] : [];
-          })
-        : undefined;
-      return { id: crypto.randomUUID(), markupId: markup.id, assemblyId: assembly.id, reasoning, ...(expected?.length ? { expected } : {}), source, createdAt: now };
+      return { id: crypto.randomUUID(), markupId: markup.id, assemblyId: assembly.id, reasoning, ...(expected ? { expected } : {}), ...(confidence !== undefined ? { confidence } : {}), ...(sources ? { sources } : {}), source, createdAt: now };
     } catch (err) {
       throw new Error(`Proposal ${n + 1}: ${errorText(err)}`);
     }
   });
-  takeoffProposals.add(doc.store.fileHash, proposals);
+  takeoffProposals.add(doc.store, proposals);
   return {
     document: doc.name,
     proposed: proposals.length,
     ids: proposals.map((p) => p.id),
-    note: 'Waiting for review: the person approves, edits or rejects each one in Tools › Takeoff › Review AI Proposals. Nothing is added to the takeoff until they approve it.',
+    note: 'Waiting for review: the person approves, edits or rejects each one in Review AI Takeoff (Takeoff tab). Nothing is added to the takeoff until they approve it.',
   };
 }
 
@@ -1018,7 +1044,7 @@ function listTakeoffProposals(docs: readonly AssistantDocument[], params: unknow
   const assemblies = doc.store.resolvedAssemblies();
   return {
     document: doc.name,
-    proposals: takeoffProposals.list(doc.store.fileHash).map((p) => {
+    proposals: takeoffProposals.list(doc.store).map((p) => {
       const m = doc.store.get(p.markupId);
       return {
         id: p.id,
@@ -1029,6 +1055,9 @@ function listTakeoffProposals(docs: readonly AssistantDocument[], params: unknow
         ...(p.rejected ? { rejectedBy: p.rejected.by } : {}),
       };
     }),
+    // Measurements the assistant drew, and where each stands.
+    drafts: doc.store.all().flatMap((m) => (m.ai ? [{ id: m.id, ...(m.seq !== undefined ? { seq: m.seq } : {}), type: m.type, page: m.pageIndex + 1, state: m.ai.status === 'pending' ? 'pending' : 'approved', ...(m.ai.review ? { approvedBy: m.ai.review.by } : {}) }] : [])),
+    rejectedDrafts: doc.store.aiReview().rejected.map((r) => ({ id: r.markup.id, type: r.markup.type, page: r.markup.pageIndex + 1, rejectedBy: r.by })),
   };
 }
 
