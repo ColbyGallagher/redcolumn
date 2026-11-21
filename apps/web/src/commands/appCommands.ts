@@ -289,6 +289,8 @@ export interface CommandState {
   /** Copies may be saved (downloaded, exported, printed); a collaboration host can forbid it for attendees. */
   canSaveCopy: boolean;
   selectionCount: number;
+  /** PDF text is selected (not a markup), so Copy applies to it. */
+  textSelected?: boolean;
   /** Markups in the document that are hidden. */
   hiddenCount: number;
   selectionLocked: boolean;
@@ -443,7 +445,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.redo', 'Edit', 'Redo', a.redo, doc),
     cmd('edit.undoHistory', 'Edit', 'Undo History…', a.undoHistory, doc),
     cmd('edit.cut', 'Edit', 'Cut', a.cut, sel && s.editable),
-    cmd('edit.copy', 'Edit', 'Copy', a.copy, sel),
+    cmd('edit.copy', 'Edit', 'Copy', a.copy, sel || !!s.textSelected),
     cmd('edit.paste', 'Edit', 'Paste', a.paste, s.editable && s.canPaste),
     cmd('edit.pasteInPlace', 'Edit', 'Paste in Place', a.pasteInPlace, s.editable && s.canPaste),
     cmd('edit.offset', 'Edit', 'Offset', a.offset, s.editable && s.selectionFits('offset'), s.tool === 'offset'),

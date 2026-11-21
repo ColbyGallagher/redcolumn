@@ -9293,6 +9293,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       return !snap || snap.isHost || allows(snap.meta, 'saveCopy');
     })(),
     selectionCount: toolsState.selected.size,
+    textSelected: !!toolsState.textSelection,
     hiddenCount: markups.filter((m) => m.hidden).length,
     selectionLocked: selectedMarkups.some((m) => m.locked),
     selectionGrouped: selectedMarkups.some((m) => m.groupId),
