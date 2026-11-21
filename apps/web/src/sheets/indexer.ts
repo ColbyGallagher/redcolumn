@@ -304,6 +304,7 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
     if (raw?.assemblies?.length) extras.assemblies = raw.assemblies;
     if (raw?.estimating) extras.estimating = raw.estimating;
     if (raw?.portals?.length) extras.portals = raw.portals;
+    if (raw?.aiReview) extras.aiReview = raw.aiReview;
     extras.pageCount = doc.pages.length;
     // Custom status sets' states (with their colours), then any other states markups were set to.
     const sets = importStatuses(raw?.statusDefs ?? []);

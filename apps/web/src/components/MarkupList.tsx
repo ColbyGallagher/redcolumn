@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { isMeasureKind, measureKindOf, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
+import { isAiDraft, isMeasureKind, measureKindOf, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, type MeasureKind, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import {
@@ -473,7 +473,8 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     const out = new Map<MeasureKind, { value: number; scale: Scale; n: number }>();
     for (const r of rows) {
       const m = r.markup;
-      if (!isMeasureKind(m.type) || m.type === 'angle') continue;
+      // AI drafts wait for review: left out of totals, as in reports.
+      if (!isMeasureKind(m.type) || m.type === 'angle' || isAiDraft(m)) continue;
       const scale = scaleOf(m);
       const kind = measureKindOf(m);
       const t = out.get(kind) ?? { value: 0, scale, n: 0 };
@@ -1122,8 +1123,8 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                     key={m.id}
                     data-id={m.id}
                     data-key={m.id}
-                    className={`${selected.has(m.id) ? 'selected' : ''}${line.nested ? ' nested-row' : ''}${missing.size ? ' has-missing' : ''}${m.hidden ? ' hidden-markup' : ''}`}
-                    title={m.hidden ? 'Hidden on the page (right-click › Show)' : undefined}
+                    className={`${selected.has(m.id) ? 'selected' : ''}${line.nested ? ' nested-row' : ''}${missing.size ? ' has-missing' : ''}${m.hidden ? ' hidden-markup' : ''}${m.ai?.status === 'pending' ? ' ai-draft' : ''}`}
+                    title={m.hidden ? 'Hidden on the page (right-click › Show)' : m.ai?.status === 'pending' ? `AI draft from ${m.ai.source}: left out of quantities until approved (Takeoff › Review AI Takeoff)` : undefined}
                     onMouseDown={(e) => onRowPointer(m.id, e, !!line.nested)}
                     onContextMenu={(e) => {
                       e.preventDefault();

@@ -1,4 +1,4 @@
-import { isMeasureKind, type Assembly, type AssemblyItem, type CustomColumn, type Markup } from '@nb/markup';
+import { isMeasureKind, reviewedOnly, type Assembly, type AssemblyItem, type CustomColumn, type Markup } from '@nb/markup';
 import { evalFormula, formulaRefs, FormulaError, type Value } from '../columns/formula';
 import { BUILT_IN_COLUMNS, cellsFor, customKey, formatNumber, type Cell, type CellContext } from '../columns/listColumns';
 
@@ -147,7 +147,8 @@ export interface RollupRow {
  */
 export function rollup(markups: readonly Markup[], assemblies: readonly Assembly[], ctx: CellContext, by: RollupBy, pageLabel: (pageIndex: number) => string = (i) => `Page ${i + 1}`): RollupRow[] {
   const rows = new Map<string, RollupRow & { step: number; costs: Set<number>; costSum: number }>();
-  for (const m of markups) {
+  // AI drafts wait for a person before they count.
+  for (const m of reviewedOnly(markups)) {
     const q = markupQuantities(m, assemblies, ctx);
     if (!q) continue;
     for (const r of q.items) {

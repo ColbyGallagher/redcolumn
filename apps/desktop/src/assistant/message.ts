@@ -92,6 +92,38 @@ const pointsProp = {
   items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
 };
 
+/**
+ * The evidence an AI result carries, shown beside it in Review AI Takeoff so the person can check
+ * it against the source. Lower confidence is reviewed first; below 60% it is flagged.
+ */
+const evidenceProps = {
+  confidence: { type: 'number', minimum: 0, maximum: 1, description: 'How sure you are, from 0 (a guess) to 1 (certain). Be honest: the person reviews the least sure first.' },
+  sources: {
+    type: 'array',
+    maxItems: 20,
+    description: 'Where in the document you read it: the drawing itself, a legend entry, a schedule row, a note. The person clicks each to see it.',
+    items: {
+      type: 'object',
+      properties: {
+        page: { type: 'integer', description: '1-based page number.' },
+        bbox: { type: 'object', description: 'The part of the page, in PDF points.', properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'] },
+        text: { type: 'string', description: 'What it says there, such as "KERB TYPE 1".' },
+        kind: { type: 'string', enum: ['drawing', 'legend', 'schedule', 'note', 'specification', 'layer', 'symbol', 'dimension', 'other'] },
+      },
+      required: ['page'],
+    },
+  },
+};
+
+/** What a measurement drawn by the assistant may carry, beyond what any markup takes. */
+const draftProps = {
+  ...evidenceProps,
+  reasoning: { type: 'string', description: 'Why this is what you say it is, for the person checking it.' },
+  method: { type: 'string', enum: ['vector', 'raster', 'layer', 'text', 'llm'], description: 'How you found it: line work, pixels, PDF layers, the page text, or your own reading of the image.' },
+  assembly: { type: 'string', description: 'Assembly name or id from list_assemblies, for its quantities.' },
+  expected: { type: 'array', description: 'The quantities you expect, checked against what redcolumn works out.', items: { type: 'object', properties: { item: { type: 'string' }, quantity: { type: 'number' }, unit: { type: 'string' } }, required: ['item', 'quantity'] } },
+};
+
 const scaleProp = {
   type: 'string',
   description: "The scale as get_page writes it, such as 1/4\" = 1'-0\" or 1:100.",
@@ -292,7 +324,7 @@ const TOOLS: ToolDef[] = [
     name: 'place_markup',
     title: 'Draw a markup',
     description:
-      'Draws one markup on a page. One undo step. Image, stamp, signature, and file attachment need a file: run that tool with run_command instead. To draw several, use place_markups. Measurements of length, area and volume need a page (or viewport) with a scale: on a page without one, or marked NOT TO SCALE, they are refused (see get_sheet_info and propose_page_scale).',
+      'Draws one markup on a page. One undo step. Image, stamp, signature, and file attachment need a file: run that tool with run_command instead. To draw several, use place_markups. Measurements of length, area and volume need a page (or viewport) with a scale: on a page without one, or marked NOT TO SCALE, they are refused (see get_sheet_info and propose_page_scale). A measurement you draw is an AI draft: dashed, and left out of quantities until the person approves it in Review AI Takeoff. Give it your confidence, sources and reasoning so they can check it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -311,6 +343,8 @@ const TOOLS: ToolDef[] = [
         text: { type: 'string' },
         comment: { type: 'string' },
         subject: { type: 'string' },
+        source: { type: 'string', description: 'Your name, shown to the person as who drew it.' },
+        ...draftProps,
       },
     },
     annotations: ADDS,
@@ -319,7 +353,7 @@ const TOOLS: ToolDef[] = [
     name: 'place_markups',
     title: 'Draw many markups',
     description:
-      'Draws many markups as one undo step in redcolumn (up to 500). Each item is what place_markup takes: type, points, and optionally page, text, comment, and subject; a page on the call is the default for items without one. Everything is checked first, so one bad item draws nothing. Not for cloudPlus or dynamicFill, which need place_markup. The reply lists each new markup\'s id, seq, type, and page.',
+      'Draws many markups as one undo step in redcolumn (up to 500). Each item is what place_markup takes: type, points, and optionally page, text, comment, and subject; a page on the call is the default for items without one. Everything is checked first, so one bad item draws nothing. Not for cloudPlus or dynamicFill, which need place_markup. The reply lists each new markup\'s id, seq, type, and page. Measurements are AI drafts, left out of quantities until the person approves each one in Review AI Takeoff: give each its confidence, sources and reasoning.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -338,10 +372,12 @@ const TOOLS: ToolDef[] = [
               text: { type: 'string' },
               comment: { type: 'string' },
               subject: { type: 'string' },
+              ...draftProps,
             },
             required: ['type', 'points'],
           },
         },
+        source: { type: 'string', description: 'Your name, shown to the person as who drew them.' },
       },
       required: ['markups'],
     },
@@ -422,7 +458,7 @@ const TOOLS: ToolDef[] = [
     name: 'propose_takeoff',
     title: 'Propose takeoff assemblies',
     description:
-      'Proposes an assembly for each of some measurements (from list_markups), with your reasoning and, optionally, the quantities you expect. Proposals do not change the drawing: they wait in Takeoff Review, where the person approves, edits or rejects each one. Nothing is added to the takeoff until they approve it. Up to 500 per call; a new proposal for a measurement replaces its earlier pending one.',
+      'Proposes an assembly for each of some measurements (from list_markups), with your reasoning and, optionally, the quantities you expect. Proposals do not change the drawing: they wait in Review AI Takeoff, where the person approves, edits or rejects each one. Nothing is added to the takeoff until they approve it. Up to 500 per call; a new proposal for a measurement replaces its earlier pending one.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -437,6 +473,7 @@ const TOOLS: ToolDef[] = [
               seq: { type: 'integer', description: 'Measurement number, when id is omitted.' },
               assembly: { type: 'string', description: 'Assembly name or id from list_assemblies.' },
               reasoning: { type: 'string', description: 'Why this assembly fits this measurement, for the person checking it.' },
+              ...evidenceProps,
               expected: {
                 type: 'array',
                 description: 'The quantities you expect, checked against what the assembly works out.',
@@ -454,7 +491,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'list_takeoff_proposals',
     title: 'List takeoff proposals',
-    description: 'Lists takeoff proposals on a drawing and where each stands: pending, approved (and by whom, and whether they edited it) or rejected.',
+    description: 'Lists takeoff proposals on a drawing and where each stands: pending, approved (and by whom, and whether they edited it) or rejected. Also the measurements you drew (drafts) and where each stands, and the drafts the person rejected.',
     inputSchema: { type: 'object', properties: { document: documentProp } },
     annotations: READS,
   },
@@ -490,7 +527,7 @@ const TOOLS: ToolDef[] = [
     name: 'propose_counts',
     title: 'Propose a count',
     description:
-      'Stages matches (matchIds from find_symbol_matches, or { page, bbox } items) as a count proposal with a subject and your reasoning. It does not place anything: the proposal waits in Takeoff Review, where the person checks the matches and approves or rejects it. Approving places Count markups with that subject as one undo step.',
+      'Stages matches (matchIds from find_symbol_matches, or { page, bbox } items) as a count proposal with a subject and your reasoning. It does not place anything: the proposal waits in Review AI Takeoff, where the person checks the matches and approves or rejects it. Approving places Count markups with that subject as one undo step.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -498,6 +535,7 @@ const TOOLS: ToolDef[] = [
         source: { type: 'string', description: 'Your name, shown to the person as who proposed it.' },
         subject: { type: 'string', description: 'What is counted, such as "Smoke detector".' },
         reasoning: { type: 'string', description: 'Why these matches are that symbol, for the person checking them.' },
+        ...evidenceProps,
         matches: {
           type: 'array',
           description: 'matchIds, or items { page (1-based), bbox: { x, y, w, h } }. Up to 2000.',

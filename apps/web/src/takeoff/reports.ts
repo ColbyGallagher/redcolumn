@@ -1,4 +1,4 @@
-import { isMeasureKind, ITEM_CATEGORIES, markupLabel, MARKUP_LABELS, measureProps, type Assembly, type Item, type Markup } from '@nb/markup';
+import { isMeasureKind, ITEM_CATEGORIES, markupLabel, MARKUP_LABELS, measureProps, reviewedOnly, type Assembly, type Item, type Markup } from '@nb/markup';
 import type { ReportColumn, ReportRow, ReportTable } from '@nb/markup/report';
 import { areaUnitOf, DEFAULT_SCALE, formatSlope, measureDetails, measureValue, METERS_PER_UNIT, quantityOf, scaleEquation, slopeApplies, slopeIsFlat, toDisplayQuantity, type Scale } from '@nb/measure';
 import { ceilTo, markupQuantities, roundStep, type ItemQuantity } from '../assemblies/quantities';
@@ -326,7 +326,16 @@ function counts(input: ReportInput): ReportTable {
   return { title: 'Count Schedule', columns, groups: [{ rows }], grandTotal: rows.length ? total : undefined, notes: ['Counts include typed (manual) counts.'] };
 }
 
+/** AI drafts no person has approved yet are left out of every report, and the report says so. */
 export function buildReport(id: ReportId, input: ReportInput): ReportTable {
+  const reviewed = reviewedOnly(input.markups);
+  const drafts = input.markups.length - reviewed.length;
+  const table = reportFor(id, reviewed === input.markups ? input : { ...input, markups: reviewed });
+  if (!drafts) return table;
+  return { ...table, notes: [...(table.notes ?? []), `${drafts} AI draft${drafts === 1 ? ' is' : 's are'} waiting for review and left out (Review AI Takeoff).`] };
+}
+
+function reportFor(id: ReportId, input: ReportInput): ReportTable {
   switch (id) {
     case 'byItem':
       return byItem(input);

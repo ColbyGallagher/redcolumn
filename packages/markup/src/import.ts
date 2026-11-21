@@ -1,3 +1,4 @@
+import { sanitizeAiOrigin } from './aiReview';
 import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
 import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
@@ -346,6 +347,12 @@ export function importAnnotations(
           const attachment = data.attachment && !data.attachment.data && a.file ? { ...data.attachment, data: toBase64(a.file.data) } : data.attachment;
           const { pdfAnnot: _stale, ...rest } = data;
           const m = finish({ ...rest, pageIndex, ...(attachment ? { attachment } : {}) }, a, r, null, true);
+          // An AI draft's record is checked like anything else read from a file.
+          if (m.ai !== undefined) {
+            const ai = sanitizeAiOrigin(m.ai);
+            if (ai) m.ai = ai;
+            else delete m.ai;
+          }
           // Another program may have changed the text since we saved: /Contents is what it reads and writes.
           const edited = editedText(m, r ? str(r.Contents) : undefined, a.contents);
           if (edited !== null) {
