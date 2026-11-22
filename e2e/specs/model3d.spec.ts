@@ -4,6 +4,9 @@ import { expect, test, type App } from '../support/app.ts';
 // synthetic Kestrel Road IFC (scripts/roadset/ifc.mjs), kept with the demo sets.
 const MODEL = '../../docs/demo-sets/kestrel-road-revA.ifc';
 
+/** plan.pdf's first page registered to MGA zone 56 around the Kestrel Road model (about 1:1300, north up). */
+const PLAN_REGION = {"id":"geo-e2e","pageIndex":0,"name":"Plan","bounds":[[40,60],[572,60],[572,732],[40,732]],"points":[{"at":[40,60],"lat":-33.89454238322232,"lon":151.03445250976299},{"at":[40,396],"lat":-33.90004896332057,"lon":151.03432611648154},{"at":[40,732],"lat":-33.905555538072605,"lon":151.03419968886823},{"at":[306,60],"lat":-33.894625704223095,"lon":151.039680094709},{"at":[306,396],"lat":-33.900132301522234,"lon":151.0395540370585},{"at":[306,732],"lat":-33.90563889347734,"lon":151.0394279451672},{"at":[572,60],"lat":-33.89470880359133,"lon":151.04490770110934},{"at":[572,396],"lat":-33.90021541804564,"lon":151.04478197909535},{"at":[572,732],"lat":-33.90572202715807,"lon":151.04465622293165}],"projection":{"kind":"transverseMercator","lon0":153,"ellipsoid":{"a":6378137,"f":0.003352810681182319}},"crs":"GDA2020 / MGA zone 56","epsg":7856};
+
 const openModel = (app: App) => app.page.locator('input[type=file][accept*="ifc"]').first().setInputFiles(app.fixture(MODEL));
 const view = (app: App) => app.page.locator('.model-view');
 
@@ -138,6 +141,27 @@ test.describe('3D models', () => {
     await expect.poll(hidden).toBe(false);
     await views.getByRole('button', { name: 'Side road', exact: true }).click();
     await expect.poll(hidden).toBe(true);
+  });
+
+  test('an open model is drawn on sheets registered to the same map, and view.modelOnDrawings turns it off', async ({ app }) => {
+    const page = app.page;
+    await app.open('plan.pdf');
+    expect((await app.command('view.modelOnDrawings')).enabled).toBe(false);
+    await openModel(app);
+    await expect(view(app)).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
+    await page.locator('.doc-tab', { hasText: 'plan' }).click();
+    // Register the plan to MGA zone 56 where the model lies (as the Geospatial panel would, or a geospatial PDF).
+    await page.evaluate((region) => (window.__nb.tools.store as unknown as { setPageGeo(p: number, r: unknown[]): void }).setPageGeo(0, [region]), PLAN_REGION);
+    const lines = () =>
+      page.evaluate(() => {
+        const overlay = (window.__nb.tools as unknown as { modelOverlay: ((p: number) => { paths: unknown[] }[]) | null }).modelOverlay;
+        return overlay ? overlay(0).reduce((n, l) => n + l.paths.length, 0) : 0;
+      });
+    await expect.poll(lines).toBeGreaterThan(100);
+    expect((await app.command('view.modelOnDrawings')).checked).toBe(true);
+    await app.cmd('view.modelOnDrawings');
+    await expect.poll(lines).toBe(0);
+    expect((await app.command('view.modelOnDrawings')).checked).toBe(false);
   });
 
   test('working with PDFs never loads the 3D viewer', async ({ app }) => {

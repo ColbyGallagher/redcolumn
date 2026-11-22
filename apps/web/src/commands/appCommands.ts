@@ -132,6 +132,8 @@ export interface CommandActions {
   magnifier: () => void;
   fullScreen: () => void;
   stitch: () => void;
+  /** Turns open 3D models' linework on geospatial sheets on or off. */
+  modelOnDrawings: () => void;
   /** Opens the Stitching panel (match lines and regions placed by hand). */
   stitching: () => void;
   geospatial: () => void;
@@ -380,6 +382,10 @@ export interface CommandState {
   modelOpen?: boolean;
   /** The 3D view of the model in front, once it has loaded. */
   model3d?: ModelState | null;
+  /** Open models' linework is drawn on geospatial sheets. */
+  modelOnDrawings?: boolean;
+  /** A 3D model is open in some tab (in front or not). */
+  anyModelOpen?: boolean;
 }
 
 /** Panels opened by Bluebeam's Alt+ shortcuts. `markups` and `links` sit on the bottom. */
@@ -535,6 +541,10 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('view.balance', 'View', 'Balance Split', a.balance, s.split),
     cmd('view.unsplit', 'View', 'Unsplit', a.unsplit, s.split),
     cmd('view.stitched', 'View', 'Stitched View', a.stitch, s.canStitch || s.stitched, s.stitched),
+    {
+      ...cmd('view.modelOnDrawings', 'View', '3D Models on Sheets', a.modelOnDrawings, !!s.anyModelOpen, !!s.modelOnDrawings),
+      hint: 'Open an IFC model to draw it on sheets registered to the same map',
+    },
     cmd('view.rulers', 'View', 'Rulers', toggle('showRulers'), true, s.settings.showRulers),
     cmd('view.crosshair', 'View', 'Full-Screen Crosshair', toggle('crosshair'), true, s.settings.crosshair),
     cmd('view.grid', 'View', 'Show Grid', toggle('showGrid'), true, s.settings.showGrid),

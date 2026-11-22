@@ -1,4 +1,4 @@
-import { crsProjection, crsWkt, gridToLatLon, type GeoRegion, type ProjectedCrs } from '@nb/measure';
+import { crsProjection, crsWkt, gridToLatLon, latLonToGrid, regionCrs, type GeoRegion, type ProjectedCrs } from '@nb/measure';
 import { modelBounds, type GeoModel, type GridPoint } from './model';
 
 type Pt = [number, number];
@@ -124,4 +124,44 @@ export function geoRegionFor(opts: { toGrid: (p: Pt) => GridPoint; crs: Projecte
     epsg: crs.epsg,
     wkt: crsWkt(crs),
   };
+}
+
+/**
+ * Where a geospatial sheet shows grid coordinates, as a placement: the move, turn and uniform
+ * scale that best take the region's control points (in its own CRS, or `crs`) onto the page, by
+ * least squares. `error` is the worst miss in page points, so a region drawn with a skew or
+ * stretch a placement cannot follow shows as such. Null when the region has under two usable
+ * points or no known CRS.
+ */
+export function placementFromGeoRegion(region: GeoRegion, crs?: ProjectedCrs | null): { placement: ModelPlacement; error: number } | null {
+  const c = regionCrs(region, crs);
+  if (!c) return null;
+  const pairs = region.points.map((p) => ({ grid: latLonToGrid(c, p.lat, p.lon), page: p.at }));
+  if (pairs.length < 2) return null;
+  // As complex numbers: w = e + i·n (grid, north up), z = x − i·y (page, flipped to y up); fit z = a·(w − w̄) + z̄.
+  const n = pairs.length;
+  const we = pairs.reduce((s, p) => s + p.grid[0], 0) / n;
+  const wn = pairs.reduce((s, p) => s + p.grid[1], 0) / n;
+  const zx = pairs.reduce((s, p) => s + p.page[0], 0) / n;
+  const zy = pairs.reduce((s, p) => s - p.page[1], 0) / n;
+  let re = 0;
+  let im = 0;
+  let norm = 0;
+  for (const { grid, page } of pairs) {
+    const [de, dn] = [grid[0] - we, grid[1] - wn];
+    const [dx, dy] = [page[0] - zx, -page[1] - zy];
+    // (dx + i·dy)·conj(de + i·dn)
+    re += dx * de + dy * dn;
+    im += dy * de - dx * dn;
+    norm += de * de + dn * dn;
+  }
+  if (norm < 1e-12) return null;
+  const scale = Math.hypot(re, im) / norm;
+  if (!(scale > 0)) return null;
+  const placement: ModelPlacement = { e0: we, n0: wn, x: zx, y: -zy, scale, rotation: Math.atan2(im, re) };
+  const error = Math.max(...pairs.map(({ grid, page }) => {
+    const [x, y] = gridToPage(placement, grid);
+    return Math.hypot(x - page[0], y - page[1]);
+  }));
+  return { placement, error };
 }

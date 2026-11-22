@@ -2486,6 +2486,7 @@ export class MarkupTools implements ViewerOverlay {
     this.drawRegions(ctx, zoom);
     this.drawStitchGuides(ctx, pageIndex, zoom);
     this.drawPortals(ctx, pageIndex, zoom);
+    this.drawModelOverlay(ctx, pageIndex, zoom);
     this.drawGeoOverlay(ctx, pageIndex, zoom);
     const g = this.gesture;
     if (this.pickedText?.pageIndex === pageIndex && !g) {
@@ -2785,6 +2786,38 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   private geoOverlay: GeoOverlay | null = null;
+  /** Open 3D models' linework on geospatial sheets (see setModelOverlay). */
+  private modelOverlay: ((pageIndex: number) => readonly { bounds: Point[]; paths: Point[][] }[]) | null = null;
+
+  /**
+   * Shows (or, with null, hides) open 3D models' linework on the sheets: `layersFor` gives a page's
+   * layers, each clipped to the geospatial region it was placed through. Display only.
+   */
+  setModelOverlay(layersFor: ((pageIndex: number) => readonly { bounds: Point[]; paths: Point[][] }[]) | null) {
+    this.modelOverlay = layersFor;
+    this.viewer.invalidate();
+  }
+
+  private drawModelOverlay(ctx: CanvasRenderingContext2D, pageIndex: number, zoom: number) {
+    const layers = this.modelOverlay?.(pageIndex);
+    if (!layers?.length) return;
+    ctx.save();
+    ctx.strokeStyle = 'rgba(232, 89, 12, 0.85)';
+    ctx.lineWidth = 1 / zoom;
+    ctx.lineJoin = 'round';
+    for (const layer of layers) {
+      ctx.save();
+      ctx.beginPath();
+      layer.bounds.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+      ctx.closePath();
+      ctx.clip();
+      ctx.beginPath();
+      for (const path of layer.paths) path.forEach((p, i) => (i ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1])));
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
+  }
 
   /** Shows (or, with null, hides) the Geospatial panel's model over its sheets. */
   setGeoOverlay(overlay: GeoOverlay | null) {

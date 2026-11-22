@@ -16,7 +16,7 @@ import { parseRotationInput } from './markup/rotationInput';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
 import { ApplyStitchingDialog } from './components/ApplyStitchingDialog';
 import { applyStitching, stitchSourceSheets } from './documents/bulkStitch';
-import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState } from './markup/hooks';
+import { useAssemblies, useEstimating, useResolvedAssemblies, useBookmarks, useColumnSet, useLinks, usePlaces, useViewports, useManualStitch, useMarkups, useScales, useSheets, useStitch, useToolsState, useGeoRegions } from './markup/hooks';
 import { adoptDetected, dragToShift, mergeStitch, moverLine, newMatchLine, lineProblem, nudgeToShift, pairOf, shiftLine, withViewportRegions } from './documents/stitching';
 import { StitchPanel } from './components/StitchPanel';
 import { GeospatialPanel, type GeoHandlers } from './components/GeospatialPanel';
@@ -186,6 +186,9 @@ import { CAD_ACCEPT, isCadFile } from './cad/files';
 import { MODEL_ACCEPT, isModelFile } from './model3d/files';
 import { openModelView } from './model3d/host';
 import { ModelStage } from './model3d/ModelStage';
+import { modelLinework } from './model3d/onDrawing';
+import { modelLayers, type ModelLayer } from './geospatial/modelOnSheet';
+import type { GeoModel } from './geospatial/model';
 import { Model3dPanel, Model3dPropertiesPanel } from './model3d/Model3dPanel';
 import { convertAsJob, convertFile } from './cad/open';
 import { cadSession, useCadConversion } from './cad/session';
@@ -8068,6 +8071,48 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   /** The panel rail's panels in the profile's order (unlisted ones keep their default place at the end). */
   // The Markups list is a rail panel only while docked in a side panel (it starts in the bottom dock).
   const anyModelOpen = tabsA.some((t) => t.kind === 'model') || tabsB.some((t) => t.kind === 'model');
+
+  // Open models drawn on sheets registered to a map (issue #191): their plan linework, read from the
+  // IFC without the 3D viewer, placed through each sheet's own registration.
+  const [modelOnDrawings, setModelOnDrawings] = useState(true);
+  const openModelFiles = [...tabsA, ...tabsB].filter((t) => t.kind === 'model').map((t) => t.file);
+  const openModelKey = [...new Set(openModelFiles.map((f) => f.hash))].sort().join(',');
+  const [sheetModels, setSheetModels] = useState<GeoModel[]>([]);
+  useEffect(() => {
+    if (!modelOnDrawings || !openModelKey) return setSheetModels([]);
+    let live = true;
+    const files = [...new Map(openModelFiles.map((f) => [f.hash, f])).values()];
+    void Promise.all(files.map((f) => modelLinework(f).catch(() => null))).then((models) => {
+      if (live) setSheetModels(models.filter((m): m is GeoModel => !!m && (m.paths.length > 0)));
+    });
+    return () => {
+      live = false;
+    };
+    // openModelKey stands for the files.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelOnDrawings, openModelKey]);
+  const geoRegionsA = useGeoRegions(open?.store ?? null);
+  const geoRegionsB = useGeoRegions(openB?.store ?? null);
+  useEffect(() => {
+    const panes = [
+      [ctl?.tools, geoRegionsA],
+      [ctlB?.tools, geoRegionsB],
+    ] as const;
+    for (const [tools, regions] of panes) {
+      if (!tools) continue;
+      if (!sheetModels.length || !regions.length) {
+        tools.setModelOverlay(null);
+        continue;
+      }
+      // Pages are placed when first drawn, and kept.
+      const byPage = new Map<number, ModelLayer[]>();
+      tools.setModelOverlay((pageIndex) => {
+        let layers = byPage.get(pageIndex);
+        if (!layers) byPage.set(pageIndex, (layers = modelLayers(sheetModels, regions, pageIndex)));
+        return layers;
+      });
+    }
+  }, [ctl, ctlB, sheetModels, geoRegionsA, geoRegionsB]);
   // The first model opened brings its properties up, where that side has nothing else open.
   const hadModel = useRef(anyModelOpen);
   useEffect(() => {
@@ -8928,6 +8973,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     magnifier: () => setMagnifier((m) => !m),
     fullScreen: toggleFullScreen,
     stitch: () => openStitch(activeMode === 'stitch' ? null : currentStitch, pageIndex),
+    modelOnDrawings: () => setModelOnDrawings((on) => !on),
     stitching: () => showPanel('stitching'),
     geospatial: () => showPanel('geospatial'),
     stitchToPage: () => {
@@ -9519,6 +9565,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     fullScreen,
     continuous: activeMode === 'continuous',
     stitched: activeMode === 'stitch',
+    modelOnDrawings,
+    anyModelOpen,
     canStitch: !!currentStitch,
     canStitchToPage: !!currentStitch && !!activeOpen && !activeReadOnly,
     canApplyStitching: !!activeOpen && stitchSourceSheets(paneB ? manualStitchB : manualStitchA).length >= 2,

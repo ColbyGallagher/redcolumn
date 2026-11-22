@@ -391,6 +391,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'window.sessions': 'todo',
   'window.sets': 'todo',
   'window.model3d': { spec: 'model3d' },
+  'view.modelOnDrawings': { spec: 'model3d' },
   'window.model3dProps': { spec: 'model3d' },
   'window.signatures': 'todo',
   'window.simplifiedToolbar': { spec: 'ribbon' },
