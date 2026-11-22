@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { isModelFile } from '../model3d/files';
 import { drawingSets } from '../storage/sets';
 import { fileGroups, useFileGroups, type FileGroup } from '../storage/fileGroups';
 import type { StoredFile } from '../storage/fileStore';
@@ -141,8 +142,8 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
       onContextMenu={(e) => fileMenu(e, f, group)}
     >
       <button className="file" onClick={() => onOpen(f)} title={f.name}>
-        <span className="file-icon" aria-hidden="true">
-          PDF
+        <span className={`file-icon${isModelFile(f) ? ' model' : ''}`} aria-hidden="true">
+          {isModelFile(f) ? 'IFC' : 'PDF'}
         </span>
         <span className="file-text">
           <span className="name">{f.name}</span>

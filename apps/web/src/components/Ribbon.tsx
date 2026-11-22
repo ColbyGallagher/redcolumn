@@ -1,4 +1,5 @@
 import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import type { ModelAction, ModelViewEntry } from '@nb/model3d';
 import { createPortal } from 'react-dom';
 import type { Command } from '../commands/appCommands';
 import { settings, useSettings } from '../settings/settings';
@@ -25,8 +26,65 @@ function ic(d: string, extra?: ReactNode): ReactNode {
   );
 }
 
+/** Storey plans and elevations made from the model in front: picking one opens it. */
+function ModelViewPicker({ model }: { model: RibbonProps['model3d'] }) {
+  const { done } = useContext(Ctx);
+  const views = model?.views ?? [];
+  return (
+    <label className="rb-select">
+    <select
+      aria-label="Storey plans and elevations"
+      title={views.length ? 'Open a storey plan or elevation' : 'This model has no storeys or elevations to open'}
+      disabled={!views.length}
+      value={model?.openView ?? ''}
+      onChange={(e) => {
+        model?.run({ type: 'openView', id: e.target.value || null });
+        done();
+      }}
+    >
+      <option value="">{views.length ? '3D view' : 'No plans'}</option>
+      {views.some((v) => v.kind === 'storey') && (
+        <optgroup label="Storey plans">
+          {views.filter((v) => v.kind === 'storey').map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+        </optgroup>
+      )}
+      {views.some((v) => v.kind === 'elevation') && (
+        <optgroup label="Elevations">
+          {views.filter((v) => v.kind === 'elevation').map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+        </optgroup>
+      )}
+    </select>
+    </label>
+  );
+}
+
+const BOX_ICON = 'M3 5l5-2.5L13 5v6l-5 2.5L3 11zM3 5l5 2.5L13 5M8 7.5v6';
+
 /** Icons for the commands the ribbon shows (tools use their toolbar icons). */
 const ICONS: Record<string, ReactNode> = {
+  'model3d.orbit': ic('M8 2.5a5.5 5.5 0 1 1-5.4 4.4M2.6 6.9 1.5 4.5M2.6 6.9l2.5-.6', <circle cx="8" cy="8" r="1.6" />),
+  'model3d.firstPerson': ic('M8 2a1.6 1.6 0 1 0 0 3.2A1.6 1.6 0 1 0 8 2zM5 14.5l1-6h4l1 6M5.5 9.5 3.5 7.5M10.5 9.5l2-2'),
+  'model3d.plan': ic('M2 2.5h12v11H2zM2 8h6V2.5M8 8v5.5'),
+  'model3d.perspective': ic('M2 4l5-2 7 2v8l-7 2-5-2zM7 2v12'),
+  'model3d.orthographic': ic('M2 3h12v10H2zM8 3v10'),
+  'model3d.fitAll': ic('M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4', <rect x="5" y="5" width="6" height="6" />),
+  'model3d.fitSelection': ic('M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4', <circle cx="8" cy="8" r="2.5" />),
+  'model3d.sectionBox': ic(BOX_ICON, <path d="M1.5 8h13" strokeDasharray="1.5 1.3" />),
+  'model3d.clip': ic('M2 11l6-8 6 8zM1.5 8.5h13'),
+  'model3d.clearClips': ic('M2 11l6-8 6 8zM3 3l10 10'),
+  'model3d.select': ic('M3 2l9 5.5-4 1 2.5 5-1.8.8-2.4-5-3.3 3z'),
+  'model3d.isolate': ic('M5 5h6v6H5z', <path d="M1.5 3V1.5H3M13 1.5h1.5V3M14.5 13v1.5H13M3 14.5H1.5V13" />),
+  'model3d.hide': ic('M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8zM2.5 2.5l11 11'),
+  'model3d.showAll': ic('M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z', <circle cx="8" cy="8" r="2" />),
+  'model3d.clearSelection': ic('M3 3l10 10M13 3 3 13'),
+  'model3d.ghost': ic('M4 14V7a4 4 0 0 1 8 0v7l-2-1.5L8 14l-2-1.5z', <><circle cx="6.5" cy="7" r=".6" /><circle cx="9.5" cy="7" r=".6" /></>),
+  'model3d.grid': ic('M2 2h12v12H2zM6 2v12M10 2v12M2 6h12M2 10h12'),
+  'model3d.measureLength': ic('M2 11l9-9 3 3-9 9zM4.5 8.5l1.5 1.5M6.5 6.5l1 1M8.5 4.5l1.5 1.5'),
+  'model3d.measureArea': ic('M2.5 3.5h11v9h-11z', <path d="M2.5 12.5 13.5 3.5" strokeDasharray="1.5 1.3" />),
+  'model3d.measureAngle': ic('M2 13.5h12M2 13.5 11 3M6.5 13.5a4.5 4.5 0 0 0-1.3-3.2'),
+  'model3d.measureVolume': ic(BOX_ICON),
+  'model3d.clearMeasurements': ic('M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.7 9h5.6l.7-9'),
+  'model3d.closeView': ic(BOX_ICON),
   'edit.paste': MENU_ICONS.paste,
   'edit.pasteInPlace': ic('M5 3H3v11h10V3h-2M6 2h4v2.5H6z', <circle cx="8" cy="9.5" r="1.6" />),
   'edit.cut': MENU_ICONS.cut,
@@ -241,13 +299,16 @@ Object.assign(ICONS, {
 /** Each tool's toolbar icon. */
 const TOOL_ICON = new Map<Tool, ReactNode>([...MARKUP_TOOLS, ...MEASURE_TOOLS].map((t) => [t.tool, t.icon]));
 
-type TabId = 'home' | 'markup' | 'measure' | 'takeoff' | 'diagram' | 'modify' | 'document' | 'bulk' | 'view' | 'format';
+type TabId = 'home' | 'markup' | 'measure' | 'takeoff' | 'diagram' | 'modify' | 'document' | 'bulk' | 'view' | 'format' | '3d';
 
 /**
  * The contextual tab, as Excel's Table Design: it appears at the end of the tabs while the tool or
  * the selection has style controls to show, and is where a markup's properties are edited.
  */
 const FORMAT_TAB: { id: TabId; label: string } = { id: 'format', label: 'Markup Format' };
+
+/** The 3D view's tab (issue #191): there while a 3D model is the tab in front, and brought forward when one comes to the front. */
+const MODEL_TAB: { id: TabId; label: string } = { id: '3d', label: '3D' };
 
 const TABS: { id: TabId; label: string }[] = [
   { id: 'home', label: 'Home' },
@@ -283,6 +344,8 @@ export interface RibbonProps {
   onCollapsedChange: (collapsed: boolean) => void;
   /** The display options menu (ribbon, tabs only, simplified). */
   displayMenu: ReactNode;
+  /** A 3D model is in front: its storey plans and elevations, and how to open one (null: no model in front). */
+  model3d?: { views: readonly ModelViewEntry[]; openView: string | null; run: (a: ModelAction) => void } | null;
 }
 
 type Size = 'large' | 'small';
@@ -620,7 +683,7 @@ function SlopePicker() {
  * Buttons come from the command table, so they disable themselves when what is selected cannot
  * take them (Explode with a text box selected, Fillet with a cloud).
  */
-export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displayMenu }: RibbonProps) {
+export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displayMenu, model3d }: RibbonProps) {
   const [baseTab, setBaseTab] = useState<TabId>(savedTab);
   // Whether the contextual tab is the one showing (picked, or switched to by a selection); it is never remembered, and gives way when it goes.
   const [follow, dispatch] = useReducer(followFormat, FOLLOW_START);
@@ -638,10 +701,16 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
 
   // The contextual tab is there while there is anything to format: a styled tool, or a selection of one markup type.
   const contextual = !!(toolbar.styleType || toolbar.textType || toolbar.cloudBubble || toolbar.geometry || toolbar.selection);
-  const tabs = contextual ? [...TABS, FORMAT_TAB] : TABS;
-  const tab: TabId = onFormat && contextual ? 'format' : baseTab;
+  const modelInFront = !!model3d;
+  // Whether the 3D tab is the one showing: it comes forward with a model and gives way when the model goes.
+  const [on3d, setOn3d] = useState(modelInFront);
+  useEffect(() => setOn3d(modelInFront), [modelInFront]);
+  const tabs = [...TABS, ...(contextual ? [FORMAT_TAB] : []), ...(modelInFront ? [MODEL_TAB] : [])];
+  const tab: TabId = modelInFront && on3d ? '3d' : onFormat && contextual ? 'format' : baseTab;
 
   const pick = (id: TabId) => {
+    setOn3d(id === '3d');
+    if (id === '3d') return;
     dispatch({ type: 'pick', format: id === 'format' });
     if (id === 'format') return;
     setBaseTab(id);
@@ -737,6 +806,79 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
 
   const body = (id: TabId): ReactNode => {
     switch (id) {
+      case '3d':
+        return (
+          <>
+            <Group label="Navigate">
+              <Cmd id="model3d.orbit" size="large" />
+              <Stack>
+                <Cmd id="model3d.firstPerson" />
+                <Cmd id="model3d.plan" />
+              </Stack>
+              <Stack>
+                <Cmd id="model3d.perspective" />
+                <Cmd id="model3d.orthographic" />
+              </Stack>
+              <Stack>
+                <Cmd id="model3d.fitAll" />
+                <Cmd id="model3d.fitSelection" />
+              </Stack>
+            </Group>
+            <Group label="Views">
+              <Stack>
+                <Cmd id="model3d.view.top" label="Top" />
+                <Cmd id="model3d.view.front" label="Front" />
+              </Stack>
+              <Stack>
+                <Cmd id="model3d.view.left" label="Left" />
+                <Cmd id="model3d.view.right" label="Right" />
+              </Stack>
+              <Stack>
+                <Cmd id="model3d.view.back" label="Back" />
+                <Cmd id="model3d.view.iso" label="Isometric" />
+              </Stack>
+              <Stack>
+                <ModelViewPicker model={model3d ?? null} />
+                <Cmd id="model3d.closeView" />
+              </Stack>
+            </Group>
+            <Group label="Section">
+              <Cmd id="model3d.sectionBox" size="large" />
+              <Stack>
+                <Cmd id="model3d.clip" />
+                <Cmd id="model3d.clearClips" />
+              </Stack>
+            </Group>
+            <Group label="Select">
+              <Cmd id="model3d.select" size="large" />
+              <Stack>
+                <Cmd id="model3d.isolate" />
+                <Cmd id="model3d.hide" />
+              </Stack>
+              <Stack>
+                <Cmd id="model3d.showAll" />
+                <Cmd id="model3d.clearSelection" />
+              </Stack>
+            </Group>
+            <Group label="Show">
+              <Stack>
+                <Cmd id="model3d.ghost" />
+                <Cmd id="model3d.grid" />
+              </Stack>
+            </Group>
+            <Group label="Measure">
+              <Cmd id="model3d.measureLength" size="large" label="Length" />
+              <Cmd id="model3d.measureArea" size="large" label="Area" />
+              <Stack>
+                <Cmd id="model3d.measureAngle" label="Angle" />
+                <Cmd id="model3d.measureVolume" label="Volume" />
+              </Stack>
+              <Stack>
+                <Cmd id="model3d.clearMeasurements" label="Clear" />
+              </Stack>
+            </Group>
+          </>
+        );
       case 'home':
         return (
           <>
@@ -1304,7 +1446,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
           key={t.id}
           type="button"
           role="tab"
-          className={`rb-tab${t.id === 'modify' ? ' modify' : ''}${t.id === 'format' ? ' contextual' : ''}`}
+          className={`rb-tab${t.id === 'modify' ? ' modify' : ''}${t.id === 'format' || t.id === '3d' ? ' contextual' : ''}`}
           data-ribbon-tab={t.id}
           aria-selected={tab === t.id && showBody}
           tabIndex={tab === t.id ? 0 : -1}

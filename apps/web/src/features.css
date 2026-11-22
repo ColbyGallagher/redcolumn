@@ -294,6 +294,11 @@
   text-align: center;
 }
 
+/* A 3D model (IFC) in the library: tinted apart from the PDFs. */
+.file-icon.model {
+  background: var(--accent);
+}
+
 .library li[draggable='true'] {
   cursor: grab;
 }

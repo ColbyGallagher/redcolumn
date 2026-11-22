@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import type { ModelView } from '../documents/openTabs';
+import { ViewCube } from './ViewCube';
 
 /**
  * Shows a model's 3D view over the pane's stage while its tab is in front. The view keeps its own
@@ -18,5 +19,10 @@ export function ModelStage({ view }: { view: ModelView }) {
       if (view.element.parentNode === host) host.removeChild(view.element);
     };
   }, [view]);
-  return <div className="model-stage" ref={ref} />;
+  return (
+    <div className="model-stage">
+      <div className="model-host" ref={ref} />
+      <ViewCube view={view} />
+    </div>
+  );
 }

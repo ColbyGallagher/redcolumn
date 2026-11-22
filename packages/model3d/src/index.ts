@@ -8,3 +8,4 @@
  */
 export type { WorldFrame } from '@nb/measure';
 export { ModelSession, type LoadOptions, type LoadProgress, type ModelAssets } from './session.ts';
+export * from './controls.ts';

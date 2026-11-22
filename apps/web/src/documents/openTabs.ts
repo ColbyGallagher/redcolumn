@@ -1,6 +1,8 @@
 import type { PdfDocument } from '@nb/pdf-core';
 import type { MarkupStore } from '@nb/markup';
 import type { StoredFile } from '../storage/fileStore';
+// Types only: the 3D viewer itself loads when a model opens (model3d/host.ts).
+import type { ModelControls } from '@nb/model3d';
 
 /** A PDF open in a tab, with its markups. */
 export interface OpenFile {
@@ -18,6 +20,10 @@ export interface ModelView {
   setVisible: (visible: boolean) => void;
   /** Frees the view's WebGL context, workers and memory. */
   dispose: () => void;
+  /** What the ribbon can do with the view, once the model has loaded (null before). */
+  controls: () => ModelControls | null;
+  /** Called when the view's state or camera changes (and when it finishes loading). */
+  subscribe: (listener: () => void) => () => void;
 }
 
 /** A 3D model open in a tab (issue #191). Its viewer is loaded only when a model opens, so PDFs never pay for it. */

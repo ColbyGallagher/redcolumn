@@ -49,6 +49,45 @@ test.describe('3D models', () => {
     await expect(view(app)).toHaveAttribute('data-state', 'ready');
   });
 
+  test.describe('from the ribbon', () => {
+    test.use({ toolbar: 'ribbon' });
+    test('the 3D ribbon tab comes forward with a model and drives the view', async ({ app }) => {
+      const page = app.page;
+      const tab3d = page.locator('[data-ribbon-tab="3d"]');
+      const button = (id: string) => page.locator(`[data-ribbon-command="${id}"]`);
+      await app.open('plan.pdf');
+      await expect(tab3d).toHaveCount(0);
+      await openModel(app);
+      await expect(view(app)).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
+      await expect(tab3d).toHaveAttribute('aria-selected', 'true');
+      await expect(button('model3d.orbit')).toHaveAttribute('aria-pressed', 'true');
+
+      // Plan: looks straight down with a parallel projection, and the view cube shows its top.
+      await button('model3d.plan').click();
+      await expect(button('model3d.plan')).toHaveAttribute('aria-pressed', 'true');
+      await expect(button('model3d.orthographic')).toHaveAttribute('aria-pressed', 'true');
+      await expect(page.locator('.view-cube-body')).toHaveAttribute('style', /rotateX\(-(8[5-9]|90)/);
+
+      // A section box around everything, then removed.
+      await button('model3d.sectionBox').click();
+      await expect(button('model3d.sectionBox')).toHaveAttribute('aria-pressed', 'true');
+      await expect(button('model3d.clearClips')).toBeEnabled();
+      await button('model3d.clearClips').click();
+      await expect(button('model3d.sectionBox')).toHaveAttribute('aria-pressed', 'false');
+
+      // Commands that need a selection wait for one.
+      await expect(button('model3d.isolate')).toBeDisabled();
+      await button('model3d.grid').click();
+      await expect(button('model3d.grid')).toHaveAttribute('aria-pressed', 'true');
+
+      // Back on the PDF the 3D tab goes away, and returns with the model.
+      await page.locator('.doc-tab', { hasText: 'plan' }).click();
+      await expect(tab3d).toHaveCount(0);
+      await page.locator('.doc-tab', { hasText: 'kestrel-road-revA.ifc' }).click();
+      await expect(tab3d).toHaveAttribute('aria-selected', 'true');
+    });
+  });
+
   test('working with PDFs never loads the 3D viewer', async ({ app }) => {
     const seen = watch3d(app);
     await app.open('plan.pdf');
