@@ -2260,6 +2260,16 @@
   cursor: default;
 }
 
+/* Preferences › the organisation's policy (desktop/policy.ts) turns features off on this computer. */
+.modal p.prefs-managed {
+  margin: 0 20px 8px;
+  padding: 6px 8px;
+  border-radius: 4px;
+  border-left: 3px solid var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
+}
+
 .modal p.prefs-message {
   margin: 0 20px 8px;
   padding: 6px 8px;
@@ -2982,8 +2992,82 @@
   width: 100%;
 }
 
-.stamp-field-row input {
+.stamp-field-row input,
+.stamp-field-row textarea {
   flex: 1;
+}
+
+.stamp-field-row > span {
+  min-width: 64px;
+}
+
+/* A picture stamp's texts: one row each, and handles over the preview to drag them into place. */
+.stamps-dialog .form-grid > label:has(+ .stamp-art-texts) {
+  align-self: start;
+  padding-top: 6px;
+}
+
+.stamp-art-texts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stamp-art-text {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.stamp-art-text > input:first-child {
+  flex: 1;
+  min-width: 80px;
+}
+
+.stamp-art-text input[type='number'] {
+  width: 52px;
+}
+
+.stamp-art-bold {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: bold;
+}
+
+.stamp-art-positioner {
+  position: relative;
+}
+
+.stamp-field-warning {
+  margin: 0;
+  color: #b91c1c;
+  font-size: 12px;
+}
+
+.stamp-field-head input[aria-invalid='true'] {
+  border-color: #b91c1c;
+}
+
+.stamp-field-check input {
+  flex: none;
+}
+
+.stamp-art-handle {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1px dashed var(--accent);
+  cursor: move;
+  touch-action: none;
+}
+
+.stamp-art-handle:hover,
+.stamp-art-handle:focus-visible {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  outline: none;
 }
 
 .stamp-options {
@@ -4451,6 +4535,15 @@ input.zoom:hover,
 input.zoom:focus {
   border-color: var(--border);
   background: var(--bg);
+}
+
+/* An AI draft no person has approved yet: dashed on the sheet, marked here */
+tr.ai-draft td:first-child {
+  box-shadow: inset 3px 0 0 rgba(168, 85, 247, 0.8);
+}
+
+tr.ai-draft td {
+  font-style: italic;
 }
 
 tr.hidden-markup td {
@@ -6805,7 +6898,7 @@ tr.hidden-markup td {
   margin-top: 4px;
 }
 
-/* Takeoff Review: AI proposals beside the sheet */
+/* Review AI Takeoff: AI drafts and proposals beside the sheet */
 .takeoff-review {
   position: fixed;
   z-index: 55;
@@ -6998,6 +7091,205 @@ tr.hidden-markup td {
   align-items: center;
   gap: 6px;
   font-size: 12px;
+}
+
+/* Review AI Takeoff: the threshold bar, confidence and kind badges, the open row */
+.ar-tabs {
+  display: flex;
+  gap: 2px;
+  margin: 6px 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ar-tab {
+  all: unset;
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-bottom: 2px solid transparent;
+}
+
+.ar-tab.active {
+  border-bottom-color: var(--brand, #14a39a);
+  font-weight: 600;
+}
+
+.ar-tab:focus-visible {
+  outline: 2px solid var(--brand, #14a39a);
+}
+
+.ar-count {
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10px;
+  background: rgba(245, 158, 11, 0.3);
+}
+
+.ar-kind.column,
+.ar-kind.tool {
+  background: rgba(20, 163, 154, 0.3);
+}
+
+.ar-groups input {
+  width: 120px;
+}
+
+.ar-groups .ar-edited {
+  margin-left: 4px;
+}
+
+/* The optional AI review pass: its own colour, so a finding is never taken for the takeoff itself */
+.ar-kind.review {
+  background: rgba(236, 72, 153, 0.3);
+}
+
+.ar-pass {
+  flex-wrap: wrap;
+}
+
+.ar-findings {
+  margin: 6px 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ar-finding {
+  padding: 6px 8px;
+  border-left: 3px solid rgba(236, 72, 153, 0.7);
+  background: rgba(236, 72, 153, 0.06);
+  border-radius: 4px;
+}
+
+.ar-finding.dismissed {
+  opacity: 0.6;
+}
+
+.ar-finding-text {
+  margin: 4px 0;
+}
+
+.ar-sev {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.ar-sev.issue {
+  color: #f87171;
+}
+
+.ar-sev.check {
+  color: #f59e0b;
+}
+
+.ar-sev.ok {
+  color: #4ade80;
+}
+
+.ar-missed {
+  border-color: rgba(236, 72, 153, 0.6);
+}
+
+.ar-tool-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.ar-tool-edit label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ar-tool-edit textarea {
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+}
+
+.ar-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 6px;
+  font-size: 12px;
+}
+
+.ar-bar input {
+  width: 48px;
+}
+
+.takeoff-proposal.current {
+  border-color: var(--brand, #14a39a);
+}
+
+.takeoff-proposal.low {
+  border-left: 3px solid #f59e0b;
+}
+
+.ar-conf {
+  min-width: 34px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--muted);
+}
+
+.ar-conf.low {
+  color: #f59e0b;
+  font-weight: 600;
+}
+
+.ar-kind {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.ar-kind.draft {
+  background: rgba(168, 85, 247, 0.3);
+}
+
+.ar-kind.count {
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.ar-edited {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: rgba(59, 130, 246, 0.25);
+}
+
+.ar-detail {
+  margin-top: 6px;
+}
+
+.ar-subject {
+  flex: 1;
+  min-width: 0;
+}
+
+.ar-sources {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.ar-sources li {
+  margin: 2px 0;
+}
+
+.tp-matches {
+  margin: 4px 0;
+  padding-left: 0;
+  list-style: none;
+  max-height: 180px;
+  overflow: auto;
 }
 
 /* A takeoff quantity set by hand (it does not follow the measurement) */

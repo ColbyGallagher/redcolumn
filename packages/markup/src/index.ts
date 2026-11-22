@@ -12,6 +12,8 @@ export { parseBpx, type BpxColumn, type BpxCustomColumn, type BpxProfile } from 
 export * from './columns';
 export * from './assemblies';
 export * from './portals';
+export * from './aiReview';
+export * from './aiGrouping';
 export * from './estimating';
 export { AI_LINK, IMPORT_VERSION, MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type PageClip, type StoredLink, type StoredStitchGroup, type StoredMatchLine, type StoredManualStitch } from './store';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
@@ -24,7 +26,7 @@ export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCallout
 export { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset';
 export { cropImage, cropOf, imageFrame, mirrorCrop, uncropImage } from './imageCrop';
 export { base64ToBytes, bytesToBase64, hasVector, mirrorVector, pictureMatrix, pictureSegments, userToShown, type Matrix as PictureMatrix } from './vectorPicture';
-export { DEFAULT_STAMPS, fillStampFieldsNow, refillStamp, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
+export { DEFAULT_STAMPS, DYNAMIC_FIELD_NAMES, fillStampFieldsNow, formStamp, isDynamicFieldName, refillStamp, removeFieldToken, renameFieldToken, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampColor, stampFieldValues, stampFormColor, withFieldValues, type StampArt, type StampArtText, type StampContent, type StampDef, type StampField, type StampForm, type StampLineKind, type StampOption, type StampValues } from './stamp';
 export { imageDimensions, imageStamp, imageStampName, MAX_STAMP_IMAGE_BYTES, MAX_STAMP_IMAGE_PIXELS, MAX_STAMP_IMAGE_SIDE, STAMP_IMAGE_BUDGET, STAMP_IMAGE_SIDES, stampImageSize } from './stampImage';
 export { artStamp, parseStampPdf, revuFields, textStamp, type ParsedStamp, type StampPdfText } from './stampPdf';
 export {

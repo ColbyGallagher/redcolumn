@@ -6,6 +6,7 @@
  */
 
 import { openLocal, sealLocal } from './localCrypto';
+import { searchIndex } from '../search/index/client';
 
 export interface StoredFile {
   /** Stable document id: the hash of the file as first added. */
@@ -20,6 +21,8 @@ export interface StoredFile {
   revisions?: FileRevision[];
   /** A template: File › New PDF from Template starts new documents from a copy of it. */
   template?: boolean;
+  /** Taken off the recent files list (Remove from Recents, Clear Recents) until it is opened again. */
+  recentHidden?: boolean;
 }
 
 /** A kept earlier version of a document's contents. */
@@ -113,7 +116,7 @@ export async function saveFile(name: string, bytes: ArrayBuffer, id?: string): P
   const entry = await updateIndex((entries) => {
     const existing = entries.find((e) => (id ? e.id === id : e.hash === hash));
     const entry: StoredFile = existing
-      ? { ...existing, name, lastOpenedAt: now }
+      ? { ...existing, name, lastOpenedAt: now, recentHidden: undefined }
       : { id: id ?? hash, hash, name, size: bytes.byteLength, addedAt: now, lastOpenedAt: now };
     return { entries: [...entries.filter((e) => e.id !== entry.id), entry], result: entry };
   });
@@ -170,6 +173,7 @@ async function dropIfUnused(hash: string) {
   } catch {
     // Already gone.
   }
+  void searchIndex.drop(hash);
 }
 
 /**
@@ -253,9 +257,18 @@ export async function rewriteLibrary(): Promise<void> {
 
 export async function touchFile(id: string): Promise<void> {
   await updateIndex((entries) => ({
-    entries: entries.map((e) => (e.id === id ? { ...e, lastOpenedAt: Date.now() } : e)),
+    entries: entries.map((e) => (e.id === id ? { ...e, lastOpenedAt: Date.now(), recentHidden: undefined } : e)),
     result: undefined,
   }));
+}
+
+/**
+ * Takes documents off the recent files list. They stay on the device (with their markups), in
+ * File Access groups and in a filter of File Access, and come back to the list when opened again.
+ */
+export async function hideFromRecents(ids: Iterable<string>): Promise<void> {
+  const hide = new Set(ids);
+  await updateIndex((entries) => ({ entries: entries.map((e) => (hide.has(e.id) ? { ...e, recentHidden: true } : e)), result: undefined }));
 }
 
 /** Removes the file from the library. Its markups stay in IndexedDB and return if it is re-added. */

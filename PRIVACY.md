@@ -1,6 +1,6 @@
 # Privacy policy
 
-_Last updated: 11 October 2026_
+_Last updated: 20 November 2026_
 
 redcolumn is a free, open-source PDF markup and takeoff app that runs in your web browser. This
 policy explains what happens to your documents and information when you use it. It applies to the
@@ -30,6 +30,12 @@ The app keeps these in your browser's storage, on your device only:
   stored);
 - a list of Live Sessions and Projects you have started or joined, which library files came from
   a Project, and check-ins and notes waiting to be sent;
+- a search index: the text of documents you have searched (their pages' words, properties,
+  comments and form field values), so later searches skip pages that cannot match. In the desktop
+  app it also holds, for search by meaning, numbers describing what each passage of a page is
+  about, worked out on your computer by a model that is part of the app (nothing is sent anywhere
+  to do this). With "Encrypt local data" on in the desktop app the index is kept in memory only,
+  and dropped when you close the app;
 - the app itself and its OCR language data, so it works offline.
 
 Clearing your browser's site data for redcolumn deletes all of it. Nobody else can see it,

@@ -43,6 +43,8 @@ export interface Command {
   checked?: boolean;
   /** Shown as the tooltip while the command is disabled: what to do to enable it. */
   hint?: string;
+  /** The organisation's policy removes this command (desktop/policy.ts): menus, the ribbon and the palette leave it out. */
+  managed?: true;
 }
 
 /** What the app can do; App supplies these, the command table decides when each is available. */
@@ -222,7 +224,7 @@ export interface CommandActions {
   takeoffQuantities: () => void;
   /** Tools › Scripts: rules that find markups and change them. */
   scripts: () => void;
-  /** Tools › Takeoff › Review AI Proposals. */
+  /** Tools › Takeoff › Review AI Takeoff: what an AI client drew and proposed, to approve or reject. */
   takeoffReview: () => void;
   /** Takeoff › Cutout: draws a hole in the selected area. */
   cutout: () => void;
@@ -289,6 +291,8 @@ export interface CommandState {
   /** Copies may be saved (downloaded, exported, printed); a collaboration host can forbid it for attendees. */
   canSaveCopy: boolean;
   selectionCount: number;
+  /** PDF text is selected (not a markup), so Copy applies to it. */
+  textSelected?: boolean;
   /** Markups in the document that are hidden. */
   hiddenCount: number;
   selectionLocked: boolean;
@@ -317,6 +321,8 @@ export interface CommandState {
   canGoForward: boolean;
   split: boolean;
   splitHorizontal: boolean;
+  /** The right pane is a second view of the left pane's document: nothing to switch. */
+  mirrored: boolean;
   sync: 'document' | 'page' | null;
   /** Pages per row and whether the first page sits alone. */
   columns: 1 | 2;
@@ -443,7 +449,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.redo', 'Edit', 'Redo', a.redo, doc),
     cmd('edit.undoHistory', 'Edit', 'Undo History…', a.undoHistory, doc),
     cmd('edit.cut', 'Edit', 'Cut', a.cut, sel && s.editable),
-    cmd('edit.copy', 'Edit', 'Copy', a.copy, sel),
+    cmd('edit.copy', 'Edit', 'Copy', a.copy, sel || !!s.textSelected),
     cmd('edit.paste', 'Edit', 'Paste', a.paste, s.editable && s.canPaste),
     cmd('edit.pasteInPlace', 'Edit', 'Paste in Place', a.pasteInPlace, s.editable && s.canPaste),
     cmd('edit.offset', 'Edit', 'Offset', a.offset, s.editable && s.selectionFits('offset'), s.tool === 'offset'),
@@ -515,7 +521,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('view.splitHorizontal', 'View', 'Split Horizontal', s.split && s.splitHorizontal ? a.unsplit : a.splitHorizontal, doc, s.split && s.splitHorizontal),
     cmd('view.syncDocument', 'View', 'Synchronise Document', () => a.sync(s.sync === 'document' ? null : 'document'), s.split, s.sync === 'document'),
     cmd('view.syncPage', 'View', 'Synchronise Page', () => a.sync(s.sync === 'page' ? null : 'page'), s.split, s.sync === 'page'),
-    cmd('view.switchPanes', 'View', 'Switch Split Panes', a.switchPanes, s.split),
+    cmd('view.switchPanes', 'View', 'Switch Split Panes', a.switchPanes, s.split && !s.mirrored),
     cmd('view.balance', 'View', 'Balance Split', a.balance, s.split),
     cmd('view.unsplit', 'View', 'Unsplit', a.unsplit, s.split),
     cmd('view.stitched', 'View', 'Stitched View', a.stitch, s.canStitch || s.stitched, s.stitched),
@@ -633,7 +639,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     { ...cmd('draw.arc', 'Tools', 'Arc (3-point)', a.toggleArc, doc && s.editable && (s.canArc || s.arcArmed), s.arcArmed), hint: 'Start a polylength or area first' },
     cmd('takeoff.hip', 'Tools', 'Hip Length', () => a.hipValley('hip'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'hip'),
     cmd('takeoff.valley', 'Tools', 'Valley Length', () => a.hipValley('valley'), doc && s.editable, s.tool === 'polylength' && s.hipValley === 'valley'),
-    cmd('tools.takeoffReview', 'Tools', 'Review AI Proposals…', a.takeoffReview, doc),
+    cmd('tools.takeoffReview', 'Tools', 'Review AI Takeoff…', a.takeoffReview, doc),
     cmd('takeoff.items', 'Tools', 'Items…', a.manageItems, doc),
     cmd('takeoff.productLists', 'Tools', 'Product Lists…', a.manageProductLists, doc),
     cmd('takeoff.templates', 'Tools', 'Takeoff Templates…', a.manageTemplates, doc),

@@ -303,6 +303,8 @@ function Cmd({ id, size = 'small', label, icon }: { id: string; size?: Size; lab
   const c = commands.get(id);
   const name = label ?? c?.label ?? id;
   const key = shortcutLabel(id);
+  // Removed by the organisation's policy (desktop/policy.ts).
+  if (c?.managed) return null;
   return (
     <button
       type="button"
@@ -327,6 +329,7 @@ function ToolBtn({ tool, size = 'small' }: { tool: Tool; size?: Size }) {
   const { tools, state, author, enabled } = toolbar;
   const c = commands.get(`tool.${tool}`);
   const icon = TOOL_ICON.get(tool) ?? ICONS[`tool.${tool}`] ?? '•';
+  if (c?.managed) return null;
   const content = (
     <>
       <span className="rb-icon">{icon}</span>
@@ -490,6 +493,7 @@ function TemplatesMenu() {
   const c = commands.get('takeoff.templates');
   const t = toolbar.takeoffTemplates;
   const armed = toolbar.state.preset?.takeoffTemplateId;
+  if (c?.managed) return null;
   const open = (el: HTMLElement) => {
     if (!t) return;
     const r = el.getBoundingClientRect();
@@ -917,7 +921,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Cmd id="tools.assemblies" size="large" />
               <Stack>
                 <Cmd id="tools.quantities" />
-                <Cmd id="tools.takeoffReview" label="Takeoff Review" />
+                <Cmd id="tools.takeoffReview" label="Review AI Takeoff" />
                 <Cmd id="takeoff.items" label="Items" />
               </Stack>
               <Stack>

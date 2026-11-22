@@ -27,6 +27,7 @@ import { isGeoViewport } from './geo';
 import type { CustomColumn, MarkupStatusDef } from './columns';
 import type { Assembly } from './assemblies';
 import type { Portal } from './portals';
+import { isAiDraft, isEmptyAiReview, type AiReviewData } from './aiReview';
 import type { Estimating } from './estimating';
 import { markupDigest, unchangedSinceImport } from './digest';
 import { bsiLegendValue } from './bsiLegend';
@@ -46,6 +47,8 @@ export const ASSEMBLIES_KEY = 'NBAssemblies';
 export const ESTIMATING_KEY = 'NBEstimating';
 /** The catalog key the document's portals are kept under (read back by `readPdfExtras`). */
 export const PORTALS_KEY = 'NBPortals';
+/** The catalog key the document's AI proposals waiting for review are kept under (read back by `readPdfExtras`). */
+export const AI_REVIEW_KEY = 'NBAIReview';
 
 /** Affine [a b c d e f] mapping page space (top-left, y down, rotated) to PDF user space. */
 export type Matrix = [number, number, number, number, number, number];
@@ -207,7 +210,9 @@ function richText(m: Markup): { DS: PDFHexString; RC: PDFHexString; NBTextMargin
     ...(s.italic ? ['font-style:italic'] : []),
     ...(s.underline || s.strikethrough ? [`text-decoration:${[s.underline && 'underline', s.strikethrough && 'line-through'].filter(Boolean).join(' ')}`] : []),
   ].join('; ');
-  const paragraphs = richParagraphs(m);
+  // Revu reads a paragraph's alignment from its own style (it writes `<p style="text-align:center">`), not the body's.
+  const align = s.textAlign && s.textAlign !== 'left' ? s.textAlign : null;
+  const paragraphs = richParagraphs(m).map((p) => (align ? p.replace(/^<p( \/)?>/, (_t, empty: string | undefined) => `<p style="text-align:${align}"${empty ?? ''}>`) : p));
   const rc = `<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml" xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/" xfa:APIVersion="Acrobat:11.0.0" xfa:spec="2.0.2" style="${escapeXml(ds)}">${paragraphs.join('')}</body>`;
   // The exact padding rides in a private key: the /DS margin cannot say less than 0, and other readers add a point to it.
   return { DS: pdfText(ds), RC: pdfText(rc), ...(s.textMargin !== undefined ? { NBTextMargin: s.textMargin } : {}) };
@@ -1016,7 +1021,8 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   const base: LiteralObject = {
     Type: 'Annot',
     Rect: rect,
-    F: (m.hidden ? 2 : 4) | (m.locked ? 128 : 0), // Print (Hidden when hidden), and Locked when locked
+    // Print (Hidden when hidden, or an AI draft no person has approved yet), and Locked when locked
+    F: (m.hidden || isAiDraft(m) ? 2 : 4) | (m.locked ? 128 : 0),
     C: color,
     CA: m.style.opacity,
     ...(pdfBlendName(m) ? { BM: pdfBlendName(m) } : {}),
@@ -1944,6 +1950,17 @@ function writePortals(doc: PDFDocument, portals: readonly Portal[]) {
   if (doc.catalog.lookupMaybe(key, PDFString, PDFHexString)?.decodeText() !== json) doc.catalog.set(key, pdfText(json));
 }
 
+/** AI proposals waiting for review as JSON in the catalog (other tools ignore the key); none removes it. */
+function writeAiReview(doc: PDFDocument, review: AiReviewData) {
+  const key = PDFName.of(AI_REVIEW_KEY);
+  if (isEmptyAiReview(review)) {
+    doc.catalog.delete(key);
+    return;
+  }
+  const json = JSON.stringify(review);
+  if (doc.catalog.lookupMaybe(key, PDFString, PDFHexString)?.decodeText() !== json) doc.catalog.set(key, pdfText(json));
+}
+
 /** The document's items, product lists and templates as JSON in the catalog; none of any removes it. */
 function writeEstimating(doc: PDFDocument, est: Estimating) {
   const key = PDFName.of(ESTIMATING_KEY);
@@ -2116,6 +2133,8 @@ export interface ExportOptions {
   estimating?: Estimating;
   /** The document's portals (Experimental), kept in /NBPortals; unset leaves the file's own. Their copies are ordinary annotations on each page. */
   portals?: readonly Portal[];
+  /** AI proposals waiting for review, kept in /NBAIReview; unset leaves the file's own. */
+  aiReview?: AiReviewData;
   /**
    * Embeds a font file in place of a standard 14 font (which is only named, and which PDF/A does
    * not allow): e.g. a TrueType font with the same widths. Unset, the standard fonts are used.
@@ -2303,6 +2322,7 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   if (options.assemblies) writeAssemblies(doc, options.assemblies);
   if (options.estimating) writeEstimating(doc, options.estimating);
   if (options.portals) writePortals(doc, options.portals);
+  if (options.aiReview) writeAiReview(doc, options.aiReview);
   if (options.pageScales || options.viewports?.length || (options.geo && Object.keys(options.geo).length)) {
     pages.forEach((page, i) => writeViewports(doc, page, i, options.pageScales?.[i] ?? null, (options.viewports ?? []).filter((v) => v.pageIndex === i), options.geo?.[i] ?? null));
   }

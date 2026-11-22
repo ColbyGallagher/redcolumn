@@ -29,6 +29,13 @@ export const ASSISTANT_METHODS = [
   'find_symbol_matches',
   'propose_counts',
   'list_count_proposals',
+  'propose_grouping_column',
+  'list_grouping_columns',
+  'propose_grouping_tool',
+  'list_grouping_tools',
+  'run_grouping_tool',
+  'get_review_packet',
+  'report_review_findings',
   'start_comparison',
   'get_comparison',
   'report_document_changes',
@@ -90,6 +97,38 @@ const pointsProp = {
   type: 'array',
   description: 'PDF points, origin at the top-left, y down.',
   items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 },
+};
+
+/**
+ * The evidence an AI result carries, shown beside it in Review AI Takeoff so the person can check
+ * it against the source. Lower confidence is reviewed first; below 60% it is flagged.
+ */
+const evidenceProps = {
+  confidence: { type: 'number', minimum: 0, maximum: 1, description: 'How sure you are, from 0 (a guess) to 1 (certain). Be honest: the person reviews the least sure first.' },
+  sources: {
+    type: 'array',
+    maxItems: 20,
+    description: 'Where in the document you read it: the drawing itself, a legend entry, a schedule row, a note. The person clicks each to see it.',
+    items: {
+      type: 'object',
+      properties: {
+        page: { type: 'integer', description: '1-based page number.' },
+        bbox: { type: 'object', description: 'The part of the page, in PDF points.', properties: { x: { type: 'number' }, y: { type: 'number' }, w: { type: 'number' }, h: { type: 'number' } }, required: ['x', 'y', 'w', 'h'] },
+        text: { type: 'string', description: 'What it says there, such as "KERB TYPE 1".' },
+        kind: { type: 'string', enum: ['drawing', 'legend', 'schedule', 'note', 'specification', 'layer', 'symbol', 'dimension', 'other'] },
+      },
+      required: ['page'],
+    },
+  },
+};
+
+/** What a measurement drawn by the assistant may carry, beyond what any markup takes. */
+const draftProps = {
+  ...evidenceProps,
+  reasoning: { type: 'string', description: 'Why this is what you say it is, for the person checking it.' },
+  method: { type: 'string', enum: ['vector', 'raster', 'layer', 'text', 'llm'], description: 'How you found it: line work, pixels, PDF layers, the page text, or your own reading of the image.' },
+  assembly: { type: 'string', description: 'Assembly name or id from list_assemblies, for its quantities.' },
+  expected: { type: 'array', description: 'The quantities you expect, checked against what redcolumn works out.', items: { type: 'object', properties: { item: { type: 'string' }, quantity: { type: 'number' }, unit: { type: 'string' } }, required: ['item', 'quantity'] } },
 };
 
 const scaleProp = {
@@ -292,7 +331,7 @@ const TOOLS: ToolDef[] = [
     name: 'place_markup',
     title: 'Draw a markup',
     description:
-      'Draws one markup on a page. One undo step. Image, stamp, signature, and file attachment need a file: run that tool with run_command instead. To draw several, use place_markups. Measurements of length, area and volume need a page (or viewport) with a scale: on a page without one, or marked NOT TO SCALE, they are refused (see get_sheet_info and propose_page_scale).',
+      'Draws one markup on a page. One undo step. Image, stamp, signature, and file attachment need a file: run that tool with run_command instead. To draw several, use place_markups. Measurements of length, area and volume need a page (or viewport) with a scale: on a page without one, or marked NOT TO SCALE, they are refused (see get_sheet_info and propose_page_scale). A measurement you draw is an AI draft: dashed, and left out of quantities until the person approves it in Review AI Takeoff. Give it your confidence, sources and reasoning so they can check it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -311,6 +350,8 @@ const TOOLS: ToolDef[] = [
         text: { type: 'string' },
         comment: { type: 'string' },
         subject: { type: 'string' },
+        source: { type: 'string', description: 'Your name, shown to the person as who drew it.' },
+        ...draftProps,
       },
     },
     annotations: ADDS,
@@ -319,7 +360,7 @@ const TOOLS: ToolDef[] = [
     name: 'place_markups',
     title: 'Draw many markups',
     description:
-      'Draws many markups as one undo step in redcolumn (up to 500). Each item is what place_markup takes: type, points, and optionally page, text, comment, and subject; a page on the call is the default for items without one. Everything is checked first, so one bad item draws nothing. Not for cloudPlus or dynamicFill, which need place_markup. The reply lists each new markup\'s id, seq, type, and page.',
+      'Draws many markups as one undo step in redcolumn (up to 500). Each item is what place_markup takes: type, points, and optionally page, text, comment, and subject; a page on the call is the default for items without one. Everything is checked first, so one bad item draws nothing. Not for cloudPlus or dynamicFill, which need place_markup. The reply lists each new markup\'s id, seq, type, and page. Measurements are AI drafts, left out of quantities until the person approves each one in Review AI Takeoff: give each its confidence, sources and reasoning.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -338,10 +379,12 @@ const TOOLS: ToolDef[] = [
               text: { type: 'string' },
               comment: { type: 'string' },
               subject: { type: 'string' },
+              ...draftProps,
             },
             required: ['type', 'points'],
           },
         },
+        source: { type: 'string', description: 'Your name, shown to the person as who drew them.' },
       },
       required: ['markups'],
     },
@@ -422,7 +465,7 @@ const TOOLS: ToolDef[] = [
     name: 'propose_takeoff',
     title: 'Propose takeoff assemblies',
     description:
-      'Proposes an assembly for each of some measurements (from list_markups), with your reasoning and, optionally, the quantities you expect. Proposals do not change the drawing: they wait in Takeoff Review, where the person approves, edits or rejects each one. Nothing is added to the takeoff until they approve it. Up to 500 per call; a new proposal for a measurement replaces its earlier pending one.',
+      'Proposes an assembly for each of some measurements (from list_markups), with your reasoning and, optionally, the quantities you expect. Proposals do not change the drawing: they wait in Review AI Takeoff, where the person approves, edits or rejects each one. Nothing is added to the takeoff until they approve it. Up to 500 per call; a new proposal for a measurement replaces its earlier pending one.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -437,6 +480,7 @@ const TOOLS: ToolDef[] = [
               seq: { type: 'integer', description: 'Measurement number, when id is omitted.' },
               assembly: { type: 'string', description: 'Assembly name or id from list_assemblies.' },
               reasoning: { type: 'string', description: 'Why this assembly fits this measurement, for the person checking it.' },
+              ...evidenceProps,
               expected: {
                 type: 'array',
                 description: 'The quantities you expect, checked against what the assembly works out.',
@@ -454,7 +498,7 @@ const TOOLS: ToolDef[] = [
   {
     name: 'list_takeoff_proposals',
     title: 'List takeoff proposals',
-    description: 'Lists takeoff proposals on a drawing and where each stands: pending, approved (and by whom, and whether they edited it) or rejected.',
+    description: 'Lists takeoff proposals on a drawing and where each stands: pending, approved (and by whom, and whether they edited it) or rejected. Also the measurements you drew (drafts) and where each stands, and the drafts the person rejected.',
     inputSchema: { type: 'object', properties: { document: documentProp } },
     annotations: READS,
   },
@@ -490,7 +534,7 @@ const TOOLS: ToolDef[] = [
     name: 'propose_counts',
     title: 'Propose a count',
     description:
-      'Stages matches (matchIds from find_symbol_matches, or { page, bbox } items) as a count proposal with a subject and your reasoning. It does not place anything: the proposal waits in Takeoff Review, where the person checks the matches and approves or rejects it. Approving places Count markups with that subject as one undo step.',
+      'Stages matches (matchIds from find_symbol_matches, or { page, bbox } items) as a count proposal with a subject and your reasoning. It does not place anything: the proposal waits in Review AI Takeoff, where the person checks the matches and approves or rejects it. Approving places Count markups with that subject as one undo step.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -498,6 +542,7 @@ const TOOLS: ToolDef[] = [
         source: { type: 'string', description: 'Your name, shown to the person as who proposed it.' },
         subject: { type: 'string', description: 'What is counted, such as "Smoke detector".' },
         reasoning: { type: 'string', description: 'Why these matches are that symbol, for the person checking them.' },
+        ...evidenceProps,
         matches: {
           type: 'array',
           description: 'matchIds, or items { page (1-based), bbox: { x, y, w, h } }. Up to 2000.',
@@ -514,6 +559,135 @@ const TOOLS: ToolDef[] = [
     description: 'Lists count proposals on a drawing and where each stands: pending, approved (and by whom) or rejected.',
     inputSchema: { type: 'object', properties: { document: documentProp } },
     annotations: READS,
+  },
+  {
+    name: 'propose_grouping_column',
+    title: 'Propose a grouping column',
+    description:
+      'Proposes a custom column that groups markups the way the person needs (by level, zone, system, trade, material...), with a value per markup and your reasoning for each. It is text or a drop-down, never a number: it groups and never changes a quantity. It waits in Review AI Takeoff › Columns, where the person can rename it, regroup markups, and accept or reject it. Nothing is written until they accept. Up to 5000 markups.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        source: { type: 'string', description: 'Your name, shown to the person as who proposed it.' },
+        name: { type: 'string', description: 'The column name, such as "Level". A column of that name is filled if the document has one.' },
+        type: { type: 'string', enum: ['choice', 'text'], description: 'choice (a drop-down, the default) or text.' },
+        options: { type: 'array', items: { type: 'string' }, description: 'The drop-down choices, in order. The values used are added.' },
+        reasoning: { type: 'string', description: 'How you grouped them, for the person checking it.' },
+        confidence: evidenceProps.confidence,
+        assignments: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string', description: 'Markup id from list_markups.' },
+              seq: { type: 'integer', description: 'Markup number, when id is omitted.' },
+              value: { type: 'string', description: 'Its group.' },
+              reasoning: { type: 'string', description: 'Why this markup is in this group.' },
+              confidence: evidenceProps.confidence,
+            },
+            required: ['value'],
+          },
+        },
+      },
+      required: ['name', 'reasoning', 'assignments'],
+    },
+    annotations: ADDS,
+  },
+  {
+    name: 'list_grouping_columns',
+    title: 'List grouping columns',
+    description: 'Lists the grouping columns proposed for a drawing: each one\'s status (proposed, review, accepted, rejected), how many markups are in each group, how many the person regrouped, and the tool that made it, if any.',
+    inputSchema: { type: 'object', properties: { document: documentProp } },
+    annotations: READS,
+  },
+  {
+    name: 'propose_grouping_tool',
+    title: 'Propose a grouping tool',
+    description:
+      'Proposes a reusable grouping tool for the tool library on this computer: a declarative rule (never code) that picks markups with a filter and gives each a value in a column. Examples: doors by fire rating (filter subject "Door", copy from the column "Fire rating"), by level (sheet action: "LEVEL 1" → L1), inside a zone (zone action with polygons). It waits as proposed until the person accepts it in Review AI Takeoff › Tools; only accepted, enabled tools run. A tool never changes a quantity: running it proposes a grouping column for review.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: { ...documentProp, description: 'The document a zone action\'s pages are on. The active document when omitted. A zone tool runs on that document only: its polygons are that document\'s page positions.' },
+        source: { type: 'string', description: 'Your name.' },
+        name: { type: 'string' },
+        description: { type: 'string', description: 'What it does, in a sentence, for the person deciding whether it is appropriate.' },
+        reasoning: { type: 'string', description: 'Why it is worth keeping.' },
+        column: { type: 'string', description: 'The column it fills.' },
+        filter: {
+          type: 'object',
+          description: 'Which markups. Every condition given must hold; none means every markup.',
+          properties: {
+            types: { type: 'array', items: { type: 'string' }, description: 'Markup types, such as length, area, count.' },
+            subject: { type: 'string', description: 'The subject contains this (any case).' },
+            label: { type: 'string', description: 'The label contains this.' },
+            layer: { type: 'string', description: 'On this markup layer.' },
+            pages: { type: 'array', items: { type: 'integer' }, description: '0-based page indexes.' },
+            column: { type: 'object', properties: { name: { type: 'string' }, equals: { type: 'string' } }, required: ['name', 'equals'] },
+          },
+        },
+        action: {
+          type: 'object',
+          description:
+            'The value each markup gets. { kind: "set", value }; { kind: "copy", from: "subject" | "label" | "layer" | "page" | "sheet" | { column } }; { kind: "zone", zones: [{ name, pageIndex (0-based), polygon: [[x, y], ...] in PDF points }], otherwise }; { kind: "sheet", map: [{ contains, value }], otherwise } (matched against the sheet number and title as whole words: "LEVEL 1" does not match "LEVEL 10", and "GA" does not match "GA01").',
+        },
+      },
+      required: ['name', 'description', 'reasoning', 'column', 'action'],
+    },
+    annotations: ADDS,
+  },
+  {
+    name: 'list_grouping_tools',
+    title: 'List grouping tools',
+    description: 'Lists the tool library: each tool\'s rule in words, its status, whether it runs (accepted and not turned off), and how often it has been used.',
+    inputSchema: { type: 'object', properties: {} },
+    annotations: READS,
+  },
+  {
+    name: 'run_grouping_tool',
+    title: 'Run a grouping tool',
+    description: 'Runs an accepted tool from the library on a drawing. It proposes a grouping column, recorded against the tool, that waits in Review AI Takeoff › Columns for the person to accept. It changes no markup and no quantity itself. Refused for a tool that is proposed, rejected or turned off.',
+    inputSchema: { type: 'object', properties: { document: documentProp, source: { type: 'string', description: 'Your name.' }, tool: { type: 'string', description: 'Tool id or name from list_grouping_tools.' } }, required: ['tool'] },
+    annotations: ADDS,
+  },
+  {
+    name: 'get_review_packet',
+    title: 'Get the takeoff to review',
+    description:
+      'For the optional AI review pass, run in a fresh context (a new conversation or subagent that did not make the takeoff): the takeoff output to check. Every AI result that is not rejected (drawn measurements, assemblies, counts, grouping columns) with its item id, page, geometry, measurement, assembly and the sources it cites; the sheets and their scales; and the instructions. It leaves out the first pass\'s reasoning and confidence on purpose, so the review does not inherit its assumptions. Check each item against the drawing yourself, then call report_review_findings.',
+    inputSchema: { type: 'object', properties: { document: documentProp } },
+    annotations: READS,
+  },
+  {
+    name: 'report_review_findings',
+    title: 'Report review findings',
+    description:
+      'Reports what the review pass found: per item (an item id from get_review_packet) an issue, something to check, or that it is right; and anything the takeoff missed (no item, with a source giving the page and area). Each finding is shown in Review AI Takeoff beside its item, labelled as AI review, and the person accepts or dismisses it. Nothing is applied to the drawing. Up to 1000 findings.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        document: documentProp,
+        source: { type: 'string', description: 'Your name, shown as the reviewer.' },
+        findings: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              item: { type: 'string', description: 'Item id from get_review_packet, such as draft:… or count:…. Leave out for something missed.' },
+              severity: { type: 'string', enum: ['issue', 'check', 'ok'], description: 'issue: wrong; check: worth a second look; ok: you agree.' },
+              kind: { type: 'string', enum: ['quantity', 'missed', 'wrong-item', 'scale', 'grouping', 'duplicate', 'other'] },
+              message: { type: 'string', description: 'What you found, for the person.' },
+              expected: { type: 'object', description: 'What you measured or counted instead.', properties: { quantity: { type: 'number' }, unit: { type: 'string' } }, required: ['quantity'] },
+              sources: evidenceProps.sources,
+            },
+            required: ['message'],
+          },
+        },
+      },
+      required: ['findings'],
+    },
+    annotations: ADDS,
   },
   {
     name: 'start_comparison',

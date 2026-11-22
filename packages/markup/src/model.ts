@@ -103,6 +103,64 @@ export interface TakeoffApproval {
   reasoning?: string;
   /** The assembly or a quantity was changed before approving. */
   edited?: boolean;
+  /** The assembly the AI proposed, when the person approved another. */
+  proposedAssemblyId?: string;
+  /** How sure the AI said it was (0–1). */
+  confidence?: number;
+}
+
+/** What a piece of evidence is, for the person checking an AI result against it. */
+export type SourceKind = 'drawing' | 'legend' | 'schedule' | 'note' | 'specification' | 'layer' | 'symbol' | 'dimension' | 'other';
+
+/** How an AI result was found: line work, pixels, PDF layers, the page's text, or the model's own reading. */
+export type AiMethod = 'vector' | 'raster' | 'layer' | 'text' | 'llm';
+
+/** Where in the document an AI result came from, so a person can check it there. */
+export interface SourceRef {
+  /** 0-based page index. */
+  pageIndex: number;
+  /** The part of the page, in PDF points (top-left origin, y down). */
+  rect?: { x: number; y: number; w: number; h: number };
+  /** What the source says: a legend entry, a note, a schedule row, a layer name. */
+  text?: string;
+  kind?: SourceKind;
+}
+
+/** A quantity an AI client expects, to check against what redcolumn works out. */
+export interface ProposedQuantity {
+  item: string;
+  quantity: number;
+  unit?: string;
+}
+
+/** What an AI-made markup was when the AI made it, so a person's changes show against it. */
+export interface AiOriginal {
+  points: Point[];
+  subject?: string;
+  text?: string;
+  comment?: string;
+  assemblyId?: string;
+}
+
+/**
+ * A markup an AI client made through the assistant. While `status` is pending it is a draft: drawn
+ * dashed, left out of quantities and reports, and saved hidden so other PDF viewers do not show
+ * it. A person approves it (or rejects it, which takes it off the drawing) in Review AI Takeoff.
+ */
+export interface AiOrigin {
+  /** The AI client's name. */
+  source: string;
+  at: number;
+  status: 'pending' | 'approved';
+  reasoning?: string;
+  /** How sure the AI said it was (0–1). */
+  confidence?: number;
+  method?: AiMethod;
+  sources?: SourceRef[];
+  expected?: ProposedQuantity[];
+  original: AiOriginal;
+  /** Who approved it, and when. */
+  review?: { by: string; at: number };
 }
 
 /** What a connector joins; its points are routed between them again whenever either moves. */
@@ -350,6 +408,8 @@ export interface Markup {
   assemblyInputs?: Record<string, number>;
   /** Measurements: who approved its takeoff from an AI proposal, and when (Takeoff Review). */
   takeoffApproval?: TakeoffApproval;
+  /** Made by an AI client through the assistant: its evidence, and whether a person has approved it yet. */
+  ai?: AiOrigin;
   /** Measurements: slope of the measured surface or run. */
   slope?: Slope;
   /** Manual quantities: the typed quantity (SI base units), the unit it was typed in, and a note. */

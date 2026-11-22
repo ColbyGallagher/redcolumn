@@ -41,6 +41,18 @@ export function missingFontsNotice(families: readonly string[]): string | null {
 }
 
 let sink: ((message: string) => void) | null = null;
+/** The last export font notice sent to the notice line, so a later notice can keep it in view. */
+let lastFallback: string | null = null;
+
+/**
+ * What the notice line should say when `next` arrives. The notice line holds one message, and other
+ * notices ("Saved x.pdf.", the missing-fonts note) land right after the export that produced a font
+ * notice; replacing it would hide the warning that a font was swapped. So while that notice is showing,
+ * the new message is added after it.
+ */
+export function afterFontNotice(current: string | null, next: string): string {
+  return current !== null && current === lastFallback && next !== current ? `${current} ${next}` : next;
+}
 /** Where export font notices go (the app's notice line). Returns the unset function. */
 export function setFontNoticeSink(fn: (message: string) => void): () => void {
   sink = fn;
@@ -58,7 +70,10 @@ export async function fontExport(markups: readonly Markup[]): Promise<{ systemFo
   const onFontFallback = (family: string, reason: FontFallbackReason) => void found.push({ family, reason });
   const done = () => {
     const text = fontFallbackNotice(found);
-    if (text) sink?.(text);
+    if (text) {
+      lastFallback = text;
+      sink?.(text);
+    }
   };
   if (!markupsUseNamedFonts(markups)) return { onFontFallback, done };
   return { systemFonts: (await import('./systemFonts')).exportFontSource, onFontFallback, done };

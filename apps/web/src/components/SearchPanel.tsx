@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { searchText, type SearchHit, type SheetInfo } from '@nb/sheets';
+import { searchText, type PageText, type SearchHit, type SheetInfo } from '@nb/sheets';
 import { CountToolDialog } from './CountToolDialog';
 import { centreOf, type CountHit, type CountTool } from '../search/countFromHits';
 import { fileSource, type Labelled, type SearchSource } from '../search/sources';
+import { searchIndex, type Related } from '../search/index/client';
 
 /** Where to look, as in Bluebeam's Search panel. */
 export type SearchScope = 'document' | 'page' | 'open' | 'recents' | 'folder';
@@ -16,10 +17,12 @@ export interface SearchOptions {
   markups: boolean;
   caseSensitive: boolean;
   wholeWord: boolean;
+  /** Also list pages about the query in other words (desktop app: its model ships with it). */
+  meaning: boolean;
 }
 
 /** What a match was found in. */
-export type HitKind = 'text' | 'field' | 'markup' | 'filename' | 'property';
+export type HitKind = 'text' | 'field' | 'markup' | 'filename' | 'property' | 'meaning';
 
 /** A match in one of the documents searched. File name and property matches have no page (-1). */
 export interface DocHit extends SearchHit {
@@ -48,7 +51,7 @@ export interface SearchMemory {
   activeKey: string | null;
 }
 
-const DEFAULT_OPTIONS: SearchOptions = { includeSubfolders: false, pages: true, filenames: false, properties: false, fields: true, markups: false, caseSensitive: false, wholeWord: false };
+const DEFAULT_OPTIONS: SearchOptions = { includeSubfolders: false, pages: true, filenames: false, properties: false, fields: true, markups: false, caseSensitive: false, wholeWord: false, meaning: true };
 
 const OPTION_LABELS: [keyof SearchOptions, string][] = [
   ['includeSubfolders', 'Include Subfolders'],
@@ -59,12 +62,29 @@ const OPTION_LABELS: [keyof SearchOptions, string][] = [
   ['markups', 'Search Markups'],
   ['caseSensitive', 'Case Sensitive'],
   ['wholeWord', 'Whole Words Only'],
+  ['meaning', 'Search by Meaning'],
 ];
 
 /** Whether an option applies to a scope: subfolders only to a folder, file names only to several files. */
-const applies = (option: keyof SearchOptions, scope: SearchScope) => (option === 'includeSubfolders' ? scope === 'folder' : option === 'filenames' ? scope !== 'document' && scope !== 'page' : true);
+const applies = (option: keyof SearchOptions, scope: SearchScope) =>
+  option === 'includeSubfolders' ? scope === 'folder' : option === 'filenames' ? scope !== 'document' && scope !== 'page' : option === 'meaning' ? scope !== 'page' : true;
 
-const KIND_LABELS: Record<HitKind, string> = { text: 'Page', field: 'Form field', markup: 'Markup', filename: 'File name', property: 'Property' };
+const KIND_LABELS: Record<HitKind, string> = { text: 'Page', field: 'Form field', markup: 'Markup', filename: 'File name', property: 'Property', meaning: 'Related' };
+
+/** Pages listed under Related at most, and the words of each one's passage shown. */
+const RELATED_LIMIT = 10;
+const RELATED_WORDS = 24;
+
+/** A page found by meaning as a result: its passage's words as the snippet, their area to show. */
+function relatedHit(r: Related, doc: { id: string; name: string }): DocHit {
+  const ws = r.words;
+  const x0 = Math.min(...ws.map((w) => w.x0));
+  const y0 = Math.min(...ws.map((w) => w.y0));
+  const x1 = Math.max(...ws.map((w) => w.x1));
+  const y1 = Math.max(...ws.map((w) => w.y1));
+  const snippet = ws.slice(0, RELATED_WORDS).map((w) => w.text).join(' ') + (ws.length > RELATED_WORDS ? '…' : '');
+  return { pageIndex: r.pageIndex, rects: ws.length ? [{ x: x0, y: y0, w: x1 - x0, h: y1 - y0 }] : [], snippet, matchStart: 0, matchEnd: 0, docId: doc.id, docName: doc.name, kind: 'meaning' };
+}
 
 const SNIPPET_CONTEXT = 40;
 
@@ -133,6 +153,11 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
   const [collapsed, setCollapsed] = useState<string[]>(saved?.collapsed ?? []);
   const [resultsKey, setResultsKey] = useState(stale ? activeKey : (saved?.activeKey ?? activeKey));
   const [progress, setProgress] = useState<string | null>(null);
+  // A search that found nothing, run again with its misspelt words corrected.
+  const [respelt, setRespelt] = useState<{ from: string; to: string } | null>(null);
+  // Search by meaning: whether this app has the model, and the pages it found for the last search.
+  const [semantic, setSemantic] = useState<{ available: boolean; done: number; total: number } | null>(null);
+  const [related, setRelated] = useState<DocHit[]>([]);
   // Checked results (by index in `hits`) to turn into a count, and the page the list is narrowed to (-1: all).
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [pageFilter, setPageFilter] = useState(-1);
@@ -172,8 +197,18 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hits, activeId]);
 
+  useEffect(() => {
+    let live = true;
+    void searchIndex.semanticStatus([]).then((s) => live && setSemantic(s));
+    return () => {
+      live = false;
+    };
+  }, []);
+
   const reset = () => {
     ++run.current;
+    setRespelt(null);
+    setRelated([]);
     setChecked(new Set());
     setPageFilter(-1);
     setHits(null);
@@ -194,9 +229,9 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
     return folder.files.filter((f) => options.includeSubfolders || f.path.split('/').length <= 2).map((f) => fileSource(f.file, f.path));
   };
 
-  const search = async () => {
+  /** Searches for `q`; `misspelt` is the query it corrects, when the search for that found nothing. */
+  const search = async (q = query.trim(), misspelt: string | null = null) => {
     const id = ++run.current;
-    const q = query.trim();
     if (!q) {
       setHits(null);
       return;
@@ -205,12 +240,27 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
       chooseFolder();
       return;
     }
-    const docs = documents();
+    setRespelt(misspelt ? { from: misspelt, to: q } : null);
+    setRelated([]);
     const re = matcher(q, options);
     const found: DocHit[] = [];
     setHits(null);
     setResultsKey(activeKey);
     setShowResults(true);
+    // The search index says which pages of the documents it holds can match, so only those are
+    // read (and none, for a document where nothing can). Documents it does not hold yet are read
+    // in full, and kept in it for next time.
+    const keys = options.pages ? documents().flatMap((d) => (d.indexKey ? [d.indexKey] : [])) : [];
+    const narrowed = keys.length ? await searchIndex.candidates(keys, q, options.wholeWord) : null;
+    if (id !== run.current) return;
+    const candidates = narrowed?.hits ?? null;
+    const indexed = new Set(narrowed?.indexed ?? []);
+    const rankOf = (d: SearchSource) => (d.indexKey ? candidates?.[d.indexKey]?.rank : undefined);
+    // With several documents, the ones with the best matching pages come first (a word in a page's
+    // body ranks above the same word only in its title block), then the others in their usual order.
+    const all = documents();
+    const ranked = all.filter((d) => rankOf(d) !== undefined).sort((a, b) => rankOf(a)! - rankOf(b)!);
+    const docs = [...ranked, ...all.filter((d) => rankOf(d) === undefined)];
     for (const [n, doc] of docs.entries()) {
       const status = (what: string) => id === run.current && setProgress(docs.length > 1 ? `Searching ${n + 1} of ${docs.length}: ${doc.name}${what ? ` (${what})` : ''}` : what || 'Searching');
       status('');
@@ -222,7 +272,12 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
         if (options.filenames && applies('filenames', scope)) own.push(...tag('filename')(labelledHit(re, -1, [], '', doc.name)));
         if (options.properties) own.push(...Object.entries(await doc.properties()).flatMap(([k, v]) => tag('property')(labelledHit(re, -1, [], k, v))));
         if (options.pages) {
-          const pages = await doc.text((done, total) => status(`reading text ${done}/${total}`));
+          let pages: PageText[] | null = null;
+          if (doc.indexKey && candidates && indexed.has(doc.indexKey)) {
+            const wanted = (candidates[doc.indexKey]?.pages ?? []).filter((p) => doc.page === undefined || p === doc.page);
+            pages = wanted.length ? await searchIndex.pages(doc.indexKey, wanted) : [];
+          }
+          pages ??= await doc.text((done, total) => status(`reading text ${done}/${total}`));
           if (id !== run.current) return;
           const searched = doc.page === undefined ? pages : pages.map((p, i) => (i === doc.page ? p : { ...p, words: [] }));
           own.push(...searchText(searched, q, { wholeWord: options.wholeWord, caseSensitive: options.caseSensitive }).flatMap(tag('text')));
@@ -237,11 +292,37 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
       // Results come in document by document, so a long folder search shows what it has found so far.
       setHits([...found]);
     }
+    // Nothing found: try again with misspelt words corrected from the words the index holds (in
+    // lower case, so not when the case must match).
+    if (!found.length && !misspelt && keys.length && !options.caseSensitive) {
+      const respelling = await searchIndex.suggest(keys, q);
+      if (id !== run.current) return;
+      if (respelling) return search(respelling, q);
+    }
     setProgress(null);
     setHits([...found]);
     const first = found.findIndex((h) => h.docId === activeId && h.pageIndex >= 0);
     setSelected(first);
     if (first >= 0) onOpen(found[first]!, found.filter((h) => h.docId === activeId));
+    // Pages about the query in other words, below the matches (and not repeating them).
+    if (options.meaning && semantic?.available && applies('meaning', scope) && q.length >= 3) {
+      const byKey = new Map(all.flatMap((d) => (d.indexKey ? [[d.indexKey, d] as const] : [])));
+      const keysAll = [...byKey.keys()];
+      const [found2, status] = await Promise.all([searchIndex.related(keysAll, q, RELATED_LIMIT + found.length), searchIndex.semanticStatus(keysAll)]);
+      if (id !== run.current) return;
+      if (status) setSemantic(status);
+      const matched = new Set(found.map((h) => `${h.docId}:${h.pageIndex}`));
+      const extra = (found2 ?? []).flatMap((r) => {
+        const d = byKey.get(r.key);
+        return d && !matched.has(`${d.id}:${r.pageIndex}`) ? [relatedHit(r, d)] : [];
+      });
+      setRelated(extra.slice(0, RELATED_LIMIT));
+    }
+  };
+
+  const openRelated = (h: DocHit) => {
+    setSelected(-1);
+    onOpen(h, [h], folder?.files.find((f) => `file:${f.path}` === h.docId)?.file);
   };
 
   const open = (i: number) => {
@@ -428,6 +509,8 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
       </div>
       <div className="search-opts">
         {OPTION_LABELS.map(([key, label]) => {
+          // Only where the model is: the desktop app.
+          if (key === 'meaning' && !semantic?.available) return null;
           const on = applies(key, scope);
           return (
             <label key={key} className={`field search-opt${on ? '' : ' disabled'}`}>
@@ -450,6 +533,11 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
       {showResults && (
         <>
           {progress && <p className="empty">{progress}</p>}
+          {respelt && !!hits?.length && !progress && (
+            <p className="empty search-respelt">
+              No matches for “{respelt.from}”. Showing matches for “{respelt.to}”.
+            </p>
+          )}
           {hits && !progress && (
             <p className="empty">
               {hits.length === 0 ? 'No matches.' : `${hits.length} match${hits.length === 1 ? '' : 'es'}${grouped ? ` in ${groups.size} file${groups.size === 1 ? '' : 's'}` : ` on ${new Set(hits.map((h) => h.pageIndex)).size} page(s)`}`}
@@ -505,6 +593,28 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
             })
           ) : (
             <ul>{[...groups.values()].flatMap((g) => g.items).map(row)}</ul>
+          )}
+          {related.length > 0 && !progress && (
+            <div className="search-related">
+              <p className="search-related-head" title="Pages about the search in other words (search by meaning)">
+                Related pages
+              </p>
+              <ul>
+                {related.map((h, i) => (
+                  <li key={`${h.docId}:${h.pageIndex}:${i}`}>
+                    <button className="search-hit related" onClick={() => openRelated(h)}>
+                      <span className="num">{grouped ? `${h.docName} · ${where({ ...h, kind: 'text' })}` : where({ ...h, kind: 'text' })}</span>
+                      <span className="snippet">{h.snippet}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {semantic?.available && options.meaning && semantic.total > 0 && semantic.done < semantic.total && hits && !progress && (
+            <p className="empty search-meaning-progress">
+              Reading pages for search by meaning: {semantic.done} of {semantic.total}
+            </p>
           )}
         </>
       )}

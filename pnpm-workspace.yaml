@@ -9,6 +9,9 @@ allowBuilds:
   electron-winstaller: true
   # PKCS#11 for smart cards and USB tokens (apps/desktop/src/token): a native addon, compiled on install.
   pkcs11js: true
+  # A dependency of onnxruntime-web (copied into the desktop package for search by meaning); its
+  # install script only checks its own version.
+  protobufjs: false
   # Its install script only prints a funding message.
   tesseract.js: false
 

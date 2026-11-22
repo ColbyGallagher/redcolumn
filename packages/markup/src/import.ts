@@ -1,3 +1,4 @@
+import { sanitizeAiOrigin } from './aiReview';
 import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
 import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
@@ -17,6 +18,7 @@ import {
   nums,
   pagePoints,
   parseDefaultStyle,
+  freeTextStyle,
   parsePdfDate,
   refNum,
   statusIdOf,
@@ -54,6 +56,10 @@ export interface ImportableAnnotation {
   /** Object number of the annotation dictionary (0 or absent when direct), to find its raw values. */
   objectNumber?: number;
   da: string;
+  /** FreeText: /DS, /RC and /Q, read with the annotation so its text layout survives without the raw dictionaries. */
+  ds?: string;
+  rc?: string;
+  quadding?: number;
   appData: string;
   flags: number;
   vertices: [number, number][];
@@ -117,9 +123,10 @@ function editedText(m: Markup, raw: string | null | undefined, plain: string): s
 }
 
 /** The styled parts of a text markup's /RC (as `{ spans }`), left out where there are none or the text does not agree with them. */
-function richSpans(r: PdfDictValue | null, text: string, style: MarkupStyle): { spans?: TextSpan[] } {
-  if (!r) return {};
-  const spans = spansFromRichText(str(r.RC), text, baseTextStyle({ style }));
+function richSpans(r: PdfDictValue | null, a: ImportableAnnotation, text: string, style: MarkupStyle): { spans?: TextSpan[] } {
+  const rc = r ? str(r.RC) : a.rc;
+  if (!rc) return {};
+  const spans = spansFromRichText(rc, text, baseTextStyle({ style }));
   return spans.length ? { spans } : {};
 }
 
@@ -340,13 +347,19 @@ export function importAnnotations(
           const attachment = data.attachment && !data.attachment.data && a.file ? { ...data.attachment, data: toBase64(a.file.data) } : data.attachment;
           const { pdfAnnot: _stale, ...rest } = data;
           const m = finish({ ...rest, pageIndex, ...(attachment ? { attachment } : {}) }, a, r, null, true);
+          // An AI draft's record is checked like anything else read from a file.
+          if (m.ai !== undefined) {
+            const ai = sanitizeAiOrigin(m.ai);
+            if (ai) m.ai = ai;
+            else delete m.ai;
+          }
           // Another program may have changed the text since we saved: /Contents is what it reads and writes.
           const edited = editedText(m, r ? str(r.Contents) : undefined, a.contents);
           if (edited !== null) {
             m.text = edited;
             // Its styled parts were for the old text: take them from the rich text it left, if that agrees.
             delete m.spans;
-            Object.assign(m, richSpans(r, edited, m.style));
+            Object.assign(m, richSpans(r, a, edited, m.style));
             redraw.add(m);
           }
           markups.push(m);
@@ -438,6 +451,8 @@ export function importAnnotations(
             if (named !== 'sans') style.fontFamily = named;
           }
           if (/bold|,b/.test(font)) style.bold = true;
+          // Alignment, margin, line height and the rest of the text's layout, as with the raw dictionary.
+          Object.assign(style, freeTextStyle(a.ds, a.rc, a.quadding, style.fontSize));
         }
         if (f.type === 'area') style.fillOpacity = 0.2;
       }
@@ -453,7 +468,7 @@ export function importAnnotations(
         points: f.points,
         style,
         ...(textual ? { text: f.text ?? contents } : comment ? { comment } : {}),
-        ...(textual && isTextType(f.type) ? richSpans(r, f.text ?? contents, style) : {}),
+        ...(textual && isTextType(f.type) ? richSpans(r, a, f.text ?? contents, style) : {}),
         ...(f.extra ?? {}),
         ...(f.type === 'attachment' && a.file ? { attachment: { name: a.file.name, mime: mimeOf(a.file.name), size: a.file.data.length, data: toBase64(a.file.data) } } : {}),
         status: 'none',
@@ -671,7 +686,9 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
   const interior = colorHex(r.IC);
   const ds = str(r.DS);
   const nbMargin = num(r.NBTextMargin);
-  const textStyle: Partial<MarkupStyle> = ds ? parseDefaultStyle(ds, daFont(str(r.DA) ?? a.da).size || undefined) : {};
+  const daSize = daFont(str(r.DA) ?? a.da).size || undefined;
+  const textStyle: Partial<MarkupStyle> =
+    a.subtype === 'FreeText' ? freeTextStyle(ds, str(r.RC), num(r.Q), daSize) : ds ? parseDefaultStyle(ds, daSize) : {};
   // Our exact padding, trusted only while it agrees with the /DS margin written beside it: another reader that edited /DS leaves it stale.
   if (typeof nbMargin === 'number' && nbMargin >= 0 && nbMargin <= 51 && textStyle.textMargin !== undefined && Math.abs(textStyle.textMargin - Math.max(1, nbMargin)) < 1e-6) textStyle.textMargin = nbMargin;
   const daColor = daTextColor(str(r.DA) ?? a.da);

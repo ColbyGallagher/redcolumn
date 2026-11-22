@@ -8,8 +8,8 @@ redcolumn never calls an AI model itself. The AI runs in your own client, [conne
 
 1. You (or the AI) draw a rectangle markup around one example of the symbol.
 2. The AI calls `find_symbol_matches` with that rectangle. redcolumn returns every place the symbol appears.
-3. The AI checks the matches against a [picture of the page](#mcp-page-view) and calls `propose_counts` with the ones that are right, a subject such as *Smoke detector*, and its reasoning.
-4. The proposal waits in {{Tools > Takeoff > Review AI Proposals…}}, which opens by itself.
+3. The AI checks the matches against a [picture of the page](#mcp-page-view) and calls `propose_counts` with the ones that are right, a subject such as *Smoke detector*, its reasoning, and optionally its `confidence` and `sources` (such as the legend entry).
+4. The proposal waits in {{Tools > Takeoff > Review AI Takeoff…}}, which opens by itself.
 5. You tick the matches you agree with and press **Approve**. redcolumn places Count markups with that subject, one per page, as **one undo step**. **Reject** discards the proposal.
 
 ## find_symbol_matches

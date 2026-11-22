@@ -172,6 +172,8 @@ export interface Settings {
   toolChestSticky: boolean;
   /** Ask before deleting markups with the Delete key. */
   confirmDelete: boolean;
+  /** Import the invisible comments AutoCAD writes for SHX-font text (PDFSHX) as markups; off keeps them out of the list. Applies to files opened afterwards. */
+  importShxText: boolean;
   /** A dotted, non-printing grid over the page (View → Show Grid). */
   showGrid: boolean;
   /** Drawing tools snap to the nearest grid point when no drawing geometry is nearer. */
@@ -452,6 +454,7 @@ export const DEFAULT_SETTINGS: Settings = {
   toolChestMode: 'copy',
   toolChestSticky: false,
   confirmDelete: false,
+  importShxText: false,
   showGrid: false,
   snapToGrid: false,
   snapToMarkup: true,
