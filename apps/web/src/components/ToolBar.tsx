@@ -6,6 +6,7 @@ import type { Scale } from '@nb/measure';
 import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
 import { LineStyleSelect } from './LineStyleSelect';
+import { CountSymbolSelect } from './CountSymbolSelect';
 import { FontPicker } from './FontPicker';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { ShapeGeometry } from './ShapeGeometry';
@@ -201,6 +202,7 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
 
 /** Cloud bubble sizes (pt): fine steps for everyday clouds, wider ones for very large bubbles. */
 const BUBBLE_SIZES = [5, 10, 15, 20, 30, 40, 50, 60, 80, 100];
+const MARKER_SIZES = [4, 6, 8, 10, 14, 20];
 
 /** What a measurement line can end in from the toolbar (more in Properties). */
 const ARROW_CHOICES: { value: LineEnding; label: string }[] = [
@@ -506,6 +508,36 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             Bubbles
             <ComboField title="Bubble size" value={cloudBubble.value} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder="Auto" onChange={(v) => tools.setStyle('cloud', { arcRadius: v })} />
           </label>
+        </Cluster>
+      )}
+      {style && styleType === 'count' && !mixedTypes && (
+        <Cluster label="Count">
+          <PropLine>
+            <div className="field" title="Marker shape or custom symbol">
+              Shape
+              <CountSymbolSelect
+                style={style}
+                markups={markups}
+                mixed={mixedOf('countShape', (v) => v ?? 'circle') || mixedOf('countSymbol')}
+                onChange={(patch) => apply('count', patch)}
+              />
+            </div>
+          </PropLine>
+          <PropLine>
+            <label className="field" title="Size of the count marker (pt)">
+              Size
+              <ComboField
+                title="Marker size"
+                value={mixedOf('arcRadius') ? undefined : style.arcRadius}
+                options={MARKER_SIZES}
+                min={0.5}
+                max={200}
+                unit="pt"
+                placeholder={mixedOf('arcRadius') ? 'Mixed' : 'Auto'}
+                onChange={(v) => apply('count', { arcRadius: v })}
+              />
+            </label>
+          </PropLine>
         </Cluster>
       )}
       <Cluster label="Text" show={!!textStyle && !!textType && textCaps!.font}>

@@ -38,6 +38,7 @@ import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/Marku
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
 import { useWorkspace } from '../workspace/profiles';
 import { LineStyleSelect } from './LineStyleSelect';
+import { CountSymbolSelect } from './CountSymbolSelect';
 import { ColorMenu } from './ColorMenu';
 import { STYLE_ICONS } from './toolIcons';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
@@ -568,6 +569,11 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
               <option value="outside">Bulge outward</option>
               <option value="inside">Bulge inward</option>
             </select>
+          </Row>
+        )}
+        {caps.arcRadius === 'Marker size' && (
+          <Row label="Marker shape" title="The shape or custom symbol placed at each counted item">
+            <CountSymbolSelect style={style} markups={markups} disabled={disabled} onChange={onChange} />
           </Row>
         )}
         {caps.arcRadius && (

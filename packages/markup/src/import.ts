@@ -1,7 +1,8 @@
 import { sanitizeAiOrigin } from './aiReview';
 import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
-import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
+import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
+import { COUNT_STYLE_FROM_PDF } from './countSymbol';
 import {
   arr,
   cleanText,
@@ -643,8 +644,6 @@ function bounds(pts: readonly (readonly [number, number])[]): Point[] {
   ];
 }
 
-const COUNT_SHAPES: Record<string, CountShape> = { Checkmark: 'check', Check: 'check', Circle: 'circle', Square: 'square', Diamond: 'diamond', Triangle: 'triangle', Cross: 'cross', X: 'cross' };
-
 /** A dash pattern (in multiples of the line width) as the nearest of our line styles. */
 function dashOf(d: number[], width: number): LineDash | undefined {
   if (!d.length) return undefined;
@@ -922,7 +921,7 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
         const b = bounds(verts);
         const centre: Point = [(b[0]![0] + b[1]![0]) / 2, (b[0]![1] + b[1]![1]) / 2];
         const r0 = Math.max(b[1]![0] - b[0]![0], b[1]![1] - b[0]![1]) / 2;
-        const shape = COUNT_SHAPES[nameOf(r.CountStyle) ?? ''] ?? 'circle';
+        const shape = COUNT_STYLE_FROM_PDF[nameOf(r.CountStyle) ?? ''] ?? 'circle';
         // Bluebeam shows each count item's marker without a label.
         return [{ type: 'count', points: [centre], filled: true, measure: true, style: { ...base, fill: interior ?? color, arcRadius: r0 || undefined, countShape: shape, showLabel: false, ...labelStyle } }];
       }
