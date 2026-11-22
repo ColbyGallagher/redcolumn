@@ -6,6 +6,7 @@
   "scripts": {
     "prepare": "git config core.hooksPath .githooks || true",
     "check:client-data": "node scripts/check-client-data.mjs",
+    "check:bundle": "node scripts/check-bundle.mjs",
     "dev": "pnpm --filter @nb/web dev",
     "build": "pnpm --filter @nb/web build",
     "typecheck": "pnpm -r typecheck",
@@ -16,7 +17,7 @@
     "e2e:desktop": "pnpm --filter @nb/e2e e2e:desktop",
     "e2e:fixtures": "pnpm --filter @nb/e2e fixtures",
     "e2e:report": "pnpm --filter @nb/e2e exec playwright show-report",
-    "verify": "pnpm check:client-data && pnpm typecheck && pnpm test && pnpm build && node e2e/support/check-release.mjs && pnpm e2e",
+    "verify": "pnpm check:client-data && pnpm typecheck && pnpm test && pnpm build && pnpm check:bundle && node e2e/support/check-release.mjs && pnpm e2e",
     "health": "node scripts/health.mjs",
     "verify:fast": "node scripts/verify-fast.mjs",
     "e2e:flake": "node scripts/e2e-flake.mjs",
