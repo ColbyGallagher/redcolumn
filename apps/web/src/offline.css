@@ -163,6 +163,19 @@
     display: none;
   }
 
+  /* The redcolumn menu stays put while the ribbon tabs beside it scroll. */
+  .brand-menu {
+    position: sticky;
+    left: 0;
+    /* Above the ribbon (30), since its menu opens inside this stacking context. */
+    z-index: 41;
+    background: var(--ribbon);
+  }
+
+  .menubar-slot {
+    flex: none;
+  }
+
   .toolbar.tools {
     padding: 4px 6px;
   }

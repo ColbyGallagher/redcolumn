@@ -1,4 +1,5 @@
 import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { Command } from '../commands/appCommands';
 import { settings, useSettings } from '../settings/settings';
 import { shortcutLabel } from '../commands/shortcuts';
@@ -7,6 +8,7 @@ import { FOLLOW_START, followFormat } from '../markup/selectionFormat';
 import { pickedSlopePatch, pickedSpec, setSlopePick, useSlopePick, type SlopePick } from '../markup/slopePicker';
 import { FLOW_SHAPES, isMeasureKind, type FlowShapeKind, type TakeoffTemplate } from '@nb/markup';
 import { MENU_ICONS } from './menuIcons';
+import { SEARCH_SLOT_ID, useMenubarSlot } from './menubarSlot';
 import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './ContextMenu';
 import { loadEstimatingLibrary } from '../assemblies/estimatingLibrary';
 import { StampMenu } from './StampsDialog';
@@ -299,6 +301,8 @@ function Cmd({ id, size = 'small', label, icon }: { id: string; size?: Size; lab
   const c = commands.get(id);
   const name = label ?? c?.label ?? id;
   const key = shortcutLabel(id);
+  // Removed by the organisation's policy (desktop/policy.ts).
+  if (c?.managed) return null;
   return (
     <button
       type="button"
@@ -323,6 +327,7 @@ function ToolBtn({ tool, size = 'small' }: { tool: Tool; size?: Size }) {
   const { tools, state, author, enabled } = toolbar;
   const c = commands.get(`tool.${tool}`);
   const icon = TOOL_ICON.get(tool) ?? ICONS[`tool.${tool}`] ?? '•';
+  if (c?.managed) return null;
   const content = (
     <>
       <span className="rb-icon">{icon}</span>
@@ -486,6 +491,7 @@ function TemplatesMenu() {
   const c = commands.get('takeoff.templates');
   const t = toolbar.takeoffTemplates;
   const armed = toolbar.state.preset?.takeoffTemplateId;
+  if (c?.managed) return null;
   const open = (el: HTMLElement) => {
     if (!t) return;
     const r = el.getBoundingClientRect();
@@ -626,6 +632,9 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   const [customizing, setCustomizing] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const root = useRef<HTMLDivElement>(null);
+  const tabsRef = useRef<HTMLDivElement>(null);
+  // The tabs sit in the menu bar's row, beside the redcolumn menu; without one they head the ribbon.
+  const slot = useMenubarSlot();
 
   // The contextual tab is there while there is anything to format: a styled tool, or a selection of one markup type.
   const contextual = !!(toolbar.styleType || toolbar.textType || toolbar.cloudBubble || toolbar.geometry || toolbar.selection);
@@ -686,7 +695,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
     const close = (e: MouseEvent) => {
       const t = e.target as Element;
       // Stamp, hatch and combo menus pop out of the ribbon; clicks in them keep it open.
-      if (root.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop, .color-pop, .combo-list')) return;
+      if (root.current?.contains(t) || tabsRef.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop, .color-pop, .combo-list')) return;
       setDropped(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -854,7 +863,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Cmd id="tools.assemblies" size="large" />
               <Stack>
                 <Cmd id="tools.quantities" />
-                <Cmd id="tools.takeoffReview" label="Takeoff Review" />
+                <Cmd id="tools.takeoffReview" label="Review AI Takeoff" />
                 <Cmd id="takeoff.items" label="Items" />
               </Stack>
               <Stack>
@@ -1284,15 +1293,46 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
     const i = tabs.findIndex((t) => t.id === tab);
     const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length]!;
     pick(next.id);
-    root.current?.querySelector<HTMLButtonElement>(`[data-ribbon-tab="${next.id}"]`)?.focus();
+    tabsRef.current?.querySelector<HTMLButtonElement>(`[data-ribbon-tab="${next.id}"]`)?.focus();
   };
 
   const showBody = !collapsed || dropped;
+  const tabStrip = (
+    <div className="rb-tabs" ref={tabsRef} role="tablist" aria-label="Ribbon" onKeyDown={onTabKey}>
+      {tabs.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          className={`rb-tab${t.id === 'modify' ? ' modify' : ''}${t.id === 'format' ? ' contextual' : ''}`}
+          data-ribbon-tab={t.id}
+          aria-selected={tab === t.id && showBody}
+          tabIndex={tab === t.id ? 0 : -1}
+          title={collapsed ? 'Double-click to pin the ribbon open' : 'Double-click to collapse the ribbon'}
+          onClick={() => {
+            if (collapsed) setDropped(!(dropped && tab === t.id));
+            pick(t.id);
+          }}
+          onDoubleClick={() => onCollapsedChange(!collapsed)}
+        >
+          {t.label}
+        </button>
+      ))}
+      <span className="grow" />
+      <div id={SEARCH_SLOT_ID} className="rb-search-slot" />
+      <div className="rb-display">
+        <button type="button" className="btn rb-display-btn" title="Customize Ribbon: show or hide groups" aria-label="Customize Ribbon" onClick={() => setCustomizing(true)}>
+          {ic('M2 4h12M2 8h12M2 12h12', <><circle cx="5" cy="4" r="1.6" fill="var(--panel)" /><circle cx="11" cy="8" r="1.6" fill="var(--panel)" /><circle cx="7" cy="12" r="1.6" fill="var(--panel)" /></>)}
+        </button>
+      </div>
+      {displayMenu}
+    </div>
+  );
   return (
     <Ctx.Provider value={{ commands, toolbar, done }}>
     <TabCtx.Provider value={tab}>
     <div
-      className={`ribbon${collapsed ? ' collapsed' : ''}`}
+      className={`ribbon${collapsed ? ' collapsed' : ''}${slot ? ' tabs-up' : ''}`}
       ref={root}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -1307,34 +1347,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
         });
       }}
     >
-      <div className="rb-tabs" role="tablist" aria-label="Ribbon" onKeyDown={onTabKey}>
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            className={`rb-tab${t.id === 'modify' ? ' modify' : ''}${t.id === 'format' ? ' contextual' : ''}`}
-            data-ribbon-tab={t.id}
-            aria-selected={tab === t.id && showBody}
-            tabIndex={tab === t.id ? 0 : -1}
-            title={collapsed ? 'Double-click to pin the ribbon open' : 'Double-click to collapse the ribbon'}
-            onClick={() => {
-              if (collapsed) setDropped(!(dropped && tab === t.id));
-              pick(t.id);
-            }}
-            onDoubleClick={() => onCollapsedChange(!collapsed)}
-          >
-            {t.label}
-          </button>
-        ))}
-        <span className="grow" />
-        <div className="rb-display">
-          <button type="button" className="btn rb-display-btn" title="Customize Ribbon: show or hide groups" aria-label="Customize Ribbon" onClick={() => setCustomizing(true)}>
-            {ic('M2 4h12M2 8h12M2 12h12', <><circle cx="5" cy="4" r="1.6" fill="var(--panel)" /><circle cx="11" cy="8" r="1.6" fill="var(--panel)" /><circle cx="7" cy="12" r="1.6" fill="var(--panel)" /></>)}
-          </button>
-        </div>
-        {displayMenu}
-      </div>
+      {slot ? createPortal(tabStrip, slot) : tabStrip}
       {showBody && (
         <div className="rb-body" role="tabpanel" aria-label={tabs.find((t) => t.id === tab)!.label}>
           {body(tab)}

@@ -289,6 +289,7 @@ window.HELP_TOC = [
       { id: 'profiles', title: 'Profiles' },
       { id: 'shortcuts', title: 'Keyboard shortcuts' },
       { id: 'panels', title: 'Arrange the panels' },
+      { id: 'deploy', title: 'Deploy to an organisation (for IT)' },
     ],
   },
   {
@@ -321,6 +322,7 @@ window.HELP_TOC = [
       {
         title: 'Takeoff and scale',
         children: [
+          { id: 'ai-review', title: 'Review AI takeoff' },
           { id: 'mcp-takeoff', title: 'Takeoff proposals' },
           { id: 'ai-auto-count', title: 'AI auto count' },
           { id: 'mcp-scale', title: 'Sheet scales' },

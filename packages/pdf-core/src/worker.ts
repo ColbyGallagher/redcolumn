@@ -991,6 +991,18 @@ function annotColor(m: WrappedPdfiumModule, annot: number, type: 0 | 1, ptr: num
   return hex();
 }
 
+/**
+ * A FreeText annotation's text layout keys: /DS and /RC (where Bluebeam and Acrobat keep alignment,
+ * margin and line height) and /Q. Read here too so text keeps its layout when the raw dictionaries
+ * could not be read (a file too large for them, or one that would not parse).
+ */
+function freeTextLayout(m: WrappedPdfiumModule, annot: number, ptr: number): Pick<PdfAnnotation, 'ds' | 'rc' | 'quadding'> {
+  const ds = annotString(m, annot, 'DS');
+  const rc = annotString(m, annot, 'RC');
+  const q = m.FPDFAnnot_GetNumberValue(annot, 'Q', ptr) ? m.pdfium.HEAPF32[ptr >> 2]! : null;
+  return { ...(ds ? { ds } : {}), ...(rc ? { rc } : {}), ...(q === 0 || q === 1 || q === 2 ? { quadding: q } : {}) };
+}
+
 /** Constant opacity (/CA), 0..1. */
 function annotOpacity(m: WrappedPdfiumModule, annot: number, ptr: number): number {
   if (m.EPDFAnnot_GetOpacity(annot, ptr)) return m.pdfium.HEAPU32[ptr >> 2]! / 255;
@@ -1746,7 +1758,11 @@ async function readOutline(docId: number): Promise<OutlineItem[]> {
   return walk(0, 0);
 }
 
-function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number): PdfAnnotation[] {
+function isShxTextAnnot(m: WrappedPdfiumModule, annot: number): boolean {
+  return m.FPDFAnnot_GetSubtype(annot) === ANNOT_SQUARE && annotString(m, annot, 'T') === SHX_AUTHOR;
+}
+
+function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number, includeShx = false): PdfAnnotation[] {
   const page = getPage(m, doc, pageIndex);
   const t = userToPageMatrix(m, page);
   const { malloc, free } = m.pdfium.wasmExports;
@@ -1762,6 +1778,8 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
       if (!annot) continue;
       try {
         const subtype = ANNOT_SUBTYPES[m.FPDFAnnot_GetSubtype(annot)] ?? 'Unknown';
+        // AutoCAD's invisible SHX text carriers are left out unless asked for; shxWords() reads them for search regardless.
+        if (!includeShx && isShxTextAnnot(m, annot)) continue;
         const rect = annotRect(m, annot, tmp, t);
         if (!rect) continue;
         const opacity = annotOpacity(m, annot, tmp);
@@ -1810,6 +1828,7 @@ function readAnnotations(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number
           multiply: m.EPDFAnnot_GetBlendMode(annot) === BLEND_MULTIPLY,
           objectNumber: m.EPDFAnnot_GetObjectNumber(annot),
           da: annotString(m, annot, 'DA'),
+          ...(subtype === 'FreeText' ? freeTextLayout(m, annot, tmp) : {}),
           appData: annotString(m, annot, APP_DATA_KEY),
           flags: m.FPDFAnnot_GetFlags(annot),
           vertices: subtype === 'Polygon' || subtype === 'PolyLine' ? readPoints(m, t, (buf, len) => m.FPDFAnnot_GetVertices(annot, buf, len)) : [],
@@ -1842,7 +1861,7 @@ function shxWords(m: WrappedPdfiumModule, page: number, t: Matrix): TextWord[] {
       const annot = m.FPDFPage_GetAnnot(page, i);
       if (!annot) continue;
       try {
-        if (m.FPDFAnnot_GetSubtype(annot) !== ANNOT_SQUARE || annotString(m, annot, 'T') !== SHX_AUTHOR) continue;
+        if (!isShxTextAnnot(m, annot)) continue;
         const text = annotString(m, annot, 'Contents').trim();
         const r = annotRect(m, annot, tmp, t);
         if (!text || !r) continue;
@@ -2131,7 +2150,7 @@ async function handle(req: WorkerRequest) {
       }
       case 'annotations': {
         const m = await lib();
-        reply({ id: req.id, ok: true, type: 'annotations', annotations: readAnnotations(m, getDoc(req.docId), req.pageIndex) });
+        reply({ id: req.id, ok: true, type: 'annotations', annotations: readAnnotations(m, getDoc(req.docId), req.pageIndex, req.includeShx) });
         break;
       }
       case 'hideAnnots': {

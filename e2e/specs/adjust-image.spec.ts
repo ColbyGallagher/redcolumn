@@ -127,7 +127,8 @@ test.describe('adjust image', () => {
   test('the Modify tab fits at the smallest window width, with nothing scrolling', async ({ app }) => {
     await app.page.setViewportSize({ width: 800, height: 700 });
     const ribbon = app.page.locator('.ribbon');
-    await ribbon.getByRole('tab', { name: 'Modify' }).click();
+    // The tabs sit in the top bar's row, above the ribbon proper.
+    await app.page.locator('.ribbon, .rb-tabs').getByRole('tab', { name: 'Modify' }).click();
     await expect(ribbon.getByRole('group', { name: 'Picture', exact: true })).toBeVisible();
     const clipped = await ribbon.locator('.rb-group').evaluateAll((els) => els.filter((e) => e.scrollWidth > e.clientWidth + 1 || e.scrollHeight > e.clientHeight + 1).length);
     expect(clipped).toBe(0);

@@ -5,7 +5,8 @@ import { PLAN, type Pt } from '../support/driver.ts';
 // Takeoff › Reports: a catalog item and an assembly on a 20 ft x 10 ft room, then the reports as
 // CSV, Excel and PDF.
 
-const ribbon = (app: App) => app.page.locator('.ribbon');
+// The ribbon's commands, and its tabs, which sit in the menu bar's row.
+const ribbon = (app: App) => app.page.locator('.ribbon, .rb-tabs');
 const dialog = (app: App) => app.page.getByRole('dialog', { name: 'Takeoff Reports' });
 
 const r = PLAN.room;

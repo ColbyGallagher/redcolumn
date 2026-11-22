@@ -115,6 +115,172 @@ test('an artwork stamp is saved as its picture with its text over it', async () 
   assert.match(text, /\/Helvetica-Bold\b/, 'and the bold font for its text');
 });
 
+/**
+ * A stamp with form fields, as other PDF tools write dynamic stamps: text fields whose scripts fill
+ * in the user, the date or a typed answer, a list to pick from, and a tick box.
+ */
+async function formStampPdf() {
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([300, 100]);
+  page.node.set(PDFName.of('ArtBox'), doc.context.obj([0, 0, 300, 100]));
+  const js = (src: string) => ({ C: { S: 'JavaScript', JS: PDFString.of(src) } });
+  const widget = (rect: number[], extra: Record<string, unknown>) => doc.context.register(doc.context.obj({ Type: 'Annot', Subtype: 'Widget', Rect: rect, DA: PDFString.of('/HeBo 12 Tf 0 0 1 rg'), Q: 1, ...extra }));
+  // One field with two widgets: both show its value.
+  const parent = doc.context.register(doc.context.obj({ FT: 'Tx', T: PDFString.of('Checker'), AA: js('if (event.source.forReal) event.value = app.response({ cQuestion: "Checked by:", cTitle: "Stamp", cDefault: "J. Smith" });') }));
+  const annots = [
+    doc.context.register(doc.context.obj({ Type: 'Annot', Subtype: 'FreeText', Rect: [10, 70, 100, 90], DA: PDFString.of('0 0 0 rg /Helv 12 Tf'), Contents: PDFString.of('Checked by'), DS: PDFString.of('font: Helvetica 12pt; text-align:left') })),
+    widget([110, 70, 290, 90], { Parent: parent }),
+    widget([110, 5, 290, 20], { Parent: parent }),
+    widget([10, 40, 140, 60], { FT: 'Tx', T: PDFString.of('Date'), AA: js('event.value = util.printd("dd mmm yyyy", new Date());') }),
+    widget([150, 40, 290, 60], { FT: 'Tx', T: PDFString.of('Who'), AA: js('event.value = identity.name;') }),
+    widget([10, 22, 140, 38], { FT: 'Ch', Ff: 1 << 17, T: PDFString.of('St'), TU: PDFString.of('Status?'), Opt: [PDFString.of('Open'), [PDFString.of('c'), PDFString.of('Closed')]], V: PDFString.of('Open') }),
+    widget([150, 22, 170, 38], { FT: 'Btn', T: PDFString.of('Urgent') }),
+  ];
+  page.node.set(PDFName.of('Annots'), doc.context.obj(annots));
+  return doc.save();
+}
+
+test('a stamp’s form fields become its own fields, or {User} and {Date} where their scripts fill those in', async () => {
+  const p = await parseStampPdf(await formStampPdf(), 'Checked');
+  assert.deepEqual(
+    p.texts.map((t) => t.text),
+    ['Checked by', '{Checked by}', '{Checked by}', '{Date}', '{User}', '{Status}'],
+  );
+  assert.deepEqual(p.fields, [
+    { id: 'Checker', label: 'Checked by', kind: 'text', value: 'J. Smith' },
+    { id: 'St', label: 'Status', kind: 'text', value: 'Open', choices: ['Open', 'Closed'] },
+  ]);
+  const field = p.texts[1]!;
+  assert.deepEqual([field.x, field.y, field.w, field.h, field.size, field.color, field.bold, field.align], [110, 10, 180, 20, 12, '#0000ff', true, 'center']);
+  // The tick box is left in the picture.
+  assert.equal(p.hasArtwork, true);
+});
+
+test('a stamp with form fields places as a picture stamp asking for them, with each where it was', async () => {
+  const p = await parseStampPdf(await formStampPdf(), 'Checked');
+  const def = artStamp(p, 'data:image/png;base64,AAAA', 'f1');
+  assert.equal(def.fields!.length, 2);
+  const c = resolveStamp(def, { user: 'Jane Doe', file: 'f.pdf', page: '1', now: new Date(2026, 9, 5) }, { Checker: 'A. Smith', St: 'Closed' });
+  assert.deepEqual(c.art!.texts.map((t) => t.text).slice(0, 3), ['Checked by', 'A. Smith', 'A. Smith']);
+  assert.ok(c.art!.texts.some((t) => t.text === 'Jane Doe'));
+  assert.ok(c.art!.texts.some((t) => t.text === 'Closed'));
+  // As text alone, a label and the field beside it are one line.
+  assert.equal(textStamp(p, 't1').lines[0], 'Checked by {Checked by}');
+});
+
+/** A one-page stamp PDF whose annotations are the given dicts (built by `make`). */
+async function widgetsPdf(make: (doc: PDFDocument) => unknown[], page: [number, number] = [300, 100]) {
+  const doc = await PDFDocument.create();
+  const p = doc.addPage(page);
+  p.node.set(PDFName.of('ArtBox'), doc.context.obj([0, 0, page[0], page[1]]));
+  p.node.set(PDFName.of('Annots'), doc.context.obj(make(doc).map((a) => doc.context.register(doc.context.obj(a as Record<string, never>)))));
+  return doc.save();
+}
+const tx = (rect: number[], extra: Record<string, unknown>) => ({ Type: 'Annot', Subtype: 'Widget', FT: 'Tx', Rect: rect, DA: PDFString.of('/Helv 10 Tf 0 g'), ...extra });
+
+test('a field named like a dynamic field keeps its own value under another name', async () => {
+  const p = await parseStampPdf(await widgetsPdf(() => [tx([10, 60, 290, 90], { T: PDFString.of('Date'), V: PDFString.of('15/03/2025') })]));
+  assert.deepEqual(p.fields, [{ id: 'Date', label: 'Date 2', kind: 'text', value: '15/03/2025' }]);
+  assert.deepEqual(p.texts.map((t) => t.text), ['{Date 2}']);
+  const def = textStamp(p, 'd');
+  const c = resolveStamp(def, { user: 'A', file: 'f.pdf', page: '1', now: new Date(2026, 9, 5) });
+  assert.deepEqual(c.lines, ['15/03/2025'], 'its value, not today, and no extra "Date:" line');
+});
+
+test('a widget that cannot be read stays part of the picture instead of failing the import', async () => {
+  const p = await parseStampPdf(await widgetsPdf(() => [tx([10, 60, 290, 90], { T: PDFString.of('Odd'), Parent: 5 }), tx([10, 10, 290, 40], { T: PDFString.of('Fine') })]));
+  // The malformed /Parent is ignored, so this field still reads.
+  assert.deepEqual(p.fields.map((f) => f.label), ['Odd', 'Fine']);
+  const broken = await parseStampPdf(await widgetsPdf((doc) => [tx([10, 60, 290, 90], { T: PDFString.of('Bad'), AA: { C: { S: 'JavaScript', JS: doc.context.register(doc.context.obj({ Filter: 'FlateDecode' })) } } })]));
+  assert.ok(broken);
+});
+
+test('a hidden field is not a field, and is left out of the picture', async () => {
+  const p = await parseStampPdf(await widgetsPdf(() => [tx([10, 60, 290, 90], { T: PDFString.of('Secret'), F: 2 }), tx([10, 30, 290, 55], { T: PDFString.of('Off screen'), F: 32 }), tx([10, 5, 290, 25], { T: PDFString.of('Shown'), F: 4 })]));
+  assert.deepEqual(p.fields.map((f) => f.label), ['Shown']);
+  assert.deepEqual(p.hidden, [0, 1]);
+});
+
+test('a list’s [export, shown] pairs give the shown text, and a list you can type in stays editable', async () => {
+  const p = await parseStampPdf(
+    await widgetsPdf(() => [
+      { ...tx([10, 60, 290, 90], { T: PDFString.of('St'), V: PDFString.of('c'), DV: PDFString.of('o') }), FT: 'Ch', Ff: 1 << 17, Opt: [[PDFString.of('o'), PDFString.of('Open')], [PDFString.of('c'), PDFString.of('Closed')]] },
+      { ...tx([10, 10, 290, 40], { T: PDFString.of('Who') }), FT: 'Ch', Ff: (1 << 17) | (1 << 18), Opt: [PDFString.of('Ann'), PDFString.of('Bo')] },
+    ]),
+  );
+  assert.deepEqual(p.fields, [
+    { id: 'St', label: 'St', kind: 'text', value: 'Closed', choices: ['Open', 'Closed'] },
+    { id: 'Who', label: 'Who', kind: 'text', value: '', choices: ['Ann', 'Bo'], editable: true },
+  ]);
+});
+
+test('script strings with \\u and \\x escapes are read', async () => {
+  const p = await parseStampPdf(await widgetsPdf(() => [tx([10, 60, 290, 90], { T: PDFString.of('Q'), AA: { C: { S: 'JavaScript', JS: PDFString.of('event.value = app.response("Gepr\\\\u00fcft von\\\\x3a");') } } })]));
+  assert.equal(p.fields[0]!.label, 'Geprüft von');
+});
+
+test('long labels and appearance strings are read quickly', async () => {
+  const spaces = ' '.repeat(200_000);
+  const started = Date.now();
+  const p = await parseStampPdf(await widgetsPdf(() => [tx([10, 60, 290, 90], { T: PDFString.of('x'), TU: PDFString.of(`a${spaces}b${spaces}:`), DA: PDFString.of(`/${'F'.repeat(100_000)}${spaces}`) })]));
+  assert.ok(Date.now() - started < 2000, `took ${Date.now() - started} ms`);
+  assert.equal(p.fields.length, 1);
+  assert.ok(p.fields[0]!.label.length <= 256);
+});
+
+test('a field shared down a deep chain of parents with very long strings is read quickly', async () => {
+  const long = 'x'.repeat(60_000);
+  const bytes = await widgetsPdf((doc) => {
+      // 15 parents deep, each with long /T, /TU and /DA; 250 widgets share the chain.
+      let parent: unknown = undefined;
+      for (let i = 0; i < 15; i++) parent = doc.context.register(doc.context.obj({ FT: 'Tx', T: PDFString.of(long), TU: PDFString.of(long), DA: PDFString.of(long), V: PDFString.of(long), ...(parent ? { Parent: parent } : {}) } as unknown as Record<string, never>));
+      return Array.from({ length: 250 }, (_, i) => ({ Type: 'Annot', Subtype: 'Widget', Rect: [(i % 25) * 10, Math.floor(i / 25) * 9, (i % 25) * 10 + 9, Math.floor(i / 25) * 9 + 8], T: PDFString.of(`w${i}`), Parent: parent }));
+  });
+  const started = Date.now();
+  const p = await parseStampPdf(bytes);
+  assert.ok(Date.now() - started < 1500, `took ${Date.now() - started} ms`);
+  assert.equal(p.fields.length, 200, 'at most 200 widgets are read as fields');
+  assert.ok(p.fields.every((f) => f.label.length <= 256 && (f.value ?? '').length <= 256));
+});
+
+test('labels and fields on one level make one line, in order: By [who] on [when]', async () => {
+  const label = (text: string, rect: number[]) => ({ Type: 'Annot', Subtype: 'FreeText', Rect: rect, DA: PDFString.of('/Helv 10 Tf 0 g'), Contents: PDFString.of(text) });
+  const p = await parseStampPdf(
+    await widgetsPdf(() => [label('By', [10, 40, 30, 55]), tx([35, 40, 120, 55], { T: PDFString.of('Who') }), label('on', [125, 40, 145, 55]), tx([150, 40, 290, 55], { T: PDFString.of('When') }), label('CHECKED', [10, 70, 290, 95])]),
+  );
+  assert.deepEqual(textStamp(p, 'x').lines, ['CHECKED', 'By {Who} on {When}']);
+});
+
+test('a text box that is hidden or not shown is left out', async () => {
+  const label = (text: string, f: number) => ({ Type: 'Annot', Subtype: 'FreeText', Rect: [10, 40, 290, 60], F: f, DA: PDFString.of('/Helv 10 Tf 0 g'), Contents: PDFString.of(text) });
+  const p = await parseStampPdf(await widgetsPdf(() => [label('Shown', 4), label('Hidden', 2), label('Off screen', 32)]));
+  assert.deepEqual(p.texts.map((t) => t.text), ['Shown']);
+  assert.deepEqual(p.hidden, [1, 2]);
+});
+
+test('thousands of text boxes are read quickly', async () => {
+  const bytes = await widgetsPdf(() => Array.from({ length: 20_000 }, (_, i) => ({ Type: 'Annot', Subtype: 'FreeText', Rect: [i % 100, i % 90, (i % 100) + 5, (i % 90) + 5], Contents: PDFString.of('t') })));
+  // Loading the file itself (pdf-lib) takes what it takes: what is timed is the reading after it.
+  let started = Date.now();
+  await PDFDocument.load(bytes);
+  const load = Date.now() - started;
+  started = Date.now();
+  const p = await parseStampPdf(bytes);
+  const parse = Date.now() - started;
+  assert.ok(parse - load < 1500, `took ${parse} ms, ${load} ms of it loading`);
+  started = Date.now();
+  textStamp(p, 'x');
+  assert.ok(Date.now() - started < 500, `lines took ${Date.now() - started} ms`);
+  assert.equal(p.texts.length, 2000);
+});
+
+test('a tall headline beside a small date stays two lines; only a field joins the label beside it', async () => {
+  const head: Box = { ...HEAD, rect: [10, 40, 200, 90], text: 'APPROVED' };
+  const date: Box = { ...DATE, rect: [210, 55, 330, 70], text: '&amp;[Date]' };
+  const p = await parseStampPdf(await stampPdf([head, date], { artBox: [0, 0, 340, 100] }));
+  assert.deepEqual(textStamp(p, 'x').lines, ['APPROVED', '{Date}']);
+});
+
 // Run with REVU_SETTINGS_DIR pointing at a Revu settings folder to read every stamp it has.
 const dir = process.env.REVU_SETTINGS_DIR;
 test("Revu's own stamps all read", { skip: dir ? false : 'REVU_SETTINGS_DIR is not set' }, async () => {

@@ -40,6 +40,8 @@ export interface MarkupInfo {
   measurement?: string;
   hidden?: boolean;
   locked?: boolean;
+  /** Custom column values, by column name. */
+  fields?: Record<string, string>;
 }
 
 export interface CommandInfo {
@@ -142,17 +144,18 @@ export function driver(page: Page) {
     },
 
     // Menus and dialogs.
+    /** Opens the redcolumn menu, then the menu named `title` in it (File, Edit…), then each submenu in `subs`. */
     async menu(title: string, ...subs: string[]) {
       await page.keyboard.press('Escape');
-      await page.locator('.menubar .menu-title', { hasText: new RegExp(`^${escape(title)}$`) }).click();
-      for (const s of subs) {
+      await page.locator('.menubar .brand-mark').click();
+      for (const s of [title, ...subs]) {
         await page
           .locator('.menu-sub > .menu-item')
           .filter({ has: page.locator('.label', { hasText: new RegExp(`^${escape(s)}$`) }) })
           .last()
           .hover();
       }
-      return page.locator('.menu-drop');
+      return page.locator('.menu-flyout').last();
     },
     item(label: string) {
       return page

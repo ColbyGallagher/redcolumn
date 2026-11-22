@@ -3,6 +3,7 @@ import { takesAssembly } from '../assemblies/assemblyChoice';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   MARKUP_LABELS,
+  isAiDraft,
   isMeasureKind,
   measureKindOf,
   measureProps,
@@ -1006,7 +1007,8 @@ export function MeasurementsPanel({
   const toggle = (key: keyof typeof open) => setOpen((s) => ({ ...s, [key]: !s[key] }));
   const totals = new Map<MeasureKind, { value: number; scale: Scale; n: number }>();
   for (const m of rows) {
-    if (!isMeasureKind(m.type) || m.type === 'angle') continue;
+    // AI drafts wait for review: left out of totals, as in reports.
+    if (!isMeasureKind(m.type) || m.type === 'angle' || isAiDraft(m)) continue;
     const rowScale = scaleOf(m);
     const value = measureValue(m.type, m.points, rowScale.metersPerPoint, measureProps(m), rowScale.yMetersPerPoint);
     const kind = measureKindOf(m);

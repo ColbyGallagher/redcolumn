@@ -28,6 +28,7 @@ import { registerAppProtocol } from './protocol';
 import { harden, installMenu, installPermissions } from './security';
 import { isSmokeRun, lockHeldMessage, smokeUserData } from './smoke';
 import { createUpdater } from './updater';
+import { blockedRequests, describePolicy, failedPolicy, loadPolicy, type ManagedPolicy } from './policy';
 
 const openFiles = captureOpenFiles();
 const allowlist = new PathAllowlist();
@@ -81,11 +82,21 @@ if (!app.requestSingleInstanceLock()) {
     event.preventDefault();
     noteArgv([url]);
   });
-  void app.whenReady().then(start);
+  // Managed policy (policy.ts) is read while Electron starts, and everything below waits for it.
+  // The e2e suite adds a policy file of its own; a further file can only restrict more.
+  const policyLoad = loadPolicy({ extraFile: process.env.RECOLUMN_E2E === '1' ? process.env.RECOLUMN_POLICY_FILE : undefined }).catch(failedPolicy);
+  void app.whenReady().then(() => start(policyLoad));
 }
 
-async function start() {
+async function start(policyLoad: Promise<ManagedPolicy>) {
+  const policy = await policyLoad;
+  console.log(describePolicy(policy));
+  for (const problem of policy.problems) console.warn(`Managed policy: ${problem}`);
+  /** The message a refused call gives; the page hides what policy turns off, so it should never be seen. */
+  const managed = (what: string) => new Error(`${what} is turned off by your organisation.`);
   registerAppProtocol();
+  const blocked = blockedRequests(policy);
+  if (blocked.length) session.defaultSession.webRequest.onBeforeRequest({ urls: blocked }, (_details, callback) => callback({ cancel: true }));
   // Links to a comment (redcolumn://markup?…, see links.ts) open this app. Only the installed app
   // registers: a development or test run must not take the links over.
   if (app.isPackaged && !smoke && process.env.RECOLUMN_E2E !== '1') app.setAsDefaultProtocolClient(LINK_SCHEME);
@@ -111,7 +122,7 @@ async function start() {
   const auth = new DesktopAuth(app.getPath('userData'));
 
   ipcMain.on('desktop:info', (event) => {
-    event.returnValue = { nativeFiles: NATIVE_OPEN_SAVE, printMode: PRINT_MODE };
+    event.returnValue = { nativeFiles: NATIVE_OPEN_SAVE, printMode: PRINT_MODE, policy };
   });
   await restoreLastDir(path.join(app.getPath('userData'), 'last-dir.json'));
   registerPathIpc(allowlist, (contents) => windows.get(contents)?.launches ?? null, () => mainWindow);
@@ -138,16 +149,23 @@ async function start() {
   handle('print:cancel', (job) => {
     if (typeof job === 'string') return cancelImagePrint(job);
   });
-  // Updates: checked at every launch, and the page shows the state in its header bar.
-  const updater = createUpdater(anyUnsaved);
-  updater.onChange = (state) => {
-    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:state', state);
+  // Updates: checked at every launch, and the page shows the state in its header bar. Under a
+  // policy that turns them off nothing is checked or downloaded: the updater is never made.
+  const updater = policy.disableAutoUpdate ? null : createUpdater(anyUnsaved);
+  if (updater)
+    updater.onChange = (state) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update:state', state);
+    };
+  const updates = () => {
+    if (!updater) throw managed('Updating');
+    return updater;
   };
-  handle('update:check', () => updater.check());
-  handle('update:get', () => updater.state);
-  handle('update:install', () => updater.install());
+  handle('update:check', () => updates().check());
+  handle('update:get', () => updates().state);
+  handle('update:install', () => updates().install());
   // Signs in, or checks a sign-in covers these scopes. The page learns who signed in, never the token.
   handle('auth:microsoft', async (clientId, tenant, scopes, interactive) => {
+    if (policy.disableMicrosoftSignIn) throw managed('Microsoft sign-in');
     if (typeof clientId !== 'string' || !clientId) throw new Error('Microsoft sign-in is not configured for this app.');
     const list = Array.isArray(scopes) ? scopes.filter((s): s is string => typeof s === 'string') : [];
     const result = await auth.microsoft(clientId, typeof tenant === 'string' && tenant ? tenant : 'common', list, interactive === true);
@@ -156,6 +174,7 @@ async function start() {
   // Every OneDrive call from the page goes through the broker, which holds the token (docs/SECURITY-HARDENING.md, E2).
   const brokers = new Map<string, GraphBroker>();
   handle('graph:request', (clientId, tenant, request) => {
+    if (policy.disableMicrosoftSignIn) throw managed('Microsoft sign-in');
     if (typeof clientId !== 'string' || !clientId || !request || typeof request !== 'object') throw new Error('That request is not allowed.');
     const t = typeof tenant === 'string' && tenant ? tenant : 'common';
     const key = `${clientId} ${t}`;
@@ -209,7 +228,7 @@ async function start() {
   handle('token:certificates', () => tokens.certificates());
   handle('token:sign', (ref, hash, data, pin) => tokens.sign(ref, hash, data, pin));
   handle('auth:microsoft-account', (clientId) => {
-    if (typeof clientId !== 'string' || !clientId) return null;
+    if (policy.disableMicrosoftSignIn || typeof clientId !== 'string' || !clientId) return null;
     return auth.microsoftAccount(clientId);
   });
   // Projects on a folder this computer syncs (docs/SECURITY-HARDENING.md, E3). The page gets IDs, never paths.
@@ -262,7 +281,8 @@ async function start() {
   });
 
   // Sync to Excel on this computer: Windows only, since it drives Excel through COM. The page gets IDs, never paths.
-  if (process.platform === 'win32') {
+  // Policy can turn it off: the channels are then never registered, and the preload leaves `excel` out.
+  if (process.platform === 'win32' && !policy.disableExcelSync) {
     const excelFile = path.join(app.getPath('userData'), 'excel-links.json');
     const excel = await loadExcelLinks(excelFile);
     handle('excel:pick', async (suggestedName) => {
@@ -349,10 +369,12 @@ async function start() {
     return { enabled: current.enabled, ...launch() };
   });
   handle('assistant:set', async (on) => {
+    if (on === true && policy.disableAssistant) throw managed('The MCP server');
     const current = await assistant.setEnabled(on === true);
     return { enabled: current.enabled, ...launch() };
   });
-  await assistant.restore();
+  // Under a policy that turns the MCP server off it never listens, whatever the person last chose.
+  if (!policy.disableAssistant) await assistant.restore();
   // will-quit, not before-quit: a quit stopped by the unsaved-changes question must leave the assistant running.
   app.on('will-quit', () => {
     cancelAssistantCalls();
@@ -415,7 +437,7 @@ async function start() {
   noteArgv(process.argv);
   for (const argv of waitingArgv.splice(0)) focusedLaunches()?.noteArgv(argv);
   // A moment after launch, so the check never competes with the page loading.
-  if (app.isPackaged && !smoke) setTimeout(() => void updater.check(), 5000);
+  if (updater && app.isPackaged && !smoke) setTimeout(() => void updater.check(), 5000);
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
