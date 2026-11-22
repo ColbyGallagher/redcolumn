@@ -19,9 +19,16 @@ export type ConvertReply =
 const scope = self as unknown as {
   onmessage: ((e: MessageEvent<ConvertRequest>) => void) | null;
   postMessage: (m: ConvertReply, transfer?: Transferable[]) => void;
+  location: Location;
 };
 
 scope.onmessage = async (e) => {
+  // Only the page that started this worker can post to it, and its messages carry no origin: one
+  // from any other origin is ignored, as is anything that is not a conversion request.
+  if (e.origin && e.origin !== scope.location.origin) return;
+  if (!(e.data?.ifc instanceof Uint8Array) || typeof e.data.wasm !== 'string') return;
+  // web-ifc's wasm only ever comes from this app's own files.
+  if (new URL(e.data.wasm, scope.location.href).origin !== scope.location.origin) return;
   const { ifc, wasm } = e.data;
   try {
     const importer = new IfcImporter();
