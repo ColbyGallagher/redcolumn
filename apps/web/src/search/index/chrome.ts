@@ -10,6 +10,8 @@ export interface IndexedText {
    * not every sheet whose title block says "PLAN" in the project name.
    */
   chrome: string;
+  /** For each of the page's words, whether it is chrome. */
+  isChrome: boolean[];
 }
 
 /** Each page's text split into body and chrome (see `IndexedText`). */
@@ -21,12 +23,13 @@ export function splitChrome(pages: readonly PageText[]): IndexedText[] {
     const boxes = ref ? regions.map((r) => regionOnPage(r.rect, ref, page)) : [];
     const body: string[] = [];
     const chrome: string[] = [];
-    for (const w of page.words) {
+    const isChrome = page.words.map((w) => {
       const cx = (w.x0 + w.x1) / 2;
       const cy = (w.y0 + w.y1) / 2;
       const repeated = boxes.some((b) => cx >= b.x && cx <= b.x + b.w && cy >= b.y && cy <= b.y + b.h);
       (repeated ? chrome : body).push(w.text);
-    }
-    return { body: body.join(' '), chrome: chrome.join(' ') };
+      return repeated;
+    });
+    return { body: body.join(' '), chrome: chrome.join(' '), isChrome };
   });
 }
