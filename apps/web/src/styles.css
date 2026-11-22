@@ -6568,3 +6568,16 @@ input.m3d-name:focus {
   font-weight: normal;
   color: var(--muted, #888);
 }
+.m3d-sheet-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0 6px 22px;
+}
+.m3d-sheet-options input[type='number'] {
+  width: 64px;
+}
+.m3d-sheet-options input[type='range'] {
+  width: 80px;
+}

@@ -164,6 +164,46 @@ test.describe('3D models', () => {
     expect((await app.command('view.modelOnDrawings')).checked).toBe(false);
   });
 
+  test('a sheet registered to the map shows in the model on a plane or draped, and the view keeps drawing after a tab switch', async ({ app }) => {
+    const page = app.page;
+    await app.open('plan.pdf');
+    await page.evaluate((region) => {
+      const store = window.__nb.tools.store as unknown as { setPageGeo(p: number, r: unknown[]): void; add(m: unknown): void };
+      store.setPageGeo(0, [region]);
+      // A line across the road, to drape over it.
+      store.add({ id: 'across', type: 'polyline', pageIndex: 0, points: [[60, 300], [560, 500]], style: { stroke: '#e03131', fill: null, width: 2, opacity: 1 } });
+    }, PLAN_REGION);
+    await openModel(app);
+    await expect(view(app)).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
+    type Session = {
+      state(): { georeferenced: boolean; heights: [number, number] | null; draping: number };
+      sheetGroup: { children: { type: string; children: unknown[] }[] };
+      world: { renderer: { three: { info: { render: { frame: number } } } } };
+      run(a: unknown): void;
+    };
+    const session = <T,>(fn: (s: Session) => T) => page.evaluate((src) => new Function('s', `return (${src})(s)`)((document.querySelector('.model-view') as unknown as { session: Session }).session), fn.toString()) as Promise<T>;
+    await expect.poll(() => session((s) => s.state().georeferenced)).toBe(true);
+    // The road's levels, about 10 to 16 m AHD.
+    const [lo, hi] = (await session((s) => s.state().heights))!;
+    expect(lo).toBeGreaterThan(9);
+    expect(hi).toBeLessThan(17);
+
+    await app.cmd('window.model3d');
+    const sheets = page.getByRole('list', { name: 'Sheets in the model' });
+    await sheets.getByRole('checkbox').check();
+    await expect.poll(() => session((s) => s.sheetGroup.children.map((c) => c.type).join())).toBe('Mesh');
+    await sheets.getByRole('combobox').selectOption('drape');
+    await expect.poll(() => session((s) => s.sheetGroup.children[0]?.type === 'Group' && s.state().draping === 0 && s.sheetGroup.children[0].children.length), { timeout: 60_000 }).toBeGreaterThan(0);
+
+    // Back from the PDF, the view still draws when the camera moves.
+    await page.locator('.doc-tab', { hasText: 'plan' }).click();
+    await page.locator('.doc-tab', { hasText: 'kestrel-road-revA.ifc' }).click();
+    const frame = () => session((s) => s.world.renderer.three.info.render.frame);
+    const before = await frame();
+    await session((s) => s.run({ type: 'direction', direction: 'iso' }));
+    await expect.poll(frame).toBeGreaterThan(before + 2);
+  });
+
   test('working with PDFs never loads the 3D viewer', async ({ app }) => {
     const seen = watch3d(app);
     await app.open('plan.pdf');

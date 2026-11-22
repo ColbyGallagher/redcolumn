@@ -3,6 +3,7 @@
  * loaded with a dynamic import() the first time a model opens, so opening and working with PDFs
  * never downloads or runs any of them (scripts/check-bundle.mjs checks this on every build).
  */
+import { modelGeoreference } from './onDrawing';
 import type { ModelView } from '../documents/openTabs';
 import type { StoredFile } from '../storage/fileStore';
 import { readFragments, writeFragments } from './fragCache';
@@ -54,6 +55,9 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
     const [{ ModelSession }, cached] = await Promise.all([import('@nb/model3d'), readFragments(file.hash)]);
     if (disposed) return;
     session = ModelSession.create(canvasHost, modelAssets());
+    // The renderer makes a container it finds unpositioned 'relative', which it is while its tab is
+    // not on screen (not yet in the page), and that collapses it: it is placed by the stylesheet.
+    canvasHost.style.removeProperty('position');
     session.subscribe(emit);
     // Development and test builds: the session, for debugging and the end-to-end tests.
     if (import.meta.env.DEV || import.meta.env.VITE_E2E === '1') (element as unknown as { session: unknown }).session = session;
@@ -69,6 +73,9 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
     status.hidden = true;
     ready = true;
     emit();
+    // Where it lies on the map, read from the IFC apart from the viewer, so sheets can be shown in it.
+    const geo = await modelGeoreference(file).catch(() => null);
+    if (geo?.georeferenced && !disposed) session.run({ type: 'georeference', modelId: file.id, matrix: geo.matrix });
   })().catch((err: unknown) => {
     if (disposed) return;
     element.dataset.state = 'error';

@@ -38,6 +38,12 @@ export interface ModelState {
   modelsVersion: number;
   /** The colour profile shown (its id), or null. */
   profileId: string | null;
+  /** A model's position on the map is known (its IFC map conversion was given): sheets can be shown in it. */
+  georeferenced: boolean;
+  /** The models' lowest and highest heights (metres, the map's height datum), once georeferenced. */
+  heights: [number, number] | null;
+  /** Drapes still being laid over the model. */
+  draping: number;
 }
 
 export const INITIAL_STATE: ModelState = {
@@ -56,6 +62,9 @@ export const INITIAL_STATE: ModelState = {
   selectionVersion: 0,
   modelsVersion: 0,
   profileId: null,
+  georeferenced: false,
+  heights: null,
+  draping: 0,
 };
 
 export type ModelAction =
@@ -75,7 +84,30 @@ export type ModelAction =
   | { type: 'clearSelection' }
   | { type: 'openView'; id: string | null }
   | { type: 'clearMeasurements' }
-  | BrowseAction;
+  | BrowseAction
+  | { type: 'georeference'; modelId: string; matrix: number[] }
+  | { type: 'sheetOverlays'; overlays: SheetOverlay[] };
+
+/**
+ * A sheet shown in the 3D view where it lies on the map: as a picture on a level plane, or its
+ * markups draped over the model's surface. Corners and lines are grid eastings and northings.
+ */
+export interface SheetOverlay {
+  id: string;
+  mode: 'plane' | 'drape';
+  /** Plane: its height (metres, the map's height datum). */
+  height: number;
+  /** 0..1 */
+  opacity: number;
+  /** Plane: the picture's corners on the map, top-left, top-right, bottom-right, bottom-left. */
+  corners: [number, number][];
+  /** Plane: the sheet drawn with its markups (null: a drape). */
+  image: HTMLCanvasElement | null;
+  /** Drape: lines to lay over the model, each with its colour. */
+  lines: { points: [number, number][]; colour: string }[];
+  /** Changes when what is drawn changes, so an unchanged overlay is kept as it is. */
+  version: string;
+}
 
 /** What the ribbon and commands can reach while a model is in front. */
 export interface ModelControls extends ModelBrowser {
@@ -262,6 +294,25 @@ export function searchable(set: SearchSet): boolean {
 export function matchesCategory(set: SearchSet, category: string): boolean {
   const want = set.category.trim().toLowerCase();
   return !want || category.toLowerCase() === want;
+}
+
+/**
+ * Points along a line at most `step` apart (its own points kept), so a drape follows the ground
+ * between them; at most about `max` points in all, the step growing to fit.
+ */
+export function densify(points: readonly (readonly [number, number])[], step: number, max = 2000): [number, number][] {
+  if (points.length < 2) return points.map(([x, y]) => [x, y]);
+  let length = 0;
+  for (let i = 1; i < points.length; i++) length += Math.hypot(points[i]![0] - points[i - 1]![0], points[i]![1] - points[i - 1]![1]);
+  const s = Math.max(step, length / Math.max(1, max - points.length));
+  const out: [number, number][] = [[points[0]![0], points[0]![1]]];
+  for (let i = 1; i < points.length; i++) {
+    const [ax, ay] = points[i - 1]!;
+    const [bx, by] = points[i]!;
+    const n = Math.max(1, Math.ceil(Math.hypot(bx - ax, by - ay) / s));
+    for (let k = 1; k <= n; k++) out.push([ax + ((bx - ax) * k) / n, ay + ((by - ay) * k) / n]);
+  }
+  return out;
 }
 
 /** Elements in an ItemMap. */
