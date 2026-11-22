@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { model3dCommands } from './model3dCommands.ts';
-import { INITIAL_STATE } from '../../../../packages/model3d/src/controls.ts';
+import { INITIAL_STATE } from '@nb/model3d/controls';
 
 test('with no model in front, every 3D command is disabled and says why', () => {
   const cmds = model3dCommands(() => {}, null);

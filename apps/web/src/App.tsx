@@ -186,6 +186,7 @@ import { CAD_ACCEPT, isCadFile } from './cad/files';
 import { MODEL_ACCEPT, isModelFile } from './model3d/files';
 import { openModelView } from './model3d/host';
 import { ModelStage } from './model3d/ModelStage';
+import { Model3dPanel, Model3dPropertiesPanel } from './model3d/Model3dPanel';
 import { convertAsJob, convertFile } from './cad/open';
 import { cadSession, useCadConversion } from './cad/session';
 import { CadConvertDialog } from './components/CadConvertDialog';
@@ -752,7 +753,8 @@ const panelSide = (id: LeftTab): DockSide => (!narrowScreen() && profiles.active
 /** The first panel the profile docks on a side, which that side panel starts on. */
 const firstPanelOn = (side: DockSide): LeftTab | undefined => {
   const ws = profiles.active().state;
-  return RAIL.find(({ id }) => panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked))?.id;
+  // 3D panels come and go with models, so a side never starts on one.
+  return RAIL.find(({ id, needsModel }) => !needsModel && panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked))?.id;
 };
 
 /** Progress within one of `count` steps of a job, as part of the whole. */
@@ -8065,7 +8067,19 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
 
   /** The panel rail's panels in the profile's order (unlisted ones keep their default place at the end). */
   // The Markups list is a rail panel only while docked in a side panel (it starts in the bottom dock).
-  const orderedRail = RAIL.filter(({ id }) => id !== 'markups' || ws.markupsDocked).sort((a, b) => {
+  const anyModelOpen = tabsA.some((t) => t.kind === 'model') || tabsB.some((t) => t.kind === 'model');
+  // The first model opened brings its properties up, where that side has nothing else open.
+  const hadModel = useRef(anyModelOpen);
+  useEffect(() => {
+    if (anyModelOpen && !hadModel.current && !ws.hiddenPanels.includes('model3dProps')) {
+      const side = panelSide('model3dProps');
+      if (!(side === 'left' ? leftOpen : rightOpen)) showPanel('model3dProps');
+    }
+    hadModel.current = anyModelOpen;
+    // Only the coming and going of models matters here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyModelOpen]);
+  const orderedRail = RAIL.filter(({ id, needsModel }) => (id !== 'markups' || ws.markupsDocked) && (!needsModel || anyModelOpen)).sort((a, b) => {
     const ia = ws.panelOrder.indexOf(a.id);
     const ib = ws.panelOrder.indexOf(b.id);
     return (ia < 0 ? RAIL.length + RAIL.indexOf(a) : ia) - (ib < 0 ? RAIL.length + RAIL.indexOf(b) : ib);
@@ -9615,6 +9629,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   const sidePanel = (side: DockSide) => {
     const tab = side === 'left' ? leftTab : rightTab;
     if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side) return null;
+    // A 3D panel left open when the last model closed gives the space back to the drawing.
+    if (!anyModelOpen && RAIL.find((r) => r.id === tab)?.needsModel) return null;
     const width = side === 'left' ? shownWidths.left : shownWidths.right;
     const close = () => (side === 'left' ? setLeftOpen(false) : setRightOpen(false));
     return (
@@ -10018,6 +10034,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 : null
             }
           />
+        ) : tab === 'model3d' ? (
+          <Model3dPanel
+            view={activeModel?.view ?? null}
+            fileHash={activeModel?.file.hash ?? null}
+            onDownload={(name, text) => download(name, new Blob([text], { type: 'application/json' }))}
+            onNotice={setNotice}
+          />
+        ) : tab === 'model3dProps' ? (
+          <Model3dPropertiesPanel view={activeModel?.view ?? null} />
         ) : tab === 'flags' ? (
           <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flagLabel') : null} />
         ) : (tab === 'projects' || tab === 'sessions') && !desktop() ? (
@@ -12334,7 +12359,29 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   );
 }
 
-const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean }[] = [
+const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean; needsModel?: boolean }[] = [
+  {
+    id: 'model3d',
+    title: '3D Model',
+    experimental: true,
+    needsModel: true,
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M2.5 4.5 8 1.8l5.5 2.7v7L8 14.2l-5.5-2.7zM2.5 4.5 8 7.2l5.5-2.7M8 7.2v7" />
+      </svg>
+    ),
+  },
+  {
+    id: 'model3dProps',
+    title: '3D Properties',
+    experimental: true,
+    needsModel: true,
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M2 2.5h12v11H2zM2 6h12M2 9.5h12M6.5 2.5v11" />
+      </svg>
+    ),
+  },
   {
     id: 'markups',
     title: 'Markups',

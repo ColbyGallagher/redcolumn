@@ -60,6 +60,7 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
     apply();
     const fragments = await session.loadIfc(new Uint8Array(bytes), file.id, {
       fragments: cached,
+      name: file.name,
       signal: abort.signal,
       onProgress: (p) => (status.textContent = statusText(p.stage, p.fraction)),
     });

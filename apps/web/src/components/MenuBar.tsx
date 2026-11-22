@@ -42,7 +42,9 @@ export type LeftTab =
   | 'sets'
   | 'sessions'
   | 'projects'
-  | 'markups';
+  | 'markups'
+  | 'model3d'
+  | 'model3dProps';
 export type BottomTab = 'markups' | 'links';
 
 export const LEFT_TITLES: Record<LeftTab, string> = {
@@ -65,6 +67,8 @@ export const LEFT_TITLES: Record<LeftTab, string> = {
   sessions: 'Sessions',
   projects: 'Projects',
   markups: 'Markups',
+  model3d: '3D Model',
+  model3dProps: '3D Properties',
 };
 
 export interface RecentFile {

@@ -6363,3 +6363,208 @@ select[size] {
   color: var(--text);
   cursor: pointer;
 }
+
+/* The 3D Model and 3D Properties panels (issue #191). */
+.m3d-panel,
+.m3d-props {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  font-size: 12px;
+}
+.m3d-empty {
+  padding: 12px;
+}
+.m3d-section > summary {
+  cursor: pointer;
+  padding: 6px 10px;
+  font-weight: 600;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.m3d-section > summary::marker {
+  color: var(--muted, #888);
+}
+.m3d-body {
+  padding: 0 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.m3d-count {
+  margin-left: auto;
+  color: var(--muted, #888);
+  font-weight: normal;
+  font-variant-numeric: tabular-nums;
+}
+.m3d-section > summary .m3d-count {
+  margin-left: 4px;
+}
+.m3d-list,
+.m3d-tree,
+.m3d-tree ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.m3d-tree {
+  max-height: 40vh;
+  overflow: auto;
+}
+.m3d-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 24px;
+  border-radius: 4px;
+}
+.m3d-row:hover {
+  background: var(--hover, rgba(127, 127, 127, 0.12));
+}
+.m3d-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+  background: none;
+  border: 0;
+  padding: 2px 4px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+input.m3d-name {
+  cursor: text;
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+input.m3d-name:focus {
+  border-color: var(--accent);
+}
+.m3d-class {
+  margin-left: 6px;
+  color: var(--muted, #888);
+  font-size: 11px;
+}
+.m3d-twisty {
+  width: 16px;
+  flex: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  cursor: pointer;
+}
+.m3d-actions {
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+}
+.m3d-row:hover .m3d-actions,
+.m3d-row:focus-within .m3d-actions {
+  opacity: 1;
+}
+.m3d-panel .icon-btn,
+.m3d-props .icon-btn {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 0;
+  border-radius: 3px;
+  color: inherit;
+  cursor: pointer;
+}
+.m3d-panel .icon-btn:hover:not(:disabled) {
+  background: var(--hover, rgba(127, 127, 127, 0.2));
+}
+.m3d-swatch {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 2px;
+}
+.m3d-form,
+.m3d-rule {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.m3d-form input,
+.m3d-rule select {
+  flex: 1;
+  min-width: 0;
+}
+.m3d-rule input[type='color'] {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+}
+.m3d-set-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.m3d-set-form input {
+  min-width: 0;
+}
+.m3d-set-form button {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+.m3d-profile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  border-radius: 4px;
+}
+.m3d-profile .link-button {
+  align-self: flex-start;
+}
+.m3d-props-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  padding: 6px 10px;
+}
+.m3d-props-head .m3d-class {
+  margin-left: 0;
+}
+.m3d-guid {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--muted, #888);
+  user-select: all;
+}
+.m3d-filter {
+  margin: 0 10px 4px;
+}
+.m3d-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.m3d-table th,
+.m3d-table td {
+  padding: 2px 10px;
+  text-align: left;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.15));
+}
+.m3d-table th {
+  width: 45%;
+  font-weight: normal;
+  color: var(--muted, #888);
+}

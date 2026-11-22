@@ -88,6 +88,58 @@ test.describe('3D models', () => {
     });
   });
 
+  test('the 3D panels list the model, select by class, show properties, find by search set and save views', async ({ app }) => {
+    const page = app.page;
+    await app.open('plan.pdf');
+    // The 3D panels join the rail only while a model is open.
+    await expect(page.locator('[data-panel="model3d"]')).toHaveCount(0);
+    await openModel(app);
+    await expect(view(app)).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
+    // 3D Properties starts on the right, opposite the 3D Model panel.
+    await expect(page.locator('nav.rail.right [data-panel="model3dProps"]')).toHaveCount(1);
+    await expect(page.locator('nav.rail.left [data-panel="model3d"]')).toHaveCount(1);
+    // The first model brings its properties up, waiting for a pick.
+    await expect(page.getByText('Click an element in the model to see its properties.')).toBeVisible();
+
+    await app.cmd('window.model3d');
+    const panel = page.locator('.m3d-panel');
+    await expect(panel.getByRole('checkbox', { name: /kestrel-road-revA\.ifc/ })).toBeChecked();
+    await expect(panel.locator('.m3d-tree')).toContainText('Kestrel Road site');
+    const classes = panel.getByRole('list', { name: 'Classes' });
+    await expect(classes.locator('.m3d-row', { hasText: 'IfcCourse' })).toContainText('30');
+
+    // Picking a class selects its elements; the Properties panel shows the first.
+    await classes.getByRole('button', { name: 'IfcCourse', exact: true }).click();
+    await app.cmd('window.model3dProps');
+    const props = page.locator('.m3d-props');
+    await expect(props.locator('.m3d-props-head')).toContainText('1 of 30 selected');
+    await expect(props.locator('.m3d-props-head')).toContainText('IfcCourse');
+    await props.getByRole('searchbox', { name: 'Filter properties' }).fill('alignment');
+    await expect(props.locator('tbody tr')).toHaveCount(1);
+    await expect(props.locator('tbody tr')).toContainText(/MC0[01]/);
+
+    // A search set finds the side road's elements by a property value, and isolates them.
+    await app.cmd('window.model3d');
+    await panel.getByRole('textbox', { name: 'Property' }).fill('Alignment');
+    await panel.getByRole('textbox', { name: 'Value contains' }).fill('MC01');
+    await panel.getByRole('button', { name: 'Add set' }).click();
+    const sets = panel.getByRole('list', { name: 'Search sets' });
+    await sets.getByRole('button', { name: /^Isolate / }).click();
+    await expect(sets.locator('.m3d-count')).toHaveText('8');
+    await expect.poll(() => page.evaluate(() => (document.querySelector('.model-view') as unknown as { session: { state(): { hidden: boolean } } }).session.state().hidden)).toBe(true);
+
+    // The view is saved with what is hidden, and comes back after Show all.
+    await panel.getByRole('textbox', { name: 'View name' }).fill('Side road');
+    await panel.getByRole('button', { name: 'Save view' }).click();
+    const views = panel.getByRole('list', { name: 'Saved views' });
+    await expect(views.getByRole('button', { name: 'Side road', exact: true })).toBeVisible();
+    await panel.getByRole('button', { name: 'Show all' }).click();
+    const hidden = () => page.evaluate(() => (document.querySelector('.model-view') as unknown as { session: { state(): { hidden: boolean } } }).session.state().hidden);
+    await expect.poll(hidden).toBe(false);
+    await views.getByRole('button', { name: 'Side road', exact: true }).click();
+    await expect.poll(hidden).toBe(true);
+  });
+
   test('working with PDFs never loads the 3D viewer', async ({ app }) => {
     const seen = watch3d(app);
     await app.open('plan.pdf');

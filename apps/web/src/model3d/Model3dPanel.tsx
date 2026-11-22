@@ -1,0 +1,485 @@
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import type { ClassEntry, ColourAction, ColourProfile, ItemMap, ModelControls, ModelInfo, ModelState, ResolvedProfile, SavedView, SearchSet, SelectionInfo, TreeNode } from '@nb/model3d';
+import { itemCount, paletteColour, parseSearchSets, searchable } from '@nb/model3d/controls';
+import type { ModelView } from '../documents/openTabs';
+import { exportSearchSets, updateModelLibrary, useModelLibrary } from './library';
+
+/** The profile made by Colour by Class (not kept in the library). */
+export const CLASS_PROFILE = '__classes';
+
+/** The model in front's view state and controls, or nulls while it loads (or with no model in front). */
+function useModel(view: ModelView | null): { state: ModelState | null; controls: ModelControls | null } {
+  const state = useSyncExternalStore(
+    (l) => view?.subscribe(l) ?? (() => {}),
+    () => view?.controls()?.state() ?? null,
+  );
+  return { state, controls: state ? (view?.controls() ?? null) : null };
+}
+
+/** Runs an async read of the view again whenever `controls` or `version` changes; null until the first answer. */
+function useAsk<T>(controls: ModelControls | null, read: (c: ModelControls) => Promise<T>, version: number | undefined): T | null {
+  // The answer keeps the view it came from: another model's answer is never shown, while a newer
+  // answer for the same view replaces the last without flashing empty.
+  const [answer, setAnswer] = useState<{ from: ModelControls; value: T } | null>(null);
+  useEffect(() => {
+    if (!controls) return;
+    let live = true;
+    read(controls).then(
+      (value) => live && setAnswer({ from: controls, value }),
+      (err: unknown) => console.warn('3D panel:', err),
+    );
+    return () => {
+      live = false;
+    };
+    // `read` is a fresh closure each render; `controls` and `version` say when the answer can change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controls, version]);
+  return answer && answer.from === controls ? answer.value : null;
+}
+
+function Section({ title, count, children, open = true }: { title: string; count?: number; children: ReactNode; open?: boolean }) {
+  return (
+    <details className="m3d-section" open={open}>
+      <summary>
+        {title}
+        {count !== undefined && <span className="m3d-count">{count}</span>}
+      </summary>
+      <div className="m3d-body">{children}</div>
+    </details>
+  );
+}
+
+const EYE = 'M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z';
+function Icon({ d, children }: { d?: string; children?: ReactNode }) {
+  return (
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.3">
+      {d && <path d={d} />}
+      {children}
+    </svg>
+  );
+}
+
+/** Small buttons after a row: select, isolate, hide and show what it stands for. */
+function ItemButtons({ controls, items, label }: { controls: ModelControls; items: ItemMap; label: string }) {
+  const empty = !itemCount(items);
+  return (
+    <span className="m3d-actions">
+      <button type="button" className="icon-btn" title={`Isolate ${label}`} aria-label={`Isolate ${label}`} disabled={empty} onClick={() => controls.run({ type: 'isolateItems', items })}>
+        <Icon d="M5 5h6v6H5z">
+          <path d="M1.5 3V1.5H3M13 1.5h1.5V3M14.5 13v1.5H13M3 14.5H1.5V13" />
+        </Icon>
+      </button>
+      <button type="button" className="icon-btn" title={`Hide ${label}`} aria-label={`Hide ${label}`} disabled={empty} onClick={() => controls.run({ type: 'itemsVisible', items, visible: false })}>
+        <Icon d={`${EYE}M2.5 2.5l11 11`} />
+      </button>
+      <button type="button" className="icon-btn" title={`Show ${label}`} aria-label={`Show ${label}`} disabled={empty} onClick={() => controls.run({ type: 'itemsVisible', items, visible: true })}>
+        <Icon d={EYE}>
+          <circle cx="8" cy="8" r="2" />
+        </Icon>
+      </button>
+    </span>
+  );
+}
+
+/** A node's own element and every element under it. */
+function nodeItems(node: TreeNode): ItemMap {
+  const ids: number[] = [];
+  const walk = (n: TreeNode) => {
+    if (n.localId !== null) ids.push(n.localId);
+    n.children.forEach(walk);
+  };
+  walk(node);
+  return ids.length ? { [node.modelId]: ids } : {};
+}
+
+const prettyClass = (c: string) => (c.startsWith('IFC') ? `Ifc${c.slice(3, 4)}${c.slice(4).toLowerCase()}` : c);
+
+function TreeRow({ node, depth, controls }: { node: TreeNode; depth: number; controls: ModelControls }) {
+  // Down to the storeys at first; elements open on request.
+  const [open, setOpen] = useState(depth < 4 && node.children.length < 50);
+  const items = useMemo(() => nodeItems(node), [node]);
+  const label = node.name && node.name !== node.category ? node.name : prettyClass(node.category);
+  return (
+    <li>
+      <div className="m3d-row" style={{ paddingLeft: depth * 12 }}>
+        <button type="button" className="m3d-twisty" aria-label={open ? 'Collapse' : 'Expand'} aria-expanded={node.children.length ? open : undefined} disabled={!node.children.length} onClick={() => setOpen(!open)}>
+          {node.children.length ? (open ? '▾' : '▸') : ''}
+        </button>
+        <button type="button" className="m3d-name" title={`${label} (${prettyClass(node.category)}): select`} onClick={() => controls.run({ type: 'selectItems', items, fit: true })}>
+          {label}
+          {node.category && label !== prettyClass(node.category) && <span className="m3d-class">{prettyClass(node.category)}</span>}
+        </button>
+        <ItemButtons controls={controls} items={items} label={label} />
+      </div>
+      {open && node.children.length > 0 && (
+        <ul>
+          {node.children.map((c, i) => (
+            <TreeRow key={`${c.localId ?? c.category}-${i}`} node={c} depth={depth + 1} controls={controls} />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+const describeSet = (s: SearchSet) =>
+  [s.category && prettyClass(s.category.toUpperCase()), s.property && (s.value ? `${s.property} contains “${s.value}”` : `has ${s.property}`)].filter(Boolean).join(', ');
+
+/** A colour profile's sets searched, ready for the view. */
+async function resolve(profile: ColourProfile, sets: readonly SearchSet[], controls: ModelControls): Promise<ResolvedProfile> {
+  const out: ResolvedProfile = [];
+  for (const rule of profile.rules) {
+    const set = sets.find((s) => s.id === rule.setId);
+    if (set) out.push({ items: await controls.find(set), action: rule.action });
+  }
+  return out;
+}
+
+interface PanelProps {
+  /** The model in front, or null. */
+  view: ModelView | null;
+  /** The model file's hash: its saved views are kept by it. */
+  fileHash: string | null;
+  onDownload: (name: string, text: string) => void;
+  onNotice: (text: string) => void;
+}
+
+/**
+ * The 3D panel: the models in the view, their spatial structure and classes, saved views, search
+ * sets and colour profiles. Element properties are in the 3D Properties panel.
+ */
+export function Model3dPanel({ view, fileHash, onDownload, onNotice }: PanelProps) {
+  const { state, controls } = useModel(view);
+  const lib = useModelLibrary();
+  const models = useMemo<ModelInfo[]>(() => controls?.models() ?? [], [controls, state?.modelsVersion]);
+  const tree = useAsk(controls, (c) => c.tree(), state?.modelsVersion);
+  const classes = useAsk<ClassEntry[]>(controls, (c) => c.classes(), state?.modelsVersion);
+
+  if (!view) return <p className="empty m3d-empty">Open an IFC model to see its structure, classes and saved views here.</p>;
+  if (!controls || !state) return <p className="empty m3d-empty">The model is loading…</p>;
+
+  const colourByClass = () => {
+    if (state.profileId === CLASS_PROFILE) return controls.run({ type: 'applyProfile', id: null, profile: null });
+    controls.run({ type: 'applyProfile', id: CLASS_PROFILE, profile: (classes ?? []).map((c, i) => ({ items: c.items, action: { kind: 'colour', colour: paletteColour(i) } })) });
+  };
+
+  return (
+    <div className="m3d-panel">
+      <Section title="Models" count={models.length}>
+        <ul className="m3d-list">
+          {models.map((m) => (
+            <li key={m.id} className="m3d-row">
+              <label className="m3d-name" title={m.name}>
+                <input type="checkbox" checked={m.visible} onChange={(e) => controls.run({ type: 'modelVisible', modelId: m.id, visible: e.target.checked })} /> {m.name}
+              </label>
+              <span className="m3d-count">{m.elements.toLocaleString()}</span>
+            </li>
+          ))}
+        </ul>
+      </Section>
+      <Section title="Spatial tree">
+        {tree ? (
+          <ul className="m3d-tree" aria-label="Spatial tree">
+            {tree.map((n) => (
+              <TreeRow key={n.modelId} node={n} depth={0} controls={controls} />
+            ))}
+          </ul>
+        ) : (
+          <p className="empty">Reading the model…</p>
+        )}
+      </Section>
+      <Section title="Classes" count={classes?.length}>
+        <div className="panel-toolbar">
+          <button type="button" className="btn small" aria-pressed={state.profileId === CLASS_PROFILE} disabled={!classes?.length} onClick={colourByClass}>
+            Colour by class
+          </button>
+          <button type="button" className="btn small" disabled={!state.hidden && !state.profileId} onClick={() => controls.run({ type: 'showAll' })}>
+            Show all
+          </button>
+        </div>
+        <ul className="m3d-list" aria-label="Classes">
+          {(classes ?? []).map((c, i) => (
+            <li key={c.category} className="m3d-row">
+              {state.profileId === CLASS_PROFILE && <span className="m3d-swatch" style={{ background: paletteColour(i) }} />}
+              <button type="button" className="m3d-name" title={`Select every ${prettyClass(c.category)}`} onClick={() => controls.run({ type: 'selectItems', items: c.items })}>
+                {prettyClass(c.category)}
+              </button>
+              <span className="m3d-count">{c.count.toLocaleString()}</span>
+              <ItemButtons controls={controls} items={c.items} label={prettyClass(c.category)} />
+            </li>
+          ))}
+        </ul>
+      </Section>
+      <SavedViews controls={controls} fileHash={fileHash} views={fileHash ? (lib.views[fileHash] ?? []) : []} profiles={lib.profiles} sets={lib.sets} profileId={state.profileId} />
+      <SetsAndColours controls={controls} sets={lib.sets} profiles={lib.profiles} profileId={state.profileId} classes={classes ?? []} onDownload={onDownload} onNotice={onNotice} />
+    </div>
+  );
+}
+
+function SavedViews(props: { controls: ModelControls; fileHash: string | null; views: SavedView[]; profiles: ColourProfile[]; sets: SearchSet[]; profileId: string | null }) {
+  const { controls, fileHash, views, profiles, sets, profileId } = props;
+  const [name, setName] = useState('');
+  const setViews = (change: (v: SavedView[]) => SavedView[]) =>
+    fileHash && updateModelLibrary((lib) => ({ ...lib, views: { ...lib.views, [fileHash]: change(lib.views[fileHash] ?? []) } }));
+  const save = async () => {
+    // The class colouring is made on the spot, not kept, so a view keeps only library profiles.
+    const keep = profiles.some((p) => p.id === profileId) ? profileId : null;
+    const view = await controls.capture(name.trim() || `View ${views.length + 1}`, keep);
+    setViews((v) => [...v, view]);
+    setName('');
+  };
+  const go = async (v: SavedView) => {
+    const profile = profiles.find((p) => p.id === v.profileId);
+    controls.run({ type: 'applyView', view: v, profile: profile ? await resolve(profile, sets, controls) : null });
+  };
+  return (
+    <Section title="Saved views" count={views.length}>
+      <form
+        className="m3d-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <input aria-label="View name" placeholder={`View ${views.length + 1}`} value={name} onChange={(e) => setName(e.target.value)} disabled={!fileHash} />
+        <button type="submit" className="btn small" disabled={!fileHash} title="Keep the camera, section box, hidden elements and colour profile">
+          Save view
+        </button>
+      </form>
+      <ul className="m3d-list" aria-label="Saved views">
+        {views.map((v) => (
+          <li key={v.id} className="m3d-row">
+            <button type="button" className="m3d-name" title="Go to this view" onClick={() => void go(v)}>
+              {v.name}
+            </button>
+            {v.sectionBox && <span className="m3d-class">section</span>}
+            <button type="button" className="icon-btn" aria-label={`Delete ${v.name}`} title="Delete" onClick={() => setViews((all) => all.filter((x) => x.id !== v.id))}>
+              ×
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Section>
+  );
+}
+
+const ACTIONS: { value: ColourAction['kind']; label: string }[] = [
+  { value: 'colour', label: 'Colour' },
+  { value: 'ghost', label: 'Ghost' },
+  { value: 'hide', label: 'Hide' },
+];
+
+function SetsAndColours(props: {
+  controls: ModelControls;
+  sets: SearchSet[];
+  profiles: ColourProfile[];
+  profileId: string | null;
+  classes: ClassEntry[];
+  onDownload: (name: string, text: string) => void;
+  onNotice: (text: string) => void;
+}) {
+  const { controls, sets, profiles, profileId, classes, onDownload, onNotice } = props;
+  const blank: SearchSet = { id: '', name: '', category: '', property: '', value: '' };
+  const [draft, setDraft] = useState<SearchSet>(blank);
+  const [found, setFound] = useState<Record<string, number>>({});
+  const importInput = useRef<HTMLInputElement>(null);
+  const setSets = (next: SearchSet[]) => updateModelLibrary((lib) => ({ ...lib, sets: next }));
+  const setProfiles = (next: ColourProfile[]) => updateModelLibrary((lib) => ({ ...lib, profiles: next }));
+
+  const run = async (set: SearchSet, then: 'select' | 'isolate') => {
+    const items = await controls.find(set);
+    setFound((f) => ({ ...f, [set.id]: itemCount(items) }));
+    if (!itemCount(items)) return onNotice(`Nothing in the model matches “${set.name}”.`);
+    controls.run(then === 'select' ? { type: 'selectItems', items, fit: true } : { type: 'isolateItems', items });
+  };
+  const add = () => {
+    const set = { ...draft, id: crypto.randomUUID(), name: draft.name.trim() || describeSet(draft) };
+    setSets([...sets, set]);
+    setDraft(blank);
+  };
+  const updateProfile = (id: string, change: (p: ColourProfile) => ColourProfile) => setProfiles(profiles.map((p) => (p.id === id ? change(p) : p)));
+  const show = async (p: ColourProfile) => {
+    if (profileId === p.id) return controls.run({ type: 'applyProfile', id: null, profile: null });
+    controls.run({ type: 'applyProfile', id: p.id, profile: await resolve(p, sets, controls) });
+  };
+
+  return (
+    <>
+      <Section title="Search sets" count={sets.length}>
+        <form
+          className="m3d-set-form"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (searchable(draft)) add();
+          }}
+        >
+          <input aria-label="Set name" placeholder="Name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          <input aria-label="Class" placeholder="Class (e.g. IFCWALL)" list="m3d-classes" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} />
+          <datalist id="m3d-classes">
+            {classes.map((c) => (
+              <option key={c.category} value={c.category} />
+            ))}
+          </datalist>
+          <input aria-label="Property" placeholder="Property (e.g. Status)" value={draft.property} onChange={(e) => setDraft({ ...draft, property: e.target.value })} />
+          <input aria-label="Value contains" placeholder="Value contains" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} disabled={!draft.property.trim()} />
+          <button type="submit" className="btn small" disabled={!searchable(draft)} title="Find elements by class, property or both">
+            Add set
+          </button>
+        </form>
+        <ul className="m3d-list" aria-label="Search sets">
+          {sets.map((s) => (
+            <li key={s.id} className="m3d-row">
+              <button type="button" className="m3d-name" title={`${describeSet(s)}: select`} onClick={() => void run(s, 'select')}>
+                {s.name}
+              </button>
+              {found[s.id] !== undefined && <span className="m3d-count">{found[s.id]!.toLocaleString()}</span>}
+              <button type="button" className="icon-btn" title={`Isolate ${s.name}`} aria-label={`Isolate ${s.name}`} onClick={() => void run(s, 'isolate')}>
+                <Icon d="M5 5h6v6H5z">
+                  <path d="M1.5 3V1.5H3M13 1.5h1.5V3M14.5 13v1.5H13M3 14.5H1.5V13" />
+                </Icon>
+              </button>
+              <button type="button" className="icon-btn" aria-label={`Delete ${s.name}`} title="Delete" onClick={() => setSets(sets.filter((x) => x.id !== s.id))}>
+                ×
+              </button>
+            </li>
+          ))}
+        </ul>
+        <div className="panel-toolbar">
+          <button type="button" className="btn small" onClick={() => importInput.current?.click()}>
+            Import…
+          </button>
+          <button type="button" className="btn small" disabled={!sets.length} onClick={() => onDownload('search sets.json', exportSearchSets(sets))}>
+            Export…
+          </button>
+          <input
+            ref={importInput}
+            type="file"
+            accept=".json,application/json"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file) return;
+              void file.text().then((text) => {
+                try {
+                  const read = parseSearchSets(text).filter((s) => !sets.some((x) => x.id === s.id));
+                  setSets([...sets, ...read]);
+                  onNotice(read.length ? `Added ${read.length} search set${read.length === 1 ? '' : 's'}.` : 'No new search sets in that file.');
+                } catch {
+                  onNotice('That file is not a search set export.');
+                }
+              });
+            }}
+          />
+        </div>
+      </Section>
+      <Section title="Colour profiles" count={profiles.length}>
+        <div className="panel-toolbar">
+          <button
+            type="button"
+            className="btn small"
+            disabled={!sets.length}
+            title={sets.length ? 'Colour, ghost or hide elements set by set' : 'Add a search set first'}
+            onClick={() => setProfiles([...profiles, { id: crypto.randomUUID(), name: `Profile ${profiles.length + 1}`, rules: [{ setId: sets[0]!.id, action: { kind: 'colour', colour: '#e8590c' } }] }])}
+          >
+            New profile
+          </button>
+        </div>
+        {profiles.map((p) => (
+          <div key={p.id} className="m3d-profile" data-profile={p.id}>
+            <div className="m3d-row">
+              <input className="m3d-name" aria-label="Profile name" value={p.name} onChange={(e) => updateProfile(p.id, (x) => ({ ...x, name: e.target.value }))} />
+              <button type="button" className="btn small" aria-pressed={profileId === p.id} onClick={() => void show(p)}>
+                {profileId === p.id ? 'Showing' : 'Show'}
+              </button>
+              <button type="button" className="icon-btn" aria-label={`Delete ${p.name}`} title="Delete" onClick={() => setProfiles(profiles.filter((x) => x.id !== p.id))}>
+                ×
+              </button>
+            </div>
+            {p.rules.map((r, i) => (
+              <div key={i} className="m3d-rule">
+                <select aria-label="Search set" value={r.setId} onChange={(e) => updateProfile(p.id, (x) => ({ ...x, rules: x.rules.map((y, j) => (j === i ? { ...y, setId: e.target.value } : y)) }))}>
+                  {sets.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label="Action"
+                  value={r.action.kind}
+                  onChange={(e) => {
+                    const kind = e.target.value as ColourAction['kind'];
+                    const action: ColourAction = kind === 'colour' ? { kind, colour: r.action.kind === 'colour' ? r.action.colour : '#e8590c' } : { kind };
+                    updateProfile(p.id, (x) => ({ ...x, rules: x.rules.map((y, j) => (j === i ? { ...y, action } : y)) }));
+                  }}
+                >
+                  {ACTIONS.map((a) => (
+                    <option key={a.value} value={a.value}>
+                      {a.label}
+                    </option>
+                  ))}
+                </select>
+                {r.action.kind === 'colour' && (
+                  <input
+                    type="color"
+                    aria-label="Colour"
+                    value={r.action.colour}
+                    onChange={(e) => updateProfile(p.id, (x) => ({ ...x, rules: x.rules.map((y, j) => (j === i ? { ...y, action: { kind: 'colour', colour: e.target.value } } : y)) }))}
+                  />
+                )}
+                <button type="button" className="icon-btn" aria-label="Remove rule" title="Remove rule" onClick={() => updateProfile(p.id, (x) => ({ ...x, rules: x.rules.filter((_, j) => j !== i) }))}>
+                  ×
+                </button>
+              </div>
+            ))}
+            <button type="button" className="link-button" disabled={!sets.length} onClick={() => updateProfile(p.id, (x) => ({ ...x, rules: [...x.rules, { setId: sets[0]!.id, action: { kind: 'colour', colour: paletteColour(x.rules.length) } }] }))}>
+              Add rule
+            </button>
+          </div>
+        ))}
+      </Section>
+    </>
+  );
+}
+
+/** The 3D Properties panel: the selected element's attributes and property and quantity sets. */
+export function Model3dPropertiesPanel({ view }: { view: ModelView | null }) {
+  const { state, controls } = useModel(view);
+  const info = useAsk<SelectionInfo>(controls, (c) => c.selection(), state?.selectionVersion);
+  const [filter, setFilter] = useState('');
+  if (!view) return <p className="empty m3d-empty">Select an element in a 3D model to see its properties.</p>;
+  if (!info?.first) return <p className="empty m3d-empty">{info?.count ? 'Reading the element…' : 'Click an element in the model to see its properties.'}</p>;
+  const { first, count } = info;
+  const f = filter.trim().toLowerCase();
+  const groups = first.groups
+    .map((g) => ({ ...g, rows: f ? g.rows.filter(([n, v]) => n.toLowerCase().includes(f) || v.toLowerCase().includes(f)) : g.rows }))
+    .filter((g) => g.rows.length);
+  return (
+    <div className="m3d-props">
+      <div className="m3d-props-head">
+        <strong>{first.name || prettyClass(first.category)}</strong>
+        <span className="m3d-class">{prettyClass(first.category)}</span>
+        {count > 1 && <span className="m3d-count">{`1 of ${count} selected`}</span>}
+        {first.guid && <code className="m3d-guid" title="IFC GlobalId">{first.guid}</code>}
+      </div>
+      <input className="m3d-filter" type="search" aria-label="Filter properties" placeholder="Filter properties" value={filter} onChange={(e) => setFilter(e.target.value)} />
+      {groups.map((g) => (
+        <details key={g.title} className="m3d-section" open>
+          <summary>{g.title}</summary>
+          <table className="m3d-table">
+            <tbody>
+              {g.rows.map(([n, v], i) => (
+                <tr key={`${n}-${i}`}>
+                  <th scope="row">{n}</th>
+                  <td>{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </details>
+      ))}
+      {!groups.length && <p className="empty">No property matches “{filter}”.</p>}
+    </div>
+  );
+}
