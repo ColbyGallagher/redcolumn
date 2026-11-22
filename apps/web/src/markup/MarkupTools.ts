@@ -1830,7 +1830,7 @@ export class MarkupTools implements ViewerOverlay {
     store.batch(() => {
       for (const id of this.state.selected) {
         const m = store.get(id);
-        if (m && m.type === type && !this.frozen(m)) store.update(id, { style: { ...m.style, ...patch }, ...tableOwnStyleCleared(m, patch) });
+        if (m && m.type === type && !this.frozen(m)) store.update(id, { style: mergeStyle(m.style, patch), ...tableOwnStyleCleared(m, patch) });
       }
     });
   }

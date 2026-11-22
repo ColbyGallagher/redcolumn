@@ -1,4 +1,5 @@
 import { MARKUP_LABELS, isMeasureKind, type Attachment, type Markup, type MarkupStyle, type MarkupType } from './model';
+import { COUNT_STYLE_FROM_PDF } from './countSymbol';
 import type { Dropped } from './diagnostics';
 import { mimeOf } from './import';
 import { removePredictor, rgbaToPngDataUrl, samplesToRgba } from './pdfExtras';
@@ -633,6 +634,10 @@ export function toolStyle(type: MarkupType, d: PdfDict, defaults: Defaults): Mar
   if (family) style.fontFamily = family;
   if (/bold/.test(font) || /font-weight:\s*bold/i.test(ds)) style.bold = true;
   if (/italic|oblique/.test(font) || /font-style:\s*italic/i.test(ds)) style.italic = true;
+  if (type === 'count') {
+    const shape = COUNT_STYLE_FROM_PDF[nm(d.CountStyle)];
+    if (shape) style.countShape = shape;
+  }
   return style;
 }
 
