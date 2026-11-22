@@ -1,4 +1,4 @@
-import { SCALE_PRESETS, type PaperUnit, type Scale } from '@nb/measure';
+import { SCALE_PRESETS, lengthDecimals, type PaperUnit, type Scale } from '@nb/measure';
 import { systemOf } from '../settings/settings';
 
 const PRESETS_KEY = 'nb.scalePresets';
@@ -87,8 +87,8 @@ export function rangeText(pages: readonly number[]): string {
 export function precisionValue(scale: Scale | null, pending: string): string {
   if (!scale) return pending;
   const frac = scale.feetInches && (scale.unit === 'ft' || scale.unit === 'in');
-  // A scale kept in fractions for a return to ft or in shows two decimals in other units (formatLength).
-  return frac ? `f${scale.precision}` : `d${scale.feetInches ? 2 : scale.precision}`;
+  // A scale kept in fractions for a return to ft or in shows its unit's default decimals in other units (formatLength).
+  return frac ? `f${scale.precision}` : `d${lengthDecimals(scale)}`;
 }
 
 export function precisionText(value: string): string {

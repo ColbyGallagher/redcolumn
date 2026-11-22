@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { ThemeChoice } from '../theme/themes';
-import { DEFAULT_SCALE, SCALE_PRESETS, type LengthUnit, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, SCALE_PRESETS, UNIT_PRECISION, type LengthUnit, type Scale } from '@nb/measure';
 
 /**
  * App preferences (File → Preferences…), kept per browser. Unlike profiles they are not about the
@@ -37,9 +37,6 @@ const SYSTEM_DEFAULTS: Record<UnitSystem, Pick<Settings, 'lengthUnit' | 'areaUni
   metric: { lengthUnit: 'm', areaUnit: 'm', volumeUnit: 'm' },
   imperial: { lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft' },
 };
-
-/** Decimal places lengths get in a unit when the app picks the unit itself. */
-const UNIT_PRECISION: Record<LengthUnit, number> = { mm: 0, cm: 1, m: 2, km: 3, in: 2, ft: 2, yd: 2, mi: 3 };
 
 /** The unit the grid is spaced in on paper: millimetres for metric, inches for imperial. */
 export const gridUnitOf = (system: UnitSystem): 'mm' | 'in' => (system === 'metric' ? 'mm' : 'in');

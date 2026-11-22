@@ -20,6 +20,8 @@ test('precisionValue offers fractions only in ft or in, and two decimals for a s
   const base: Scale = { metersPerPoint: 0.01, unit: 'ft', feetInches: true, precision: 16, label: 'x' };
   assert.equal(precisionValue(base, 'd2'), 'f16');
   assert.equal(precisionValue({ ...base, unit: 'm' }, 'd2'), 'd2');
+  assert.equal(precisionValue({ ...base, unit: 'mm' }, 'd2'), 'd0');
+  assert.equal(precisionValue({ ...base, unit: 'km' }, 'd2'), 'd3');
   assert.equal(precisionValue({ ...base, unit: 'm', feetInches: false, precision: 3 }, 'd2'), 'd3');
   assert.equal(precisionValue(null, 'd2'), 'd2');
 });
