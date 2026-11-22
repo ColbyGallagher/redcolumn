@@ -10,6 +10,8 @@ redcolumn measures straight from the drawing, using the drawing's **scale**. Get
    ![The Tools, Measure menu](img/menu-measure.png)
 3. **Click on the drawing.** The measurement appears on the page, in the [Markups list](#markups-list) and in the [Measurements panel](#measurements-panel).
 
+While you measure, the **Units & Scale** group on the ribbon's **Markup Format** tab lets you switch between metric and imperial and change the page's scale without leaving the drawing. See [Set the scale](#scale).
+
 ## Which tool do I need?
 
 | To measure | Use | How |

@@ -84,7 +84,7 @@ import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
 import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
-import { settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
+import { scaleInDefaultUnits, settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, cellsFor, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
 import { clearLayout, DEFAULT_LAYOUT, fitWidths, loadLayout, saveLayout, serializeLayout } from './workspace/layoutState';
 import { LAYOUT_RESET_EVENT, SECTION_KEYS } from './workspace/layoutPrefs';
@@ -10397,6 +10397,23 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           textType,
           textMarkupStyle: selectedText?.type === 'table' && toolsState.tableCells?.id === selectedText.id ? (activeTools?.selectedCellStyle() ?? selectedText.style) : selectedText?.style,
           enabled: !!activeOpen && !activeReadOnly,
+          // Units & Scale shows while measuring: a measure tool is active, or measurements are selected.
+          unitsScale:
+            activeOpen && (MEASURE_TOOLS.some((t) => t.tool === toolsState.tool) || selectedMarkups.some((m) => isMeasureKind(m.type)))
+              ? {
+                  scale: scales[pageIndex] ?? null,
+                  disabled: activeReadOnly,
+                  onPreset: (scale) => activeOpen.store.setScale([pageIndex], withDefaultUnits(scale)),
+                  onCustom: () => {
+                    setCustomScalePage(pageIndex);
+                    setCustomScalePane(paneB ? 'b' : 'a');
+                  },
+                  onUnitsChanged: () => {
+                    const current = scales[pageIndex];
+                    if (current) activeOpen.store.setScale([pageIndex], scaleInDefaultUnits(current));
+                  },
+                }
+              : null,
           visibleTools: ws.toolbarTools,
           author,
           onPlaceStamp: (s) => placeStamp(s),
