@@ -59,8 +59,11 @@ export class PathAllowlist {
 /** Drawings the app opens by converting them to PDF. It reads them and never writes them. */
 export const DRAWING_EXTENSIONS = ['dwg', 'dxf'];
 
+/** 3D models the app views (IFC). It reads them and never writes them. */
+export const MODEL_EXTENSIONS = ['ifc'];
+
 /** The kinds of file the app opens. A path from a drop must be one of these. */
-export const OPENABLE_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', ...DRAWING_EXTENSIONS];
+export const OPENABLE_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', ...DRAWING_EXTENSIONS, ...MODEL_EXTENSIONS];
 
 const extOf = (filePath: string) => path.extname(filePath).slice(1).toLowerCase();
 
@@ -68,7 +71,8 @@ export function isOpenable(filePath: string): boolean {
   return OPENABLE_EXTENSIONS.includes(extOf(filePath));
 }
 
-/** False for source drawings: a DWG or DXF is never overwritten, whatever the renderer asks. */
+/** False for source drawings and models: a DWG, DXF or IFC is never overwritten, whatever the renderer asks. */
 export function isWritable(filePath: string): boolean {
-  return !DRAWING_EXTENSIONS.includes(extOf(filePath));
+  const ext = extOf(filePath);
+  return !DRAWING_EXTENSIONS.includes(ext) && !MODEL_EXTENSIONS.includes(ext);
 }

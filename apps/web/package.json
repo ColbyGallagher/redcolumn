@@ -16,6 +16,7 @@
     "@azure/msal-browser": "^5.23.0",
     "@nb/markup": "workspace:*",
     "@nb/measure": "workspace:*",
+    "@nb/model3d": "workspace:*",
     "@nb/pdf-core": "workspace:*",
     "@nb/sheets": "workspace:*",
     "@nb/stitch": "workspace:*",

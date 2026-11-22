@@ -183,6 +183,9 @@ import { imageToPdf, isImageFile } from './documents/imagePdf';
 import { pdfNameFor, type CadOptions } from './cad/client';
 import type { CadFile } from './cad/convert';
 import { CAD_ACCEPT, isCadFile } from './cad/files';
+import { MODEL_ACCEPT, isModelFile } from './model3d/files';
+import { openModelView } from './model3d/host';
+import { ModelStage } from './model3d/ModelStage';
 import { convertAsJob, convertFile } from './cad/open';
 import { cadSession, useCadConversion } from './cad/session';
 import { CadConvertDialog } from './components/CadConvertDialog';
@@ -1875,7 +1878,7 @@ export function App() {
   const disposeOpen = (o: OpenTab) => {
     savedViews.current.delete(o.file.id);
     if (o.kind === 'model') {
-      o.dispose();
+      o.view.dispose();
       return;
     }
     void o.doc.close();
@@ -1899,6 +1902,16 @@ export function App() {
       }
       const pane: Pane = target === 'b' && ctlB ? 'b' : 'a';
       setError(null);
+      // The new tab goes just after the one in front.
+      const insert = (tab: OpenTab) => {
+        const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
+        const front = frontTabOf(pane);
+        const at = front ? tabs.indexOf(front) + 1 : tabs.length;
+        setTabs(pane, [...tabs.slice(0, at), tab, ...tabs.slice(at)]);
+        activateTab(pane, tab);
+      };
+      // A 3D model (Experimental) opens in the 3D viewer, which loads only now.
+      if (isModelFile(file)) return insert({ kind: 'model', file, view: openModelView(file, bytes) });
       const [doc, store] = await Promise.all([ctl.engine.open(bytes), MarkupStore.open(file.id)]);
       // Session documents sync their markups with everyone else in their session.
       const sessionDoc = studioDocOf(file.id);
@@ -1923,13 +1936,7 @@ export function App() {
       // Not shared documents: one person's profile would become everyone's.
       if (template && !sessionDoc && !linkOf(file.id) && !store.readOnly && !store.hasColumnSet()) store.setColumnSet(template);
       await hideImported(doc, store);
-      const packed = { file, doc, store };
-      // The new tab goes just after the one in front.
-      const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
-      const front = frontTabOf(pane);
-      const at = front ? tabs.indexOf(front) + 1 : tabs.length;
-      setTabs(pane, [...tabs.slice(0, at), packed, ...tabs.slice(at)]);
-      activateTab(pane, packed);
+      insert({ file, doc, store });
       if (pane === 'a' && settings.get().showThumbnailsOnOpen) {
         // Off (the default), the side panel stays as the user left it. On: stay on Sessions, Sets or Search
         // when opening from them (or joining from an invite link). On narrow screens the panel covers the
@@ -2225,7 +2232,8 @@ export function App() {
           const image = !cad && isImageFile(file);
           const conversion = cad ? await convertFile(file) : null;
           const raw = image || cad ? null : await file.arrayBuffer();
-          const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
+          // IFC models are kept as they are, for the 3D viewer.
+          const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : isModelFile(file) ? raw! : await unlockBytes(raw!, file.name);
           const name = cad ? pdfNameFor(file.name) : image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
           // A document moved from another window with no file of its own has nowhere to save back to.
           const moved = movedFiles.get(file);
@@ -2342,7 +2350,7 @@ export function App() {
     async (file: StoredFile, target?: Pane) => {
       try {
         for (const pane of ['a', 'b'] as const) {
-          const tab = pdfTabs(pane === 'b' ? tabsBRef.current : tabsARef.current).find((t) => t.file.id === file.id);
+          const tab = (pane === 'b' ? tabsBRef.current : tabsARef.current).find((t) => t.file.id === file.id);
           if (tab) return activateTab(pane, tab);
         }
         // A second click while the file is still opening waits for the first instead of opening it twice.
@@ -8356,6 +8364,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   };
 
   /** The recent files list (File › Open Recent, File Access › Recents); `locationTick` keeps it current as disk locations load. */
+  /** The library's PDFs: what PDF tools (Compare, Batch, Slip Sheet, Search) can work on, without 3D models. */
+  const pdfLibrary = useMemo(() => library.filter((f) => !isModelFile(f)), [library]);
   const recentList = (templates = true) => recentFiles(library, { count: prefs.recentCount, days: prefs.recentDays, locationOf: locationTick >= 0 ? fileLocationToken : undefined, templates });
 
   /** Right-click on a library file (File Access). */
@@ -9637,6 +9647,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               if (scope === 'page') return activeOpen ? [fromTab(activeOpen, pageIndex)] : [];
               if (scope === 'open') return tabs.map((o) => fromTab(o));
               return recentList(false)
+                .filter((f) => !isModelFile(f))
                 .map((f) => {
                   const tab = tabs.find((t) => t.file.id === f.id);
                   return tab ? fromTab(tab) : librarySource(f);
@@ -10319,7 +10330,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <input
         ref={openFileRef}
         type="file"
-        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT},${MODEL_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -10331,7 +10342,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <input
         ref={insertFileRef}
         type="file"
-        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT},${MODEL_ACCEPT}`}
         hidden
         onChange={async (e) => {
           const file = e.target.files?.[0];
@@ -10344,7 +10355,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <input
         ref={bulkInsertFileRef}
         type="file"
-        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT},${MODEL_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -10463,6 +10474,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 }}
               >
                 <canvas ref={canvasRef} />
+                {modelA && <ModelStage view={modelA.view} />}
                 {toolsStateA.sketch && open && ctl && (
                   <SketchBar
                     sketch={toolsStateA.sketch}
@@ -10484,7 +10496,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     onCancel={() => ctl.tools.cancel()}
                   />
                 )}
-                {!open && (
+                {!open && !modelA && (
                   <StartScreen
                     launchOpen={launchOpen}
                     onOpen={() => openFromDisk()}
@@ -10587,7 +10599,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     }}
                   >
                     <canvas ref={canvasBRef} />
-                    {!openB && <div className="hint">Drop a PDF here or File → Open Recent</div>}
+                    {modelB && <ModelStage view={modelB.view} />}
+                    {!openB && !modelB && <div className="hint">Drop a PDF here or File → Open Recent</div>}
                     {openB?.store.readOnly && <div className="readonly-banner">{readOnlyReason(openB, snapshots)}</div>}
                     {openB && recoveredOnOpen.has(openB.file.id) && !recoveredKept.has(openB.file.id) && hasUnsavedChanges(openB) && (
                       <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(openB.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(openB)} />
@@ -10970,7 +10983,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       )}
       {combineOpen && (
         <CombineDialog
-          open={[...tabsA, ...tabsB].filter((t, i, all) => all.findIndex((x) => x.file.id === t.file.id) === i).map((t) => ({ id: t.file.id, name: t.file.name }))}
+          open={pdfTabs([...tabsA, ...tabsB]).filter((t, i, all) => all.findIndex((x) => x.file.id === t.file.id) === i).map((t) => ({ id: t.file.id, name: t.file.name }))}
           onCancel={() => setCombineOpen(false)}
           onCombine={(sources, name) => void combineDocuments(sources, name)}
         />
@@ -11145,7 +11158,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {compareOpen && (
         <CompareDialog
           mode={compareOpen}
-          files={library}
+          files={pdfLibrary}
           openIds={[...tabsA, ...tabsB].map((t) => t.file.id)}
           currentId={activeOpen?.file.id ?? null}
           currentPage={pageIndex}
@@ -11329,7 +11342,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {batchOpen && (
         <BatchDialog
           initial={batchOpen}
-          files={library}
+          files={pdfLibrary}
           sets={drawingSets.get()}
           groups={fileGroups.get()}
           selected={activeOpen && !studioDocOf(activeOpen.file.id) ? [activeOpen.file.id] : []}
@@ -11343,7 +11356,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {slipSheetOpen && activeOpen && (
         <SlipSheetDialog
           targetName={activeOpen.file.name}
-          files={library.filter((f) => f.id !== activeOpen.file.id)}
+          files={pdfLibrary.filter((f) => f.id !== activeOpen.file.id)}
           closed={(() => {
             const template = closeOutTemplateOf(activeOpen.store);
             const ids = closedStatuses(template);

@@ -1,5 +1,6 @@
 import { bindHandle } from '../storage/diskHandles.ts';
 import type { LaunchAction } from './manifest.ts';
+import { isModelFile } from '../model3d/files.ts';
 
 /**
  * How the installed app is launched with something to do: a launcher shortcut (?action=open or
@@ -55,7 +56,8 @@ export function consumeLaunchFiles(onFiles: (files: File[]) => void) {
         // A file that went away before we read it.
       }
     }
-    const pdfs = files.filter(isPdf);
+    // PDFs, and IFC models for the 3D viewer.
+    const pdfs = files.filter((f) => isPdf(f) || isModelFile(f));
     if (pdfs.length) onFiles(pdfs);
   });
 }
