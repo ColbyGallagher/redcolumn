@@ -636,7 +636,7 @@ export function toolStyle(type: MarkupType, d: PdfDict, defaults: Defaults): Mar
   if (/italic|oblique/.test(font) || /font-style:\s*italic/i.test(ds)) style.italic = true;
   if (type === 'count') {
     const shape = COUNT_STYLE_FROM_PDF[nm(d.CountStyle)];
-    if (shape) style.countShape = shape;
+    if (shape && shape !== 'circle') style.countShape = shape;
   }
   return style;
 }
