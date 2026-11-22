@@ -1673,6 +1673,15 @@ select[size] {
   color: var(--text);
 }
 
+.search-related-head {
+  margin: 8px 10px 2px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .thumb.selected {
   border-color: var(--muted);
   background: var(--tint);

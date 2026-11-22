@@ -76,6 +76,22 @@ const BUNDLED = [
     note: 'The DWG reader in apps/web/src/cad/dwg is ported from ACadSharp: its file container, bit-stream, LZ77 and object reading follow ACadSharp’s, rewritten in TypeScript.',
     file: 'acadsharp.txt',
   },
+  {
+    name: 'ONNX Runtime Web',
+    version: '1.31.1',
+    licence: 'MIT',
+    homepage: 'https://github.com/microsoft/onnxruntime',
+    note: "Search by meaning in the desktop app runs its embedding model with ONNX Runtime Web\'s CPU (WebAssembly) build, shipped as resources/semantic/ort (apps/desktop/scripts/fetch-search-models.mjs).",
+    file: 'onnxruntime-web.txt',
+  },
+  {
+    name: 'mdbr-leaf-ir (MongoDB)',
+    version: '4262131b',
+    licence: 'Apache-2.0',
+    homepage: 'https://huggingface.co/MongoDB/mdbr-leaf-ir',
+    note: "Search by meaning in the desktop app embeds page text with this model: the publisher\'s 8-bit quantised ONNX export and its tokenizer, unmodified, shipped as resources/semantic (revision 4262131b, apps/desktop/scripts/fetch-search-models.mjs).",
+    file: 'mdbr-leaf-ir.txt',
+  },
 ];
 
 const out = [

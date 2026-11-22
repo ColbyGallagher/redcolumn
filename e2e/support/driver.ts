@@ -305,7 +305,8 @@ export function driver(page: Page) {
         await input.press('Enter');
         await expect(summary).toHaveText(/^(No matches\.|\d+ match)/, { timeout: 2000 });
         const n = /^(\d+) match/.exec((await summary.textContent()) ?? '')?.[1];
-        const nums = await page.locator('.search-hit .num').allTextContents();
+        // Matches only: the desktop app also lists pages found by meaning under "Related pages".
+        const nums = await page.locator('.search-hit:not(.related) .num').allTextContents();
         expect(nums.length).toBe(Number(n ?? 0));
         pages = nums.map((t) => Number(/Page (\d+)/.exec(t)?.[1]));
       }).toPass({ timeout: 20_000 });
