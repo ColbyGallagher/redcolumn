@@ -87,19 +87,25 @@ export function withDefaultUnits(scale: Scale, s: Settings = current): Scale {
 /**
  * A page scale shown in the default units (Preferences › Units): lengths in the default length unit,
  * areas and volumes in theirs. The ratio (metres per point) is untouched, so every measurement on the
- * page keeps its real size and only its wording changes. Inch fractions only apply to ft and in.
+ * page keeps its real size and only its wording changes.
+ *
+ * Nothing is thrown away, so a round trip through another unit system restores the page: the inch
+ * fraction format and its precision stay on the scale (they only take effect while the unit is ft or
+ * in, and lengths in other units then show two decimals), and Bluebeam's area and volume wording is
+ * keyed by unit, so it applies again whenever areas return to that unit.
  */
 export function scaleInDefaultUnits(scale: Scale, s: Settings = current): Scale {
-  const fractions = scale.feetInches && (s.lengthUnit === 'ft' || s.lengthUnit === 'in');
+  const areaUnit = s.areaUnit;
+  const volumeUnit = s.volumeUnit;
+  if (scale.unit === s.lengthUnit && scale.areaUnit === areaUnit && scale.volumeUnit === volumeUnit) return scale;
   return {
     ...scale,
     unit: s.lengthUnit,
-    areaUnit: s.areaUnit,
-    volumeUnit: s.volumeUnit,
-    areaLabel: undefined,
-    volumeLabel: undefined,
-    feetInches: fractions,
-    precision: fractions ? scale.precision : UNIT_PRECISION[s.lengthUnit],
+    areaUnit,
+    volumeUnit,
+    // A precision picked in the scale dialog is kept while the length unit stays; a fraction format's
+    // precision is kept so a return to ft or in finds it again.
+    precision: scale.feetInches || scale.unit === s.lengthUnit ? scale.precision : UNIT_PRECISION[s.lengthUnit],
   };
 }
 
