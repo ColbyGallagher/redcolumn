@@ -21,7 +21,7 @@ class Typed {
     readonly value: Value,
   ) {}
 }
-interface Entity {
+export interface IfcEntity {
   type: string;
   args: Value[];
 }
@@ -29,8 +29,8 @@ interface Entity {
 // ---- STEP ------------------------------------------------------------------------------------
 
 /** The file's DATA section as entities by instance number. */
-export function parseStep(text: string): Map<number, Entity> {
-  const out = new Map<number, Entity>();
+export function parseStep(text: string): Map<number, IfcEntity> {
+  const out = new Map<number, IfcEntity>();
   const data = text.search(/\bDATA\s*;/i);
   let i = data < 0 ? 0 : data;
   const n = text.length;
@@ -183,21 +183,52 @@ function frameOf(o: V3, z: V3 | null, ref: V3 | null): Frame {
   return { x: xx, y: cross(zz, xx), z: zz, o };
 }
 
-export function parseIfc(text: string): ParsedModel {
-  const ents = parseStep(text);
-  const warnings: string[] = [];
-  const paths: GridPoint[][] = [];
-  const points: ParsedModel['points'] = [];
-  const get = (v: Value | undefined): Entity | null => (v instanceof Ref ? (ents.get(v.id) ?? null) : null);
+/** Reads attribute values, following references into the entity table. */
+function readers(ents: Map<number, IfcEntity>) {
+  const get = (v: Value | undefined): IfcEntity | null => (v instanceof Ref ? (ents.get(v.id) ?? null) : null);
   const num = (v: Value | undefined): number | null => (typeof v === 'number' ? v : v instanceof Typed ? num(v.value) : null);
   const str = (v: Value | undefined): string | null => (typeof v === 'string' ? v : v instanceof Typed ? str(v.value) : null);
   const list = (v: Value | undefined): Value[] => (Array.isArray(v) ? v : []);
   const enumOf = (v: Value | undefined) => (v instanceof Enum ? v.value : null);
-
   const byType = (type: string) => [...ents.values()].filter((e) => e.type === type);
+  return { get, num, str, list, enumOf, byType };
+}
+
+/**
+ * Where a model sits in the world: its IfcMapConversion (or IfcMapConversionScaled) from the
+ * project's engineering coordinates to an IfcProjectedCRS, with the units both are in.
+ */
+export interface IfcGridTransform {
+  /**
+   * Model coordinates (in the project's length unit) to grid metres: easting, northing and
+   * orthometric height. A 4x4 matrix in column-major order (as three.js's Matrix4.fromArray takes).
+   */
+  matrix: number[];
+  /** False when the model has no map conversion: its coordinates are then taken as grid metres. */
+  georeferenced: boolean;
+  /** The CRS's name, with its zone appended when the name does not already give one. */
+  crsName: string | null;
+  /** The CRS's MapZone, as the file gives it ("56"). */
+  zone: string | null;
+  /** Metres per project length unit. */
+  lengthUnit: number;
+  /** Radians per project plane angle unit. */
+  angleUnit: number;
+  /** Metres per map unit (the CRS's MapUnit). */
+  mapUnit: number;
+}
+
+/** A point through a column-major 4x4 matrix. */
+export function applyMatrix(m: readonly number[], x: number, y: number, z = 0): [number, number, number] {
+  return [m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!, m[2]! * x + m[6]! * y + m[10]! * z + m[14]!];
+}
+
+/** The model's georeferencing (see {@link IfcGridTransform}), from its parsed STEP entities. */
+export function ifcGridTransform(ents: Map<number, IfcEntity>): IfcGridTransform {
+  const { get, num, str, list, enumOf, byType } = readers(ents);
 
   // Units: the project's length unit (metres per unit), plane angle (radians per unit).
-  const unitScale = (e: Entity | null, kind: string): number | null => {
+  const unitScale = (e: IfcEntity | null, kind: string): number | null => {
     if (!e) return null;
     if (e.type === 'IFCSIUNIT' && enumOf(e.args[1]) === kind) return prefixScale(enumOf(e.args[2]));
     if (e.type === 'IFCCONVERSIONBASEDUNIT' && enumOf(e.args[1]) === kind) {
@@ -213,32 +244,51 @@ export function parseIfc(text: string): ParsedModel {
   const lengthUnit = units.map((u) => unitScale(u, 'LENGTHUNIT')).find((s) => s != null) ?? 1;
   const angleUnit = units.map((u) => unitScale(u, 'PLANEANGLEUNIT')).find((s) => s != null) ?? 1;
 
-  // Georeferencing.
   const conv = byType('IFCMAPCONVERSION')[0] ?? byType('IFCMAPCONVERSIONSCALED')[0];
   const crsEnt = get(conv?.args[1]);
-  let crsName: string | null = null;
-  let toGrid = (p: readonly number[]): GridPoint => [p[0]! * lengthUnit, p[1]! * lengthUnit];
-  if (conv && crsEnt) {
-    crsName = str(crsEnt.args[0]) ?? null;
-    const zone = str(crsEnt.args[5]);
-    if (crsName && zone && !/\d{4}/.test(crsName) && !/zone/i.test(crsName)) crsName = `${crsName} zone ${zone}`;
-    const mapUnit = unitScale(get(crsEnt.args[6]), 'LENGTHUNIT') ?? 1;
-    const e0 = num(conv.args[2]) ?? 0;
-    const n0 = num(conv.args[3]) ?? 0;
-    const ax = num(conv.args[5]) ?? 1;
-    const ay = num(conv.args[6]) ?? 0;
-    const l = Math.hypot(ax, ay) || 1;
-    const [c, s] = [ax / l, ay / l];
-    // Scale takes engineering units to map units; without one, the units' own ratio does.
-    const scale = num(conv.args[7]) ?? lengthUnit / mapUnit;
-    // IFC4.3's IfcMapConversionScaled adds a factor per axis (its drafts gave IfcMapConversion a ScaleY).
-    const scaled = conv.type === 'IFCMAPCONVERSIONSCALED';
-    const scaleX = scaled ? scale * (num(conv.args[8]) ?? 1) : scale;
-    const scaleY = scaled ? scale * (num(conv.args[9]) ?? 1) : (num(conv.args[8]) ?? scale);
-    toGrid = ([x, y]) => [(e0 + scaleX * (c * x! - s * y!)) * mapUnit, (n0 + scaleY * (s * x! + c * y!)) * mapUnit];
-  } else {
-    warnings.push('The model has no IfcMapConversion: its coordinates are taken as grid eastings and northings.');
+  if (!conv || !crsEnt) {
+    const k = lengthUnit;
+    return { matrix: [k, 0, 0, 0, 0, k, 0, 0, 0, 0, k, 0, 0, 0, 0, 1], georeferenced: false, crsName: null, zone: null, lengthUnit, angleUnit, mapUnit: 1 };
   }
+  let crsName = str(crsEnt.args[0]) ?? null;
+  const zone = str(crsEnt.args[5]);
+  if (crsName && zone && !/\d{4}/.test(crsName) && !/zone/i.test(crsName)) crsName = `${crsName} zone ${zone}`;
+  const mapUnit = unitScale(get(crsEnt.args[6]), 'LENGTHUNIT') ?? 1;
+  const e0 = num(conv.args[2]) ?? 0;
+  const n0 = num(conv.args[3]) ?? 0;
+  const h0 = num(conv.args[4]) ?? 0;
+  const ax = num(conv.args[5]) ?? 1;
+  const ay = num(conv.args[6]) ?? 0;
+  const l = Math.hypot(ax, ay) || 1;
+  const [c, s] = [ax / l, ay / l];
+  // Scale takes engineering units to map units; without one, the units' own ratio does.
+  const scale = num(conv.args[7]) ?? lengthUnit / mapUnit;
+  // IFC4.3's IfcMapConversionScaled adds a factor per axis (its drafts gave IfcMapConversion a ScaleY, ScaleZ).
+  const scaled = conv.type === 'IFCMAPCONVERSIONSCALED';
+  const scaleX = scaled ? scale * (num(conv.args[8]) ?? 1) : scale;
+  const scaleY = scaled ? scale * (num(conv.args[9]) ?? 1) : (num(conv.args[8]) ?? scale);
+  const scaleZ = scaled ? scale * (num(conv.args[10]) ?? 1) : (num(conv.args[9]) ?? scale);
+  // E = (e0 + sx·(c·x − s·y))·u, N = (n0 + sy·(s·x + c·y))·u, H = (h0 + sz·z)·u.
+  const u = mapUnit;
+  const matrix = [scaleX * c * u, scaleY * s * u, 0, 0, -scaleX * s * u, scaleY * c * u, 0, 0, 0, 0, scaleZ * u, 0, e0 * u, n0 * u, h0 * u, 1];
+  // (+ 0 turns -0 into 0.)
+  return { matrix: matrix.map((v) => v + 0), georeferenced: true, crsName, zone, lengthUnit, angleUnit, mapUnit };
+}
+
+export function parseIfc(text: string): ParsedModel {
+  const ents = parseStep(text);
+  const warnings: string[] = [];
+  const paths: GridPoint[][] = [];
+  const points: ParsedModel['points'] = [];
+  const { get, num, str, list, enumOf, byType } = readers(ents);
+
+  const geo = ifcGridTransform(ents);
+  const { crsName, angleUnit, matrix } = geo;
+  const toGrid = (p: readonly number[]): GridPoint => {
+    const [e, n] = applyMatrix(matrix, p[0]!, p[1]!);
+    return [e, n];
+  };
+  if (!geo.georeferenced) warnings.push('The model has no IfcMapConversion: its coordinates are taken as grid eastings and northings.');
 
   // Placements.
   const point3 = (v: Value | undefined): V3 | null => {
@@ -248,7 +298,7 @@ export function parseIfc(text: string): ParsedModel {
     return [c[0] ?? 0, c[1] ?? 0, c[2] ?? 0];
   };
   const dir3 = (v: Value | undefined): V3 | null => point3(v);
-  const axisPlacement = (e: Entity | null): Frame => {
+  const axisPlacement = (e: IfcEntity | null): Frame => {
     if (!e) return IDENTITY;
     const o = point3(e.args[0]) ?? [0, 0, 0];
     if (e.type === 'IFCAXIS2PLACEMENT2D') {
@@ -283,14 +333,14 @@ export function parseIfc(text: string): ParsedModel {
     if (closed) out.push(out[0]!);
     paths.push(out);
   };
-  const pointList = (e: Entity | null): number[][] => (e ? list(e.args[0]).map((p) => list(p).map((x) => num(x) ?? 0)) : []);
+  const pointList = (e: IfcEntity | null): number[][] => (e ? list(e.args[0]).map((p) => list(p).map((x) => num(x) ?? 0)) : []);
   const cartesian = (v: Value | undefined): number[] | null => {
     const e = get(v);
     return e?.type === 'IFCCARTESIANPOINT' ? list(e.args[0]).map((x) => num(x) ?? 0) : null;
   };
   let skipped = new Set<string>();
 
-  const curve = (e: Entity | null, depth = 0): number[][] => {
+  const curve = (e: IfcEntity | null, depth = 0): number[][] => {
     if (!e || depth > 16) return [];
     switch (e.type) {
       case 'IFCPOLYLINE':
@@ -345,7 +395,7 @@ export function parseIfc(text: string): ParsedModel {
     }
   };
 
-  const trimmed = (e: Entity, depth: number): number[][] => {
+  const trimmed = (e: IfcEntity, depth: number): number[][] => {
     const basis = get(e.args[0]);
     const trimPoint = (v: Value | undefined) => list(v).map(cartesian).find((p) => p) ?? null;
     const trimParam = (v: Value | undefined) => {
@@ -389,7 +439,7 @@ export function parseIfc(text: string): ParsedModel {
     return curve(basis, depth + 1);
   };
 
-  const profile = (e: Entity | null, frame: Frame) => {
+  const profile = (e: IfcEntity | null, frame: Frame) => {
     if (!e) return;
     switch (e.type) {
       case 'IFCRECTANGLEPROFILEDEF': {
@@ -437,7 +487,7 @@ export function parseIfc(text: string): ParsedModel {
     }
   };
 
-  const shellLoops = (shell: Entity | null): number[][][] =>
+  const shellLoops = (shell: IfcEntity | null): number[][][] =>
     list(shell?.args[0]).flatMap((fv) =>
       list(get(fv)?.args[0]).flatMap((bv) => {
         const loop = get(get(bv)?.args[0]);
@@ -445,7 +495,7 @@ export function parseIfc(text: string): ParsedModel {
       }),
     );
 
-  const item = (e: Entity | null, frame: Frame, depth = 0) => {
+  const item = (e: IfcEntity | null, frame: Frame, depth = 0) => {
     if (!e || depth > 8) return;
     switch (e.type) {
       case 'IFCEXTRUDEDAREASOLID':
@@ -498,7 +548,7 @@ export function parseIfc(text: string): ParsedModel {
     }
   };
 
-  const cartesianOperator = (e: Entity | null): Frame => {
+  const cartesianOperator = (e: IfcEntity | null): Frame => {
     if (!e) return IDENTITY;
     const x = dir3(e.args[0]);
     const y = dir3(e.args[1]);
@@ -542,7 +592,7 @@ export function parseIfc(text: string): ParsedModel {
     // With business-logic segments drawn, an alignment's own curve would draw them twice.
     if (horizontal.length && (e.type === 'IFCALIGNMENT' || e.type.startsWith('IFCALIGNMENT'))) continue;
     const frame = placementOf(e.args[5]);
-    const reps = list(rep.args[2]).map(get).filter((r): r is Entity => !!r);
+    const reps = list(rep.args[2]).map(get).filter((r): r is IfcEntity => !!r);
     // Plan linework where the product has it, else its body.
     const plan = reps.filter((r) => ['FootPrint', 'Axis', 'Annotation', 'Plan', 'Profile'].includes(str(r.args[1]) ?? ''));
     for (const r of plan.length ? plan : reps.filter((x) => str(x.args[1]) !== 'Box')) for (const it of list(r.args[3])) item(get(it), frame);
