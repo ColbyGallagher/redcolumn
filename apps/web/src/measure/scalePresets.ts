@@ -87,7 +87,8 @@ export function rangeText(pages: readonly number[]): string {
 export function precisionValue(scale: Scale | null, pending: string): string {
   if (!scale) return pending;
   const frac = scale.feetInches && (scale.unit === 'ft' || scale.unit === 'in');
-  return `${frac ? 'f' : 'd'}${scale.precision}`;
+  // A scale kept in fractions for a return to ft or in shows two decimals in other units (formatLength).
+  return frac ? `f${scale.precision}` : `d${scale.feetInches ? 2 : scale.precision}`;
 }
 
 export function precisionText(value: string): string {
