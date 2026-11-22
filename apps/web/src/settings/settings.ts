@@ -254,6 +254,8 @@ export interface Settings {
   // exported with the rest, but nothing in RedColumn reads them yet.
 
   // General › Options
+  /** Interface language: a code from @nb/i18n's LOCALES, or 'auto' to follow the browser or system. Applies at the next start. */
+  uiLanguage: string;
   /** Which part of a long document name the tabs cut short. */
   tabTruncation: 'start' | 'middle' | 'end';
   /** Library id of a document opened (in front) every time the app starts; '' for none. */
@@ -486,6 +488,7 @@ export const DEFAULT_SETTINGS: Settings = {
   snapshotVector: true,
   embedHostHooks: false,
 
+  uiLanguage: 'auto',
   tabTruncation: 'end',
   startupFile: '',
   documentRecovery: true,

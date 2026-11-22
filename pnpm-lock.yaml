@@ -45,6 +45,9 @@ importers:
       '@azure/msal-browser':
         specifier: ^5.23.0
         version: 5.23.0
+      '@nb/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       '@nb/markup':
         specifier: workspace:*
         version: link:../../packages/markup
@@ -154,6 +157,15 @@ importers:
       pdf-lib:
         specifier: ^1.17.1
         version: 1.17.1
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+  packages/i18n:
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.1
+        version: 26.6.1
       typescript:
         specifier: 5.9.3
         version: 5.9.3

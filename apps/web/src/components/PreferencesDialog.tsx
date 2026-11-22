@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
 import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
+import { currentLocale, localeInfo, msg } from '@nb/i18n';
 import { THEMES } from '../theme/themes';
+import { offeredLanguages, resolveLanguage } from '../i18n/language';
 import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, DEFAULT_UNIT_CHOICES, gridUnitOf, settings, switchUnitSystem, type SetTag, type SetTemplate, type Settings, type UnitSystem } from '../settings/settings';
 import { addToDictionary, personalWords, removeFromDictionary } from '../spelling/spell';
 import { askText } from './AskText';
@@ -336,6 +338,34 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           {L('User')}
           <input aria-label="User" value={name} onChange={(e) => setName(e.target.value)} />
         </Row>
+        <Row>
+          {L(msg('Language'), 'uiLanguage')}
+          <select aria-label={msg('Language')} value={d.uiLanguage} onChange={(e) => set({ uiLanguage: e.target.value })}>
+            <option value="auto">{msg('Match the system ({language})', { language: localeInfo(resolveLanguage('auto', navigator.languages ?? []))!.name })}</option>
+            {offeredLanguages(import.meta.env.DEV, d.uiLanguage).map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.name === l.english ? l.name : `${l.name} (${l.english})`}
+                {l.status === 'preview' ? ` · ${msg('Preview: machine translated')}` : ''}
+              </option>
+            ))}
+          </select>
+        </Row>
+        {resolveLanguage(d.uiLanguage, navigator.languages ?? []) !== currentLocale().code && (
+          <C>
+            <span className="pref-hint">
+              {msg('The new language applies when redcolumn restarts.')}{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  settings.set(d);
+                  location.reload();
+                }}
+              >
+                {msg('Restart Now')}
+              </button>
+            </span>
+          </C>
+        )}
         {select('tabTruncation', 'Tab Truncation', [
           ['start', 'Start'],
           ['middle', 'Middle'],
