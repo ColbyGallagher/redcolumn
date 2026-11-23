@@ -1,4 +1,4 @@
-import { msg } from '@nb/i18n';
+import { msg, msgc } from '@nb/i18n';
 import { Children, Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { HATCH_PATTERNS, TEXT_PADDING, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
@@ -239,6 +239,19 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   cutout: 'click the hole inside the area; click the first point to finish',
 };
 
+/** Tooltips for the text alignment buttons (functions: msg runs at render, not import). */
+const ALIGN_TITLES: Record<TextAlign, () => string> = {
+  left: () => msg('Align left'),
+  center: () => msg('Align center'),
+  right: () => msg('Align right'),
+  justify: () => msg('Justified'),
+};
+const VALIGN_TITLES: Record<VerticalAlign, () => string> = {
+  top: () => msg('Align top'),
+  middle: () => msg('Align middle'),
+  bottom: () => msg('Align bottom'),
+};
+
 /** Cloud bubble sizes (pt): fine steps for everyday clouds, wider ones for very large bubbles. */
 const BUBBLE_SIZES = [5, 10, 15, 20, 30, 40, 50, 60, 80, 100];
 
@@ -420,7 +433,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           <PropLine>
           <ColorMenu
             label={msg('Line color')}
-            short="Line"
+            short={msg('Line')}
             title={msg('Line color: the outline of the shape, or the line itself')}
             icon={STYLE_ICONS.line}
             value={style.stroke}
@@ -463,7 +476,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           )}
           <label className="field" title={msg('Opacity')}>
             <FieldTag icon={STYLE_ICONS.opacity} label={msg('Opacity')} />
-            <ComboField title={msg('Opacity')} value={mixedOf('opacity') ? undefined : Math.round(style.opacity * 100)} placeholder={mixedOf('opacity') ? 'Mixed' : undefined} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => apply(styleType, { opacity: o / 100 })} />
+            <ComboField title={msg('Opacity')} value={mixedOf('opacity') ? undefined : Math.round(style.opacity * 100)} placeholder={mixedOf('opacity') ? msg('Mixed') : undefined} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => apply(styleType, { opacity: o / 100 })} />
           </label>
           </PropLine>
         </Cluster>
@@ -473,7 +486,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           <PropLine>
           <ColorMenu
             label={msg('Fill color')}
-            short="Fill"
+            short={msg('Fill')}
             title={msg('Fill color: the inside of the shape')}
             icon={STYLE_ICONS.fill}
             value={style.fill ?? null}
@@ -548,7 +561,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           </label>
         </Cluster>
       )}
-      <Cluster label={msg('Text')} show={!!textStyle && !!textType && textCaps!.font}>
+      <Cluster label={msg('Text')} kind="text" show={!!textStyle && !!textType && textCaps!.font}>
       <PropLine>
       {textStyle && textType && textCaps!.font && (
         <div className="field" title={msg('Font')}>
@@ -585,12 +598,12 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         <>
           <span className="seg" role="group" aria-label={msg('Text alignment')}>
             {(['left', 'center', 'right', 'justify'] as TextAlign[]).map((a) => (
-              <FormatToggle key={a} on={(textStyle.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={a === 'justify' ? 'Justified' : `Align ${a}`} className="" onChange={() => apply(textType, { textAlign: a === 'left' ? undefined : a })} />
+              <FormatToggle key={a} on={(textStyle.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={ALIGN_TITLES[a]()} className="" onChange={() => apply(textType, { textAlign: a === 'left' ? undefined : a })} />
             ))}
           </span>
           <span className="seg" role="group" aria-label={msg('Vertical alignment')}>
             {(['top', 'middle', 'bottom'] as VerticalAlign[]).map((a) => (
-              <FormatToggle key={a} on={(textStyle.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={`Align ${a}`} className="" onChange={() => apply(textType, { verticalAlign: a === 'top' ? undefined : a })} />
+              <FormatToggle key={a} on={(textStyle.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={VALIGN_TITLES[a]()} className="" onChange={() => apply(textType, { verticalAlign: a === 'top' ? undefined : a })} />
             ))}
           </span>
           <label className="field" title={msg('Line spacing')}>
@@ -619,10 +632,10 @@ function PropLine({ children }: { children: ReactNode }) {
  * A labelled cluster of related style controls (Line, Fill, Text). In the ribbon it draws as a block with
  * its name underneath; on the simplified toolbar it adds no box of its own.
  */
-function Cluster({ label, show = true, children }: { label: string; show?: boolean; children: ReactNode }) {
+function Cluster({ label, kind, show = true, children }: { label: string; /** A name for styles: never translated. */ kind?: string; show?: boolean; children: ReactNode }) {
   if (!show) return null;
   return (
-    <div className="prop-cluster" role="group" aria-label={label}>
+    <div className="prop-cluster" role="group" aria-label={label} data-cluster={kind}>
       <div className="prop-cluster-items">{children}</div>
       <span className="prop-cluster-label">{label}</span>
     </div>
@@ -708,7 +721,7 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
       {text('label', sel ? msg('Label (category) of the selected markups') : msg('Label (category) the next markups from this tool get'), msg('Label'), label)}
     </PropLine>
     <PropLine>
-      <label className="field" title={sel ? 'Layer of the selected markups' : 'Layer the next markups from this tool go on'}>
+      <label className="field" title={sel ? msg('Layer of the selected markups') : msg('Layer the next markups from this tool go on')}>
         {msg('Layer')}
         <select
           className="ident"
@@ -871,12 +884,12 @@ function HatchColor({ wide, style, active, mixed, onChange }: { wide?: boolean; 
     <ColorMenu
       wide={wide}
       label={msg('Hatch color')}
-      short="Hatch"
+      short={msgc('colour button', 'Hatch')}
       icon={STYLE_ICONS.hatch}
       value={style.hatchColor ?? null}
       mixed={mixed}
       fallback={style.stroke}
-      noneLabel="Same as line"
+      noneLabel={msg('Same as line')}
       disabled={!active}
       onChange={(c) => onChange({ hatchColor: c ?? undefined })}
     />
@@ -886,7 +899,7 @@ function HatchColor({ wide, style, active, mixed, onChange }: { wide?: boolean; 
 function HatchScale({ style, active, mixed, onChange }: { style: MarkupStyle; active: boolean; mixed?: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
   return (
     <>
-      <span>{msg('Scale')}</span>
+      <span>{msgc('hatch pattern size', 'Scale')}</span>
       <input
         type="number"
         aria-label={msg('Hatch scale')}

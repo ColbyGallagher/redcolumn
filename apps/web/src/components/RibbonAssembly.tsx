@@ -76,7 +76,7 @@ export function RibbonAssembly({ info, selection, enabled }: { info: TakeoffAsse
       : value === '*'
         ? msg('The selected measurements use different assemblies: pick one to edit its variables')
         : assembly
-          ? `${assembly.name}: ${vars ? `${vars} variable${vars === 1 ? '' : 's'}` : 'no variables'}`
+          ? msg('{assembly}: {count, plural, =0 {no variables} one {# variable} other {# variables}}', { assembly: assembly.name, count: vars })
           : msg('Pick an assembly first');
   return (
     <div className="rb-stack rb-assembly">

@@ -512,7 +512,7 @@ function TemplatesMenu() {
     });
     const items: MenuEntry[] = [
       ...t.document.map((x) => entry(x)),
-      ...(lib.length ? [SEP, ...lib.map((x) => entry(x, ' (library)'))] : []),
+      ...(lib.length ? [SEP, ...lib.map((x) => entry(x, ` ${msg('(library)')}`))] : []),
       ...(!t.document.length && !lib.length ? [{ label: msg('No templates yet: right-click a measurement › Save as Template'), disabled: true }] : []),
       SEP,
       {
@@ -1313,7 +1313,8 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
           data-ribbon-tab={t.id}
           aria-selected={tab === t.id && showBody}
           tabIndex={tab === t.id ? 0 : -1}
-          title={collapsed ? msg('Double-click to pin the ribbon open') : msg('Double-click to collapse the ribbon')}
+          // The full name first: a tab squeezed to "…" shows it on hover.
+          title={`${t.label}\n${collapsed ? msg('Double-click to pin the ribbon open') : msg('Double-click to collapse the ribbon')}`}
           onClick={() => {
             if (collapsed) setDropped(!(dropped && tab === t.id));
             pick(t.id);

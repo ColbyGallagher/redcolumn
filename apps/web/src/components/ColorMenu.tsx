@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { msg } from '@nb/i18n';
 import { useFloatingPopup } from './useFloatingPopup';
 import { addCustomColor, parseHex, removeCustomColor } from '../workspace/customColors';
 import { profiles, updateWorkspace } from '../workspace/profiles';
@@ -99,7 +100,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
           <span className="field-icon">{icon}</span>
           <span className={`color-bar${mixed ? ' mixed' : value || fallback ? '' : ' none'}`} style={!mixed && (value || fallback) ? { background: value ?? fallback } : undefined} />
         </span>
-        <span className="field-label">{wide ? (mixed ? 'Mixed' : (value ?? noneLabel ?? 'None')) : short}</span>
+        <span className="field-label">{wide ? (mixed ? msg('Mixed') : (value ?? noneLabel ?? msg('None'))) : short}</span>
         <span className="color-caret" aria-hidden="true">
           ▾
         </span>
@@ -139,8 +140,8 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
                     type="button"
                     className={`color-swatch${norm === c ? ' on' : ''}`}
                     style={{ background: c }}
-                    title={`${c} (right-click or press Delete to remove)`}
-                    aria-label={`Custom ${c}`}
+                    title={msg('{colour} (right-click or press Delete to remove)', { colour: c })}
+                    aria-label={msg('Custom {colour}', { colour: c })}
                     aria-pressed={norm === c}
                     onClick={() => pick(c)}
                     onContextMenu={(e) => {

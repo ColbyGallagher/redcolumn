@@ -644,7 +644,7 @@ body,
 }
 
 /* The Text block's names are in the tooltips; the icons alone keep it narrow enough to fit. */
-.rb-props .prop-cluster[aria-label='Text'] .field-label {
+.rb-props .prop-cluster[data-cluster='text'] .field-label {
   display: none;
 }
 
