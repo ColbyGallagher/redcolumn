@@ -5016,30 +5016,54 @@ tr.hidden-markup td {
   pointer-events: none;
 }
 
-/* Number fields with a dropdown of common values (toolbar line width, opacity, cloud bubbles). */
+/* Number fields with a dropdown of common values (toolbar line width, opacity, font size, cloud bubbles). */
 .combo {
   position: relative;
   display: inline-flex;
   align-items: center;
   height: 28px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--panel);
+  border: 1px solid var(--field-border, var(--border));
+  border-radius: 3px;
+  background: var(--field-bg, var(--surface-sunken));
+  color: var(--text-strong, var(--text));
+}
+
+.combo:hover:not(.disabled),
+.combo:focus-within:not(.disabled) {
+  border-color: var(--accent);
+}
+
+.combo.disabled {
+  opacity: 0.35;
+  background: var(--tint-faint);
+  border-color: var(--tint-strong);
+  color: var(--muted);
 }
 
 .combo-input {
   width: 38px;
   height: 100%;
   padding: 0 2px 0 6px;
-  border: 0;
-  background: none;
-  color: inherit;
+  border: 0 !important;
+  background: none !important;
+  color: var(--text-strong, var(--text));
   font: inherit;
   text-align: right;
+  outline: none;
+}
+
+.combo.disabled .combo-input {
+  opacity: 1;
+  color: var(--muted);
+  cursor: default;
 }
 
 .combo-unit {
   padding: 0 2px;
+  color: var(--text-soft, var(--muted));
+}
+
+.combo.disabled .combo-unit {
   color: var(--muted);
 }
 
@@ -5049,9 +5073,19 @@ tr.hidden-markup td {
   border: 0;
   border-left: 1px solid var(--border);
   background: none;
-  color: var(--muted);
+  color: var(--field-caret, var(--text-soft));
   font-size: 9px;
   cursor: pointer;
+}
+
+.combo-caret:hover:not(:disabled) {
+  background: var(--surface-hover);
+  color: var(--text-strong, var(--text));
+}
+
+.combo-caret:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 
 .combo-list {

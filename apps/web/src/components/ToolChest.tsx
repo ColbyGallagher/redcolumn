@@ -126,15 +126,16 @@ export function ToolPreview({ item, size = 40 }: { item: Pick<ToolChestItem, 'ty
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       const k = (size / 40) * dpr;
       ctx.setTransform(k, 0, 0, k, 0, 0);
-      if (item.markups?.length && item.type !== 'signature') {
+      if (item.markups?.length && item.type !== 'signature' && item.type !== 'count') {
         drawTemplate(ctx, item.markups);
         return;
       }
+      const customCount = item.type === 'count' && !!item.style.countSymbol;
       const style = {
         ...item.style,
         // Thick lines and big markers are scaled down so the preview still reads.
         width: Math.min(item.style.width, item.type === 'highlighter' ? 10 : 3),
-        arcRadius: item.type === 'count' ? 4 : item.type === 'cloud' ? 4 : 3,
+        arcRadius: customCount ? 13 : item.type === 'count' ? 4.5 : item.type === 'cloud' ? 4 : 3,
         fontSize: isTextType(item.type) ? 11 : item.style.fontSize,
         showLabel: false,
         leader: undefined,
@@ -145,7 +146,7 @@ export function ToolPreview({ item, size = 40 }: { item: Pick<ToolChestItem, 'ty
         id: 'preview',
         type: item.type,
         pageIndex: 0,
-        points: samplePoints(item.type),
+        points: customCount ? [[20, 20]] : samplePoints(item.type),
         style,
         status: 'none',
         author: '',

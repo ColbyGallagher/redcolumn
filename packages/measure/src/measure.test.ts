@@ -405,3 +405,10 @@ test('betterSnap picks across indexes as one index would', () => {
   assert.equal(betterSnap(null, b, p, 10), b);
   assert.equal(betterSnap(a, null, p, 10), a);
 });
+
+test('a scale kept in fractions shows lengths in other units with the default decimals of that unit', () => {
+  const base = { metersPerPoint: 1, feetInches: true, precision: 16, label: 'x' };
+  assert.equal(formatLength(3.048, { ...base, unit: 'mm' }), '3,048 mm');
+  assert.equal(formatLength(3048, { ...base, unit: 'km' }), '3.048 km');
+  assert.equal(formatLength(3.048, { ...base, unit: 'm' }), '3.05 m');
+});

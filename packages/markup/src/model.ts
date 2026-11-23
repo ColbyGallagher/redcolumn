@@ -5,6 +5,7 @@ import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
 import type { TableData } from './table';
 import type { CustomLine } from './lineStyle';
+import type { CountSymbol } from './countSymbol';
 import type { TextSpan } from './textSpans';
 import { lineEnds, type BlendMode, type FontFamily, type LineDash, type LineEnding, type HatchSpec, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
 
@@ -199,6 +200,8 @@ export interface MarkupStyle {
   width: number;
   /** 0..1 */
   opacity: number;
+  /** Line (outer border) opacity (0..1) multiplied with `opacity`; unset means 1. */
+  strokeOpacity?: number;
   /** Font size in points (text markups). */
   fontSize?: number;
   /**
@@ -212,6 +215,8 @@ export interface MarkupStyle {
   cornerRadius?: number;
   /** Counts: the marker drawn at each item (circle when unset). */
   countShape?: CountShape;
+  /** Counts: a custom saved symbol (vector markups or picture) drawn instead of `countShape`. */
+  countSymbol?: CountSymbol;
   /** Fill opacity (0..1) multiplied with `opacity`; used for translucent area fills. */
   fillOpacity?: number;
   /** Line style; solid when unset. */
