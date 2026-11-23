@@ -4611,6 +4611,45 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   );
   closeTabRef.current = requestCloseTab;
 
+  /**
+   * Before the window goes (closing it, or Restart Now): asks about each document with unsaved
+   * changes, showing it first, then saves Live Sessions on this device. False when the person
+   * cancels or a session could not be saved, and the app keeps running.
+   */
+  const settleBeforeLeaving = useCallback(async () => {
+    for (const pane of ['a', 'b'] as const) {
+      for (const t of [...(pane === 'b' ? tabsBRef.current : tabsARef.current)]) {
+        if (studioDocOf(t.file.id) || !hasUnsavedChanges(t)) continue;
+        activateTab(pane, t);
+        if (!(await settleUnsaved(pane, t.file.id))) return false;
+      }
+    }
+    try {
+      await Promise.all(sessionsRef.current.map((s) => s.saveLocally?.()));
+    } catch {
+      setError('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing.');
+      return false;
+    }
+    return true;
+  }, [activateTab, settleUnsaved]);
+
+  /**
+   * Restarts the app (Preferences › Language), after the same questions closing the window asks
+   * (the desktop app has no browser prompt on reload). A second click while asking does nothing.
+   */
+  const restarting = useRef(false);
+  const restartApp = useCallback(async () => {
+    if (restarting.current) return;
+    restarting.current = true;
+    try {
+      if (await settleBeforeLeaving()) location.reload();
+    } catch (e) {
+      setError(`Could not restart: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      restarting.current = false;
+    }
+  }, [settleBeforeLeaving]);
+
   // The desktop app asks before its window closes while documents have unsaved changes: the page
   // reports whether any do, and on a close request asks about each one, showing it first.
   useEffect(() => {
@@ -4669,22 +4708,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       asking = true;
       void (async () => {
         try {
-          for (const pane of ['a', 'b'] as const) {
-            for (const t of [...(pane === 'b' ? tabsBRef.current : tabsARef.current)]) {
-              if (studioDocOf(t.file.id) || !hasUnsavedChanges(t)) continue;
-              activateTab(pane, t);
-              if (!(await settleUnsaved(pane, t.file.id))) return;
-            }
-          }
-          try { await Promise.all(sessionsRef.current.map((s) => s.saveLocally?.())); }
-          catch { setError('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing.'); return; }
-          host.closeWindow?.();
+          if (await settleBeforeLeaving()) host.closeWindow?.();
         } finally {
           asking = false;
         }
       })();
     });
-  }, [activateTab, settleUnsaved]);
+  }, [settleBeforeLeaving]);
 
   /** Closes tabs one after another, stopping when the person cancels one. */
   const requestCloseTabs = useCallback(
@@ -12271,7 +12301,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setLibraryOpen(false)}
         />
       )}
-      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
+      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} onRestart={() => void restartApp()} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
           documentColumns={activeOpen ? columnSet : null}
