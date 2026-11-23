@@ -5,6 +5,7 @@ import { calibratedScale, crsProjection, crsWkt, findCrs, geoAt, gridToLatLon, t
 import { exportWithAnnotations } from './export.ts';
 import { importGeoRegions, projectionOfWkt } from './geo.ts';
 import { readPdfExtras } from './pdfExtras.ts';
+import { MarkupStore } from './store.ts';
 
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
 
@@ -114,4 +115,13 @@ test('a registration made in the app replaces the file’s, and an empty one rem
   assert.deepEqual(replaced.map((r) => r.crs), ['GDA2020 / MGA zone 56']);
   const removed = await PDFDocument.load(await exportWithAnnotations(source, [], { geo: { 0: [] } }));
   assert.equal(removed.getPage(0).node.get(PDFName.of('VP')), undefined);
+});
+
+test('a page registered while the file is read keeps its registration when the file’s maps come in', async () => {
+  const store = await MarkupStore.open('geo-race', { persist: false });
+  const mine = appRegion();
+  store.setPageGeo(0, [mine]);
+  const fromFile = (pageIndex: number): GeoRegion => ({ ...appRegion(), id: `file-${pageIndex}`, pageIndex });
+  store.importAnnotations([], [], {}, { geo: [fromFile(0), fromFile(1)] });
+  assert.deepEqual(store.allGeoRegions().map((r) => r.id).sort(), ['file-1', 'geo-test']);
 });

@@ -850,7 +850,9 @@ export class MarkupStore {
       this.meta.set('importedAnnotations', imported);
       if (extras.spaces) this.meta.set('importedSpaces', extras.spaces);
       if (extras.geo) {
-        this.meta.set('geo', extras.geo);
+        // Pages registered by hand while the file was being read keep their registration.
+        const edited = new Set(this.geoEditedPages());
+        this.meta.set('geo', [...extras.geo.filter((r) => !edited.has(r.pageIndex)), ...this.geoSnapshot.filter((r) => edited.has(r.pageIndex))]);
         this.meta.set('geoChecked', true);
       }
       this.meta.set('annotationsImported', true);
