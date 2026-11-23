@@ -256,6 +256,8 @@ export interface Settings {
   // General › Options
   /** Interface language: a code from @nb/i18n's LOCALES, or 'auto' to follow the browser or system. Applies at the next start. */
   uiLanguage: string;
+  /** How numbers are written and read: a locale such as 'de-DE', or 'auto' for the system's. Applies at the next start. */
+  numberFormat: string;
   /** Which part of a long document name the tabs cut short. */
   tabTruncation: 'start' | 'middle' | 'end';
   /** Library id of a document opened (in front) every time the app starts; '' for none. */
@@ -489,6 +491,7 @@ export const DEFAULT_SETTINGS: Settings = {
   embedHostHooks: false,
 
   uiLanguage: 'auto',
+  numberFormat: 'auto',
   tabTruncation: 'end',
   startupFile: '',
   documentRecovery: true,

@@ -199,6 +199,10 @@ importers:
         version: 5.9.3
 
   packages/measure:
+    dependencies:
+      '@nb/i18n':
+        specifier: workspace:*
+        version: link:../i18n
     devDependencies:
       '@types/node':
         specifier: ^26.6.1

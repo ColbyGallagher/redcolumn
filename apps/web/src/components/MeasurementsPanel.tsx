@@ -303,14 +303,14 @@ function PageScale({
       return;
     }
     const parts = scaleParts(next);
-    setPaper(formatScaleNumber(parts.paper));
+    setPaper(formatScaleNumber(parts.paper, true));
     setPaperUnit(parts.paperUnit);
-    setReal(formatScaleNumber(parts.real));
+    setReal(formatScaleNumber(parts.real, true));
     setRealUnit(parts.realUnit);
     const yScale = next.yMetersPerPoint != null ? scaleParts({ ...next, metersPerPoint: next.yMetersPerPoint }) : parts;
-    setYPaper(formatScaleNumber(yScale.paper));
+    setYPaper(formatScaleNumber(yScale.paper, true));
     setYPaperUnit(yScale.paperUnit);
-    setYReal(formatScaleNumber(yScale.real));
+    setYReal(formatScaleNumber(yScale.real, true));
     setYRealUnit(yScale.realUnit);
   };
 

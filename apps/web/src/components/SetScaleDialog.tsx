@@ -42,7 +42,7 @@ interface Side {
 
 function sideOf(scale: Scale): Side {
   const p = scaleParts(scale);
-  return { paper: formatScaleNumber(p.paper), paperUnit: p.paperUnit, real: formatScaleNumber(p.real), realUnit: p.realUnit };
+  return { paper: formatScaleNumber(p.paper, true), paperUnit: p.paperUnit, real: formatScaleNumber(p.real, true), realUnit: p.realUnit };
 }
 
 /** Bluebeam's Set Page Scale: pages, a preset or custom equation, an optional separate Y scale, and precision. */
