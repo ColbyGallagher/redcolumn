@@ -324,6 +324,79 @@ function Cmd({ id, size = 'small', label, icon }: { id: string; size?: Size; lab
   );
 }
 
+/** One ribbon button that drops down a menu of related commands (Flip, Array, Arrange). */
+function CmdMenu({ label, icon, ids, size = 'small', title }: { label: string; icon: ReactNode; ids: readonly string[]; size?: Size; title?: string }) {
+  const { commands, done } = useContext(Ctx);
+  const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const skipClick = useRef(false);
+
+  useEffect(() => {
+    if (!menu) return;
+    const down = (e: PointerEvent) => {
+      if (!btnRef.current?.contains(e.target as Node)) return;
+      skipClick.current = true;
+      const clear = () => window.setTimeout(() => { skipClick.current = false; }, 0);
+      window.addEventListener('pointerup', clear, { once: true, capture: true });
+      window.addEventListener('pointercancel', clear, { once: true, capture: true });
+    };
+    window.addEventListener('pointerdown', down, true);
+    return () => window.removeEventListener('pointerdown', down, true);
+  }, [menu]);
+
+  const visible = ids.map((id) => ({ id, cmd: commands.get(id) })).filter(({ cmd }) => !cmd?.managed);
+  if (!visible.length) return null;
+
+  const anyEnabled = visible.some(({ cmd }) => cmd?.enabled);
+  const active = visible.find(({ cmd }) => cmd?.checked);
+  const hint = !anyEnabled ? visible.find(({ cmd }) => cmd?.hint)?.cmd?.hint : undefined;
+
+  const open = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    const items: MenuEntry[] = visible.map(({ id, cmd }) => ({
+      label: cmd?.label ?? id,
+      icon: ICONS[id],
+      shortcut: shortcutLabel(id),
+      disabled: !cmd?.enabled,
+      checked: cmd?.checked,
+      onClick: () => {
+        cmd?.run();
+        done();
+      },
+    }));
+    setMenu({ x: r.left, y: r.bottom, items });
+  };
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className={`btn tool rb-btn ${size}${active || menu ? ' active' : ''}`}
+        disabled={!anyEnabled}
+        aria-haspopup="menu"
+        aria-expanded={!!menu}
+        title={hint ?? title ?? label}
+        onClick={(e) => {
+          if (skipClick.current) {
+            skipClick.current = false;
+            return;
+          }
+          if (menu) {
+            setMenu(null);
+            return;
+          }
+          open(e.currentTarget);
+        }}
+      >
+        <span className="rb-icon">{(active && ICONS[active.id]) ?? icon}</span>
+        <span className="rb-label">{`${label}\u00A0▾`}</span>
+      </button>
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+    </>
+  );
+}
+
 function ToolBtn({ tool, size = 'small' }: { tool: Tool; size?: Size }) {
   const { commands, toolbar, done } = useContext(Ctx);
   const { tools, state, author, enabled } = toolbar;
@@ -1023,18 +1096,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
               <Stack>
                 <Cmd id="edit.scaleToLength" />
-                <Cmd id="edit.flipHorizontal" />
-                <Cmd id="edit.flipVertical" />
-              </Stack>
-              <Stack>
-                <Cmd id="edit.cropImage" />
-                <Cmd id="edit.resetCrop" />
-              </Stack>
-            </Group>
-            <Group label="Picture">
-              <Cmd id="edit.adjustImage" size="large" label="Adjust Image" />
-              <Stack>
-                <Cmd id="edit.pictureColours" label="Colours" />
+                <CmdMenu label="Flip" icon={ICONS['edit.flipHorizontal']} ids={['edit.flipHorizontal', 'edit.flipVertical']} />
               </Stack>
             </Group>
             <Group label="Edit Geometry">
@@ -1050,6 +1112,16 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="edit.chamfer" />
               </Stack>
             </Group>
+            <Group label="Picture">
+              <Stack>
+                <Cmd id="edit.adjustImage" label="Adjust Image" />
+                <Cmd id="edit.pictureColours" label="Colours" />
+              </Stack>
+              <Stack>
+                <Cmd id="edit.cropImage" />
+                <Cmd id="edit.resetCrop" />
+              </Stack>
+            </Group>
             <Group label="Convert">
               <Stack>
                 <Cmd id="edit.join" />
@@ -1063,23 +1135,18 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
             </Group>
             <Group label="Pattern">
               <Stack>
-                <Cmd id="edit.arrayPolar" />
-                <Cmd id="edit.arrayPath" />
+                <CmdMenu label="Array" icon={ICONS['edit.arrayPolar']} ids={['edit.arrayPolar', 'edit.arrayPath']} />
                 <Cmd id="edit.divide" />
-              </Stack>
-              <Stack>
                 <Cmd id="edit.multiply" />
               </Stack>
             </Group>
             <Group label="Arrange">
-              <Stack>
-                <Cmd id="edit.bringToFront" />
-                <Cmd id="edit.bringForward" />
-              </Stack>
-              <Stack>
-                <Cmd id="edit.sendBackward" />
-                <Cmd id="edit.sendToBack" />
-              </Stack>
+              <CmdMenu
+                label="Arrange"
+                size="large"
+                icon={ICONS['edit.bringToFront']}
+                ids={['edit.bringToFront', 'edit.bringForward', 'edit.sendBackward', 'edit.sendToBack']}
+              />
             </Group>
             <Group label="Align">
               <div className="rb-icon-grid">
@@ -1113,7 +1180,6 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
             </Group>
             <Group label="Remove">
-              <Cmd id="edit.delete" size="large" />
               <Stack>
                 <Cmd id="edit.hide" />
                 <Cmd id="edit.showHidden" />
