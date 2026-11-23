@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { normalizeNumberText } from '@nb/i18n';
 import { METERS_PER_UNIT, pageLengthFor, parseLength, type Scale } from '@nb/measure';
 
 interface Props {
@@ -12,7 +13,7 @@ const MAX_COPIES = 400;
 
 /** Spacing typed in the scale's unit, in PDF points; 0 is allowed (copies touching). */
 function gapPoints(text: string, scale: Scale, axis: 'x' | 'y'): number | null {
-  if (/^\s*0*\.?0*\s*$/.test(text) && text.trim() !== '.') return 0;
+  if (/^\s*0*\.?0*\s*$/.test(normalizeNumberText(text)) && text.trim() !== '.' && text.trim() !== ',') return 0;
   const value = parseLength(text, scale.unit);
   return value === null ? null : pageLengthFor(scale, value * METERS_PER_UNIT[scale.unit], axis === 'x' ? 1 : 0, axis === 'x' ? 0 : 1);
 }

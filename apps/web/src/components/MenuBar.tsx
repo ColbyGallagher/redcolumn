@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { msg } from '@nb/i18n';
+import { msg, msgc } from '@nb/i18n';
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
 import { desktop, type UpdateState } from '../desktop/host';
@@ -456,8 +456,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="edit.checkSpelling" />
             <Sep />
             <label className="menu-field" title={msg('Name recorded on your markups')}>
-              Author
-        {msg('Author')}<input value={author} onChange={(e) => onAuthorChange(e.target.value)} onClick={(e) => e.stopPropagation()} />
+              {msg('Author')}
+              <input value={author} onChange={(e) => onAuthorChange(e.target.value)} onClick={(e) => e.stopPropagation()} />
             </label>
           </>
         );
@@ -482,8 +482,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Sep />
             <Cmd id="view.split" />
             <Cmd id="view.splitHorizontal" />
-            <Cmd id="view.switchPanes" label={msg('Switch')} />
-            <Cmd id="view.balance" label={msg('Balance')} />
+            <Cmd id="view.switchPanes" label={msgc('verb: swap the two panes', 'Switch')} />
+            <Cmd id="view.balance" label={msgc('verb: make the two panes equal', 'Balance')} />
             <Cmd id="view.unsplit" />
             <Cmd id="view.stitched" />
             <Cmd id="view.syncDocument" />
@@ -755,7 +755,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         >
           <img className="brand-col" src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" draggable={false} />
           <span className="brand-word">
-            <b>{msg('red')}</b>{msg('column')}
+            {/* The product name: never translated. */}
+            <b>red</b>column
           </span>
           <span className="brand-caret" aria-hidden="true">
             ▾

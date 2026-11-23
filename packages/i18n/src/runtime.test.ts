@@ -36,6 +36,8 @@ test('pseudo-locales', () => {
   assert.equal(formattingLocale(), 'en');
   const s = msg('Save {n, plural, one {# file} other {# files}}', { n: 2 });
   assert.match(s, /^\[\[Šåṽé 2 ƒîļéš ~+\]\]$/);
+  // A closing ellipsis stays last, where code that marks dialog commands looks for it.
+  assert.match(msg('Open…'), /^\[\[Öþéñ ~+\]\]…$/);
   activate('ar-XB');
   assert.equal(currentLocale().dir, 'rtl');
   assert.equal(msg('Hi {name}', { name: 'Ann' }), '‮Hi ‬Ann');

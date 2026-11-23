@@ -47,6 +47,8 @@ test.describe('menus in the accented pseudo-locale', () => {
       const items = await flyout.locator('.menu-item .label').allInnerTexts();
       checked += items.length;
       untranslated.push(...items.filter((i) => i.trim() && !/^\[\[/.test(i)).map((i) => `${title} › ${i}`));
+      // Fields in a menu (Edit › Author), whose label once showed twice.
+      for (const field of await flyout.locator('.menu-field').allInnerTexts()) expect(field.trim(), field).toMatch(/^\[\[[^[]*\]\]$/);
     }
     expect(checked).toBeGreaterThan(150);
     // Still English: tool names (Lasso, Snapshot, Hyperlink, File Attachment; the tool-labels PR) and the

@@ -9,14 +9,19 @@
 
 let current = 'en-US';
 
-/** Sets the locale numbers are shown and read in. */
-export function setNumberLocale(locale: string): void {
+/** The locale `setNumberLocale(locale)` would use: the supported form of the tag, else US English. */
+export function supportedNumberLocale(locale: string): string {
   try {
-    current = Intl.NumberFormat.supportedLocalesOf([locale])[0] ?? 'en-US';
+    return Intl.NumberFormat.supportedLocalesOf([locale])[0] ?? 'en-US';
   } catch {
     // Not a valid language tag.
-    current = 'en-US';
+    return 'en-US';
   }
+}
+
+/** Sets the locale numbers are shown and read in. */
+export function setNumberLocale(locale: string): void {
+  current = supportedNumberLocale(locale);
 }
 
 /** The locale numbers are shown and read in. */
@@ -29,7 +34,9 @@ export function numberLocale(): string {
  * which typed input and the rest of the app don't read. The separators still follow the locale.
  */
 function latin(locale: string): string {
-  return /-u-/.test(locale) ? locale : `${locale}-u-nu-latn`;
+  if (!/-u-/.test(locale)) return `${locale}-u-nu-latn`;
+  // Other Unicode extensions (a calendar, say) stay; the numbering system is always Latin.
+  return /-nu-[a-z0-9]+/i.test(locale) ? locale.replace(/-nu-[a-z0-9]+/i, '-nu-latn') : locale.replace('-u-', '-u-nu-latn-');
 }
 
 const formats = new Map<string, Intl.NumberFormat>();
@@ -49,14 +56,19 @@ export function formatNumber(value: number, options: Intl.NumberFormatOptions = 
   return f.format(value).replace(/\u202f/g, '\u00a0');
 }
 
+/** 0 for a value that rounds to zero at `digits` decimals, so it shows as 0 rather than -0. */
+function noNegativeZero(value: number, digits: number): number {
+  return Math.abs(value) < 0.5 * 10 ** -digits ? 0 : value;
+}
+
 /** Like `toFixed`, in the number locale: exactly `digits` decimals, with digit groups unless `grouping` is false. */
 export function formatFixed(value: number, digits: number, grouping = true, locale = current): string {
-  return formatNumber(value, { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: grouping }, locale);
+  return formatNumber(noNegativeZero(value, digits), { minimumFractionDigits: digits, maximumFractionDigits: digits, useGrouping: grouping }, locale);
 }
 
 /** Up to `digits` decimals with trailing zeros dropped (`String(+v.toFixed(d))`), in the number locale. */
 export function formatTrimmed(value: number, digits: number, grouping = false, locale = current): string {
-  return formatNumber(value, { maximumFractionDigits: digits, useGrouping: grouping }, locale);
+  return formatNumber(noNegativeZero(value, digits), { maximumFractionDigits: digits, useGrouping: grouping }, locale);
 }
 
 const separatorCache = new Map<string, { decimal: string; group: string }>();
