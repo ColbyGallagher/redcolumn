@@ -29,6 +29,35 @@ test.describe('accented pseudo-locale', () => {
   });
 });
 
+test.describe('menus in the accented pseudo-locale', () => {
+  test.use({ settings: { ...IMPERIAL, uiLanguage: 'en-XA' } });
+
+  test('every menu and command in the redcolumn menu is translated', async ({ app }) => {
+    await app.open('plan.pdf');
+    await app.page.locator('.menubar .brand-mark').click();
+    const titles = await app.page.locator('.brand-drop > .menu-sub > .menu-item .label').allInnerTexts();
+    expect(titles.length).toBeGreaterThan(5);
+    for (const t of titles) expect(t, t).toMatch(/^\[\[.*\]\]$/);
+    // Open each menu and check its items.
+    const untranslated: string[] = [];
+    let checked = 0;
+    for (const title of titles) {
+      const flyout = await app.menu(title.trim());
+      await expect(flyout).toBeVisible();
+      const items = await flyout.locator('.menu-item .label').allInnerTexts();
+      checked += items.length;
+      untranslated.push(...items.filter((i) => i.trim() && !/^\[\[/.test(i)).map((i) => `${title} › ${i}`));
+      // Fields in a menu (Edit › Author), whose label once showed twice.
+      for (const field of await flyout.locator('.menu-field').allInnerTexts()) expect(field.trim(), field).toMatch(/^\[\[[^[]*\]\]$/);
+    }
+    expect(checked).toBeGreaterThan(150);
+    // Still English: tool names (Lasso, Snapshot, Hyperlink, File Attachment; the tool-labels PR) and the
+    // Bulk menu's processes (BATCH_LABELS; the dialogs PR). Lower this as those land.
+    expect(untranslated.length, untranslated.join('\n')).toBeLessThanOrEqual(21);
+    expect(app.errors).toEqual([]);
+  });
+});
+
 test.describe('restarting with unsaved changes', () => {
   test.use({ settings: { ...IMPERIAL, uiLanguage: 'en-XA' } });
 
