@@ -7,6 +7,7 @@ import type { Scale } from '@nb/measure';
 import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField } from './ComboField';
 import { LineStyleSelect } from './LineStyleSelect';
+import { CountSymbolSelect } from './CountSymbolSelect';
 import { FontPicker } from './FontPicker';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { ShapeGeometry } from './ShapeGeometry';
@@ -254,6 +255,7 @@ const VALIGN_TITLES: Record<VerticalAlign, () => string> = {
 
 /** Cloud bubble sizes (pt): fine steps for everyday clouds, wider ones for very large bubbles. */
 const BUBBLE_SIZES = [5, 10, 15, 20, 30, 40, 50, 60, 80, 100];
+const MARKER_SIZES = [4, 6, 8, 10, 14, 20];
 
 /** What a measurement line can end in from the toolbar (more in Properties). */
 const ARROW_CHOICES: { value: LineEnding; label: string }[] = [
@@ -267,6 +269,18 @@ const ARROW_CHOICES: { value: LineEnding; label: string }[] = [
 const WIDTHS = [0.5, 1, 1.5, 2, 3, 5, 8, 12, 16, 24];
 /** The highlighter sweeps wide bands. */
 const HIGHLIGHT_WIDTHS = [4, 8, 12, 16, 20, 30, 40, 60, 80, 100, 150, 200];
+
+/** What the Units & Scale group works on: the current page's scale, set the same way the navigation bar's scale list does. */
+export interface UnitsScaleProps {
+  scale: Scale | null;
+  disabled: boolean;
+  /** A scale picked from the list. */
+  onPreset: (scale: Scale) => void;
+  /** Opens the custom scale dialog. */
+  onCustom: () => void;
+  /** The default units (Preferences › Units) changed: the page scale is reworded to match. */
+  onUnitsChanged: () => void;
+}
 
 export interface ToolBarProps {
   tools: MarkupTools;
@@ -288,6 +302,11 @@ export interface ToolBarProps {
   /** The selected markups (select mode, two or more), whose shared style the Format tab edits together. */
   selection?: { markups: readonly Markup[]; store: MarkupStore } | null;
   enabled: boolean;
+  /**
+   * The Markup Format tab's Units & Scale group: set while a measure tool is active or measurements are
+   * selected (null otherwise, and the group is left out).
+   */
+  unitsScale?: UnitsScaleProps | null;
   /** The document's markup layers, offered by the Layer field. */
   layerNames?: readonly string[];
   /** Asks for a new layer's name (the Layer field's "New layer…"). */
@@ -559,6 +578,36 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             {msg('Bubbles')}
             <ComboField title={msg('Bubble size')} value={cloudBubble.value} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder={msg('Auto')} onChange={(v) => tools.setStyle('cloud', { arcRadius: v })} />
           </label>
+        </Cluster>
+      )}
+      {style && styleType === 'count' && !mixedTypes && (
+        <Cluster label={msg('Count')}>
+          <PropLine>
+            <div className="field" title={msg('Marker shape or custom symbol')}>
+              {msg('Shape')}
+              <CountSymbolSelect
+                style={style}
+                markups={markups}
+                mixed={mixedOf('countShape', (v) => v ?? 'circle') || mixedOf('countSymbol')}
+                onChange={(patch) => apply('count', patch)}
+              />
+            </div>
+          </PropLine>
+          <PropLine>
+            <label className="field" title={msg('Size of the count marker (pt)')}>
+              {msg('Size')}
+              <ComboField
+                title={msg('Marker size')}
+                value={mixedOf('arcRadius') ? undefined : style.arcRadius}
+                options={MARKER_SIZES}
+                min={0.5}
+                max={200}
+                unit="pt"
+                placeholder={mixedOf('arcRadius') ? msg('Mixed') : msg('Auto')}
+                onChange={(v) => apply('count', { arcRadius: v })}
+              />
+            </label>
+          </PropLine>
         </Cluster>
       )}
       <Cluster label={msg('Text')} kind="text" show={!!textStyle && !!textType && textCaps!.font}>
