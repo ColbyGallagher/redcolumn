@@ -35,3 +35,22 @@ test('rotation fields read decimal commas', () => {
   const en = parseRotationInput('45.5', 'ccw');
   assert.ok(en.ok && Math.abs(en.degrees - 45.5) < 1e-9);
 });
+
+test('stored number fields read the JavaScript way, and show in the chosen format', async () => {
+  const { cellsFor, customKey } = await import('../columns/listColumns');
+  const columns = [
+    { id: 'n', name: 'Count', type: 'number' as const, decimals: 3 },
+    { id: 't', name: 'Note', type: 'text' as const },
+  ];
+  const markup = {
+    id: 'm1', type: 'rect', pageIndex: 0, points: [[0, 0], [10, 10]], style: { stroke: '#000', fill: 'none', width: 1, opacity: 1 },
+    status: 'none', author: 'me', createdAt: 0, modifiedAt: 0, fields: { n: '1.125', t: '2.5' },
+  } as never;
+  const ctx = { scaleOf: () => ({ metersPerPoint: 1, unit: 'm', feetInches: false, precision: 2, label: '' }), sheets: {}, statuses: [], columns } as never;
+  inLocale('de-DE', () => {
+    const cells = cellsFor(markup, ctx);
+    assert.deepEqual(cells[customKey('n')], { text: '1,125', num: 1.125 });
+    assert.equal(cells[customKey('t')]!.num, 2.5);
+    assert.equal(matchesFilter(cells[customKey('n')]!, '=1,125'), true);
+  });
+});

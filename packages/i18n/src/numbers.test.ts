@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatFixed, formatNumber, formatTrimmed, normalizeNumberText, numberLocale, numberSeparators, parseNumber, setNumberLocale } from './numbers.ts';
+import { formatFixed, formatNumber, formatTrimmed, normalizeNumberText, numberLocale, numberSeparators, parseNumber, setNumberLocale, supportedNumberLocale } from './numbers.ts';
 
 test('defaults to US English and falls back to it for unknown locales', () => {
   assert.equal(numberLocale(), 'en-US');
@@ -90,4 +90,19 @@ test('parses numbers', () => {
   const start = performance.now();
   assert.equal(parseNumber(`${'0'.repeat(50_000)}x`, 'en-US'), null);
   assert.ok(performance.now() - start < 200);
+});
+
+test('never -0, and always Latin digits, also with other Unicode extensions', () => {
+  assert.equal(formatTrimmed(-0.001, 1), '0');
+  assert.equal(formatFixed(-0.001, 2), '0.00');
+  assert.equal(formatTrimmed(-2.5, 1), '-2.5');
+  assert.match(formatTrimmed(123.5, 1, false, 'ar-EG-u-ca-islamic'), /^123[.,٫]5$/);
+  assert.match(formatTrimmed(123.5, 1, false, 'ar-EG-u-nu-arab'), /^123/);
+});
+
+test('supportedNumberLocale is what setNumberLocale uses', () => {
+  assert.equal(supportedNumberLocale('not a tag!'), 'en-US');
+  setNumberLocale('de-DE');
+  assert.equal(numberLocale(), supportedNumberLocale('de-DE'));
+  setNumberLocale('en-US');
 });
