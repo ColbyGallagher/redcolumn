@@ -13,8 +13,11 @@ interface Props {
   /** The open document's markups, whose own line styles are offered beside the sets. */
   markups: readonly Markup[];
   onChange: (patch: Partial<MarkupStyle>) => void;
+  /** Called while hovering or stepping through options in the list, and with null when leaving or closing. */
+  onPreview?: (patch: Partial<MarkupStyle> | null) => void;
   /** The selected markups have different line styles: nothing is shown as picked. */
   mixed?: boolean;
+  disabled?: boolean;
 }
 
 interface Item {
@@ -35,7 +38,7 @@ const sameLine = (a: CustomLine, b: CustomLine) => a.name === b.name && JSON.str
  * styles a Revu document brings with it, each drawn beside its name. A style's own pick shows as
  * selected wherever it is listed.
  */
-export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
+export function LineStyleSelect({ style, markups, onChange, onPreview, mixed, disabled }: Props) {
   const ws = useWorkspace();
   const sets = useMemo(() => lineSetLibrary(ws), [ws]);
   const inDocument = useMemo(() => documentLineStyles(markups, sets.flatMap((s) => s.styles)), [markups, sets]);
@@ -83,9 +86,25 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
   const [active, setActive] = useState(0);
   const [box, setBox] = useState<{ left: number; top?: number; bottom?: number; width: number; maxHeight: number }>({ left: 0, width: 0, maxHeight: 300 });
 
+  const previewRef = useRef(onPreview);
+  previewRef.current = onPreview;
+
   const selectedIndex = items.findIndex((it) => it.value === selected);
 
+  const patchFor = (item: Item | undefined): Partial<MarkupStyle> | null => {
+    if (!item) return null;
+    const v = item.value;
+    if (v === 'custom' || v === 'manage') return null;
+    // A style from a line set ('line:<set>:<style>') or from the document ('doc:<style>').
+    const [kind, a, b] = v.split(':');
+    const picked = kind === 'line' ? sets[Number(a)]?.styles[Number(b)] : kind === 'doc' ? inDocument[Number(a)] : undefined;
+    if (picked) return { lineStyle: structuredClone(picked), dash: undefined, dashArray: undefined };
+    // A plain style replaces a custom (Bluebeam) one.
+    return { dash: v === 'solid' ? undefined : (v as LineDash), dashArray: undefined, lineStyle: undefined };
+  };
+
   const pick = (item: Item) => {
+    onPreview?.(null);
     setOpen(false);
     const v = item.value;
     if (v === 'custom') return;
@@ -94,15 +113,12 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
       openLineStyles();
       return;
     }
-    // A style from a line set ('line:<set>:<style>') or from the document ('doc:<style>').
-    const [kind, a, b] = v.split(':');
-    const picked = kind === 'line' ? sets[Number(a)]?.styles[Number(b)] : kind === 'doc' ? inDocument[Number(a)] : undefined;
-    if (picked) onChange({ lineStyle: structuredClone(picked), dash: undefined, dashArray: undefined });
-    // A plain style replaces a custom (Bluebeam) one.
-    else onChange({ dash: v === 'solid' ? undefined : (v as LineDash), dashArray: undefined, lineStyle: undefined });
+    const patch = patchFor(item);
+    if (patch) onChange(patch);
   };
 
   const openList = (at = selectedIndex) => {
+    if (disabled) return;
     setActive(at >= 0 ? at : 0);
     setOpen(true);
   };
@@ -130,7 +146,10 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
   }, [open, active]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      previewRef.current?.(null);
+      return;
+    }
     const away = (e: PointerEvent) => {
       const t = e.target as Node;
       if (!buttonRef.current?.contains(t) && !listRef.current?.contains(t)) setOpen(false);
@@ -149,8 +168,13 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
       window.removeEventListener('scroll', scrolled, true);
     };
   }, [open]);
+  useEffect(() => () => previewRef.current?.(null), []);
 
-  const move = (i: number) => setActive(Math.max(0, Math.min(items.length - 1, i)));
+  const move = (i: number) => {
+    const next = Math.max(0, Math.min(items.length - 1, i));
+    setActive(next);
+    onPreview?.(patchFor(items[next]));
+  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLButtonElement>) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -204,16 +228,20 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
     if (hit === undefined) return;
     if (!open) openList(hit);
     setActive(hit);
+    onPreview?.(patchFor(items[hit]));
   };
 
   const shown = selected === '' ? undefined : items[selectedIndex];
   const valueText = mixed ? 'Mixed' : (shown?.label ?? '');
 
   // The option rows never change with the hovered or active row, only the two that do re-render.
-  const latest = useRef({ pick, items });
-  latest.current = { pick, items };
+  const latest = useRef({ pick, patchFor, items });
+  latest.current = { pick, patchFor, items };
   const onPick = useCallback((i: number) => latest.current.pick(latest.current.items[i]!), []);
-  const onHover = useCallback((i: number) => setActive(i), []);
+  const onHover = useCallback((i: number) => {
+    setActive(i);
+    previewRef.current?.(latest.current.patchFor(latest.current.items[i]));
+  }, []);
 
   // Runs of items under one heading: a group in the listbox, so a screen reader announces where it is.
   const runs: { group?: string; rows: number[] }[] = [];
@@ -238,6 +266,7 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
         aria-activedescendant={open ? optionId(active) : undefined}
+        disabled={disabled}
         title={valueText || undefined}
         onClick={() => (open ? setOpen(false) : openList())}
         onKeyDown={onKeyDown}
@@ -262,6 +291,7 @@ export function LineStyleSelect({ style, markups, onChange, mixed }: Props) {
             style={{ left: box.left, top: box.top, bottom: box.bottom, width: box.width, maxHeight: box.maxHeight }}
             // Clicking an option must not take focus off the picker.
             onMouseDown={(e) => e.preventDefault()}
+            onMouseLeave={() => onPreview?.(null)}
           >
             {runs.map((run, ri) =>
               run.group ? (
@@ -300,6 +330,7 @@ const Option = memo(function Option({ item, id, index, active, selected, onHover
       aria-selected={selected}
       data-value={item.value}
       className={`ls-option${active ? ' active' : ''}${item.value === 'manage' ? ' manage' : ''}`}
+      onMouseEnter={() => onHover(index)}
       onMouseMove={() => !active && onHover(index)}
       onClick={() => onPick(index)}
     >
