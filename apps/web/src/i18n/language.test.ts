@@ -27,6 +27,6 @@ test('number formats: auto follows the system, and each is named by a sample', (
   assert.equal(resolveNumberFormat('auto', 'de-AT'), 'de-AT');
   assert.equal(resolveNumberFormat('fr-FR', 'de-AT'), 'fr-FR');
   assert.equal(resolveNumberFormat(7, 'de-AT'), 'de-AT', 'a stored value of the wrong type counts as auto');
-  assert.deepEqual(NUMBER_FORMATS.map(numberSample), ['1,234,567.89', '1.234.567,89', '1\u202f234\u202f567,89', numberSample('de-CH')]);
+  assert.deepEqual(NUMBER_FORMATS.map(numberSample), ['1,234,567.89', '1.234.567,89', '1\u00a0234\u00a0567,89', numberSample('de-CH')]);
   assert.match(numberSample('de-CH'), /^1['’]234['’]567\.89$/);
 });

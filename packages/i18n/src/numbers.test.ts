@@ -14,7 +14,7 @@ test('defaults to US English and falls back to it for unknown locales', () => {
 test('formats in the given locale', () => {
   assert.equal(formatFixed(1234.5, 2, true, 'en-US'), '1,234.50');
   assert.equal(formatFixed(1234.5, 2, true, 'de-DE'), '1.234,50');
-  assert.equal(formatFixed(1234.5, 2, true, 'fr-FR'), '1\u202f234,50');
+  assert.equal(formatFixed(1234.5, 2, true, 'fr-FR'), '1\u00a0234,50', 'a plain no-break space, which PDF fonts can draw');
   assert.equal(formatFixed(1234.5, 2, false, 'de-DE'), '1234,50');
   assert.equal(formatTrimmed(2.5, 4, false, 'de-DE'), '2,5');
   assert.equal(formatTrimmed(3, 4, false, 'de-DE'), '3');
@@ -29,6 +29,20 @@ test('uses the number locale by default', () => {
   } finally {
     setNumberLocale('en-US');
   }
+});
+
+test('always Latin digits, with the locale’s separators', () => {
+  assert.equal(formatFixed(1234567.5, 2, true, 'ar-EG'), '1,234,567.50');
+  assert.equal(formatFixed(1234567.5, 2, true, 'fa-IR'), '1,234,567.50');
+  assert.equal(formatFixed(1234567.5, 2, true, 'bn-BD'), '12,34,567.50');
+  assert.equal(parseNumber(formatFixed(1234567.5, 2, true, 'ar-EG'), 'ar-EG'), 1234567.5);
+  assert.equal(parseNumber(formatFixed(1234567.5, 2, true, 'en-IN'), 'en-IN'), 1234567.5);
+});
+
+test('everything formatted reads back', () => {
+  for (const locale of ['en-US', 'de-DE', 'fr-FR', 'de-CH', 'en-IN', 'hi-IN', 'ar-EG', 'fa-IR', 'ru-RU', 'pt-BR', 'es-ES', 'ja-JP'])
+    for (const v of [0.25, 1.5, 999.999, 1250.5, 1234567.89, 0.001])
+      for (const grouping of [true, false]) assert.equal(parseNumber(formatFixed(v, 3, grouping, locale), locale), Number(v.toFixed(3)), `${locale} ${v} ${grouping}`);
 });
 
 test('separators', () => {
@@ -50,6 +64,13 @@ test('normalizes typed numbers and leaves the rest of the text', () => {
   assert.equal(normalizeNumberText('1’250.5', 'de-CH'), '1250.5');
   assert.equal(normalizeNumberText("1'250.5", 'de-CH'), '1250.5');
   assert.equal(normalizeNumberText('1.5', 'de-DE'), '1.5', 'a point that is not a digit group stays a decimal point');
+  assert.equal(normalizeNumberText('0.250', 'de-DE'), '0.250', 'a group never starts with 0');
+  assert.equal(normalizeNumberText('1.2500', 'de-DE'), '1.2500');
+  assert.equal(normalizeNumberText('1 250,5 m', 'fr-FR'), '1250.5 m', 'a plain space typed as the group mark');
+  assert.equal(normalizeNumberText('10 125/128', 'fr-FR'), '10 125/128', 'a fraction after a space is not a group');
+  assert.equal(normalizeNumberText('12,34,567.5', 'en-IN'), '1234567.5');
+  assert.equal(normalizeNumberText('1,2,345', 'en-US'), '1,2,345', 'not properly grouped: left alone');
+  assert.equal(normalizeNumberText(`25'-6"`, 'de-CH'), `25'-6"`);
 });
 
 test('parses numbers', () => {
@@ -59,6 +80,8 @@ test('parses numbers', () => {
   assert.equal(parseNumber('1.234,5', 'de-DE'), 1234.5);
   assert.equal(parseNumber('0,75', 'de-DE'), 0.75);
   assert.equal(parseNumber('1.250', 'de-DE'), 1250);
+  assert.equal(parseNumber('0.250', 'de-DE'), 0.25);
+  assert.equal(parseNumber('0,250', 'de-DE'), 0.25);
   assert.equal(parseNumber('', 'en-US'), null);
   assert.equal(parseNumber('1.2.3', 'en-US'), null);
   assert.equal(parseNumber('abc', 'de-DE'), null);

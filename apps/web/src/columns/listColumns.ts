@@ -1,5 +1,6 @@
 import { isMeasureKind, isTextType, markupLabel, MARKUP_LABELS, measureProps, spacePath, threadReplies, type Assembly, type CustomColumn, type Markup, type MarkupStatusDef, type Reply } from '@nb/markup';
 import { areaUnitOf, DEFAULT_SCALE, effectiveSlopeFactor, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, planValue, quantityOf, slopeApplies, slopeIsFlat, toDisplayQuantity, volumeUnitOf, type Scale } from '@nb/measure';
+import { parseNumber as parseTypedNumber } from '@nb/i18n';
 import type { SheetInfo } from '@nb/sheets';
 import { evalFormula, FormulaError, type Value } from './formula';
 
@@ -137,9 +138,9 @@ export interface CellContext {
 
 const cell = (text: string, num: number | null = null): Cell => ({ text, num });
 
+/** A number typed in a cell or a filter, in the chosen number format (`2,5` in German), with any `$` ignored. */
 function parseNumber(s: string): number | null {
-  const n = Number(s.replace(/[,$\s]/g, ''));
-  return s.trim() !== '' && Number.isFinite(n) ? n : null;
+  return parseTypedNumber(s.replace(/\$/g, ''));
 }
 
 export function formatNumber(n: number, decimals?: number): string {

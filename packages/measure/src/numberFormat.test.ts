@@ -28,6 +28,8 @@ test('measurements are shown in the chosen number format', () => {
     assert.equal(formatLength(0.3048 * 25.5, feet), `25'-6"`);
   });
   assert.equal(formatLength(1250.5, metric), '1,250.50 m');
+  // French digit groups use a no-break space the standard PDF fonts can draw (not U+202F).
+  inLocale('fr-FR', () => assert.equal(formatLength(1250.5, metric), '1 250,50 m'));
 });
 
 test('typed lengths and scale numbers read in the chosen number format', () => {

@@ -24,17 +24,29 @@ export function numberLocale(): string {
   return current;
 }
 
+/**
+ * The locale with Latin digits: Arabic (Egypt) and Persian systems default to their own digits,
+ * which typed input and the rest of the app don't read. The separators still follow the locale.
+ */
+function latin(locale: string): string {
+  return /-u-/.test(locale) ? locale : `${locale}-u-nu-latn`;
+}
+
 const formats = new Map<string, Intl.NumberFormat>();
 
-/** `value` formatted for people, in `locale` (the number locale by default). */
+/**
+ * `value` formatted for people, in `locale` (the number locale by default), always with Latin digits.
+ * French's narrow no-break space between digit groups becomes a plain no-break space: the standard
+ * PDF fonts that draw labels into saved files have no narrow one.
+ */
 export function formatNumber(value: number, options: Intl.NumberFormatOptions = {}, locale = current): string {
   const key = `${locale}|${JSON.stringify(options)}`;
   let f = formats.get(key);
   if (!f) {
-    f = new Intl.NumberFormat(locale, options);
+    f = new Intl.NumberFormat(latin(locale), options);
     formats.set(key, f);
   }
-  return f.format(value);
+  return f.format(value).replace(/\u202f/g, '\u00a0');
 }
 
 /** Like `toFixed`, in the number locale: exactly `digits` decimals, with digit groups unless `grouping` is false. */
@@ -49,11 +61,11 @@ export function formatTrimmed(value: number, digits: number, grouping = false, l
 
 const separatorCache = new Map<string, { decimal: string; group: string }>();
 
-/** The locale's decimal and digit-group characters. */
+/** The locale's decimal and digit-group characters (with Latin digits). */
 export function numberSeparators(locale = current): { decimal: string; group: string } {
   let s = separatorCache.get(locale);
   if (!s) {
-    const parts = new Intl.NumberFormat(locale, { useGrouping: true }).formatToParts(12345.6);
+    const parts = new Intl.NumberFormat(latin(locale), { useGrouping: true }).formatToParts(12345.6);
     s = { decimal: parts.find((p) => p.type === 'decimal')?.value ?? '.', group: parts.find((p) => p.type === 'group')?.value ?? ',' };
     separatorCache.set(locale, s);
   }
@@ -62,25 +74,49 @@ export function numberSeparators(locale = current): { decimal: string; group: st
 
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+const patterns = new Map<string, { grouped: RegExp; mark: RegExp; decimal: RegExp | null }>();
+
+function patternsFor(locale: string) {
+  let p = patterns.get(locale);
+  if (!p) {
+    const { decimal, group } = numberSeparators(locale);
+    // Space-grouped locales (French, Russian…) are typed with a plain space as well as shown with a
+    // no-break one; Swiss groups are written with either apostrophe.
+    const marks = /\s/.test(group) ? ['\u00a0', '\u202f', ' '] : /['’]/.test(group) ? ["'", '’'] : [group];
+    const g = `(?:${marks.map(escape).join('|')})`;
+    p = {
+      // A properly grouped number: 1–3 leading digits that don't start with 0, then groups of three
+      // (or Indian twos before the last three: 12,34,567). Not followed by a digit or `/`, so `5 1/2`
+      // and `0.250` are not digit groups.
+      // Each group's digits are matched whole (2 or 3, no digit after), so matching stays linear.
+      grouped: new RegExp(`(?<![\\d.,'’])[1-9]\\d{0,2}(?:${g}\\d{2,3}(?!\\d))+(?![\\d/])`, 'g'),
+      mark: new RegExp(g, 'g'),
+      decimal: decimal === '.' ? null : new RegExp(`${escape(decimal)}(?=\\d)`, 'g'),
+    };
+    patterns.set(locale, p);
+  }
+  return p;
+}
+
 /**
  * Rewrites the numbers in typed text into JavaScript's format (`.` decimal, no digit groups),
  * leaving everything else alone, so a parser for `1.5 m` or `25'-6 1/2"` also reads `1,5 m` and
  * `1.250,5 m` in a decimal-comma locale.
  *
- * - The locale's digit-group mark between a digit and three more digits is dropped (`1.250` →
- *   `1250` in German, `1,250` → `1250` in English, `1 250` → `1250` in French with its no-break space).
- * - In a decimal-comma locale a comma before a digit becomes the decimal point (`1,5` → `1.5`).
- *   A point that is not a digit group stays a decimal point, so `1.5` typed the English way still works.
+ * - Digit-group marks are dropped from a properly grouped number (`1.250` → `1250` in German,
+ *   `1,250` → `1250` in English, `1 250` → `1250` in French, `12,34,567` in Indian English).
+ * - The locale's decimal mark before a digit becomes a point (`1,5` → `1.5`). A point that is not
+ *   in a digit group stays a decimal point, so `1.5` and `0.250` typed the English way still work.
  */
 export function normalizeNumberText(text: string, locale = current): string {
-  const { decimal, group } = numberSeparators(locale);
-  // A no-break space group (French, Russian…) is also typed as a plain space; only the no-break
-  // forms are dropped, since a plain space separates `5 1/2` and similar.
-  // Swiss digit groups are written with either apostrophe.
-  const groups = /\s/.test(group) ? ['\u00a0', '\u202f'] : /['’]/.test(group) ? ["'", '’'] : [group];
-  let t = text;
-  for (const g of groups) t = t.replace(new RegExp(`(\\d)${escape(g)}(?=\\d{3}(?!\\d))`, 'g'), '$1');
-  if (decimal === ',') t = t.replace(/,(?=\d)/g, '.');
+  const { grouped, mark, decimal } = patternsFor(locale);
+  let t = text.replace(grouped, (m) => {
+    // Every group three digits, or Indian twos before a last three.
+    const lens = m.split(mark).slice(1).map((d) => d.length);
+    const ok = lens.at(-1) === 3 && (lens.every((n) => n === 3) || lens.slice(0, -1).every((n) => n === 2));
+    return ok ? m.replace(mark, '') : m;
+  });
+  if (decimal) t = t.replace(decimal, '.');
   return t;
 }
 

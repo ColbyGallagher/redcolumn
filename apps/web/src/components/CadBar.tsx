@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { MARKUP_LABELS, type Markup } from '@nb/markup';
+import { parseNumber } from '@nb/i18n';
 import { parseLength, type Scale } from '@nb/measure';
 import { CAD_TOOL_LABELS, type CadTool } from '../markup/cadTools';
 import { parseRotationInput } from '../markup/rotationInput';
@@ -34,7 +35,7 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.getAttribute('role') === 'combobox' || t.isContentEditable)) return;
-      if (/^[0-9.-]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && first.current) {
+      if (/^[0-9.,-]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && first.current) {
         first.current.focus();
         first.current.select();
       }
@@ -46,7 +47,7 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
   const unit = scale.unit === 'ft' && scale.feetInches ? 'ft-in' : scale.unit;
   const badLength = (text: string) => {
     const t = text.trim().replace(/^-/, '');
-    return !!t && !((parseLength(t, scale.unit) ?? 0) > 0) && Number(t) !== 0;
+    return !!t && !((parseLength(t, scale.unit) ?? 0) > 0) && parseNumber(t) !== 0;
   };
   let bad = false;
   const rotateParse = s.rotateAngle.trim() ? parseRotationInput(s.rotateAngle, 'ccw') : undefined;

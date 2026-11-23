@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MARKUP_LABELS } from '@nb/markup';
+import { parseNumber } from '@nb/i18n';
 import { METERS_PER_UNIT, pageLengthFor, parseLength, type Scale } from '@nb/measure';
 import type { SketchState } from '../markup/MarkupTools';
 import { settings, useSettings } from '../settings/settings';
@@ -41,7 +42,7 @@ export function SketchBar({ sketch, scale, onSegment, onBox, onCircle, onCancel,
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (/^[0-9.]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) first.current?.focus();
+      if (/^[0-9.,]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) first.current?.focus();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
@@ -53,7 +54,8 @@ export function SketchBar({ sketch, scale, onSegment, onBox, onCircle, onCancel,
 
   const firstLabel = circle ? (ellipseAs === 'diameter' ? 'Diameter' : 'Radius') : box ? 'Width' : 'Length';
   const aPoints = toPoints(a);
-  const angle = b.trim() === '' ? null : Number(b);
+  // In the chosen number format (45,5 in German); NaN when it is not a number.
+  const angle = b.trim() === '' ? null : (parseNumber(b) ?? NaN);
   const bPoints = box ? toPoints(b, 'y') : null;
   const ready = circle ? aPoints !== null : box ? aPoints !== null && bPoints !== null : aPoints !== null && (angle === null || Number.isFinite(angle));
 
