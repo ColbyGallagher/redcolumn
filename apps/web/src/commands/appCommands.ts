@@ -458,6 +458,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     ...CAD_COMMANDS.map(([id, tool]) => cmd(id, 'Edit', CAD_TOOL_LABELS[tool], () => a.cadTool(tool), doc && s.editable && s.selectionFits(tool), s.tool === tool)),
     cmd('edit.join', 'Edit', msg('Join'), a.join, s.selectionJoinable && s.editable),
     cmd('edit.explode', 'Edit', msg('Explode'), a.explode, s.selectionExplodable && s.editable),
+    // translators: a verb: reverse the direction of the selected lines
     cmd('edit.reverse', 'Edit', msg('Reverse'), a.reverse, s.selectionReversible && s.editable),
     cmd('edit.toCloud', 'Edit', msg('Convert to Cloud'), a.toCloud, s.selectionCloudable && s.editable),
     cmd('edit.selectSimilar', 'Edit', msg('Select Similar'), a.selectSimilar, sel),
@@ -468,6 +469,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.formatPainter', 'Edit', msg('Format Painter'), a.formatPainter, s.selectionCount === 1 && s.editable, s.tool === 'painter'),
     cmd('edit.group', 'Edit', msg('Group'), a.group, s.selectionCount > 1 && s.editable),
     cmd('edit.ungroup', 'Edit', msg('Ungroup'), a.ungroup, s.selectionGrouped && s.editable),
+    // translators: Lock and Unlock are verbs (stop the selected markups being changed)
     cmd('edit.lock', 'Edit', s.selectionLocked ? msg('Unlock') : msg('Lock'), () => a.lock(!s.selectionLocked), sel && s.editable, s.selectionLocked),
     cmd('edit.nudgeLeft', 'Edit', msg('Nudge Left'), () => a.nudge(-1, 0, false), nudgeable),
     cmd('edit.nudgeRight', 'Edit', msg('Nudge Right'), () => a.nudge(1, 0, false), nudgeable),

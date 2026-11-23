@@ -8174,8 +8174,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     ...(clicked && !narrowScreen()
       ? [
           panelSide(clicked) === 'left'
-            ? { label: `Dock ${leftTitles()[clicked]} on the Right`, onClick: () => dockPanel(clicked, 'right') }
-            : { label: `Dock ${leftTitles()[clicked]} on the Left`, onClick: () => dockPanel(clicked, 'left') },
+            ? { label: msg('Dock {panel} on the Right', { panel: leftTitles()[clicked]! }), onClick: () => dockPanel(clicked, 'right') }
+            : { label: msg('Dock {panel} on the Left', { panel: leftTitles()[clicked]! }), onClick: () => dockPanel(clicked, 'left') },
           SEP,
         ]
       : []),

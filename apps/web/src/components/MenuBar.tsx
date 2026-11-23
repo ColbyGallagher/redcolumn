@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { msg } from '@nb/i18n';
+import { msg, msgc } from '@nb/i18n';
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
 import { desktop, type UpdateState } from '../desktop/host';
@@ -482,8 +482,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Sep />
             <Cmd id="view.split" />
             <Cmd id="view.splitHorizontal" />
-            <Cmd id="view.switchPanes" label={msg('Switch')} />
-            <Cmd id="view.balance" label={msg('Balance')} />
+            <Cmd id="view.switchPanes" label={msgc('verb: swap the two panes', 'Switch')} />
+            <Cmd id="view.balance" label={msgc('verb: make the two panes equal', 'Balance')} />
             <Cmd id="view.unsplit" />
             <Cmd id="view.stitched" />
             <Cmd id="view.syncDocument" />
