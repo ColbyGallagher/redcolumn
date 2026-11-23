@@ -7,6 +7,7 @@ msgstr ""
 "Language: de\\n"
 "Content-Type: text/plain; charset=UTF-8\\n"
 
+# Checked with the reviewer
 #. Ribbon button
 #: apps/web/src/components/Ribbon.tsx
 msgid "Save all"
@@ -40,7 +41,7 @@ test('parses entries, contexts, comments and multi-line strings', () => {
   const entries = parsePo(SAMPLE);
   assert.equal(entries.length, 7);
   assert.match(entries[0]!.str, /Language: de/);
-  assert.deepEqual(entries[1], { id: 'Save all', str: 'Alle speichern', notes: ['Ribbon button'], refs: ['apps/web/src/components/Ribbon.tsx'] });
+  assert.deepEqual(entries[1], { id: 'Save all', str: 'Alle speichern', comments: ['Checked with the reviewer'], notes: ['Ribbon button'], refs: ['apps/web/src/components/Ribbon.tsx'] });
   assert.equal(entries[2]!.context, 'noun');
   assert.equal(entries[3]!.str, 'Zählen');
   assert.deepEqual(entries[4]!.flags, ['fuzzy']);

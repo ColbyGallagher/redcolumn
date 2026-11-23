@@ -76,13 +76,13 @@ export function buildTemplate(found: readonly Extracted[]): PoEntry[] {
     .sort((a, b) => (a.refs![0]! < b.refs![0]! ? -1 : a.refs![0]! > b.refs![0]! ? 1 : messageKey(a.id, a.context) < messageKey(b.id, b.context) ? -1 : 1));
 }
 
-/** A language's catalog brought up to date with the template: translations and flags kept, messages no longer used dropped. */
+/** A language's catalog brought up to date with the template: translations, flags and translators' comments kept, messages no longer used dropped. */
 export function mergeCatalog(existing: readonly PoEntry[], template: readonly PoEntry[], language: string): PoEntry[] {
   const old = new Map(existing.filter((e) => e.id).map((e) => [messageKey(e.id, e.context), e]));
   const header = existing.find((e) => !e.id && e.context === undefined) ?? poHeader(language);
   return [header, ...template.map((t) => {
     const prev = old.get(messageKey(t.id, t.context));
-    return { ...t, str: prev?.str ?? '', ...(prev?.flags?.length ? { flags: prev.flags } : {}) };
+    return { ...(prev?.comments?.length ? { comments: prev.comments } : {}), ...t, str: prev?.str ?? '', ...(prev?.flags?.length ? { flags: prev.flags } : {}) };
   })];
 }
 

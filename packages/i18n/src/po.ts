@@ -14,6 +14,8 @@ export interface PoEntry {
   refs?: string[];
   /** `#,` flags, e.g. `fuzzy`. */
   flags?: string[];
+  /** `# ` comments: the translators' own notes, kept when the catalog is updated. */
+  comments?: string[];
 }
 
 /** The catalog key of a message: its English text, with the context in front when it has one. */
@@ -54,6 +56,7 @@ export function parsePo(text: string): PoEntry[] {
     if (line.startsWith('#')) {
       if (cur._has && cur._field) finish();
       if (line.startsWith('#.')) (cur.notes ??= []).push(line.slice(2).trim());
+      else if (line === '#' || line.startsWith('# ')) (cur.comments ??= []).push(line.slice(2));
       else if (line.startsWith('#:')) (cur.refs ??= []).push(...line.slice(2).trim().split(/\s+/).filter(Boolean));
       else if (line.startsWith('#,')) (cur.flags ??= []).push(...line.slice(2).split(',').map((f) => f.trim()).filter(Boolean));
       continue;
@@ -94,6 +97,7 @@ export function parsePo(text: string): PoEntry[] {
 export function writePo(entries: readonly PoEntry[]): string {
   const out: string[] = [];
   for (const e of entries) {
+    for (const c of e.comments ?? []) out.push(c ? `# ${c}` : '#');
     for (const n of e.notes ?? []) out.push(`#. ${n}`);
     if (e.refs?.length) out.push(`#: ${e.refs.join(' ')}`);
     if (e.flags?.length) out.push(`#, ${e.flags.join(', ')}`);

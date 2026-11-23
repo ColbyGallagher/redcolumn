@@ -1,5 +1,5 @@
 import { activate, fallbackChain, localeInfo, messagesBeforeActivation, type Catalog } from '@nb/i18n';
-import { resolveLanguage } from './language';
+import { browserLanguages, resolveLanguage } from './language';
 
 // Each language's catalog is its own chunk, fetched only when that language is chosen.
 const catalogs = import.meta.glob<Catalog>('../../../../packages/i18n/catalogs/*.po', { import: 'default' });
@@ -18,8 +18,8 @@ async function loadCatalog(code: string): Promise<Catalog> {
  * Chooses the interface language and loads its translations, before the first render (main.tsx).
  * A catalog that fails to load leaves English.
  */
-export async function startI18n(choice: string): Promise<void> {
-  const code = resolveLanguage(choice, navigator.languages ?? [navigator.language]);
+export async function startI18n(choice: unknown): Promise<void> {
+  const code = resolveLanguage(choice, browserLanguages());
   let catalog: Catalog = {};
   try {
     catalog = await loadCatalog(code);

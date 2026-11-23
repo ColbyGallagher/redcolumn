@@ -47,14 +47,14 @@ test('template merges repeats and sorts by file', () => {
   ]);
 });
 
-test('merge keeps translations and flags and drops unused messages', () => {
+test('merge keeps translations, flags and comments, and drops unused messages', () => {
   const merged = mergeCatalog(
-    [poHeader('de'), { id: 'Keep', str: 'Behalten', flags: ['fuzzy'] }, { id: 'Gone', str: 'Weg' }],
+    [poHeader('de'), { id: 'Keep', str: 'Behalten', flags: ['fuzzy'], comments: ['reviewed'] }, { id: 'Gone', str: 'Weg' }],
     [{ id: 'Keep', str: '', refs: ['a.ts'] }, { id: 'New', str: '', refs: ['a.ts'] }],
     'de',
   );
   assert.deepEqual(merged.slice(1), [
-    { id: 'Keep', str: 'Behalten', refs: ['a.ts'], flags: ['fuzzy'] },
+    { comments: ['reviewed'], id: 'Keep', str: 'Behalten', refs: ['a.ts'], flags: ['fuzzy'] },
     { id: 'New', str: '', refs: ['a.ts'] },
   ]);
   assert.match(merged[0]!.str, /Language: de/);

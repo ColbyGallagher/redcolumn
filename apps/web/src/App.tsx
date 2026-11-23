@@ -4599,6 +4599,17 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   );
   closeTabRef.current = requestCloseTab;
 
+  /**
+   * Restarts the app (Preferences › Language). Asks about each document with unsaved changes first,
+   * as closing it would (the desktop app has no browser prompt on reload); Cancel keeps it running.
+   */
+  const restartApp = useCallback(async () => {
+    for (const pane of ['a', 'b'] as const) {
+      for (const t of [...(pane === 'b' ? tabsBRef.current : tabsARef.current)]) if (!(await settleUnsaved(pane, t.file.id))) return;
+    }
+    location.reload();
+  }, [settleUnsaved]);
+
   // The desktop app asks before its window closes while documents have unsaved changes: the page
   // reports whether any do, and on a close request asks about each one, showing it first.
   useEffect(() => {
@@ -12202,7 +12213,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setLibraryOpen(false)}
         />
       )}
-      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
+      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} onRestart={() => void restartApp()} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
           documentColumns={activeOpen ? columnSet : null}

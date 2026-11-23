@@ -29,6 +29,31 @@ test.describe('accented pseudo-locale', () => {
   });
 });
 
+test.describe('restarting with unsaved changes', () => {
+  test.use({ settings: { ...IMPERIAL, uiLanguage: 'en-XA' } });
+
+  test('asks about them first; Cancel keeps the app running with the markup', async ({ app }) => {
+    await app.open('plan.pdf');
+    await app.tool('rect');
+    await app.drag([300, 450], [520, 560]);
+    await expect.poll(async () => (await app.raw()).length).toBe(1);
+
+    await app.cmd('file.preferences');
+    await app.page.getByRole('combobox', { name: /^\[\[Ļåñĝûåĝé ~+\]\]$/ }).selectOption('en');
+    await app.page.getByRole('button', { name: /^\[\[Ŕéšţåŕţ Ñöŵ ~+\]\]$/ }).click();
+
+    // The save prompt's own text is not translated yet, so it is found by its role alone.
+    const prompt = app.page.getByRole('dialog').filter({ hasText: 'plan.pdf' });
+    await expect(prompt).toBeVisible();
+    await prompt.getByRole('button', { name: /Cancel/ }).click();
+    await expect(prompt).toBeHidden();
+    // Still running, still in the pseudo-locale, markup kept; the new choice is saved for next time.
+    expect(await app.raw()).toHaveLength(1);
+    expect(await app.page.evaluate(() => JSON.parse(localStorage.getItem('nb.settings') ?? '{}').uiLanguage)).toBe('en');
+    expect(app.errors).toEqual([]);
+  });
+});
+
 test.describe('right-to-left pseudo-locale', () => {
   test.use({ settings: { ...IMPERIAL, uiLanguage: 'ar-XB' } });
 
