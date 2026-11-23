@@ -87,7 +87,8 @@ export function normalizeNumberText(text: string, locale = current): string {
 /** A number typed in the number locale (`1,5` in German, `1.5` or `1,250.5` in English), or null. */
 export function parseNumber(text: string, locale = current): number | null {
   const t = normalizeNumberText(text.trim(), locale).replace(/^\+/, '');
-  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(t)) return null;
+  // Digits, then optionally a point and more digits: each part is matched one way only, so it stays linear.
+  if (!/^-?(?:\d+(?:\.\d*)?|\.\d+)$/.test(t)) return null;
   const n = Number(t);
   return Number.isFinite(n) ? n : null;
 }

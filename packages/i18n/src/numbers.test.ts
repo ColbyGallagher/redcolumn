@@ -62,4 +62,9 @@ test('parses numbers', () => {
   assert.equal(parseNumber('', 'en-US'), null);
   assert.equal(parseNumber('1.2.3', 'en-US'), null);
   assert.equal(parseNumber('abc', 'de-DE'), null);
+  assert.equal(parseNumber('5.', 'en-US'), 5);
+  // Long runs of digits that do not parse return quickly.
+  const start = performance.now();
+  assert.equal(parseNumber(`${'0'.repeat(50_000)}x`, 'en-US'), null);
+  assert.ok(performance.now() - start < 200);
 });
