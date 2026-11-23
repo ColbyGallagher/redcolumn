@@ -792,9 +792,12 @@ export function drawSelection(ctx: CanvasRenderingContext2D, m: Markup, zoom: nu
   ctx.fillStyle = '#fff';
   const h = handlePx * px;
   const box = TYPE_INFO[m.type].handles === 'box';
+  const calloutBox = m.type === 'callout' && m.points.length >= 4;
+  const n = m.points.length;
   handlePositions({ ...m, rotation: 0 }).forEach(([x, y], i) => {
     // A box's corners are round and the middles of its edges square, as in Bluebeam.
-    if (box && BOX_CORNERS.includes(i)) {
+    const isCorner = (box && BOX_CORNERS.includes(i)) || (calloutBox && (i === 2 || i === 3 || i === n || i === n + 1));
+    if (isCorner) {
       ctx.beginPath();
       ctx.arc(x, y, h / 2, 0, Math.PI * 2);
       ctx.fill();
@@ -890,7 +893,17 @@ export function handlePositions(m: Markup): [number, number][] {
   const handles = TYPE_INFO[m.type].handles;
   // A connector's bends are routed for it: only its two ends are handles.
   const ends = m.type === 'connector' && m.points.length > 1 ? [m.points[0]!, m.points[m.points.length - 1]!] : m.points.slice(0, 2);
-  const pts = handles === 'none' ? [] : handles === 'vertices' ? m.points : handles === 'box' ? boxHandles(m.points) : ends;
+  // A callout exposes its leader vertices (tip, knee, ...) plus all 8 handles of its text box (points 2-3 are the first two corners).
+  const pts =
+    m.type === 'callout' && m.points.length >= 4
+      ? [...m.points, ...boxHandles(m.points.slice(2, 4)).slice(2)]
+      : handles === 'none'
+        ? []
+        : handles === 'vertices'
+          ? m.points
+          : handles === 'box'
+            ? boxHandles(m.points)
+            : ends;
   if (!m.rotation) return pts;
   const c = rotationCentre(m);
   return pts.map((p) => rotatePoint(p, c, m.rotation!));
