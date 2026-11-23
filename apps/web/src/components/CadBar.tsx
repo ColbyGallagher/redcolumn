@@ -111,7 +111,7 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
           <input ref={first} value={s.scaleFactor} onChange={(e) => settings.set({ scaleFactor: e.target.value })} placeholder="by reference" aria-label="Scale factor" />×
         </label>
       );
-      if (s.scaleFactor.trim() && !(Number(s.scaleFactor) > 0)) bad = true;
+      if (s.scaleFactor.trim() && !((parseNumber(s.scaleFactor) ?? 0) > 0)) bad = true;
       break;
     case 'lengthen':
       fields = (
