@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA, type ManifestOptions } from 'vite-plugin-pwa';
 import { buildManifest } from './src/offline/manifest.ts';
 import { appCsp, redirectCsp } from './src/security/csp.ts';
+import { compileCatalog, parsePo } from '../../packages/i18n/src/po.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -106,6 +107,20 @@ function spellAssets(): Plugin {
 }
 
 /**
+ * Translation catalogs (packages/i18n/catalogs/*.po) imported as modules: each compiles to its
+ * translations only, and is loaded on demand when its language is chosen (src/i18n/start.ts).
+ */
+function poCatalogs(): Plugin {
+  return {
+    name: 'po-catalogs',
+    transform(code, id) {
+      if (!id.split('?')[0]!.endsWith('.po')) return null;
+      return { code: `export default ${JSON.stringify(compileCatalog(parsePo(code)))};`, map: null };
+    },
+  };
+}
+
+/**
  * Writes the Content Security Policy and referrer policy into each built page as <meta> tags
  * (GitHub Pages cannot send headers; vercel.json sends the same policy as a header). Only the
  * build: the dev server needs inline scripts for hot reload. See src/security/csp.ts.
@@ -165,6 +180,7 @@ export default defineConfig({
     ocrAssets(),
     spellAssets(),
     model3dAssets(),
+    poCatalogs(),
     landingPage(),
     securityMeta(),
     VitePWA({

@@ -9,20 +9,30 @@
   position: relative;
   height: var(--select-h, 24px);
   padding: 0 24px 0 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--field-border, var(--border));
   border-radius: 3px;
-  background-color: var(--surface-sunken);
+  background-color: var(--field-bg, var(--surface-sunken));
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2395a3bc' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  color: var(--text);
+  color: var(--text-strong, var(--text));
   font: inherit;
   text-align: left;
   cursor: pointer;
 }
+.ls-select:hover:not(:disabled) {
+  border-color: var(--accent);
+}
 .ls-select:focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
+}
+.ls-select:disabled {
+  opacity: 0.35;
+  background-color: var(--tint-faint);
+  border-color: var(--tint-strong);
+  color: var(--muted);
+  cursor: default;
 }
 .ls-name {
   min-width: 0;

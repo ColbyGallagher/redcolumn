@@ -221,11 +221,13 @@ function baseShape(m: Markup): ShapePart[] {
     case 'arcLength':
       return withEnds(m, arcPoints(points));
     case 'count': {
+      // Custom count symbols are drawn directly in render.ts / export.ts.
+      if (style.countSymbol) return [];
       const r = markerSize(m);
       const shape = style.countShape ?? 'circle';
       return points.map(([x, y]) => {
         if (shape === 'circle') return { path: ellipsePath({ x: x - r, y: y - r, w: r * 2, h: r * 2 }), stroke: true, fill: style.fill };
-        const outline: Point[] = COUNT_SHAPES[shape].map(([u, v]) => [x + u * r, y + v * r]);
+        const outline = countMarkerOutline(shape, x, y, r);
         // A check or cross is a solid glyph: filled with the fill colour, else the line colour.
         const solid = shape === 'check' || shape === 'cross';
         return { path: [...polyline(outline), ['Z']] as PathCmd[], stroke: !solid || style.width > 0, fill: solid ? (style.fill ?? style.stroke) : style.fill };
@@ -322,6 +324,14 @@ const COUNT_SHAPES: Record<Exclude<CountShape, 'circle'>, Point[]> = {
   triangle: [[0, -1], [0.866, 0.5], [-0.866, 0.5]],
   cross: [[-1, -0.7], [-0.7, -1], [0, -0.3], [0.7, -1], [1, -0.7], [0.3, 0], [1, 0.7], [0.7, 1], [0, 0.3], [-0.7, 1], [-1, 0.7], [-0.3, 0]],
 };
+
+/** Polygon outline of a count marker centred on (cx, cy) with radius `r` (page space, y down). */
+export function countMarkerOutline(shape: CountShape, cx: number, cy: number, r: number): Point[] {
+  if (shape === 'circle') {
+    return Array.from({ length: 24 }, (_, i) => [cx + Math.cos((i / 24) * 2 * Math.PI) * r, cy + Math.sin((i / 24) * 2 * Math.PI) * r] as Point);
+  }
+  return COUNT_SHAPES[shape].map(([u, v]) => [cx + u * r, cy + v * r]);
+}
 
 /** Direction from `c` to `p` in degrees counter-clockwise from east, as on paper (page y runs down). */
 function paperAngle(c: Point, p: Point): number {

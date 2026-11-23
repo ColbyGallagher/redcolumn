@@ -607,12 +607,13 @@ body,
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  padding: 0 4px 0 0;
+  padding: 0 8px 0 2px;
   border-right: 1px solid var(--tint);
 }
 
 .rb-props .prop-cluster:last-child {
   border-right: none;
+  padding-right: 2px;
 }
 
 .rb-props .prop-cluster-items {
@@ -620,13 +621,13 @@ body,
   flex: 1;
   flex-direction: column;
   justify-content: center;
-  gap: 3px;
+  gap: 6px;
 }
 
 .rb-props .prop-line {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   white-space: nowrap;
 }
 
@@ -643,8 +644,18 @@ body,
   width: 52px;
 }
 
+.rb-props .hatch-select {
+  width: 132px;
+  max-width: 132px;
+}
+
+.rb-props .hatch-select .hatch-swatch {
+  width: 24px;
+  height: 14px;
+}
+
 /* The Text block's names are in the tooltips; the icons alone keep it narrow enough to fit. */
-.rb-props .prop-cluster[aria-label='Text'] .field-label {
+.rb-props .prop-cluster[data-cluster='text'] .field-label {
   display: none;
 }
 
@@ -654,9 +665,9 @@ body,
 
 .rb-props .prop-cluster-label {
   display: block;
+  padding: 2px 0 3px;
   color: var(--muted);
-  font-size: 10px;
-  line-height: 12px;
+  font-size: 11px;
   text-align: center;
 }
 
@@ -666,8 +677,44 @@ body,
 
 .rb-props .btn,
 .rb-props select,
+.rb-props .combo,
 .rb-props input:not([type='checkbox']) {
   height: 24px;
+}
+
+.rb-props .combo-input {
+  height: 100%;
+}
+
+.rb-props .field:has(> :disabled),
+.rb-props .field:has(> .combo.disabled),
+.rb-props .field:has(> .hatch-menu > :disabled),
+.rb-props .field:has(> .font-picker > :disabled) {
+  color: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+
+.rb-props .field:has(:disabled) > .field-icon,
+.rb-props .field:has(:disabled) > .field-label {
+  opacity: 0.4;
+}
+
+/* Collapsible Modify tools section on the Markup Format tab. */
+.rb-format-modify {
+  display: flex;
+  align-items: stretch;
+  flex-shrink: 0;
+}
+
+.rb-format-modify.open {
+  background: var(--tint-faint);
+}
+
+.rb-modify-toggle-group {
+  border-left: 1px solid var(--border);
+}
+
+.rb-modify-toggle {
+  min-width: 58px;
 }
 
 .rb-collapse {
@@ -715,31 +762,50 @@ body,
   background: none;
 }
 
-.field input:not([type]),
+.field input:not([type]):not(.combo-input),
+.field input[type='text']:not(.combo-input),
+.field input[type='number']:not(.combo-input),
 .markups input {
   height: 24px;
-  border: 1px solid var(--border);
+  padding: 0 6px;
+  border: 1px solid var(--field-border, var(--border));
   border-radius: 3px;
-  background: var(--surface-sunken);
-  color: var(--text);
+  background: var(--field-bg, var(--surface-sunken));
+  color: var(--text-strong, var(--text));
   font: inherit;
+}
+
+.field input:not([type='checkbox']):not(.combo-input):hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.field input:not([type='checkbox']):not(.combo-input):disabled {
+  opacity: 0.35;
+  background: var(--tint-faint);
+  border-color: var(--tint-strong);
+  color: var(--muted);
+  cursor: default;
 }
 
 /* One look for every dropdown. Places that sit beside fixed-height inputs set --select-h to match. */
 select {
   height: var(--select-h, 24px);
   padding: 0 24px 0 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--field-border, var(--border));
   border-radius: 3px;
-  background-color: var(--surface-sunken);
+  background-color: var(--field-bg, var(--surface-sunken));
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2395a3bc' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
-  color: var(--text);
+  color: var(--text-strong, var(--text));
   font: inherit;
   text-overflow: ellipsis;
   appearance: none;
   cursor: pointer;
+}
+
+select:hover:not(:disabled) {
+  border-color: var(--accent);
 }
 
 select:focus-visible {
@@ -748,7 +814,10 @@ select:focus-visible {
 }
 
 select:disabled {
-  opacity: 0.5;
+  opacity: 0.35;
+  background-color: var(--tint-faint);
+  border-color: var(--tint-strong);
+  color: var(--muted);
   cursor: default;
 }
 
@@ -2038,8 +2107,14 @@ select[size] {
   border-bottom: 0;
 }
 
+/* Tabs shrink, ending in "…", rather than run under the search and buttons after them: longer
+   languages and narrow windows. */
 .menubar .rb-tab {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 3.5em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* The selected tab covers the menu bar's bottom edge, so it runs into the commands below. */
@@ -2909,6 +2984,10 @@ select[size] {
   font: inherit;
 }
 
+.prop-control .combo {
+  height: 24px;
+}
+
 .prop-control input.num {
   flex: 0 1 72px;
   padding: 0 4px;
@@ -3095,7 +3174,18 @@ select[size] {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 0 4px;
+  padding: 0 6px;
+  border-color: var(--field-border, var(--border));
+  background: var(--field-bg, var(--surface-sunken));
+  color: var(--text-strong, var(--text));
+}
+
+.color-btn:disabled {
+  opacity: 0.32;
+  background: var(--tint-faint);
+  border-color: var(--tint-strong);
+  color: var(--muted);
+  cursor: default;
 }
 
 .color-menu.wide .color-btn {
@@ -3128,7 +3218,7 @@ select[size] {
 
 .color-caret {
   font-size: 9px;
-  color: var(--muted);
+  color: var(--field-caret, var(--text-soft));
 }
 
 .color-pop {
@@ -6167,13 +6257,23 @@ select[size] {
   min-width: 120px;
   max-width: 180px;
   padding: 0 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--field-border, var(--border));
   border-radius: 3px;
-  background: var(--surface-sunken);
-  color: var(--text);
+  background: var(--field-bg, var(--surface-sunken));
+  color: var(--text-strong, var(--text));
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+.font-picker-button:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+.font-picker-button:disabled {
+  opacity: 0.35;
+  background: var(--tint-faint);
+  border-color: var(--tint-strong);
+  color: var(--muted);
+  cursor: default;
 }
 .font-picker-name {
   overflow: hidden;
@@ -6215,13 +6315,48 @@ select[size] {
   letter-spacing: 0.04em;
 }
 .font-picker-option {
-  padding: 3px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 8px;
   border-radius: 3px;
   font-size: 14px;
+  cursor: pointer;
+}
+.font-picker-option-label {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.font-picker-star {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease, color 0.1s ease;
+}
+.font-picker-option:hover .font-picker-star,
+.font-picker-option.active .font-picker-star,
+.font-picker-star:focus-visible,
+.font-picker-star.starred {
+  opacity: 1;
+}
+.font-picker-star:hover {
+  color: #f59e0b;
+}
+.font-picker-star.starred {
+  color: #f59e0b;
 }
 .font-picker-option.active {
   background: color-mix(in srgb, var(--text) 14%, transparent);

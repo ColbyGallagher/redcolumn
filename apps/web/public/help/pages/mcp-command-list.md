@@ -215,9 +215,9 @@ Page and whole-file work. (38 commands)
 | `document.compare` | Compare Documents… | Dialog |
 | `document.semanticCompare` | AI Compare Documents… | Dialog |
 | `document.overlay` | Overlay Pages… | Dialog |
-| `document.stitching` | Stitching… (Experimental) |  |
+| `document.stitching` | Stitching… |  |
 | `document.geospatial` | Geospatial… | Dialog |
-| `document.stitchToPage` | Stitch to New Page (Experimental) |  |
+| `document.stitchToPage` | Stitch to New Page |  |
 | `document.labelRegions` | Page Labels from Region… | Allow, Dialog |
 | `document.scaleRegions` | Bulk Apply Page Scale… | Allow, Dialog |
 | `document.scaleReview` | Review Sheet Scales… | Dialog |
