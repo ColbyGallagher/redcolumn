@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { itemCount, matchesCategory, paletteColour, parseSearchSets, searchable, type SearchSet } from './controls.ts';
-import { attrText, matchesProperty, propertyGroups } from './items.ts';
+import { attrText, flatProperties, groupKey, matchesProperty, propertyGroups, quantitiesOf } from './items.ts';
 
 // An element as the fragments worker returns it with its property and quantity sets.
 const KERB = {
@@ -90,4 +90,30 @@ test('counting elements and picking class colours', () => {
   const colours = new Set(Array.from({ length: 12 }, (_, i) => paletteColour(i)));
   assert.equal(colours.size, 12);
   assert.match(paletteColour(0), /^hsl\(\d+, 65%, 50%\)$/);
+});
+
+test('quantities come from quantity sets only, net before gross, and an element groups by class or any property', () => {
+  const groups = propertyGroups({
+    ...KERB,
+    IsDefinedBy: [
+      ...KERB.IsDefinedBy,
+      {
+        Name: { value: 'Qto_More' },
+        Quantities: [
+          { Name: { value: 'GrossVolume' }, VolumeValue: { value: 9 } },
+          { Name: { value: 'NetVolume' }, VolumeValue: { value: 7.5 } },
+          { Name: { value: 'NetSideArea' }, AreaValue: { value: 30 } },
+        ],
+      },
+    ],
+  });
+  assert.equal(groups.find((g) => g.title === 'Qto_More')?.quantities, true);
+  assert.equal(groups.find((g) => g.title === 'Pset_Status')?.quantities, undefined);
+  // Width is a property, not a quantity: no length from it.
+  assert.deepEqual(quantitiesOf(groups), { length: 200, area: 30, volume: 7.5 });
+  assert.deepEqual(quantitiesOf(propertyGroups({ Name: { value: 'Bare' } })), { length: 0, area: 0, volume: 0 });
+  assert.equal(groupKey(groups, 'IFCKERB', 'Class'), 'IFCKERB');
+  assert.equal(groupKey(groups, 'IFCKERB', 'status'), 'New');
+  assert.equal(groupKey(groups, 'IFCKERB', 'Material'), '');
+  assert.equal(flatProperties(groups)['Pset_Status.Status'], 'New');
 });

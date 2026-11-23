@@ -65,6 +65,8 @@ const ICONS: Record<string, ReactNode> = {
   'model3d.orbit': ic('M8 2.5a5.5 5.5 0 1 1-5.4 4.4M2.6 6.9 1.5 4.5M2.6 6.9l2.5-.6', <circle cx="8" cy="8" r="1.6" />),
   'model3d.firstPerson': ic('M8 2a1.6 1.6 0 1 0 0 3.2A1.6 1.6 0 1 0 8 2zM5 14.5l1-6h4l1 6M5.5 9.5 3.5 7.5M10.5 9.5l2-2'),
   'model3d.plan': ic('M2 2.5h12v11H2zM2 8h6V2.5M8 8v5.5'),
+  'model3d.walk': ic('M8.5 1.5a1.4 1.4 0 1 0 0 2.8 1.4 1.4 0 1 0 0-2.8zM7 14.5l1.5-5 2 2v3M8.5 9.5 9 6l2.5 2.5M9 6 6 7.5 5 10'),
+  'model3d.miniMap': ic('M2 2.5h12v11H2z', <><rect x="8.5" y="8" width="4" height="4" /><path d="M10.5 9l.8 2h-1.6z" /></>),
   'model3d.perspective': ic('M2 4l5-2 7 2v8l-7 2-5-2zM7 2v12'),
   'model3d.orthographic': ic('M2 3h12v10H2zM8 3v10'),
   'model3d.fitAll': ic('M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4', <rect x="5" y="5" width="6" height="6" />),
@@ -814,6 +816,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Cmd id="model3d.orbit" size="large" />
               <Stack>
                 <Cmd id="model3d.firstPerson" />
+                <Cmd id="model3d.walk" />
                 <Cmd id="model3d.plan" />
               </Stack>
               <Stack>
@@ -865,6 +868,9 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               <Stack>
                 <Cmd id="model3d.ghost" />
                 <Cmd id="model3d.grid" />
+                <Cmd id="model3d.miniMap" />
+              </Stack>
+              <Stack>
                 <Cmd id="view.modelOnDrawings" label="On Sheets" />
               </Stack>
             </Group>

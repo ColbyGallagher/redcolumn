@@ -303,6 +303,118 @@ test.describe('3D models', () => {
     await expect(page.getByRole('list', { name: 'Issues' }).locator('.m3d-class', { hasText: 'Resolved' })).toBeVisible();
   });
 
+  test('comparing with another revision lists what was added, removed and changed, and quantities total by class or property', async ({ app }) => {
+    const page = app.page;
+    await app.open('plan.pdf');
+    await page.locator('input[type=file][accept*="ifc"]').first().setInputFiles(app.fixture('../../docs/demo-sets/kestrel-road-revB.ifc'));
+    await expect(view(app)).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
+    await app.cmd('window.model3d');
+    const panel = page.locator('.m3d-panel');
+
+    // Quantities by class, from the model's quantity sets.
+    await panel.getByRole('button', { name: 'Total', exact: true }).click();
+    const table = panel.getByRole('table', { name: 'Quantities' });
+    const course = table.locator('tbody tr', { hasText: 'IfcCourse' });
+    await expect(course.locator('td').nth(1)).toHaveText('30');
+    await expect(course.locator('td').nth(2)).not.toHaveText('');
+    await expect(course.locator('td').nth(4)).not.toHaveText(/≈|^$/);
+    // By a property: the materials.
+    await panel.getByRole('combobox', { name: 'Group quantities by' }).fill('Material');
+    await panel.getByRole('button', { name: 'Total', exact: true }).click();
+    await expect(table.locator('thead')).toContainText('Material');
+    await expect(table.locator('tbody tr', { hasText: 'DGB20 crushed rock' }).locator('td').nth(1)).toHaveText('30');
+    await expect(table.locator('tbody tr', { hasText: 'AC14 asphalt on DGB20' })).toHaveCount(1);
+    await panel.getByRole('button', { name: 'Export to Excel…' }).click();
+    await expect.poll(async () => (await app.saved()).map((f) => f.name), { timeout: 30_000 }).toContain('quantities.xlsx');
+    expect((await app.saved()).find((f) => f.name === 'quantities.xlsx')!.bytes.subarray(0, 2).toString()).toBe('PK');
+
+    // Revision B against revision A (scripts/roadset/ifc.mjs CHANGES).
+    await panel.locator('input[type=file][aria-label="Compare with revision"]').setInputFiles(app.fixture(MODEL));
+    const names = (list: string) => panel.getByRole('list', { name: list, exact: true }).locator('.m3d-name');
+    await expect(names('Added')).toHaveText(['Bus bay MC00 right CH600-640', 'Kerb MC00 bus bay CH600-640'], { timeout: 90_000 });
+    await expect(names('Removed')).toHaveText(['Kerb MC00 right CH360-400', 'Kerb MC00 right CH600-640']);
+    await expect(names('Changed')).toHaveText(['Base course MC00 CH400-440', 'Kerb MC00 left CH200-240']);
+    const changed = panel.getByRole('list', { name: 'Changed', exact: true }).locator('.m3d-row');
+    await expect(changed.nth(0).locator('.m3d-class')).toHaveText('shape, properties');
+    await expect(changed.nth(1).locator('.m3d-class')).toHaveText('properties');
+    await expect(changed.nth(1).locator('.m3d-name')).toHaveAttribute('title', /KerbType: Barrier → Semi-mountable/);
+    // The other revision stays out of the panel's lists of models and classes.
+    await expect(panel.getByRole('checkbox')).toHaveCount(1);
+    // A removed element is selected where it was.
+    await names('Removed').first().click();
+    await expect.poll(() => page.evaluate(() => (document.querySelector('.model-view') as unknown as { session: { state(): { selected: number } } }).session.state().selected)).toBe(1);
+    await panel.getByRole('button', { name: 'End comparison' }).click();
+    await expect(names('Added')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() => (document.querySelector('.model-view') as unknown as { session: { state(): { comparing: string | null } } }).session.state().comparing)).toBe(null);
+  });
+
+  test.describe('walking and the mini-map', () => {
+    test.use({ toolbar: 'ribbon' });
+    test('the mini-map moves the camera where it is clicked, and walking keeps eye height over the road', async ({ app }) => {
+      const page = app.page;
+      const button = (id: string) => page.locator(`[data-ribbon-command="${id}"]`);
+      await app.open('plan.pdf');
+      await openModel(app);
+      await expect(view(app)).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
+      type Place = { position: [number, number, number]; target: [number, number, number] };
+      type Session = {
+        state(): { georeferenced: boolean; heights: [number, number] | null; selected: number; nav: string };
+        classes(): Promise<{ category: string; items: Record<string, number[]> }[]>;
+        run(a: unknown): void;
+        cameraPlace(): Place | null;
+        miniMapArea(): { left: number; top: number; size: number } | null;
+        orientation(): { yaw: number; pitch: number };
+      };
+      const session = <T,>(fn: (s: Session) => T) => page.evaluate((src) => new Function('s', `return (${src})(s)`)((document.querySelector('.model-view') as unknown as { session: Session }).session), fn.toString()) as Promise<T>;
+      await expect.poll(() => session((s) => s.state().georeferenced)).toBe(true);
+      const canvas = view(app).locator('canvas').first();
+
+      // Mini-map on: a click in its top-left quarter moves the camera over that part of the road.
+      await button('model3d.miniMap').click();
+      await expect(button('model3d.miniMap')).toHaveAttribute('aria-pressed', 'true');
+      await expect.poll(() => session((s) => !!s.miniMapArea())).toBe(true);
+      const area = (await session((s) => s.miniMapArea()))!;
+      const box = (await canvas.boundingBox())!;
+      const before = (await session((s) => s.cameraPlace()))!;
+      await page.mouse.click(box.x + area.left + area.size * 0.25, box.y + area.top + area.size * 0.25);
+      await expect
+        .poll(async () => {
+          const t = (await session((s) => s.cameraPlace()))!.target;
+          return Math.hypot(t[0] - before.target[0], t[1] - before.target[1]);
+        })
+        .toBeGreaterThan(20);
+      // The click on the map selected nothing.
+      expect(await session((s) => s.state().selected)).toBe(0);
+
+      // Walk from a pavement segment in the middle of the road: eye height over it, looking level.
+      await session(async (s) => {
+        const pavement = (await s.classes()).find((c) => c.category === 'IFCPAVEMENT')!;
+        const [modelId, ids] = Object.entries(pavement.items)[0]!;
+        s.run({ type: 'selectItems', items: { [modelId]: [ids[Math.floor(ids.length / 2)]] }, fit: true });
+      });
+      await page.waitForTimeout(1500);
+      await session((s) => s.run({ type: 'clearSelection' }));
+      await button('model3d.walk').click();
+      await expect(button('model3d.walk')).toHaveAttribute('aria-pressed', 'true');
+      const [lo, hi] = (await session((s) => s.state().heights))!;
+      const eyeOk = (z: number) => z > lo + 1.4 && z < hi + 1.9;
+      await expect.poll(async () => eyeOk((await session((s) => s.cameraPlace()))!.position[2])).toBe(true);
+      expect(Math.abs((await session((s) => s.orientation())).pitch)).toBeLessThan(0.05);
+      const start = (await session((s) => s.cameraPlace()))!.position;
+
+      // W walks forward, over the road at eye height.
+      await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+      await page.keyboard.down('w');
+      await page.waitForTimeout(1200);
+      await page.keyboard.up('w');
+      const end = (await session((s) => s.cameraPlace()))!.position;
+      expect(Math.hypot(end[0] - start[0], end[1] - start[1])).toBeGreaterThan(0.5);
+      expect(eyeOk(end[2])).toBe(true);
+      await button('model3d.orbit').click();
+      await expect(button('model3d.walk')).toHaveAttribute('aria-pressed', 'false');
+    });
+  });
+
   test('working with PDFs never loads the 3D viewer', async ({ app }) => {
     const seen = watch3d(app);
     await app.open('plan.pdf');

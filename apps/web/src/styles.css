@@ -6581,6 +6581,50 @@ input.m3d-name:focus {
 .m3d-sheet-options input[type='range'] {
   width: 80px;
 }
+.m3d-qty {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  margin: 4px 0;
+}
+.m3d-qty th,
+.m3d-qty td {
+  padding: 2px 4px;
+  text-align: right;
+  white-space: nowrap;
+}
+.m3d-qty th:first-child,
+.m3d-qty td:first-child {
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.m3d-qty thead th {
+  font-weight: 600;
+  border-bottom: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+}
+.m3d-qty tbody tr {
+  cursor: pointer;
+}
+.m3d-qty tbody tr:hover {
+  background: var(--hover, rgba(127, 127, 127, 0.12));
+}
+.m3d-qty tfoot td {
+  font-weight: 600;
+  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.35));
+}
+.m3d-note {
+  margin: 4px 0;
+  font-size: 12px;
+}
+.m3d-compare > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 2px 0;
+}
 .m3d-issue-filters {
   display: flex;
   gap: 4px;

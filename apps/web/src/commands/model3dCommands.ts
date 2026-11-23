@@ -41,6 +41,7 @@ export function model3dCommands(run: (a: ModelAction) => void, state: ModelState
     cmd('orbit', 'Orbit', { type: 'nav', mode: 'Orbit' }, on, s?.nav === 'Orbit'),
     cmd('firstPerson', 'First Person', { type: 'nav', mode: 'FirstPerson' }, on, s?.nav === 'FirstPerson'),
     cmd('plan', 'Plan View', { type: 'nav', mode: 'Plan' }, on, s?.nav === 'Plan'),
+    cmd('walk', 'Walk', { type: 'nav', mode: 'Walk' }, on, s?.nav === 'Walk'),
     cmd('perspective', 'Perspective', { type: 'projection', projection: 'Perspective' }, on, s?.projection === 'Perspective'),
     cmd('orthographic', 'Orthographic', { type: 'projection', projection: 'Orthographic' }, on, s?.projection === 'Orthographic'),
     cmd('fitAll', 'Fit All', { type: 'fitAll' }),
@@ -55,6 +56,7 @@ export function model3dCommands(run: (a: ModelAction) => void, state: ModelState
     cmd('showAll', 'Show All', { type: 'showAll' }, on && s!.hidden),
     cmd('ghost', 'Ghost Hidden', { type: 'ghost' }, on, !!s?.ghost),
     cmd('grid', 'Grid', { type: 'grid' }, on, !!s?.grid),
+    cmd('miniMap', 'Mini-Map', { type: 'miniMap' }, on, !!s?.miniMap),
     cmd('clearSelection', 'Clear Selection', { type: 'clearSelection' }, on && s!.selected > 0),
     cmd('closeView', 'Back to 3D', { type: 'openView', id: null }, on && !!s!.openView),
   ];
