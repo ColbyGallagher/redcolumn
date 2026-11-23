@@ -71,3 +71,24 @@ test('English by default, with no restart pending', async ({ app }) => {
   await expect(app.page.getByRole('button', { name: 'Restart Now' })).toHaveCount(0);
   expect(app.errors).toEqual([]);
 });
+
+test.describe('number format', () => {
+  test.use({ settings: { unitSystem: 'metric', lengthUnit: 'm', areaUnit: 'm', volumeUnit: 'm', numberFormat: 'de-DE' } });
+
+  test('measurements show and read decimal commas', async ({ app }) => {
+    await app.open('plan.pdf');
+    await app.scaleSelect().selectOption({ label: '1:100' });
+    // 1:100: 72 pt (25.4 mm on paper) is 2.54 m.
+    await app.tool('length');
+    await app.clicks([
+      [300, 450],
+      [372, 450],
+    ]);
+    expect((await app.markups()).map((m) => m.measurement)).toEqual(['2,54 m']);
+
+    await app.cmd('file.preferences');
+    await expect(app.page.getByRole('combobox', { name: 'Number Format', exact: true })).toHaveValue('de-DE');
+    await expect(app.page.getByRole('button', { name: 'Restart Now' })).toHaveCount(0);
+    expect(app.errors).toEqual([]);
+  });
+});
