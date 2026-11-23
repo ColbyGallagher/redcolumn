@@ -208,7 +208,7 @@ import { PagesPanel, resetThumbnails } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
 import { librarySource, openSource } from './search/sources';
 import { countsFromHits, type CountTool } from './search/countFromHits';
-import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components/MenuBar';
+import { MenuBar, LEFT_TABS, leftTitles, type BottomTab, type LeftTab } from './components/MenuBar';
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
@@ -1056,7 +1056,7 @@ export function App() {
   const readSavedPanel = (side: DockSide) => {
     try {
       const saved = JSON.parse(localStorage.getItem(`nb.panel.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
-      const tab = saved?.tab && saved.tab in LEFT_TITLES && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
+      const tab = saved?.tab && (LEFT_TABS as readonly string[]).includes(saved.tab) && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
       return { tab, open: typeof saved?.open === 'boolean' ? saved.open : null };
     } catch {
       return { tab: null, open: null };
@@ -8174,8 +8174,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     ...(clicked && !narrowScreen()
       ? [
           panelSide(clicked) === 'left'
-            ? { label: `Dock ${LEFT_TITLES[clicked]} on the Right`, onClick: () => dockPanel(clicked, 'right') }
-            : { label: `Dock ${LEFT_TITLES[clicked]} on the Left`, onClick: () => dockPanel(clicked, 'left') },
+            ? { label: `Dock ${leftTitles()[clicked]} on the Right`, onClick: () => dockPanel(clicked, 'right') }
+            : { label: `Dock ${leftTitles()[clicked]} on the Left`, onClick: () => dockPanel(clicked, 'left') },
           SEP,
         ]
       : []),
@@ -9583,7 +9583,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onDragStart={(e) => startPanelDrag(e, tab)}
           onDragEnd={() => setRailDrag(null)}
         >
-          {LEFT_TITLES[tab]}
+          {leftTitles()[tab]}
           {tab === 'markups' && (
             <button className="drawer-popout" aria-label="Dock the Markups list at the bottom" title="Dock at the bottom of the window" draggable={false} onClick={undockMarkups}>
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
