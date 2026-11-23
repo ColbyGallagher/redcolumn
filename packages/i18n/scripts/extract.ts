@@ -109,6 +109,16 @@ const catalogs = join(here, '..', 'catalogs');
 /** Where messages are looked for. */
 const ROOTS = ['apps/web/src', 'apps/desktop/src'];
 
+/** A file's text, or undefined when there is none (read directly: checking first could race a change). */
+function readIfExists(path: string): string | undefined {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return undefined;
+    throw e;
+  }
+}
+
 function sourceFiles(dir: string, out: string[] = []): string[] {
   for (const ent of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, ent.name);
@@ -135,7 +145,7 @@ function main(check: boolean) {
   const summary: string[] = [`${template.length} messages`];
   for (const l of translatedLocales()) {
     const path = join(catalogs, `${l.code}.po`);
-    const existing = existsSync(path) ? parsePo(readFileSync(path, 'utf8')) : [];
+    const existing = parsePo(readIfExists(path) ?? '');
     errors.push(...checkCatalog(`${l.code}.po`, existing));
     const merged = mergeCatalog(existing, template, l.code);
     const done = merged.filter((e) => e.id && e.str && !e.flags?.includes('fuzzy')).length;
