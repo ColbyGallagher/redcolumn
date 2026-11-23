@@ -1,3 +1,4 @@
+import { formatFixed, formatTrimmed } from '@nb/i18n';
 import { areaLabelOf, areaUnitOf, formatArea, formatLength, formatVolume, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type Scale } from './scale.ts';
 
 export type Pt = readonly [number, number];
@@ -344,7 +345,7 @@ export function slopeNeedsRun(kind: MeasureKind, slope: Slope | undefined): bool
   return !!slope && slope.kind === 'elevation' && QUANTITY[kind] === 'area' && !(num(slope.run) > 0) && num(slope.to) !== num(slope.from);
 }
 
-const fmt = (v: number, digits: number) => String(+num(v).toFixed(digits));
+const fmt = (v: number, digits: number) => formatTrimmed(num(v), digits);
 
 function formatSpec(spec: SlopeSpec): string {
   switch (spec.kind) {
@@ -362,7 +363,7 @@ function formatSpec(spec: SlopeSpec): string {
 
 /** A slope as shown: `6:12`, `30°`, `8%`, `1:4`, `Δ1.20 m`, `Hip 6:12`, `Valley 6:12/8:12`. */
 export function formatSlope(slope: Slope): string {
-  if (slope.kind === 'elevation') return `Δ${Math.abs(num(slope.to) - num(slope.from)).toFixed(2)} m`;
+  if (slope.kind === 'elevation') return `Δ${formatFixed(Math.abs(num(slope.to) - num(slope.from)), 2)} m`;
   if (slope.kind === 'hip' || slope.kind === 'valley') {
     const name = slope.kind === 'hip' ? 'Hip' : 'Valley';
     return `${name} ${formatSpec(slope.a)}${slope.b ? `/${formatSpec(slope.b)}` : ''}`;
@@ -684,7 +685,7 @@ export function formatMeasure(kind: MeasureKind, value: number, scale: Scale, pr
     case 'count':
       return `${value} ea`;
     case 'angle':
-      return `${value.toFixed(scale.anglePrecision ?? 1)}°`;
+      return `${formatFixed(value, scale.anglePrecision ?? 1, false)}°`;
   }
 }
 

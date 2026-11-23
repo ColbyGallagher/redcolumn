@@ -1,0 +1,161 @@
+.modal.count-symbols-dialog {
+  width: min(680px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cs-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+
+.cs-tabs .btn.active {
+  background: var(--surface-active);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.cs-body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  min-height: 290px;
+  max-height: 58vh;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+  gap: 10px;
+}
+
+.cs-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  min-width: 0;
+}
+
+.cs-card-name {
+  width: 100%;
+  text-align: center;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cs-card-name input {
+  width: 100%;
+  box-sizing: border-box;
+  font-size: 12px;
+  padding: 2px 4px;
+  text-align: center;
+}
+
+.cs-card-actions {
+  display: flex;
+  gap: 4px;
+  width: 100%;
+  justify-content: center;
+}
+
+.cs-badge-editor {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.cs-badge-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 20px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-sunken);
+}
+
+.cs-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.cs-row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.cs-row input[type='text'],
+.cs-row select {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.cs-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cs-pick-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(144px, 1fr));
+  gap: 10px;
+}
+
+.cs-pick-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-sunken);
+  color: var(--text);
+  cursor: pointer;
+  text-align: center;
+  min-width: 0;
+}
+
+.cs-pick-card:hover {
+  border-color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.cs-notice {
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  border: 1px solid var(--border);
+}
+
+.cs-notice.error {
+  border-color: var(--danger, #dc2626);
+  color: var(--danger, #dc2626);
+}

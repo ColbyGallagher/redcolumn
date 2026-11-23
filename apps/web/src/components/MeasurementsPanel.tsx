@@ -35,7 +35,7 @@ import { shortcutLabel } from '../commands/shortcuts';
 import { SCALE_GROUPS, unitsFor, useSettings, type UnitSystem } from '../settings/settings';
 import { formatNumber } from '../columns/listColumns';
 import type { RollupRow } from '../assemblies/quantities';
-import { PAPER_UNITS, closeScale, loadPresets, matchPreset, pagesOf, precisionText, precisionValue, writePresets, type SavedPreset } from '../measure/scalePresets';
+import { PAPER_UNITS, closeScale, loadPresets, committedFormat, matchPreset, pagesOf, precisionText, precisionValue, writePresets, type SavedPreset } from '../measure/scalePresets';
 import { usePersistedState } from '../workspace/layoutPrefs';
 
 export interface MeasureDefaults {
@@ -303,14 +303,14 @@ function PageScale({
       return;
     }
     const parts = scaleParts(next);
-    setPaper(formatScaleNumber(parts.paper));
+    setPaper(formatScaleNumber(parts.paper, true));
     setPaperUnit(parts.paperUnit);
-    setReal(formatScaleNumber(parts.real));
+    setReal(formatScaleNumber(parts.real, true));
     setRealUnit(parts.realUnit);
     const yScale = next.yMetersPerPoint != null ? scaleParts({ ...next, metersPerPoint: next.yMetersPerPoint }) : parts;
-    setYPaper(formatScaleNumber(yScale.paper));
+    setYPaper(formatScaleNumber(yScale.paper, true));
     setYPaperUnit(yScale.paperUnit);
-    setYReal(formatScaleNumber(yScale.real));
+    setYReal(formatScaleNumber(yScale.real, true));
     setYRealUnit(yScale.realUnit);
   };
 
@@ -359,8 +359,7 @@ function PageScale({
     const pu = patch.paperUnit ?? paperUnit;
     const ru = patch.realUnit ?? realUnit;
     if (!paperN || !realN || !pu || !ru) return;
-    const feetInches = prec[0] === 'f' && (ru === 'ft' || ru === 'in');
-    const precision = feetInches || prec[0] === 'd' ? Number(prec.slice(1)) : 2;
+    const { feetInches, precision } = committedFormat(prec, ru, scale);
     let y: number | undefined;
     if (separateY) {
       const yPaperN = parseScaleNumber(patch.yPaper ?? yPaper);

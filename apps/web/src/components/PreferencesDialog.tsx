@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
 import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
+import { currentLocale, localeInfo, msg, numberLocale, supportedNumberLocale } from '@nb/i18n';
 import { THEMES } from '../theme/themes';
+import { browserLanguages, NUMBER_FORMATS, numberSample, offeredLanguages, resolveLanguage, resolveNumberFormat, systemNumberLocale } from '../i18n/language';
 import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, DEFAULT_UNIT_CHOICES, gridUnitOf, settings, switchUnitSystem, type SetTag, type SetTemplate, type Settings, type UnitSystem } from '../settings/settings';
 import { addToDictionary, personalWords, removeFromDictionary } from '../spelling/spell';
 import { askText } from './AskText';
@@ -152,6 +154,8 @@ interface Props {
   initialQuery?: string;
   /** Render nothing: report every preference's label and where it lives, for the menu bar search. */
   onIndex?: (entries: PrefEntry[]) => void;
+  /** Restarts the app (the new language applies then), after asking about unsaved changes. */
+  onRestart?: () => void;
 }
 
 /** One searchable preference: its label and the category and tab that show it. */
@@ -213,7 +217,7 @@ function pickFile(): Promise<string | null> {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
 
-export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, initialTab, initialQuery, onIndex }: Props) {
+export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, initialTab, initialQuery, onIndex, onRestart }: Props) {
   const [d, setD] = useState<Settings>(settings.get);
   const [name, setName] = useState(author);
   const [words, setWords] = useState(personalWords);
@@ -336,6 +340,46 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           {L('User')}
           <input aria-label="User" value={name} onChange={(e) => setName(e.target.value)} />
         </Row>
+        <Row>
+          {L(msg('Language'), 'uiLanguage')}
+          <select aria-label={msg('Language')} value={d.uiLanguage} onChange={(e) => set({ uiLanguage: e.target.value })}>
+            <option value="auto">{msg('Match the system ({language})', { language: localeInfo(resolveLanguage('auto', browserLanguages()))!.name })}</option>
+            {offeredLanguages(import.meta.env.DEV, [d.uiLanguage, currentLocale().code]).map((l) => (
+              <option key={l.code} value={l.code}>
+                {l.name === l.english ? l.name : `${l.name} (${l.english})`}
+                {l.status === 'preview' ? ` · ${msg('Preview: machine translated')}` : ''}
+              </option>
+            ))}
+          </select>
+        </Row>
+        <Row>
+          {L(msg('Number Format'), 'numberFormat')}
+          <select aria-label={msg('Number Format')} value={d.numberFormat} onChange={(e) => set({ numberFormat: e.target.value })}>
+            <option value="auto">{msg('Match the system ({sample})', { sample: numberSample(systemNumberLocale()) })}</option>
+            {NUMBER_FORMATS.map((code) => (
+              <option key={code} value={code}>
+                {numberSample(code)}
+              </option>
+            ))}
+          </select>
+        </Row>
+        {onRestart && (resolveLanguage(d.uiLanguage, browserLanguages()) !== currentLocale().code || supportedNumberLocale(resolveNumberFormat(d.numberFormat, systemNumberLocale())) !== numberLocale()) && (
+          <C>
+            <span className="pref-hint">
+              {msg('The new language and number format apply when redcolumn restarts.')}{' '}
+              <button
+                type="button"
+                onClick={async () => {
+                  // Everything in the dialog is kept, as OK does, then the app restarts.
+                  await apply();
+                  onRestart?.();
+                }}
+              >
+                {msg('Restart Now')}
+              </button>
+            </span>
+          </C>
+        )}
         {select('tabTruncation', 'Tab Truncation', [
           ['start', 'Start'],
           ['middle', 'Middle'],

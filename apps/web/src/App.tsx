@@ -1,8 +1,9 @@
+import { msg } from '@nb/i18n';
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
-import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
+import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canBeCountSymbol, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds, symbolFromMarkups } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, boundsOf, isAiDraft, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
@@ -84,11 +85,11 @@ import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
 import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
-import { settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
+import { scaleInDefaultUnits, settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, cellsFor, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
 import { clearLayout, DEFAULT_LAYOUT, fitWidths, loadLayout, saveLayout, serializeLayout } from './workspace/layoutState';
 import { LAYOUT_RESET_EVENT, SECTION_KEYS } from './workspace/layoutPrefs';
-import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
+import { addCountSymbol, addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
 import { hideFromRecents, setTemplate } from './storage/fileStore';
@@ -173,6 +174,7 @@ import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { RevuMigrationDialog } from './components/RevuMigrationDialog';
 import { FillStampDialog, StampsDialog } from './components/StampsDialog';
 import { LineStylesDialog, MANAGE_LINE_STYLES_EVENT } from './components/LineStylesDialog';
+import { CountSymbolsDialog, MANAGE_COUNT_SYMBOLS_EVENT } from './components/CountSymbolsDialog';
 import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
 import { StartScreen } from './components/StartScreen';
 import { BUILTIN_TEMPLATES } from './documents/builtinTemplates';
@@ -212,7 +214,7 @@ import { PagesPanel, resetThumbnails } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
 import { librarySource, openSource } from './search/sources';
 import { countsFromHits, type CountTool } from './search/countFromHits';
-import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components/MenuBar';
+import { MenuBar, LEFT_TABS, leftTitles, type BottomTab, type LeftTab } from './components/MenuBar';
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
@@ -587,7 +589,10 @@ function toolChestItemOf(group: Markup | readonly Markup[], store?: MarkupStore 
   ms.sort((x, y) => x.createdAt - y.createdAt);
   const m = ms[0]!;
   const b = boundsOf(ms.flatMap((x) => x.points));
-  const templates: Markup[] = ms.map((x) => ({ ...structuredClone(x), id: '', pageIndex: 0, ...moved(x, -b.x, -b.y), status: 'none', author: '', createdAt: 0, modifiedAt: 0 }));
+  const isSingleCount = ms.length === 1 && m.type === 'count';
+  const templates: Markup[] = isSingleCount
+    ? [{ ...structuredClone(m), id: '', pageIndex: 0, points: [[0, 0]], status: 'none', author: '', createdAt: 0, modifiedAt: 0 }]
+    : ms.map((x) => ({ ...structuredClone(x), id: '', pageIndex: 0, ...moved(x, -b.x, -b.y), status: 'none', author: '', createdAt: 0, modifiedAt: 0 }));
   const snippet = isTextType(m.type) && m.text?.trim() ? m.text.trim().split('\n')[0]!.slice(0, 40) : '';
   return {
     type: m.type,
@@ -596,6 +601,8 @@ function toolChestItemOf(group: Markup | readonly Markup[], store?: MarkupStore 
     ...(m.subject ? { subject: m.subject } : {}),
     ...(m.image ? { image: m.image } : {}),
     markups: templates,
+    // Saved Count tools arm the Count tool in its look rather than pasting the original points.
+    ...(isSingleCount ? { mode: 'style' as const } : {}),
     // The page scale it was drawn at, so sets that scale to the page keep its real size.
     ...(store?.hasScale(m.pageIndex) ? { metersPerPoint: store.scaleOf(m).metersPerPoint } : {}),
   };
@@ -1064,7 +1071,7 @@ export function App() {
   const readSavedPanel = (side: DockSide) => {
     try {
       const saved = JSON.parse(localStorage.getItem(`nb.panel.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
-      const tab = saved?.tab && saved.tab in LEFT_TITLES && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
+      const tab = saved?.tab && (LEFT_TABS as readonly string[]).includes(saved.tab) && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
       return { tab, open: typeof saved?.open === 'boolean' ? saved.open : null };
     } catch {
       return { tab: null, open: null };
@@ -1400,12 +1407,18 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [stampsOpen, setStampsOpen] = useState(false);
   const [lineStylesOpen, setLineStylesOpen] = useState(false);
+  const [countSymbolsOpen, setCountSymbolsOpen] = useState(false);
   const [revuMigrationOpen, setRevuMigrationOpen] = useState(false);
   useEffect(() => {
     // The Line style pickers open the manager from wherever they sit.
     const open = () => setLineStylesOpen(true);
     window.addEventListener(MANAGE_LINE_STYLES_EVENT, open);
     return () => window.removeEventListener(MANAGE_LINE_STYLES_EVENT, open);
+  }, []);
+  useEffect(() => {
+    const open = () => setCountSymbolsOpen(true);
+    window.addEventListener(MANAGE_COUNT_SYMBOLS_EVENT, open);
+    return () => window.removeEventListener(MANAGE_COUNT_SYMBOLS_EVENT, open);
   }, []);
   /** Manage Stamps opened on the new-stamp editor (the toolbar menu's New Stamp). */
   const [stampsCreating, setStampsCreating] = useState(false);
@@ -4629,6 +4642,45 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   );
   closeTabRef.current = requestCloseTab;
 
+  /**
+   * Before the window goes (closing it, or Restart Now): asks about each document with unsaved
+   * changes, showing it first, then saves Live Sessions on this device. False when the person
+   * cancels or a session could not be saved, and the app keeps running.
+   */
+  const settleBeforeLeaving = useCallback(async () => {
+    for (const pane of ['a', 'b'] as const) {
+      for (const t of [...(pane === 'b' ? tabsBRef.current : tabsARef.current)]) {
+        if (studioDocOf(t.file.id) || !hasUnsavedChanges(t)) continue;
+        activateTab(pane, t);
+        if (!(await settleUnsaved(pane, t.file.id))) return false;
+      }
+    }
+    try {
+      await Promise.all(sessionsRef.current.map((s) => s.saveLocally?.()));
+    } catch {
+      setError('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing.');
+      return false;
+    }
+    return true;
+  }, [activateTab, settleUnsaved]);
+
+  /**
+   * Restarts the app (Preferences › Language), after the same questions closing the window asks
+   * (the desktop app has no browser prompt on reload). A second click while asking does nothing.
+   */
+  const restarting = useRef(false);
+  const restartApp = useCallback(async () => {
+    if (restarting.current) return;
+    restarting.current = true;
+    try {
+      if (await settleBeforeLeaving()) location.reload();
+    } catch (e) {
+      setError(`Could not restart: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      restarting.current = false;
+    }
+  }, [settleBeforeLeaving]);
+
   // The desktop app asks before its window closes while documents have unsaved changes: the page
   // reports whether any do, and on a close request asks about each one, showing it first.
   useEffect(() => {
@@ -4687,22 +4739,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       asking = true;
       void (async () => {
         try {
-          for (const pane of ['a', 'b'] as const) {
-            for (const t of [...(pane === 'b' ? tabsBRef.current : tabsARef.current)]) {
-              if (studioDocOf(t.file.id) || !hasUnsavedChanges(t)) continue;
-              activateTab(pane, t);
-              if (!(await settleUnsaved(pane, t.file.id))) return;
-            }
-          }
-          try { await Promise.all(sessionsRef.current.map((s) => s.saveLocally?.())); }
-          catch { setError('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing.'); return; }
-          host.closeWindow?.();
+          if (await settleBeforeLeaving()) host.closeWindow?.();
         } finally {
           asking = false;
         }
       })();
     });
-  }, [activateTab, settleUnsaved]);
+  }, [settleBeforeLeaving]);
 
   /** Closes tabs one after another, stopping when the person cancels one. */
   const requestCloseTabs = useCallback(
@@ -7735,6 +7778,28 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           },
         ],
       },
+      ...(ms.some(canBeCountSymbol)
+        ? [
+            {
+              label: 'Save as Count Symbol…',
+              onClick: () =>
+                void askText('Save as Count Symbol', first.subject || MARKUP_LABELS[first.type], {
+                  label: 'Name for this custom Count marker symbol (saved to your profile):',
+                  confirm: 'Save',
+                }).then((name) => {
+                  if (!name?.trim()) return;
+                  const sym = symbolFromMarkups(ms, name.trim(), crypto.randomUUID());
+                  if (!sym) return;
+                  if (!addCountSymbol(sym)) {
+                    setNotice('Could not save count symbol: browser storage is full.');
+                    return;
+                  }
+                  c.tools.setDefaultStyle('count', { countShape: undefined, countSymbol: structuredClone(sym) });
+                  setNotice(`Saved count symbol “${sym.name}”.`);
+                }),
+            },
+          ]
+        : []),
       ...(one && templateable(first) ? [{ label: 'Save as Template…', disabled: ro, onClick: () => void saveAsTemplate(first) }] : []),
       SEP,
       { label: 'Set as Default', disabled: !one, onClick: () => c.tools.setDefaultStyle(first.type, first.style) },
@@ -8224,8 +8289,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     ...(clicked && !narrowScreen()
       ? [
           panelSide(clicked) === 'left'
-            ? { label: `Dock ${LEFT_TITLES[clicked]} on the Right`, onClick: () => dockPanel(clicked, 'right') }
-            : { label: `Dock ${LEFT_TITLES[clicked]} on the Left`, onClick: () => dockPanel(clicked, 'left') },
+            ? { label: msg('Dock {panel} on the Right', { panel: leftTitles()[clicked]! }), onClick: () => dockPanel(clicked, 'right') }
+            : { label: msg('Dock {panel} on the Left', { panel: leftTitles()[clicked]! }), onClick: () => dockPanel(clicked, 'left') },
           SEP,
         ]
       : []),
@@ -9647,7 +9712,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onDragStart={(e) => startPanelDrag(e, tab)}
           onDragEnd={() => setRailDrag(null)}
         >
-          {LEFT_TITLES[tab]}
+          {leftTitles()[tab]}
           {tab === 'markups' && (
             <button className="drawer-popout" aria-label="Dock the Markups list at the bottom" title="Dock at the bottom of the window" draggable={false} onClick={undockMarkups}>
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
@@ -10448,6 +10513,23 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           textType,
           textMarkupStyle: selectedText?.type === 'table' && toolsState.tableCells?.id === selectedText.id ? (activeTools?.selectedCellStyle() ?? selectedText.style) : selectedText?.style,
           enabled: !!activeOpen && !activeReadOnly,
+          // Units & Scale shows while measuring: a measure tool is active, or measurements are selected.
+          unitsScale:
+            activeOpen && (MEASURE_TOOLS.some((t) => t.tool === toolsState.tool) || selectedMarkups.some((m) => isMeasureKind(m.type)))
+              ? {
+                  scale: scales[pageIndex] ?? null,
+                  disabled: activeReadOnly,
+                  onPreset: (scale) => activeOpen.store.setScale([pageIndex], withDefaultUnits(scale)),
+                  onCustom: () => {
+                    setCustomScalePage(pageIndex);
+                    setCustomScalePane(paneB ? 'b' : 'a');
+                  },
+                  onUnitsChanged: () => {
+                    const current = scales[pageIndex];
+                    if (current) activeOpen.store.setScale([pageIndex], scaleInDefaultUnits(current));
+                  },
+                }
+              : null,
           visibleTools: ws.toolbarTools,
           author,
           onPlaceStamp: (s) => placeStamp(s),
@@ -11793,6 +11875,24 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       )}
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
       {lineStylesOpen && <LineStylesDialog onClose={() => setLineStylesOpen(false)} />}
+      {countSymbolsOpen && (
+        <CountSymbolsDialog
+          author={author}
+          selectedMarkups={activeOpen ? activeOpen.store.all().filter((m) => (activeTools?.getState().selected ?? new Set()).has(m.id)) : []}
+          onUse={(sym) => {
+            if (!activeTools) return;
+            const st = activeTools.getState();
+            const chosen = activeOpen ? activeOpen.store.all().filter((m) => st.selected.has(m.id)) : [];
+            if (chosen.length && chosen.every((m) => m.type === 'count')) {
+              activeTools.applyStyle(chosen.map((m) => m.id), { countShape: undefined, countSymbol: structuredClone(sym) });
+            } else {
+              activeTools.setDefaultStyle('count', { countShape: undefined, countSymbol: structuredClone(sym) });
+              if (st.tool !== 'count') activeTools.setTool('count');
+            }
+          }}
+          onClose={() => setCountSymbolsOpen(false)}
+        />
+      )}
       {revuMigrationOpen && (
         <RevuMigrationDialog
           onClose={() => setRevuMigrationOpen(false)}
@@ -12289,7 +12389,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setLibraryOpen(false)}
         />
       )}
-      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
+      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} onRestart={() => void restartApp()} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
           documentColumns={activeOpen ? columnSet : null}
@@ -12475,7 +12575,6 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   {
     id: 'stitching',
     title: 'Stitching',
-    experimental: true,
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M1.5 3.5h6v9h-6zM8.5 3.5h6v9h-6z" />
@@ -12486,7 +12585,6 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   {
     id: 'ai',
     title: 'Compare',
-    experimental: true,
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M1.5 2.5h4.5v11H1.5zM10 2.5h4.5v11H10z" />
