@@ -61,6 +61,14 @@ const BUNDLED = [
     file: 'liberation-fonts.txt',
   },
   {
+    name: 'Liberation Sans Narrow',
+    version: '1.07.5',
+    licence: 'GPL-2.0-only WITH Font-exception-2.0',
+    homepage: 'https://github.com/liberationfonts/liberation-sans-narrow',
+    note: 'Liberation Sans Narrow (public/fonts), metric-compatible with Arial Narrow; used for on-screen rendering and PDF embedding when Arial Narrow is not installed on the computer.',
+    file: 'liberation-sans-narrow.txt',
+  },
+  {
     name: 'Node.js',
     version: '24.21.0',
     licence: 'MIT',

@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@azure/msal-browser": "^5.23.0",
+    "@nb/i18n": "workspace:*",
     "@nb/markup": "workspace:*",
     "@nb/measure": "workspace:*",
     "@nb/model3d": "workspace:*",

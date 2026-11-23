@@ -5,8 +5,8 @@ import { buildFontList } from './fontList.ts';
 const labels = (l: ReturnType<typeof buildFontList>) => l.map((e) => `${e.group}:${e.label}`);
 
 test('lists the standard fonts, then recent, then installed', () => {
-  const list = buildFontList({ recent: ['Segoe UI'], installed: ['Arial', 'Calibri', 'Segoe UI'] });
-  assert.deepEqual(labels(list), ['standard:Helvetica / Arial', 'standard:Times New Roman', 'standard:Courier New', 'recent:Segoe UI', 'installed:Arial', 'installed:Calibri']);
+  const list = buildFontList({ recent: ['Segoe UI'], installed: ['Arial', 'Arial Narrow', 'Calibri', 'Segoe UI'] });
+  assert.deepEqual(labels(list), ['standard:Helvetica / Arial', 'standard:Arial Narrow', 'standard:Times New Roman', 'standard:Courier New', 'recent:Segoe UI', 'installed:Arial', 'installed:Calibri']);
 });
 
 test('shows a font once, in its earliest group, ignoring case', () => {
@@ -37,4 +37,20 @@ test('filters every group by part of the name, any case', () => {
 test('gives each row its own face', () => {
   const row = buildFontList({ installed: ['Segoe UI'] }).find((e) => e.value === 'Segoe UI')!;
   assert.ok(row.css.startsWith('"Segoe UI"'));
+});
+
+test('starred fonts appear first and are not repeated in later groups', () => {
+  const list = buildFontList({ starred: ['Calibri', 'mono'], recent: ['Calibri'], installed: ['Arial', 'Calibri'] });
+  assert.deepEqual(labels(list), [
+    'starred:Calibri',
+    'starred:Courier New',
+    'standard:Helvetica / Arial',
+    'standard:Arial Narrow',
+    'standard:Times New Roman',
+    'installed:Arial',
+  ]);
+  assert.equal(list[0]!.starred, true);
+  assert.equal(list[1]!.starred, true);
+  assert.equal(list[2]!.starred, undefined);
+  assert.deepEqual(labels(buildFontList({ starred: ['Calibri', 'mono'], filter: 'cal' })), ['starred:Calibri']);
 });
