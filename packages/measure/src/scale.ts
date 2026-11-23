@@ -180,11 +180,22 @@ export function usesFractions(scale: Scale): boolean {
 export const DECIMAL_PRECISIONS = [0, 1, 2, 3, 4];
 export const FRACTION_PRECISIONS = [1, 2, 4, 8, 16, 32, 64];
 
+/** Decimal places lengths get in a unit when the app picks the unit itself. */
+export const UNIT_PRECISION: Record<LengthUnit, number> = { mm: 0, cm: 1, m: 2, km: 3, in: 2, ft: 2, yd: 2, mi: 3 };
+
+/**
+ * Decimal places a scale shows lengths with. A scale that keeps its inch fractions while its unit is
+ * not ft or in (so a switch back finds them) has no decimal precision of its own: the unit's default.
+ */
+export function lengthDecimals(scale: Scale): number {
+  return scale.feetInches ? UNIT_PRECISION[scale.unit] : scale.precision;
+}
+
 export function formatLength(meters: number, scale: Scale): string {
   const value = meters / METERS_PER_UNIT[scale.unit];
   if (scale.unit === 'ft' && scale.feetInches) return formatFeetInches(value, scale.precision);
   if (scale.unit === 'in' && scale.feetInches) return formatFractionalInches(value, scale.precision);
-  return `${trimNumber(value, scale.feetInches ? 2 : scale.precision)} ${scale.unit}`;
+  return `${trimNumber(value, lengthDecimals(scale))} ${scale.unit}`;
 }
 
 export const AREA_LABELS: Record<LengthUnit, string> = {

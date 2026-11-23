@@ -15,6 +15,15 @@ The scale controls are at the right of the navigation bar:
 
 The list offers imperial (Architectural and Engineering) or metric scales, depending on **Units** in [Preferences](#preferences) › **General** › **Units**, and preset scales show lengths, areas and volumes in the default units chosen there.
 
+## Change the units and scale while measuring
+
+When a measure tool is active, or measurements are selected, the ribbon's **Markup Format** tab has a **Units & Scale** group:
+
+- **Units** switches between **Metric** and **Imperial**, and **Length** picks the length unit. These are the same settings as [Preferences](#preferences) › **Units**.
+- **Scale** shows the current page's scale and lists the standard scales, with **Custom…** at the end, just like the list in the navigation bar.
+
+Changing the units rewords the page's scale in the new units. The real size of every measurement stays the same; only the wording changes (10 ft becomes 3.048 m).
+
 ## Set a custom scale
 
 1. Click the **Scale** list and choose **Custom…**.
