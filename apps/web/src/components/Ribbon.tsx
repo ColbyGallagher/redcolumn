@@ -1,7 +1,9 @@
 import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Command } from '../commands/appCommands';
-import { settings, useSettings } from '../settings/settings';
+import type { LengthUnit } from '@nb/measure';
+import { DEFAULT_UNIT_CHOICES, settings, switchUnitSystem, useSettings, type Settings, type UnitSystem } from '../settings/settings';
+import { ScaleControl } from './ScaleControl';
 import { shortcutLabel } from '../commands/shortcuts';
 import { isMarkupTool, toolLabel, type Tool } from '../markup/MarkupTools';
 import { FOLLOW_START, followFormat } from '../markup/selectionFormat';
@@ -13,7 +15,7 @@ import { ContextMenu, SEP, type ContextMenuState, type MenuEntry } from './Conte
 import { loadEstimatingLibrary } from '../assemblies/estimatingLibrary';
 import { StampMenu } from './StampsDialog';
 import { RibbonAssembly } from './RibbonAssembly';
-import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps } from './ToolBar';
+import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps, type UnitsScaleProps } from './ToolBar';
 
 /** A 16 × 16 line icon for a ribbon button, drawn in the text colour. */
 function ic(d: string, extra?: ReactNode): ReactNode {
@@ -262,6 +264,7 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 const TAB_KEY = 'rc.ribbonTab';
+const FORMAT_MODIFY_KEY = 'rc.formatModifyOpen';
 
 function savedTab(): TabId {
   try {
@@ -272,6 +275,135 @@ function savedTab(): TabId {
   }
   return 'home';
 }
+
+function savedFormatModify(): boolean {
+  try {
+    return localStorage.getItem(FORMAT_MODIFY_KEY) === '1';
+  } catch {
+    /* storage off limits: start collapsed */
+    return false;
+  }
+}
+
+interface FormatModifyItem {
+  id: string;
+  label?: string;
+  size?: Size;
+}
+
+interface FormatModifyGroup {
+  label: string;
+  items: readonly FormatModifyItem[];
+  /** Use the compact 3-row icon grid when more than 3 commands are available. */
+  iconGrid?: boolean;
+}
+
+/** Modify tab tools that operate on selected markups, shown (collapsible) on the Markup Format tab. */
+const FORMAT_MODIFY_GROUPS: readonly FormatModifyGroup[] = [
+  {
+    label: 'Transform',
+    items: [
+      { id: 'edit.move', size: 'large' },
+      { id: 'edit.copyBase', label: 'Copy' },
+      { id: 'edit.rotate' },
+      { id: 'edit.scale' },
+      { id: 'edit.mirror' },
+      { id: 'edit.stretch' },
+      { id: 'edit.alignPoints' },
+      { id: 'edit.scaleToLength' },
+      { id: 'edit.flipHorizontal' },
+      { id: 'edit.flipVertical' },
+      { id: 'edit.cropImage' },
+      { id: 'edit.resetCrop' },
+    ],
+  },
+  {
+    label: 'Picture',
+    items: [
+      { id: 'edit.adjustImage', label: 'Adjust Image', size: 'large' },
+      { id: 'edit.pictureColours', label: 'Colours' },
+    ],
+  },
+  {
+    label: 'Edit Geometry',
+    items: [
+      { id: 'edit.offset', size: 'large' },
+      { id: 'edit.trim' },
+      { id: 'edit.extend' },
+      { id: 'edit.break' },
+      { id: 'edit.lengthen' },
+      { id: 'edit.fillet' },
+      { id: 'edit.chamfer' },
+    ],
+  },
+  {
+    label: 'Convert',
+    items: [
+      { id: 'edit.join' },
+      { id: 'edit.explode' },
+      { id: 'edit.reverse' },
+      { id: 'edit.toCloud' },
+      { id: 'edit.autoSize', label: 'Auto-size Text' },
+    ],
+  },
+  {
+    label: 'Pattern',
+    items: [
+      { id: 'edit.arrayPolar' },
+      { id: 'edit.arrayPath' },
+      { id: 'edit.divide' },
+      { id: 'edit.multiply' },
+    ],
+  },
+  {
+    label: 'Arrange',
+    items: [
+      { id: 'edit.bringToFront' },
+      { id: 'edit.bringForward' },
+      { id: 'edit.sendBackward' },
+      { id: 'edit.sendToBack' },
+    ],
+  },
+  {
+    label: 'Align',
+    iconGrid: true,
+    items: [
+      { id: 'edit.alignLeft' },
+      { id: 'edit.alignCenter' },
+      { id: 'edit.alignRight' },
+      { id: 'edit.alignTop' },
+      { id: 'edit.alignMiddle' },
+      { id: 'edit.alignBottom' },
+      { id: 'edit.distributeHorizontal' },
+      { id: 'edit.distributeVertical' },
+      { id: 'edit.centerInDocument' },
+      { id: 'edit.sameWidth' },
+      { id: 'edit.sameHeight' },
+      { id: 'edit.sameSize' },
+    ],
+  },
+  {
+    label: 'Group',
+    items: [
+      { id: 'edit.group' },
+      { id: 'edit.ungroup' },
+      { id: 'edit.lock' },
+    ],
+  },
+  {
+    label: 'Remove',
+    items: [
+      { id: 'edit.delete', size: 'large' },
+      { id: 'edit.hide' },
+      { id: 'edit.editAction' },
+    ],
+  },
+];
+
+/** Commands that still make sense when every selected markup is locked. */
+const LOCKED_MODIFY_COMMANDS = new Set(['edit.lock', 'edit.copyBase', 'edit.hide', 'edit.editAction']);
+
+const MODIFY_TOGGLE_ICON = ic('M10.5 2a3 3 0 0 0-3.7 3.7L2 10.5 4.5 13l4.8-4.8A3 3 0 0 0 13 4.5l-2 2-1.5-1.5 2-2z');
 
 export interface RibbonProps {
   /** Every command by id: the ribbon's buttons run them and show their enabled and checked state. */
@@ -319,6 +451,79 @@ function Cmd({ id, size = 'small', label, icon }: { id: string; size?: Size; lab
       <span className="rb-icon">{icon ?? ICONS[id] ?? '•'}</span>
       <span className="rb-label">{name.replace(/…$/, '')}</span>
     </button>
+  );
+}
+
+/** One ribbon button that drops down a menu of related commands (Flip, Array, Arrange). */
+function CmdMenu({ label, icon, ids, size = 'small', title }: { label: string; icon: ReactNode; ids: readonly string[]; size?: Size; title?: string }) {
+  const { commands, done } = useContext(Ctx);
+  const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  const skipClick = useRef(false);
+
+  useEffect(() => {
+    if (!menu) return;
+    const down = (e: PointerEvent) => {
+      if (!btnRef.current?.contains(e.target as Node)) return;
+      skipClick.current = true;
+      const clear = () => window.setTimeout(() => { skipClick.current = false; }, 0);
+      window.addEventListener('pointerup', clear, { once: true, capture: true });
+      window.addEventListener('pointercancel', clear, { once: true, capture: true });
+    };
+    window.addEventListener('pointerdown', down, true);
+    return () => window.removeEventListener('pointerdown', down, true);
+  }, [menu]);
+
+  const visible = ids.map((id) => ({ id, cmd: commands.get(id) })).filter(({ cmd }) => !cmd?.managed);
+  if (!visible.length) return null;
+
+  const anyEnabled = visible.some(({ cmd }) => cmd?.enabled);
+  const active = visible.find(({ cmd }) => cmd?.checked);
+  const hint = !anyEnabled ? visible.find(({ cmd }) => cmd?.hint)?.cmd?.hint : undefined;
+
+  const open = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    const items: MenuEntry[] = visible.map(({ id, cmd }) => ({
+      label: cmd?.label ?? id,
+      icon: ICONS[id],
+      shortcut: shortcutLabel(id),
+      disabled: !cmd?.enabled,
+      checked: cmd?.checked,
+      onClick: () => {
+        cmd?.run();
+        done();
+      },
+    }));
+    setMenu({ x: r.left, y: r.bottom, items });
+  };
+
+  return (
+    <>
+      <button
+        ref={btnRef}
+        type="button"
+        className={`btn tool rb-btn ${size}${active || menu ? ' active' : ''}`}
+        disabled={!anyEnabled}
+        aria-haspopup="menu"
+        aria-expanded={!!menu}
+        title={hint ?? title ?? label}
+        onClick={(e) => {
+          if (skipClick.current) {
+            skipClick.current = false;
+            return;
+          }
+          if (menu) {
+            setMenu(null);
+            return;
+          }
+          open(e.currentTarget);
+        }}
+      >
+        <span className="rb-icon">{(active && ICONS[active.id]) ?? icon}</span>
+        <span className="rb-label">{`${label}\u00A0▾`}</span>
+      </button>
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+    </>
   );
 }
 
@@ -375,14 +580,14 @@ const TabCtx = createContext<TabId>('home');
 
 const groupKey = (tab: TabId, label: string) => `${tab}/${label}`;
 
-function Group({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
+function Group({ label, children, wide, hideLabel }: { label: string; children: ReactNode; wide?: boolean; hideLabel?: boolean }) {
   const tab = useContext(TabCtx);
   const { hiddenRibbonGroups } = useSettings();
   if (hiddenRibbonGroups.includes(groupKey(tab, label))) return null;
   return (
-  <div className={`rb-group${wide ? ' wide' : ''}`} role="group" aria-label={label}>
+  <div className={`rb-group${wide ? ' wide' : ''}${hideLabel ? ' no-label' : ''}`} role="group" aria-label={label}>
     <div className="rb-items">{children}</div>
-    <div className="rb-group-label">{label}</div>
+    {!hideLabel && <div className="rb-group-label">{label}</div>}
   </div>
   );
 }
@@ -615,6 +820,57 @@ function SlopePicker() {
 }
 
 
+const LENGTH_NAMES: Record<LengthUnit, string> = { mm: 'Millimetres (mm)', cm: 'Centimetres (cm)', m: 'Metres (m)', km: 'Kilometres (km)', in: 'Inches (in)', ft: 'Feet (ft)', yd: 'Yards (yd)', mi: 'Miles (mi)' };
+
+/**
+ * Markup Format › Units & Scale: the measuring units (the Preferences › Units settings, so there is one
+ * source of truth) and the current page's scale, close at hand while measuring. Changing the units
+ * rewords the page's scale, and with it every measurement on the page.
+ */
+function UnitsScale({ scale, disabled, onPreset, onCustom, onUnitsChanged }: UnitsScaleProps) {
+  const prefs = useSettings();
+  const change = (patch: Partial<Settings>) => {
+    settings.set(patch);
+    onUnitsChanged();
+  };
+  return (
+    <div className="rb-props">
+      <div className="prop-cluster">
+        <div className="prop-cluster-items">
+          <div className="prop-line">
+            <label className="field">
+              Units
+              <select aria-label="Units" value={prefs.unitSystem} disabled={disabled} onChange={(e) => change(switchUnitSystem(prefs, e.target.value as UnitSystem))}>
+                <option value="metric">Metric</option>
+                <option value="imperial">Imperial</option>
+              </select>
+            </label>
+          </div>
+          <div className="prop-line">
+            <label className="field">
+              Length
+              <select aria-label="Length unit" value={prefs.lengthUnit} disabled={disabled} onChange={(e) => change({ lengthUnit: e.target.value as LengthUnit })}>
+                {DEFAULT_UNIT_CHOICES[prefs.unitSystem].length.map((u) => (
+                  <option key={u} value={u}>
+                    {LENGTH_NAMES[u]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+      </div>
+      <div className="prop-cluster">
+        <div className="prop-cluster-items">
+          <div className="prop-line">
+            <ScaleControl scale={scale} disabled={disabled} onPreset={onPreset} onCustom={onCustom} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /**
  * The top toolbar as a ribbon, as in Word, Excel and AutoCAD: tabs of commands in labelled groups.
  * Buttons come from the command table, so they disable themselves when what is selected cannot
@@ -629,6 +885,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   const [pressed, setPressed] = useState(false);
   // With the ribbon collapsed, the tab whose commands are dropped down (none: just the tabs).
   const [dropped, setDropped] = useState(false);
+  const [formatModifyOpen, setFormatModifyOpen] = useState<boolean>(savedFormatModify);
   const [customizing, setCustomizing] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -694,8 +951,8 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
     if (!dropped) return;
     const close = (e: MouseEvent) => {
       const t = e.target as Element;
-      // Stamp, hatch and combo menus pop out of the ribbon; clicks in them keep it open.
-      if (root.current?.contains(t) || tabsRef.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop, .color-pop, .combo-list')) return;
+      // Stamp, hatch, style and combo menus pop out of the ribbon; clicks in them keep it open.
+      if (root.current?.contains(t) || tabsRef.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop, .color-pop, .combo-list, .ls-list, .font-picker-pop, .rb-asm-pop')) return;
       setDropped(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -714,8 +971,87 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
     if (collapsed) setDropped(false);
   };
 
+  const toggleFormatModify = () => {
+    setFormatModifyOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(FORMAT_MODIFY_KEY, next ? '1' : '0');
+      } catch {
+        /* storage off limits: lasts for this session */
+      }
+      return next;
+    });
+  };
+
+  /**
+   * Applicable Modify tools for the currently selected markup(s) on the Markup Format tab.
+   * Collapsed by default (remembered in localStorage), and only commands enabled for the selection appear.
+   */
+  const formatModify = (() => {
+    const sel = toolbar.selection?.markups;
+    if (!sel?.length) return null;
+    const allLocked = sel.every((m) => m.locked);
+    const groups = FORMAT_MODIFY_GROUPS.map((g) => ({
+      ...g,
+      items: g.items.filter((item) => {
+        if (allLocked && !LOCKED_MODIFY_COMMANDS.has(item.id)) return false;
+        const c = commands.get(item.id);
+        return !!c && !c.managed && c.enabled;
+      }),
+    })).filter((g) => g.items.length > 0);
+    if (!groups.length) return null;
+    return (
+      <div className={`rb-format-modify${formatModifyOpen ? ' open' : ''}`}>
+        <div className="rb-group rb-modify-toggle-group" role="group" aria-label="Modify tools">
+          <div className="rb-items">
+            <button
+              type="button"
+              className={`btn tool rb-btn large rb-modify-toggle${formatModifyOpen ? ' active' : ''}`}
+              aria-expanded={formatModifyOpen}
+              title={formatModifyOpen ? 'Collapse Modify tools' : 'Expand Modify tools for the selected markup'}
+              onClick={toggleFormatModify}
+            >
+              <span className="rb-icon">{MODIFY_TOGGLE_ICON}</span>
+              <span className="rb-label">{formatModifyOpen ? '◂ Modify' : 'Modify ▸'}</span>
+            </button>
+          </div>
+          <div className="rb-group-label">Modify</div>
+        </div>
+        {formatModifyOpen &&
+          groups.map((g) => {
+            if (g.iconGrid && g.items.length > 3) {
+              return (
+                <Group key={g.label} label={g.label}>
+                  <div className="rb-icon-grid">
+                    {g.items.map((item) => (
+                      <Cmd key={item.id} id={item.id} label={item.label} />
+                    ))}
+                  </div>
+                </Group>
+              );
+            }
+            const first = g.items[0];
+            const hasLarge = first?.size === 'large';
+            const rest = hasLarge ? g.items.slice(1) : g.items;
+            return (
+              <Group key={g.label} label={g.label}>
+                {hasLarge && <Cmd id={first.id} size="large" label={first.label} />}
+                {Array.from({ length: Math.ceil(rest.length / 3) }, (_, i) => (
+                  <Stack key={i}>
+                    {rest.slice(i * 3, i * 3 + 3).map((item) => (
+                      <Cmd key={item.id} id={item.id} label={item.label} />
+                    ))}
+                  </Stack>
+                ))}
+              </Group>
+            );
+          })}
+      </div>
+    );
+  })();
+
   const properties = (
-    <Group label="Properties" wide>
+    <Group label="Properties" wide hideLabel>
       <div className="rb-props">
         <StyleControls {...toolbar} />
       </div>
@@ -803,7 +1139,13 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 </div>
               </Group>
             )}
+            {toolbar.unitsScale && (
+              <Group label="Units & Scale" wide>
+                <UnitsScale {...toolbar.unitsScale} />
+              </Group>
+            )}
             {properties}
+            {formatModify}
           </>
         );
       case 'measure':
@@ -965,18 +1307,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
               <Stack>
                 <Cmd id="edit.scaleToLength" />
-                <Cmd id="edit.flipHorizontal" />
-                <Cmd id="edit.flipVertical" />
-              </Stack>
-              <Stack>
-                <Cmd id="edit.cropImage" />
-                <Cmd id="edit.resetCrop" />
-              </Stack>
-            </Group>
-            <Group label="Picture">
-              <Cmd id="edit.adjustImage" size="large" label="Adjust Image" />
-              <Stack>
-                <Cmd id="edit.pictureColours" label="Colours" />
+                <CmdMenu label="Flip" icon={ICONS['edit.flipHorizontal']} ids={['edit.flipHorizontal', 'edit.flipVertical']} />
               </Stack>
             </Group>
             <Group label="Edit Geometry">
@@ -992,6 +1323,16 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
                 <Cmd id="edit.chamfer" />
               </Stack>
             </Group>
+            <Group label="Picture">
+              <Stack>
+                <Cmd id="edit.adjustImage" label="Adjust Image" />
+                <Cmd id="edit.pictureColours" label="Colours" />
+              </Stack>
+              <Stack>
+                <Cmd id="edit.cropImage" />
+                <Cmd id="edit.resetCrop" />
+              </Stack>
+            </Group>
             <Group label="Convert">
               <Stack>
                 <Cmd id="edit.join" />
@@ -1005,23 +1346,18 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
             </Group>
             <Group label="Pattern">
               <Stack>
-                <Cmd id="edit.arrayPolar" />
-                <Cmd id="edit.arrayPath" />
+                <CmdMenu label="Array" icon={ICONS['edit.arrayPolar']} ids={['edit.arrayPolar', 'edit.arrayPath']} />
                 <Cmd id="edit.divide" />
-              </Stack>
-              <Stack>
                 <Cmd id="edit.multiply" />
               </Stack>
             </Group>
             <Group label="Arrange">
-              <Stack>
-                <Cmd id="edit.bringToFront" />
-                <Cmd id="edit.bringForward" />
-              </Stack>
-              <Stack>
-                <Cmd id="edit.sendBackward" />
-                <Cmd id="edit.sendToBack" />
-              </Stack>
+              <CmdMenu
+                label="Arrange"
+                size="large"
+                icon={ICONS['edit.bringToFront']}
+                ids={['edit.bringToFront', 'edit.bringForward', 'edit.sendBackward', 'edit.sendToBack']}
+              />
             </Group>
             <Group label="Align">
               <div className="rb-icon-grid">
@@ -1055,7 +1391,6 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
             </Group>
             <Group label="Remove">
-              <Cmd id="edit.delete" size="large" />
               <Stack>
                 <Cmd id="edit.hide" />
                 <Cmd id="edit.showHidden" />

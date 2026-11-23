@@ -1,6 +1,7 @@
 import type { Database, SqlValue } from '@sqlite.org/sqlite-wasm';
 import type { PageText, Word } from '@nb/sheets';
 import type { IndexedText } from './chrome';
+import { DIMS, similarity, type Chunk } from './semantic';
 import { corrections, matchExpression } from './terms';
 
 /**
@@ -25,6 +26,13 @@ const SEP = '\u001f';
 
 const TOKENIZE = "tokenize = 'unicode61 remove_diacritics 2'";
 
+/**
+ * The layout of the tables. The index is only a cache of the PDFs' text, so a database laid out
+ * by another version is emptied and laid out again rather than migrated.
+ */
+const SCHEMA_VERSION = 2;
+const TABLES = ['chunk_vectors', 'embedded', 'pages_vocab', 'pages_fts', 'pages', 'docs'];
+
 const SCHEMA = `
   CREATE TABLE IF NOT EXISTS docs (
     id INTEGER PRIMARY KEY,
@@ -44,7 +52,23 @@ const SCHEMA = `
     height REAL NOT NULL,
     words TEXT NOT NULL,
     boxes BLOB NOT NULL,
+    -- One bit per word, set for words in the repeated header, footer or title block ("chrome").
+    chrome BLOB NOT NULL,
     UNIQUE (doc, page)
+  );
+  -- Search by meaning: a vector per passage of a page (words first to last), by model.
+  CREATE TABLE IF NOT EXISTS chunk_vectors (
+    id INTEGER PRIMARY KEY,
+    page INTEGER NOT NULL REFERENCES pages(id) ON DELETE CASCADE,
+    first INTEGER NOT NULL,
+    last INTEGER NOT NULL,
+    vec BLOB NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS chunk_vectors_page ON chunk_vectors(page);
+  -- Pages whose passages have vectors from a model (a page with none still gets a row).
+  CREATE TABLE IF NOT EXISTS embedded (
+    page INTEGER PRIMARY KEY REFERENCES pages(id) ON DELETE CASCADE,
+    model TEXT NOT NULL
   );
   CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
     body, chrome, ${TOKENIZE}, prefix = '2 3', content = '', contentless_delete = 1
@@ -82,13 +106,33 @@ export interface Candidates {
   hits: Record<string, { pages: number[]; rank: number }> | null;
 }
 
-const keysJson = (keys: readonly string[]) => JSON.stringify(keys);
+/** A page found by meaning, with the words of its passage most like the query. */
+export interface Related {
+  key: string;
+  pageIndex: number;
+  words: Word[];
+  score: number;
+}
+
+const keysJson =(keys: readonly string[]) => JSON.stringify(keys);
 
 function packBoxes(words: readonly Word[]): Uint8Array {
   const f = new Float32Array(words.length * WORD_FIELDS);
   words.forEach((w, i) => f.set([w.x0, w.y0, w.x1, w.y1, w.size, w.angle], i * WORD_FIELDS));
   return new Uint8Array(f.buffer);
 }
+
+/** Flags as a bitset, one bit per entry. */
+function packBits(flags: readonly boolean[]): Uint8Array {
+  const out = new Uint8Array(Math.ceil(flags.length / 8));
+  flags.forEach((f, i) => {
+    if (f) out[i >> 3]! |= 1 << (i & 7);
+  });
+  return out;
+}
+
+/** Whether bit `i` of a bitset from `packBits` is set. */
+export const bitSet = (bits: Uint8Array, i: number) => ((bits[i >> 3] ?? 0) & (1 << (i & 7))) !== 0;
 
 function unpackPage(width: number, height: number, text: string, boxes: Uint8Array): PageText {
   if (!text) return { width, height, words: [] };
@@ -109,11 +153,24 @@ export class SearchStore {
   /** Indexed words and how many pages hold each, loaded when first needed. */
   private vocabulary: Map<string, number> | null = null;
 
+  /** Stored vectors by document id, read when a search by meaning first needs them. */
+  private vectors = new Map<number, { pages: Int32Array; firsts: Int32Array; lasts: Int32Array; vecs: Int8Array }>();
+  /** The model the vectors in `vectors` are from. */
+  private vectorsModel = '';
+
   constructor(
     private db: Database,
     private now: () => number = Date.now,
   ) {
     db.exec('PRAGMA foreign_keys = ON;');
+    if (db.selectValue('PRAGMA user_version') !== SCHEMA_VERSION) {
+      db.transaction(() => {
+        for (const t of TABLES) db.exec(`DROP TABLE IF EXISTS ${t}`);
+        db.exec(SCHEMA);
+        db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+      });
+    }
+    // The temporary tables are made again for each connection.
     db.exec(SCHEMA);
   }
 
@@ -148,11 +205,11 @@ export class SearchStore {
         bind: [key, INDEX_VERSION, content.pages.length, content.info && JSON.stringify(content.info), content.notes && JSON.stringify(content.notes), this.now()],
       });
       const doc = db.selectValue('SELECT last_insert_rowid()') as number;
-      const page = db.prepare('INSERT INTO pages(doc, page, width, height, words, boxes) VALUES (?, ?, ?, ?, ?, ?)');
+      const page = db.prepare('INSERT INTO pages(doc, page, width, height, words, boxes, chrome) VALUES (?, ?, ?, ?, ?, ?, ?)');
       const fts = db.prepare('INSERT INTO pages_fts(rowid, body, chrome) VALUES (last_insert_rowid(), ?, ?)');
       try {
         content.pages.forEach((p, i) => {
-          page.bind([doc, i, p.width, p.height, p.words.map((w) => w.text.replaceAll(SEP, ' ')).join(SEP), packBoxes(p.words)]).stepReset();
+          page.bind([doc, i, p.width, p.height, p.words.map((w) => w.text.replaceAll(SEP, ' ')).join(SEP), packBoxes(p.words), packBits(content.text[i]?.isChrome ?? [])]).stepReset();
           fts.bind([content.text[i]?.body ?? '', content.text[i]?.chrome ?? '']).stepReset();
         });
       } finally {
@@ -167,6 +224,7 @@ export class SearchStore {
   private remove(key: string): boolean {
     const id = this.db.selectValue('SELECT id FROM docs WHERE key = ?', [key]);
     if (typeof id !== 'number') return false;
+    this.vectors.delete(id);
     this.db.exec({ sql: 'DELETE FROM pages_fts WHERE rowid IN (SELECT id FROM pages WHERE doc = ?)', bind: [id] });
     this.db.exec({ sql: 'DELETE FROM docs WHERE id = ?', bind: [id] });
     return true;
@@ -285,5 +343,92 @@ export class SearchStore {
       db.exec("DELETE FROM pages_fts; INSERT INTO pages_fts(pages_fts) VALUES ('optimize'); DELETE FROM docs;");
     });
     this.vocabulary = null;
+    this.vectors.clear();
+  }
+
+  /**
+   * Pages that have no vectors from `model` yet, most recently used documents first, each with
+   * its words and which of them are chrome (a bitset, see `bitSet`).
+   */
+  unembedded(model: string, limit: number): { id: number; words: string[]; chrome: Uint8Array }[] {
+    return this.db
+      .selectArrays(
+        `SELECT p.id, p.words, p.chrome FROM pages p JOIN docs d ON d.id = p.doc
+          LEFT JOIN embedded e ON e.page = p.id AND e.model = ?
+          WHERE e.page IS NULL AND d.version = ? ORDER BY d.used DESC, p.doc, p.page LIMIT ?`,
+        [model, INDEX_VERSION, limit],
+      )
+      .map(([id, words, chrome]) => ({ id: id as number, words: words ? (words as string).split(SEP) : [], chrome: chrome as Uint8Array }));
+  }
+
+  /** Keeps a page's passage vectors from `model`, replacing any it had. */
+  setVectors(model: string, page: number, passages: readonly (Pick<Chunk, 'first' | 'last'> & { vec: Int8Array })[]): void {
+    const doc = this.db.selectValue('SELECT doc FROM pages WHERE id = ?', [page]);
+    // The document was dropped while its pages were being embedded.
+    if (typeof doc !== 'number') return;
+    this.db.transaction((db) => {
+      db.exec({ sql: 'DELETE FROM chunk_vectors WHERE page = ?', bind: [page] });
+      for (const c of passages) db.exec({ sql: 'INSERT INTO chunk_vectors(page, first, last, vec) VALUES (?, ?, ?, ?)', bind: [page, c.first, c.last, c.vec] });
+      db.exec({ sql: 'INSERT OR REPLACE INTO embedded(page, model) VALUES (?, ?)', bind: [page, model] });
+    });
+    this.vectors.delete(doc);
+  }
+
+  /** How many of the pages of `keys` have vectors from `model`, of how many. */
+  embedded(keys: readonly string[], model: string): { done: number; total: number } {
+    const [done, total] = this.db.selectArray(
+      `SELECT COUNT(e.page), COUNT(*) FROM pages p JOIN docs d ON d.id = p.doc
+         LEFT JOIN embedded e ON e.page = p.id AND e.model = ?
+        WHERE d.version = ? AND d.key IN (SELECT value FROM json_each(?))`,
+      [model, INDEX_VERSION, keysJson(keys)],
+    ) as [number, number];
+    return { done, total };
+  }
+
+  private vectorsOf(doc: number, model: string) {
+    if (model !== this.vectorsModel) {
+      this.vectors.clear();
+      this.vectorsModel = model;
+    }
+    const cached = this.vectors.get(doc);
+    if (cached) return cached;
+    const rows = this.db.selectArrays('SELECT p.page, c.first, c.last, c.vec FROM chunk_vectors c JOIN pages p ON p.id = c.page JOIN embedded e ON e.page = c.page AND e.model = ? WHERE p.doc = ?', [model, doc]);
+    const v = { pages: new Int32Array(rows.length), firsts: new Int32Array(rows.length), lasts: new Int32Array(rows.length), vecs: new Int8Array(rows.length * DIMS) };
+    rows.forEach(([page, first, last, vec], i) => {
+      v.pages[i] = page as number;
+      v.firsts[i] = first as number;
+      v.lasts[i] = last as number;
+      const b = vec as Uint8Array;
+      v.vecs.set(new Int8Array(b.buffer, b.byteOffset, Math.min(DIMS, b.byteLength)), i * DIMS);
+    });
+    this.vectors.set(doc, v);
+    return v;
+  }
+
+  /**
+   * The pages of `keys` most like `query` (a vector from `model`), best first: at most
+   * `limit` with a score of at least `minScore`, each with its closest passage (its words `first`
+   * to `last`).
+   */
+  related(keys: readonly string[], model: string, query: Int8Array, limit: number, minScore: number): Related[] {
+    const docs = this.db.selectArrays('SELECT id, key FROM docs WHERE version = ? AND key IN (SELECT value FROM json_each(?))', [INDEX_VERSION, keysJson(keys)]) as [number, string][];
+    const best = new Map<string, { key: string; doc: number; page: number; first: number; last: number; score: number }>();
+    for (const [doc, key] of docs) {
+      const v = this.vectorsOf(doc, model);
+      for (let i = 0; i < v.pages.length; i++) {
+        const score = similarity(query, v.vecs, i * DIMS);
+        if (score < minScore) continue;
+        const id = `${doc}:${v.pages[i]}`;
+        if ((best.get(id)?.score ?? -1) < score) best.set(id, { key, doc, page: v.pages[i]!, first: v.firsts[i]!, last: v.lasts[i]!, score });
+      }
+    }
+    return [...best.values()]
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((b) => {
+        const [w, h, t, x] = this.db.selectArray('SELECT width, height, words, boxes FROM pages WHERE doc = ? AND page = ?', [b.doc, b.page])!;
+        const page = unpackPage(w as number, h as number, t as string, x as Uint8Array);
+        return { key: b.key, pageIndex: b.page, words: page.words.slice(b.first, b.last + 1), score: b.score };
+      });
   }
 }

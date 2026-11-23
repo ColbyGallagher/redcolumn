@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import sqlite3InitModule from '@sqlite.org/sqlite-wasm';
 import { searchText, type PageText } from '@nb/sheets';
 import { splitChrome } from './chrome';
-import { SearchStore, type DocContent } from './store';
+import { bitSet, SearchStore, type DocContent } from './store';
+import { DIMS, quantize } from './semantic';
 
 const sqlite3 = await sqlite3InitModule();
 const fresh = (now = () => 1) => new SearchStore(new sqlite3.oo1.DB(':memory:'), now);
 
 /** A page with one line of words at `y`, plus a footer line on every page. */
 function page(text: string, footer = 'ACME ROADS PROJECT PLAN'): PageText {
-  const line = (s: string, y: number) => s.split(' ').map((t, i) => ({ text: t, x0: 50 + i * 60, y0: y, x1: 100 + i * 60, y1: y + 10, size: 10, angle: 0 }));
+  const line = (s: string, y: number) => s.split(' ').map((t, i) => ({ text: t, x0: 200 + i * 60, y0: y, x1: 250 + i * 60, y1: y + 10, size: 10, angle: 0 }));
   return { width: 800, height: 600, words: [...line(text, 200), ...line(footer, 580)] };
 }
 
@@ -152,4 +153,60 @@ test('clear empties the index', () => {
   s.put('a', doc(['ONE']));
   s.clear();
   assert.deepEqual(s.candidates(['a'], 'one').indexed, []);
+});
+
+/** A stored vector pointing mostly along dimension `d`. */
+const along = (d: number) => {
+  const v = new Float32Array(DIMS).fill(0.01);
+  v[d] = 1;
+  return quantize(v);
+};
+
+test('pages wait for vectors, recently used documents first, and the chrome is marked', () => {
+  let t = 0;
+  const s = fresh(() => ++t);
+  s.put('old', doc(['ONE TWO THREE', 'SEVEN']));
+  s.put('new', doc(['FOUR FIVE SIX', 'EIGHT']));
+  const todo = s.unembedded('m', 10);
+  assert.equal(todo.length, 4);
+  assert.deepEqual(todo[0]!.words.slice(0, 3), ['FOUR', 'FIVE', 'SIX']);
+  // The footer (on both pages) is chrome; the body is not.
+  assert.equal(bitSet(todo[0]!.chrome, 0), false);
+  assert.equal(bitSet(todo[0]!.chrome, todo[0]!.words.length - 1), true);
+  s.setVectors('m', todo[0]!.id, []);
+  assert.deepEqual(s.unembedded('m', 10).map((p) => p.id), todo.slice(1).map((p) => p.id));
+  // Another model starts again.
+  assert.equal(s.unembedded('other', 10).length, 4);
+  assert.deepEqual(s.embedded(['old', 'new'], 'm'), { done: 1, total: 4 });
+});
+
+test('related: pages whose passages point like the query, best first, above the cut-off', () => {
+  const s = fresh();
+  s.put('a', doc(['TEMPERATURE OF THE PIPE', 'DOOR SCHEDULE', 'GENERAL NOTES']));
+  s.put('b', doc(['PIPE TEMPERATURE AGAIN']));
+  const pages = s.unembedded('m', 10);
+  const [a0, a1, a2, b0] = pages.sort((x, y) => x.id - y.id);
+  s.setVectors('m', a0!.id, [{ first: 0, last: 3, vec: along(1) }]);
+  s.setVectors('m', a1!.id, [{ first: 0, last: 1, vec: along(2) }]);
+  s.setVectors('m', a2!.id, [{ first: 0, last: 1, vec: along(3) }]);
+  s.setVectors('m', b0!.id, [{ first: 1, last: 2, vec: along(1) }]);
+  const found = s.related(['a', 'b'], 'm', along(1), 10, 0.5);
+  assert.deepEqual(found.map((r) => [r.key, r.pageIndex]).sort(), [['a', 0], ['b', 0]]);
+  assert.deepEqual(found.find((r) => r.key === 'b')!.words.map((w) => w.text), ['TEMPERATURE', 'AGAIN']);
+  // Only the documents searched, and only vectors from the model asked for.
+  assert.deepEqual(s.related(['a'], 'm', along(1), 10, 0.5).map((r) => r.key), ['a']);
+  assert.deepEqual(s.related(['a', 'b'], 'other', along(1), 10, 0.5), []);
+  // Replacing a document drops its vectors.
+  s.put('b', doc(['SOMETHING ELSE']));
+  assert.deepEqual(s.related(['b'], 'm', along(1), 10, 0.5), []);
+});
+
+test('an index laid out by another version is emptied and laid out again', () => {
+  const db = new sqlite3.oo1.DB(':memory:');
+  new SearchStore(db).put('a', doc(['ONE']));
+  db.exec('PRAGMA user_version = 1');
+  const s = new SearchStore(db);
+  assert.deepEqual(s.candidates(['a'], 'one').indexed, []);
+  s.put('a', doc(['ONE']));
+  assert.deepEqual(s.candidates(['a'], 'one').indexed, ['a']);
 });

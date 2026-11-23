@@ -64,9 +64,6 @@ export function StitchPanel({ stitch, editable, pageIndex, pageLabel, hasViewpor
 
   return (
     <div className="stitch-panel">
-      <p className="stitch-experimental">
-        <span className="experimental-badge">Experimental</span> Check the joins before you measure across them.
-      </p>
       {editable && (
         <div className="panel-toolbar">
           <button className={`btn small${tool === 'stitchRegion' ? ' active' : ''}`} title="Drag a box around the drawing on each sheet, leaving out the title block and legend" onClick={() => toggle('stitchRegion')}>
