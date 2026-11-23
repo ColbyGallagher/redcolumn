@@ -273,7 +273,7 @@ function pointIn([px, py]: readonly [number, number], poly: readonly Point[]): b
 }
 
 /** Style keys a Format Painter carries from one markup to another. */
-const PAINTED_KEYS = ['stroke', 'fill', 'fillOpacity', 'width', 'opacity', 'dash', 'dashArray', 'lineStyle', 'hatch', 'hatchColor', 'hatchScale', 'hatchSpec', 'fontFamily', 'bold', 'italic', 'underline', 'strikethrough', 'textColor', 'textAlign', 'verticalAlign', 'startCap', 'endCap', 'capScale', 'blendMode'] as const;
+const PAINTED_KEYS = ['stroke', 'strokeOpacity', 'fill', 'fillOpacity', 'width', 'opacity', 'dash', 'dashArray', 'lineStyle', 'hatch', 'hatchColor', 'hatchScale', 'hatchSpec', 'fontFamily', 'bold', 'italic', 'underline', 'strikethrough', 'textColor', 'textAlign', 'verticalAlign', 'startCap', 'endCap', 'capScale', 'blendMode'] as const;
 
 /**
  * The style `target` takes when painted with `source`'s format: its appearance (colours, line,
@@ -307,7 +307,7 @@ export function scaledAbout(m: Markup, base: Point, factor: number): Partial<Mar
     }
   }
   if (isTextType(m.type) && style.fontSize) {
-    style.fontSize = Math.round(style.fontSize * factor * 100) / 100;
+    style.fontSize = Math.max(1, Math.round(style.fontSize * factor));
     restyled = true;
   }
   return restyled ? { ...out, style } : out;

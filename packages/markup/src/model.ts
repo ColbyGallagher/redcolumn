@@ -200,6 +200,8 @@ export interface MarkupStyle {
   width: number;
   /** 0..1 */
   opacity: number;
+  /** Line (outer border) opacity (0..1) multiplied with `opacity`; unset means 1. */
+  strokeOpacity?: number;
   /** Font size in points (text markups). */
   fontSize?: number;
   /**

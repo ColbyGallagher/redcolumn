@@ -26,6 +26,8 @@ interface ColorMenuProps {
   /** The color shown on the button's bar while `value` is null (what "same as line" resolves to). */
   fallback?: string;
   onChange: (color: string | null) => void;
+  /** Called while hovering a swatch (hex or null for none), and with undefined when leaving or closing. */
+  onPreview?: (color: string | null | undefined) => void;
   /** Adds a "No fill"-style entry at the top that sets the color to null. */
   noneLabel?: string;
   disabled?: boolean;
@@ -40,16 +42,21 @@ interface ColorMenuProps {
  * A Word/Excel-style color button: the icon with a bar in the current color under it, and a palette
  * dropdown with "No fill", standard colors and a custom picker.
  */
-export function ColorMenu({ label, short, icon, value, fallback, onChange, noneLabel, disabled, wide, title, mixed }: ColorMenuProps) {
+export function ColorMenu({ label, short, icon, value, fallback, onChange, onPreview, noneLabel, disabled, wide, title, mixed }: ColorMenuProps) {
   const [open, setOpen] = useState(false);
   const [hex, setHex] = useState('');
   const custom = useSyncExternalStore(profiles.subscribe, () => profiles.active().state.customColors) ?? NO_COLORS;
   const native = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const pop = useRef<HTMLDivElement>(null);
+  const previewRef = useRef(onPreview);
+  previewRef.current = onPreview;
   const floating = useFloatingPopup(root, open);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      previewRef.current?.(undefined);
+      return;
+    }
     const close = (e: PointerEvent) => {
       const t = e.target as Node;
       if (!root.current?.contains(t) && !pop.current?.contains(t)) setOpen(false);
@@ -64,8 +71,10 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
       window.removeEventListener('keydown', onKey);
     };
   }, [open]);
+  useEffect(() => () => previewRef.current?.(undefined), []);
 
   const pick = (color: string | null) => {
+    onPreview?.(undefined);
     onChange(color);
     setOpen(false);
   };
@@ -105,10 +114,10 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
         </span>
       </button>
       {open && floating && createPortal(
-        <div className="color-pop" role="dialog" aria-label={label} ref={pop} style={{ ...floating, minWidth: undefined }}>
+        <div className="color-pop" role="dialog" aria-label={label} ref={pop} style={{ ...floating, minWidth: undefined }} onMouseLeave={() => onPreview?.(undefined)}>
           <div className="color-pop-title">{label}</div>
           {noneLabel && (
-            <button type="button" className={`color-none${value === null ? ' on' : ''}`} onClick={() => pick(null)}>
+            <button type="button" className={`color-none${value === null ? ' on' : ''}`} onMouseEnter={() => onPreview?.(null)} onFocus={() => onPreview?.(null)} onClick={() => pick(null)}>
               <span className="color-swatch none" />
               {noneLabel}
             </button>
@@ -124,6 +133,8 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
                   title={c}
                   aria-label={c}
                   aria-pressed={norm === c}
+                  onMouseEnter={() => onPreview?.(c)}
+                  onFocus={() => onPreview?.(c)}
                   onClick={() => pick(c)}
                 />
               )),
@@ -142,6 +153,8 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
                     title={`${c} (right-click or press Delete to remove)`}
                     aria-label={`Custom ${c}`}
                     aria-pressed={norm === c}
+                    onMouseEnter={() => onPreview?.(c)}
+                    onFocus={() => onPreview?.(c)}
                     onClick={() => pick(c)}
                     onContextMenu={(e) => {
                       e.preventDefault();
