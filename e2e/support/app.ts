@@ -38,7 +38,7 @@ export interface Saved {
 }
 
 /** Imperial feet unless a spec asks otherwise (test.use({ settings: ... })). */
-const IMPERIAL = { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft' };
+export const IMPERIAL = { unitSystem: 'imperial', lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft' };
 
 /** Same first-run state everywhere: a fixed author and known settings (apps/web/src/settings/settings.ts). */
 function seed({ settings, toolbar }: { settings: Record<string, unknown>; toolbar: string }) {

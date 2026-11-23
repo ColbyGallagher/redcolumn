@@ -1,3 +1,4 @@
+import { msg, msgc } from '@nb/i18n';
 import { Children, Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { HATCH_PATTERNS, isMeasureKind, TEXT_PADDING, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
@@ -36,20 +37,29 @@ export interface ToolEntry {
 
 /** A named run of related tools: kept together on the toolbar and as a submenu in tool menus. */
 export interface ToolGroup {
-  label: string;
+  /** The English name: a stable key. */
+  id: string;
+  /** The name shown, in the interface language. */
+  readonly label: string;
   tools: ToolEntry[];
 }
 
 export const MARKUP_GROUPS: ToolGroup[] = [
   {
-    label: 'Select',
+    id: 'Select',
+    get label() {
+      return msg('Select');
+    },
     tools: [
       { tool: 'select', icon: '⬉' },
       { tool: 'lasso', icon: '◌' },
     ],
   },
   {
-    label: 'Lines',
+    id: 'Lines',
+    get label() {
+      return msg('Lines');
+    },
     tools: [
       { tool: 'line', icon: '╱' },
       { tool: 'arrow', icon: '↗' },
@@ -60,7 +70,10 @@ export const MARKUP_GROUPS: ToolGroup[] = [
     ],
   },
   {
-    label: 'Shapes',
+    id: 'Shapes',
+    get label() {
+      return msg('Shapes');
+    },
     tools: [
       { tool: 'rect', icon: '▭' },
       { tool: 'ellipse', icon: '◯' },
@@ -71,7 +84,10 @@ export const MARKUP_GROUPS: ToolGroup[] = [
     ],
   },
   {
-    label: 'Freehand',
+    id: 'Freehand',
+    get label() {
+      return msg('Freehand');
+    },
     tools: [
       { tool: 'pen', icon: '✎' },
       { tool: 'highlighter', icon: TOOL_ICONS.highlighter },
@@ -79,7 +95,10 @@ export const MARKUP_GROUPS: ToolGroup[] = [
     ],
   },
   {
-    label: 'Text Markup',
+    id: 'Text Markup',
+    get label() {
+      return msg('Text Markup');
+    },
     tools: [
       { tool: 'textHighlight', icon: 'H̲' },
       { tool: 'underline', icon: 'U̲' },
@@ -89,7 +108,10 @@ export const MARKUP_GROUPS: ToolGroup[] = [
     ],
   },
   {
-    label: 'Text & Notes',
+    id: 'Text & Notes',
+    get label() {
+      return msg('Text & Notes');
+    },
     tools: [
       { tool: 'text', icon: 'T' },
       { tool: 'callout', icon: '↘T' },
@@ -99,7 +121,10 @@ export const MARKUP_GROUPS: ToolGroup[] = [
     ],
   },
   {
-    label: 'Insert',
+    id: 'Insert',
+    get label() {
+      return msg('Insert');
+    },
     tools: [
       { tool: 'image', icon: TOOL_ICONS.image },
       { tool: 'stamp', icon: TOOL_ICONS.stamp },
@@ -109,7 +134,10 @@ export const MARKUP_GROUPS: ToolGroup[] = [
     ],
   },
   {
-    label: 'Tables & Areas',
+    id: 'Tables & Areas',
+    get label() {
+      return msg('Tables & Areas');
+    },
     tools: [
       { tool: 'legend', icon: '☷' },
       { tool: 'table', icon: '▦' },
@@ -120,9 +148,12 @@ export const MARKUP_GROUPS: ToolGroup[] = [
 ];
 
 export const MEASURE_GROUPS: ToolGroup[] = [
-  { label: 'Scale', tools: [{ tool: 'calibrate', icon: '⇹' }] },
+  { id: 'Scale', get label() { return msg('Scale'); }, tools: [{ tool: 'calibrate', icon: '⇹' }] },
   {
-    label: 'Lengths',
+    id: 'Lengths',
+    get label() {
+      return msg('Lengths');
+    },
     tools: [
       { tool: 'length', icon: '↔' },
       { tool: 'polylength', icon: '⤳' },
@@ -131,7 +162,10 @@ export const MEASURE_GROUPS: ToolGroup[] = [
     ],
   },
   {
-    label: 'Circles & Angles',
+    id: 'Circles & Angles',
+    get label() {
+      return msg('Circles & Angles');
+    },
     tools: [
       { tool: 'diameter', icon: '⌀' },
       { tool: 'radius', icon: '◔' },
@@ -139,7 +173,10 @@ export const MEASURE_GROUPS: ToolGroup[] = [
     ],
   },
   {
-    label: 'Areas & Volumes',
+    id: 'Areas & Volumes',
+    get label() {
+      return msg('Areas & Volumes');
+    },
     tools: [
       { tool: 'area', icon: '▰' },
       { tool: 'volume', icon: '⬙' },
@@ -147,7 +184,10 @@ export const MEASURE_GROUPS: ToolGroup[] = [
     ],
   },
   {
-    label: 'Counts',
+    id: 'Counts',
+    get label() {
+      return msg('Counts');
+    },
     tools: [
       { tool: 'count', icon: '#' },
       { tool: 'visualSearch', icon: '🔍' },
@@ -202,17 +242,30 @@ const TOOL_HINTS: Partial<Record<Tool, string>> = {
   cutout: 'click the hole inside the area; click the first point to finish',
 };
 
+/** Tooltips for the text alignment buttons (functions: msg runs at render, not import). */
+const ALIGN_TITLES: Record<TextAlign, () => string> = {
+  left: () => msg('Align left'),
+  center: () => msg('Align center'),
+  right: () => msg('Align right'),
+  justify: () => msg('Justified'),
+};
+const VALIGN_TITLES: Record<VerticalAlign, () => string> = {
+  top: () => msg('Align top'),
+  middle: () => msg('Align middle'),
+  bottom: () => msg('Align bottom'),
+};
+
 /** Cloud bubble sizes (pt): fine steps for everyday clouds, wider ones for very large bubbles. */
 const BUBBLE_SIZES = [5, 10, 15, 20, 30, 40, 50, 60, 80, 100];
 const MARKER_SIZES = [4, 6, 8, 10, 14, 20];
 
 /** What a measurement line can end in from the toolbar (more in Properties). */
 const ARROW_CHOICES: { value: LineEnding; label: string }[] = [
-  { value: 'filledArrow', label: 'Filled arrow' },
-  { value: 'openArrow', label: 'Open arrow' },
-  { value: 'closedArrow', label: 'Closed arrow' },
-  { value: 'tick', label: 'Tick' },
-  { value: 'none', label: 'None' },
+  { value: 'filledArrow', get label() { return msg('Filled arrow'); } },
+  { value: 'openArrow', get label() { return msg('Open arrow'); } },
+  { value: 'closedArrow', get label() { return msg('Closed arrow'); } },
+  { value: 'tick', get label() { return msg('Tick'); } },
+  { value: 'none', get label() { return msg('None'); } },
 ];
 
 const WIDTHS = [0.5, 1, 1.5, 2, 3, 5, 8, 12, 16, 24];
@@ -326,13 +379,13 @@ export function ToolBar({ tools, state, styleType, textType, textMarkupStyle, ma
       ))}
       <StyleControls tools={tools} state={state} styleType={styleType} textType={textType} textMarkupStyle={textMarkupStyle} markups={markups} selectedStyle={selectedStyle} cloudBubble={cloudBubble} geometry={geometry} selection={selection} enabled={enabled} />
       <span className="sep" />
-      <button className="btn" disabled={!enabled} onClick={onUndo} title="Undo (Ctrl+Z)">
+      <button className="btn" disabled={!enabled} onClick={onUndo} title={msg('Undo (Ctrl+Z)')}>
         ↶
       </button>
-      <button className="btn" disabled={!enabled} onClick={onRedo} title="Redo (Ctrl+Y)">
+      <button className="btn" disabled={!enabled} onClick={onRedo} title={msg('Redo (Ctrl+Y)')}>
         ↷
       </button>
-      <button className="btn" disabled={!state.selected.size} onClick={() => tools.deleteSelected()} title="Delete (Del)">
+      <button className="btn" disabled={!state.selected.size} onClick={() => tools.deleteSelected()} title={msg('Delete (Del)')}>
         🗑
       </button>
       {toolbarMenu && (
@@ -386,8 +439,8 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
   return (
     <>
       {state.tool === 'dynamicFill' && (
-        <label className="field" title="What Smart Fill makes from the region it finds">
-          Fill as
+        <label className="field" title={msg('What Smart Fill makes from the region it finds')}>
+          {msg('Fill as')}
           <select value={state.fillAs} disabled={!enabled} onChange={(e) => tools.setFillAs(e.target.value as FillType)}>
             {FILL_TYPES.map((t) => (
               <option key={t} value={t}>
@@ -405,12 +458,12 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         </>
       )}
       {style && styleType && (
-        <Cluster label="Line">
+        <Cluster label={msg('Line')}>
           <PropLine>
           <ColorMenu
-            label="Line color"
-            short="Line"
-            title="Line color: the outline of the shape, or the line itself"
+            label={msg('Line color')}
+            short={msg('Line')}
+            title={msg('Line color: the outline of the shape, or the line itself')}
             icon={STYLE_ICONS.line}
             value={style.stroke}
             mixed={mixedOf('stroke')}
@@ -420,12 +473,12 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           />
           {/* A text box drawn without its border has no outline to give a width to. */}
           {!(styleType === 'text' && !mixedTypes && (style.noBox || style.borderless)) && (
-            <label className="field" title="Line width">
-              <FieldTag icon={STYLE_ICONS.width} label="Width" />
+            <label className="field" title={msg('Line width')}>
+              <FieldTag icon={STYLE_ICONS.width} label={msg('Width')} />
               <ComboField
-                title="Line width"
+                title={msg('Line width')}
                 value={mixedOf('width') ? undefined : style.width}
-                placeholder={mixedOf('width') ? 'Mixed' : undefined}
+                placeholder={mixedOf('width') ? msg('Mixed') : undefined}
                 options={styleType === 'highlighter' ? HIGHLIGHT_WIDTHS : WIDTHS}
                 min={0}
                 max={200}
@@ -437,21 +490,21 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             </label>
           )}
           {textStyle && !mixedTypes && (textType === 'text' || textType === 'callout') && (
-            <label className="field" title="Draw an outline around the text box (its fill draws either way)">
+            <label className="field" title={msg('Draw an outline around the text box (its fill draws either way)')}>
               <input
                 type="checkbox"
                 disabled={!enabled}
                 checked={!textStyle.noBox && !textStyle.borderless}
                 onChange={(e) => apply(textType, e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
               />
-              Border
+              {msg('Border')}
             </label>
           )}
           </PropLine>
           <PropLine>
           {caps!.dash && (
-            <label className="field" title="Line style">
-              <FieldTag icon={STYLE_ICONS.lineStyle} label="Line" />
+            <label className="field" title={msg('Line style')}>
+              <FieldTag icon={STYLE_ICONS.lineStyle} label={msg('Line')} />
               <LineStyleSelect
                 style={style}
                 mixed={mixedDash}
@@ -462,14 +515,14 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
               />
             </label>
           )}
-          <label className="field" title={wholeOpacity ? 'Opacity' : 'Opacity of the outer line'}>
-            <FieldTag icon={STYLE_ICONS.opacity} label="Opacity" />
+          <label className="field" title={wholeOpacity ? msg('Opacity') : msg('Opacity of the outer line')}>
+            <FieldTag icon={STYLE_ICONS.opacity} label={msg('Opacity')} />
             {wholeOpacity ? (
               <ComboField
-                title="Opacity"
+                title={msg('Opacity')}
                 integer
                 value={mixedOf('opacity') ? undefined : Math.round(style.opacity * 100)}
-                placeholder={mixedOf('opacity') ? 'Mixed' : undefined}
+                placeholder={mixedOf('opacity') ? msg('Mixed') : undefined}
                 options={[100, 80, 60, 40, 20]}
                 min={1}
                 max={100}
@@ -480,10 +533,10 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
               />
             ) : (
               <ComboField
-                title="Line opacity"
+                title={msg('Line opacity')}
                 integer
                 value={mixedOf('strokeOpacity', (v) => v ?? 1) ? undefined : Math.round((style.strokeOpacity ?? 1) * 100)}
-                placeholder={mixedOf('strokeOpacity', (v) => v ?? 1) ? 'Mixed' : undefined}
+                placeholder={mixedOf('strokeOpacity', (v) => v ?? 1) ? msg('Mixed') : undefined}
                 options={[100, 80, 60, 40, 20, 0]}
                 min={0}
                 max={100}
@@ -498,12 +551,12 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         </Cluster>
       )}
       {style && styleType && (
-        <Cluster label="Fill">
+        <Cluster label={msg('Fill')}>
           <PropLine>
           <ColorMenu
-            label="Fill color"
-            short="Fill"
-            title="Fill color: the inside of the shape"
+            label={msg('Fill color')}
+            short={msg('Fill')}
+            title={msg('Fill color: the inside of the shape')}
             icon={STYLE_ICONS.fill}
             value={style.fill ?? null}
             mixed={mixedOf('fill', (v) => v ?? null)}
@@ -513,13 +566,13 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             onPreview={(c) => preview(styleType, c === undefined ? null : { fill: c })}
           />
           {caps!.fill && (style.fill || (sel && sel.markups.some((m) => m.style.fill))) && (
-            <label className="field" title="Opacity of the fill alone">
-              <FieldTag icon={STYLE_ICONS.fill} label="Opacity" />
+            <label className="field" title={msg('Opacity of the fill alone')}>
+              <FieldTag icon={STYLE_ICONS.fill} label={msg('Opacity')} />
               <ComboField
-                title="Fill opacity"
+                title={msg('Fill opacity')}
                 integer
                 value={mixedOf('fillOpacity', (v) => v ?? 1) ? undefined : Math.round((style.fillOpacity ?? 1) * 100)}
-                placeholder={mixedOf('fillOpacity', (v) => v ?? 1) ? 'Mixed' : undefined}
+                placeholder={mixedOf('fillOpacity', (v) => v ?? 1) ? msg('Mixed') : undefined}
                 options={[100, 80, 60, 40, 20]}
                 min={1}
                 max={100}
@@ -534,9 +587,9 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         </Cluster>
       )}
       {style && styleType && (
-        <Cluster label="Hatch" show={!!caps!.hatch}>
+        <Cluster label={msg('Hatch')} show={!!caps!.hatch}>
           <PropLine>
-            <div className="field" title="Hatch pattern">
+            <div className="field" title={msg('Hatch pattern')}>
               <FieldTag icon={STYLE_ICONS.hatch} />
               <HatchMenu
                 bare
@@ -556,24 +609,24 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
               onChange={(patch) => apply(styleType, patch)}
               onPreview={(patch) => preview(styleType, patch)}
             />
-            <label className="field hatch-scale" title="50 is half the pattern, 200 is twice. 100 is a quarter inch.">
+            <label className="field hatch-scale" title={msg('50 is half the pattern, 200 is twice. 100 is a quarter inch.')}>
               <HatchScale style={style} active={enabled && hatchActive} mixed={mixedOf('hatchScale', (v) => v ?? 100)} onChange={(patch) => apply(styleType, patch)} />
             </label>
           </PropLine>
         </Cluster>
       )}
       {style && styleType && !mixedTypes && (styleType === 'length' || styleType === 'polylength') && (
-        <Cluster label="Arrows">
+        <Cluster label={msg('Arrows')}>
           <PropLine>
-          <div className="field" title="Arrowheads on the ends of the line">
-            Arrows
+          <div className="field" title={msg('Arrowheads on the ends of the line')}>
+            {msg('Arrows')}
             <PreviewSelect
-              label="Arrowheads"
+              label={msg('Arrowheads')}
               value={lineEnds({ type: styleType, style })[1]}
               options={
                 ARROW_CHOICES.some((c) => c.value === lineEnds({ type: styleType, style })[1])
                   ? ARROW_CHOICES
-                  : [...ARROW_CHOICES, { value: lineEnds({ type: styleType, style })[1], label: 'Other' }]
+                  : [...ARROW_CHOICES, { value: lineEnds({ type: styleType, style })[1], label: msg('Other') }]
               }
               disabled={!enabled}
               onChange={(cap) => apply(styleType, { startCap: cap, endCap: cap })}
@@ -585,7 +638,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           {lineEnds({ type: styleType, style }).some((e) => e !== 'none') && (
             <label className="field">
               <ComboField
-                title="Arrow size"
+                title={msg('Arrow size')}
                 integer
                 value={Math.round((style.capScale ?? 1) * 100)}
                 options={[50, 75, 100, 150, 200, 300]}
@@ -602,17 +655,17 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         </Cluster>
       )}
       {cloudBubble && (
-        <Cluster label="Cloud">
-          <label className="field" title="Size of the cloud's bubbles (pt)">
-            Bubbles
+        <Cluster label={msg('Cloud')}>
+          <label className="field" title={msg('Size of the cloud\'s bubbles (pt)')}>
+            {msg('Bubbles')}
             <ComboField
-              title="Bubble size"
+              title={msg('Bubble size')}
               value={cloudBubble.value}
               options={BUBBLE_SIZES}
               min={1}
               max={200}
               unit="pt"
-              placeholder="Auto"
+              placeholder={msg('Auto')}
               disabled={!enabled}
               onChange={(v) => tools.setStyle('cloud', { arcRadius: v })}
               onPreview={(v) => tools.previewStyle(v === null ? null : { arcRadius: v }, 'cloud')}
@@ -621,10 +674,10 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         </Cluster>
       )}
       {style && styleType === 'count' && !mixedTypes && (
-        <Cluster label="Count">
+        <Cluster label={msg('Count')}>
           <PropLine>
-            <div className="field" title="Marker shape or custom symbol">
-              Shape
+            <div className="field" title={msg('Marker shape or custom symbol')}>
+              {msg('Shape')}
               <CountSymbolSelect
                 style={style}
                 markups={markups}
@@ -636,16 +689,16 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             </div>
           </PropLine>
           <PropLine>
-            <label className="field" title="Size of the count marker (pt)">
-              Size
+            <label className="field" title={msg('Size of the count marker (pt)')}>
+              {msg('Size')}
               <ComboField
-                title="Marker size"
+                title={msg('Marker size')}
                 value={mixedOf('arcRadius') ? undefined : style.arcRadius}
                 options={MARKER_SIZES}
                 min={0.5}
                 max={200}
                 unit="pt"
-                placeholder={mixedOf('arcRadius') ? 'Mixed' : 'Auto'}
+                placeholder={mixedOf('arcRadius') ? msg('Mixed') : msg('Auto')}
                 disabled={!enabled}
                 onChange={(v) => apply('count', { arcRadius: v })}
                 onPreview={(v) => preview('count', v === null ? null : { arcRadius: v })}
@@ -654,11 +707,11 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           </PropLine>
         </Cluster>
       )}
-      <Cluster label="Text" show={!!textStyle && !!textType && textCaps!.font}>
+      <Cluster label={msg('Text')} kind="text" show={!!textStyle && !!textType && textCaps!.font}>
       <PropLine>
       {textStyle && textType && textCaps!.font && (
-        <div className="field" title="Font">
-          <FieldTag icon={STYLE_ICONS.font} label="Font" />
+        <div className="field" title={msg('Font')}>
+          <FieldTag icon={STYLE_ICONS.font} label={msg('Font')} />
           <FontPicker
             className="font-family"
             value={textStyle.fontFamily}
@@ -670,13 +723,13 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         </div>
       )}
       {textStyle && textType && textCaps!.font && (
-        <label className="field" title="Font size (pt)">
-          <FieldTag icon={STYLE_ICONS.fontSize} label="Size" />
+        <label className="field" title={msg('Font size (pt)')}>
+          <FieldTag icon={STYLE_ICONS.fontSize} label={msg('Size')} />
           <ComboField
-            title="Font size"
+            title={msg('Font size')}
             integer
             value={mixedFontSize ? undefined : textStyle.fontSize !== undefined ? Math.round(textStyle.fontSize) : undefined}
-            placeholder={mixedFontSize ? 'Mixed' : 'Auto'}
+            placeholder={mixedFontSize ? msg('Mixed') : msg('Auto')}
             options={FONT_SIZES}
             min={2}
             max={288}
@@ -688,33 +741,33 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         </label>
       )}
       {textStyle && textType && textCaps!.font && (
-        <span className="seg" role="group" aria-label="Text style">
-          <FormatToggle on={!!textStyle.bold} mixed={mixedOf('bold', (v) => !!v)} disabled={!enabled} label="B" title="Bold" className="b" onChange={(v) => apply(textType, { bold: v })} />
-          <FormatToggle on={!!textStyle.italic} mixed={mixedOf('italic', (v) => !!v)} disabled={!enabled} label="I" title="Italic" className="i" onChange={(v) => apply(textType, { italic: v || undefined })} />
-          <FormatToggle on={!!textStyle.underline} mixed={mixedOf('underline', (v) => !!v)} disabled={!enabled} label="U" title="Underline" className="u" onChange={(v) => apply(textType, { underline: v || undefined })} />
-          <FormatToggle on={!!textStyle.strikethrough} mixed={mixedOf('strikethrough', (v) => !!v)} disabled={!enabled} label="S" title="Strikethrough" className="s" onChange={(v) => apply(textType, { strikethrough: v || undefined })} />
+        <span className="seg" role="group" aria-label={msg('Text style')}>
+          <FormatToggle on={!!textStyle.bold} mixed={mixedOf('bold', (v) => !!v)} disabled={!enabled} label="B" title={msg('Bold')} className="b" onChange={(v) => apply(textType, { bold: v })} />
+          <FormatToggle on={!!textStyle.italic} mixed={mixedOf('italic', (v) => !!v)} disabled={!enabled} label="I" title={msg('Italic')} className="i" onChange={(v) => apply(textType, { italic: v || undefined })} />
+          <FormatToggle on={!!textStyle.underline} mixed={mixedOf('underline', (v) => !!v)} disabled={!enabled} label="U" title={msg('Underline')} className="u" onChange={(v) => apply(textType, { underline: v || undefined })} />
+          <FormatToggle on={!!textStyle.strikethrough} mixed={mixedOf('strikethrough', (v) => !!v)} disabled={!enabled} label="S" title={msg('Strikethrough')} className="s" onChange={(v) => apply(textType, { strikethrough: v || undefined })} />
         </span>
       )}
       </PropLine>
       <PropLine>
       {textStyle && textType && textCaps!.font && textCaps!.textLayout && (
         <>
-          <span className="seg" role="group" aria-label="Text alignment">
+          <span className="seg" role="group" aria-label={msg('Text alignment')}>
             {(['left', 'center', 'right', 'justify'] as TextAlign[]).map((a) => (
-              <FormatToggle key={a} on={(textStyle.textAlign ?? 'left') === a} disabled={!enabled} label={ALIGN_ICONS[a]} title={a === 'justify' ? 'Justified' : `Align ${a}`} className="" onChange={() => apply(textType, { textAlign: a === 'left' ? undefined : a })} />
+              <FormatToggle key={a} on={(textStyle.textAlign ?? 'left') === a} disabled={!enabled} label={ALIGN_ICONS[a]} title={ALIGN_TITLES[a]()} className="" onChange={() => apply(textType, { textAlign: a === 'left' ? undefined : a })} />
             ))}
           </span>
-          <span className="seg" role="group" aria-label="Vertical alignment">
+          <span className="seg" role="group" aria-label={msg('Vertical alignment')}>
             {(['top', 'middle', 'bottom'] as VerticalAlign[]).map((a) => (
-              <FormatToggle key={a} on={(textStyle.verticalAlign ?? 'top') === a} disabled={!enabled} label={VALIGN_ICONS[a]} title={`Align ${a}`} className="" onChange={() => apply(textType, { verticalAlign: a === 'top' ? undefined : a })} />
+              <FormatToggle key={a} on={(textStyle.verticalAlign ?? 'top') === a} disabled={!enabled} label={VALIGN_ICONS[a]} title={VALIGN_TITLES[a]()} className="" onChange={() => apply(textType, { verticalAlign: a === 'top' ? undefined : a })} />
             ))}
           </span>
-          <label className="field" title="Line spacing">
-            Spacing
+          <label className="field" title={msg('Line spacing')}>
+            {msg('Spacing')}
             <LineSpacing key={textType} value={textStyle.lineHeight} disabled={!enabled} onChange={(v) => apply(textType, { lineHeight: v })} />
           </label>
-          <label className="field" title="Gap between the box edge and the text lines (measured to the line box, not the ink)">
-            Padding
+          <label className="field" title={msg('Gap between the box edge and the text lines (measured to the line box, not the ink)')}>
+            {msg('Padding')}
             <NumberField key={textType} value={textStyle.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" disabled={!enabled} onChange={(v) => apply(textType, { textMargin: v })} />
           </label>
         </>
@@ -735,10 +788,10 @@ function PropLine({ children }: { children: ReactNode }) {
  * A labelled cluster of related style controls (Line, Fill, Text). In the ribbon it draws as a block with
  * its name underneath; on the simplified toolbar it adds no box of its own.
  */
-function Cluster({ label, show = true, children }: { label: string; show?: boolean; children: ReactNode }) {
+function Cluster({ label, kind, show = true, children }: { label: string; /** A name for styles: never translated. */ kind?: string; show?: boolean; children: ReactNode }) {
   if (!show) return null;
   return (
-    <div className="prop-cluster" role="group" aria-label={label}>
+    <div className="prop-cluster" role="group" aria-label={label} data-cluster={kind}>
       <div className="prop-cluster-items">{children}</div>
       <span className="prop-cluster-label">{label}</span>
     </div>
@@ -816,7 +869,7 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
         list={list}
         aria-label={name}
         defaultValue={current.value}
-        placeholder={current.mixed ? 'Mixed' : undefined}
+        placeholder={current.mixed ? msg('Mixed') : undefined}
         disabled={!enabled}
         onBlur={(e) => commit(f, e.currentTarget.value)}
         onKeyDown={(e) => {
@@ -829,20 +882,20 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
     <div className="prop-cluster">
     <div className="prop-cluster-items">
     <PropLine>
-      {text('subject', sel ? 'Subject of the selected markups' : 'Subject the next markups from this tool get', 'Subject', subject, 'ident-subjects')}
+      {text('subject', sel ? msg('Subject of the selected markups') : msg('Subject the next markups from this tool get'), msg('Subject'), subject, 'ident-subjects')}
       <datalist id="ident-subjects">
         {distinctIdentities(markups, 'subject').map((s) => (
           <option key={s} value={s} />
         ))}
       </datalist>
-      {text('label', sel ? 'Label (category) of the selected markups' : 'Label (category) the next markups from this tool get', 'Label', label)}
+      {text('label', sel ? msg('Label (category) of the selected markups') : msg('Label (category) the next markups from this tool get'), msg('Label'), label)}
     </PropLine>
     <PropLine>
-      <label className="field" title={sel ? 'Layer of the selected markups' : 'Layer the next markups from this tool go on'}>
-        Layer
+      <label className="field" title={sel ? msg('Layer of the selected markups') : msg('Layer the next markups from this tool go on')}>
+        {msg('Layer')}
         <select
           className="ident"
-          aria-label="Layer"
+          aria-label={msg('Layer')}
           value={layer.mixed ? MIXED : layer.value}
           disabled={!enabled}
           onChange={(e) => {
@@ -853,56 +906,56 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
         >
           {layer.mixed && (
             <option value={MIXED} disabled hidden>
-              Mixed
+              {msg('Mixed')}
             </option>
           )}
-          <option value="">No layer</option>
+          <option value="">{msg('No layer')}</option>
           {layers.map((l) => (
             <option key={l} value={l}>
               {l}
             </option>
           ))}
-          {askLayer && <option value={NEW_LAYER}>New layer…</option>}
+          {askLayer && <option value={NEW_LAYER}>{msg('New layer…')}</option>}
         </select>
       </label>
       <label
         className="field"
         title={
           !canEditAssembly
-            ? 'Assemblies apply to measurement markups'
+            ? msg('Assemblies apply to measurement markups')
             : asmChosen.length
-              ? 'Assembly the selected measurements are taken off as'
-              : 'Assembly the next measurements are taken off as'
+              ? msg('Assembly the selected measurements are taken off as')
+              : msg('Assembly the next measurements are taken off as')
         }
       >
-        Assembly
+        {msg('Assembly')}
         <select
           className="ident"
-          aria-label="Assembly"
+          aria-label={msg('Assembly')}
           value={asmChoice.value}
           disabled={!canEditAssembly}
           onChange={(e) => (e.target.value === '__manage' ? takeoffAssembly?.onManage() : pickAssembly(e.target.value))}
         >
-          {asmChoice.value === '*' && <option value="*">(several)</option>}
-          <option value="">None</option>
+          {asmChoice.value === '*' && <option value="*">{msg('(several)')}</option>}
+          <option value="">{msg('None')}</option>
           {(takeoffAssembly?.assemblies ?? []).map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
             </option>
           ))}
-          {asmChoice.value && asmChoice.value !== '*' && !asmChoice.assembly && <option value={asmChoice.value}>(deleted assembly)</option>}
-          <option value="__manage">Manage assemblies…</option>
+          {asmChoice.value && asmChoice.value !== '*' && !asmChoice.assembly && <option value={asmChoice.value}>{msg('(deleted assembly)')}</option>}
+          <option value="__manage">{msg('Manage assemblies…')}</option>
         </select>
       </label>
       {drawing && item && (
         <button
           type="button"
           className="btn"
-          title="Save this subject, label, layer and style back to the Tool Chest tool"
+          title={msg('Save this subject, label, layer and style back to the Tool Chest tool')}
           disabled={!enabled}
           onClick={() => saveToolBack(item.id, { fields: edits, ...(preset?.style ? { style: preset.style } : {}) })}
         >
-          Save to Tool Chest
+          {msg('Save to Tool Chest')}
         </button>
       )}
     </PropLine>
@@ -1125,7 +1178,7 @@ function HatchMenu({ style, mixed, disabled, bare, onChange, onPreview }: { styl
   const { hatchSets } = useWorkspace();
   const active = !!resolveHatch(current, style.hatchSpec);
   const color = style.hatchColor ?? style.stroke;
-  const name = mixed ? 'Mixed' : !current ? 'None' : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS[current]) ?? 'None');
+  const name = mixed ? msg('Mixed') : !current ? msg('None') : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS[current]) ?? msg('None'));
   const patchFor = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec): Partial<MarkupStyle> =>
     value === 'none' ? { hatch: undefined, hatchSpec: undefined, hatchColor: undefined, hatchScale: undefined } : { hatch: value, hatchSpec: spec };
   const choose = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec) => {
@@ -1140,8 +1193,8 @@ function HatchMenu({ style, mixed, disabled, bare, onChange, onPreview }: { styl
         role="combobox"
         className={`ls-select hatch-select${active ? ' on' : ''}`}
         disabled={disabled}
-        aria-label="Hatch pattern"
-        title="Hatch pattern"
+        aria-label={msg('Hatch pattern')}
+        title={msg('Hatch pattern')}
         aria-expanded={open}
         aria-haspopup="listbox"
         onClick={() => !disabled && setOpen((v) => !v)}
@@ -1150,7 +1203,7 @@ function HatchMenu({ style, mixed, disabled, bare, onChange, onPreview }: { styl
         <span className="ls-name">{name}</span>
       </button>
       {open && floating && createPortal(
-        <div className="hatch-pop" role="listbox" aria-label="Hatch" ref={pop} style={{ ...floating, minWidth: undefined }} onMouseLeave={() => onPreview?.(null)}>
+        <div className="hatch-pop" role="listbox" aria-label={msg('Hatch')} ref={pop} style={{ ...floating, minWidth: undefined }} onMouseLeave={() => onPreview?.(null)}>
           {HATCH_PATTERNS.map((h) => {
             const on = h.value === 'none' ? !current : current === h.value;
             return (
@@ -1226,13 +1279,13 @@ function HatchColor({ wide, style, active, mixed, onChange, onPreview }: { wide?
   return (
     <ColorMenu
       wide={wide}
-      label="Hatch color"
-      short="Hatch"
+      label={msg('Hatch color')}
+      short={msgc('colour button', 'Hatch')}
       icon={STYLE_ICONS.hatch}
       value={style.hatchColor ?? null}
       mixed={mixed}
       fallback={style.stroke}
-      noneLabel="Same as line"
+      noneLabel={msg('Same as line')}
       disabled={!active}
       onChange={(c) => onChange({ hatchColor: c ?? undefined })}
       onPreview={onPreview ? (c) => onPreview(c === undefined ? null : { hatchColor: c ?? undefined }) : undefined}
@@ -1243,16 +1296,16 @@ function HatchColor({ wide, style, active, mixed, onChange, onPreview }: { wide?
 function HatchScale({ style, active, mixed, onChange }: { style: MarkupStyle; active: boolean; mixed?: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
   return (
     <>
-      <span>Scale</span>
+      <span>{msgc('hatch pattern size', 'Scale')}</span>
       <input
         type="number"
-        aria-label="Hatch scale"
+        aria-label={msg('Hatch scale')}
         disabled={!active}
         min={50}
         max={200}
         step={1}
         value={mixed ? '' : (style.hatchScale ?? 100)}
-        placeholder={mixed ? 'Mixed' : undefined}
+        placeholder={mixed ? msg('Mixed') : undefined}
         onChange={(e) => {
           const n = Number(e.target.value);
           if (Number.isFinite(n)) onChange({ hatchScale: Math.min(200, Math.max(50, n)) });
