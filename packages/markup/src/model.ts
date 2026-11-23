@@ -468,6 +468,11 @@ export interface Markup {
   portalLink?: { portalId: string; linkId: string };
   /** The markup layer it is on (Layers panel); exported as a PDF layer of that name. */
   layer?: string;
+  /**
+   * A 3D model's issue (a BCF topic, by its GUID) this markup shows on the sheet, kept in step with
+   * it: the cloud around the place, or the callout carrying its title, status and comments.
+   */
+  bcf?: { guid: string; role: 'cloud' | 'callout' };
   /** Flagged for follow-up (a linked flag, listed in the Flags panel). */
   flagged?: boolean;
   /** Hidden markups are not drawn or printed; they stay in the markups list. */

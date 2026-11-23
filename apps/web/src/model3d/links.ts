@@ -12,7 +12,7 @@ type Pt = [number, number];
  */
 
 /** Where a region's registration places it on the map, when it fits well enough to trust. */
-function fitOf(region: GeoRegion) {
+export function fitOf(region: GeoRegion) {
   const fit = placementFromGeoRegion(region);
   return fit && fit.error <= MAX_FIT_ERROR ? fit.placement : null;
 }
@@ -48,7 +48,7 @@ export function ringAround([x, y]: Pt, size = 36) {
   return { x: x - size / 2, y: y - size / 2, w: size, h: size };
 }
 
-function inside(poly: readonly (readonly [number, number])[], [x, y]: Pt): boolean {
+export function inside(poly: readonly (readonly [number, number])[], [x, y]: Pt): boolean {
   let hit = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const [xi, yi] = poly[i]!;

@@ -1926,6 +1926,8 @@ export class MarkupTools implements ViewerOverlay {
         pageIndex,
         groupId,
         locked: undefined,
+        // A copy is a plain markup: the 3D issue stays shown by the original.
+        bcf: undefined,
         // Preferences › Markup › Retain Layer Information when copying Markups.
         layer: settings.get().retainLayerOnCopy ? m.layer : undefined,
         ...moved(m, dx, dy),

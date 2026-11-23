@@ -3,6 +3,7 @@ import type { ClassEntry, ColourAction, ColourProfile, ItemMap, ModelControls, M
 import { itemCount, paletteColour, parseSearchSets, searchable } from '@nb/model3d/controls';
 import type { ModelView } from '../documents/openTabs';
 import { exportSearchSets, updateModelLibrary, useModelLibrary } from './library';
+import { Issues } from './Issues';
 import { sheetsAt, type SheetHit } from './links';
 import { sheetOverlay, type SheetSetting, type SheetSource } from './sheetOverlays';
 
@@ -145,6 +146,7 @@ interface PanelProps {
   /** Open sheets registered to the map, which can be shown in the model. */
   sheets: readonly SheetSource[];
   onDownload: (name: string, text: string) => void;
+  onSaveFile: (name: string, data: Blob) => void;
   onNotice: (text: string) => void;
 }
 
@@ -152,7 +154,7 @@ interface PanelProps {
  * The 3D panel: the models in the view, their spatial structure and classes, saved views, search
  * sets and colour profiles. Element properties are in the 3D Properties panel.
  */
-export function Model3dPanel({ view, fileHash, sheets, onDownload, onNotice }: PanelProps) {
+export function Model3dPanel({ view, fileHash, sheets, onDownload, onSaveFile, onNotice }: PanelProps) {
   const { state, controls } = useModel(view);
   const lib = useModelLibrary();
   const models = useMemo<ModelInfo[]>(() => controls?.models() ?? [], [controls, state?.modelsVersion]);
@@ -215,6 +217,7 @@ export function Model3dPanel({ view, fileHash, sheets, onDownload, onNotice }: P
         </ul>
       </Section>
       <SheetsInModel controls={controls} state={state} sheets={sheets} fileHash={fileHash} />
+      <Issues controls={controls} state={state} fileHash={fileHash} topics={fileHash ? (lib.issues[fileHash] ?? []) : []} sheets={sheets} onSaveFile={onSaveFile} onNotice={onNotice} />
       <SavedViews controls={controls} fileHash={fileHash} views={fileHash ? (lib.views[fileHash] ?? []) : []} profiles={lib.profiles} sets={lib.sets} profileId={state.profileId} />
       <SetsAndColours controls={controls} sets={lib.sets} profiles={lib.profiles} profileId={state.profileId} classes={classes ?? []} onDownload={onDownload} onNotice={onNotice} />
     </div>

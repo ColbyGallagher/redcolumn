@@ -86,7 +86,18 @@ export type ModelAction =
   | { type: 'clearMeasurements' }
   | BrowseAction
   | { type: 'georeference'; modelId: string; matrix: number[] }
-  | { type: 'sheetOverlays'; overlays: SheetOverlay[] };
+  | { type: 'sheetOverlays'; overlays: SheetOverlay[] }
+  /** Moves the camera to look from `position` at `target` (grid easting, northing, height). */
+  | { type: 'lookAtPlace'; camera: PlaceCamera };
+
+/** A camera on the map: where it is and what it looks at, as grid easting, northing and height. */
+export interface PlaceCamera {
+  position: [number, number, number];
+  target: [number, number, number];
+  projection: ModelProjection;
+  /** Perspective: the vertical field of view, in degrees. */
+  fov: number;
+}
 
 /**
  * A sheet shown in the 3D view where it lies on the map: as a picture on a level plane, or its
@@ -278,6 +289,10 @@ export interface ModelBrowser {
    * straight down; returns false when nothing is there or the model is not on the map.
    */
   findAt(easting: number, northing: number): Promise<boolean>;
+  /** The camera on the map, or null when the model is not on the map. */
+  cameraPlace(): PlaceCamera | null;
+  /** A picture of the view as it is now (a JPEG data URL), at most `maxWidth` pixels wide. */
+  snapshot(maxWidth: number): string | null;
 }
 
 /** Sidebar actions, run like the ribbon's. */

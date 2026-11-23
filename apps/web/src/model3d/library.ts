@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { ColourProfile, SavedView, SearchSet } from '@nb/model3d';
+import type { BcfTopic } from './bcf';
 
 /**
  * What the 3D panel keeps between sessions: search sets and colour profiles (shared by every model,
@@ -10,10 +11,12 @@ export interface ModelLibrary {
   sets: SearchSet[];
   profiles: ColourProfile[];
   views: Record<string, SavedView[]>;
+  /** Each model's issues (BCF topics), by file hash. */
+  issues: Record<string, BcfTopic[]>;
 }
 
 const KEY = 'nb.model3d';
-const EMPTY: ModelLibrary = { sets: [], profiles: [], views: {} };
+const EMPTY: ModelLibrary = { sets: [], profiles: [], views: {}, issues: {} };
 const listeners = new Set<() => void>();
 let current: ModelLibrary | null = null;
 
@@ -25,6 +28,7 @@ function read(): ModelLibrary {
       sets: Array.isArray(v?.sets) ? v.sets : [],
       profiles: Array.isArray(v?.profiles) ? v.profiles : [],
       views: v?.views && typeof v.views === 'object' ? v.views : {},
+      issues: v?.issues && typeof v.issues === 'object' ? v.issues : {},
     };
   } catch {
     current = EMPTY;
@@ -37,7 +41,11 @@ export function modelLibrary(): ModelLibrary {
 }
 
 export function updateModelLibrary(change: (lib: ModelLibrary) => ModelLibrary): void {
-  current = change(read());
+  const was = read();
+  const next = change(was);
+  // Nothing changed: nothing to save or tell.
+  if (next === was) return;
+  current = next;
   try {
     localStorage.setItem(KEY, JSON.stringify(current));
   } catch {
@@ -51,6 +59,20 @@ export function useModelLibrary(): ModelLibrary {
     listeners.add(l);
     return () => listeners.delete(l);
   }, read);
+}
+
+export function subscribeModelLibrary(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** Changes one model's issues. */
+export function updateIssues(fileHash: string, change: (topics: BcfTopic[]) => BcfTopic[]): void {
+  updateModelLibrary((lib) => {
+    const was = lib.issues[fileHash] ?? [];
+    const next = change(was);
+    return next === was ? lib : { ...lib, issues: { ...lib.issues, [fileHash]: next } };
+  });
 }
 
 /** The search sets as a file to share (what Import reads back). */
