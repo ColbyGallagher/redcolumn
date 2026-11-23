@@ -6215,13 +6215,48 @@ select[size] {
   letter-spacing: 0.04em;
 }
 .font-picker-option {
-  padding: 3px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 8px;
   border-radius: 3px;
   font-size: 14px;
+  cursor: pointer;
+}
+.font-picker-option-label {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.font-picker-star {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
   cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.1s ease, color 0.1s ease;
+}
+.font-picker-option:hover .font-picker-star,
+.font-picker-option.active .font-picker-star,
+.font-picker-star:focus-visible,
+.font-picker-star.starred {
+  opacity: 1;
+}
+.font-picker-star:hover {
+  color: #f59e0b;
+}
+.font-picker-star.starred {
+  color: #f59e0b;
 }
 .font-picker-option.active {
   background: color-mix(in srgb, var(--text) 14%, transparent);

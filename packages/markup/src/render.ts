@@ -5,7 +5,8 @@ import { layoutParagraphs } from './textLists';
 import { baseTextStyle, layoutRuns, runsWithin, spansOf, styleRuns, type StyledMeasure } from './textSpans';
 import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, textPadding, type PathCmd } from './geometry';
 import { bulgeMidpoint } from './cad';
-import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
+import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
+import { COUNT_SYMBOL_REF, countSymbolImageBox } from './countSymbol';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
@@ -481,6 +482,28 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     }
   }
   ctx.setLineDash([]);
+  if (m.type === 'count' && style.countSymbol) {
+    const sym = style.countSymbol;
+    const r = markerSize(m);
+    if (sym.image) {
+      const img = markupImage(sym.image);
+      if (img) {
+        const { w, h } = countSymbolImageBox(sym.aspect ?? img.naturalWidth / Math.max(1, img.naturalHeight), r);
+        for (const [x, y] of m.points) ctx.drawImage(img, x - w / 2, y - h / 2, w, h);
+      }
+    } else if (sym.markups?.length) {
+      const k = r / COUNT_SYMBOL_REF;
+      for (const [x, y] of m.points) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(k, k);
+        for (const sub of sym.markups) {
+          drawMarkup(ctx, { ...sub, style: { ...sub.style, opacity: sub.style.opacity * style.opacity, showLabel: false } }, zoom * k);
+        }
+        ctx.restore();
+      }
+    }
+  }
   const whole = measurementLabel(m, scale);
   for (const label of whole ? [whole, ...segmentLabels(m, scale)] : []) {
     const { size, background } = labelStyle(m);

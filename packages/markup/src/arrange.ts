@@ -1,7 +1,7 @@
 import { arcPoints } from './arc';
 import { flatten, markupShape } from './geometry';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isTextType, mapGeometry, rotatePoint, rotationCentre, type Geometry, type Markup, type Point, type Rect } from './model';
+import { boundsOf, contentBox, isTextType, mapGeometry, markerSize, rotatePoint, rotationCentre, type Geometry, type Markup, type Point, type Rect } from './model';
 
 export type Alignment = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
 export type Axis = 'horizontal' | 'vertical';
@@ -220,6 +220,10 @@ function drawnGeometry(m: Markup): { lines: Point[][]; filled: Point[][] } {
     }
   }
   const info = TYPE_INFO[m.type];
+  if (m.type === 'count' && m.style.countSymbol) {
+    const r = markerSize(m);
+    for (const [x, y] of m.points) filled.push(rectPolygon({ x: x - r, y: y - r, w: r * 2, h: r * 2 }));
+  }
   if (info.solid || info.content === 'text' || info.content === 'image') filled.push(rectPolygon(contentBox(m)));
   if (!lines.length && !filled.length) lines.push(m.type === 'arc' ? arcPoints(m.points) : [...m.points]);
   if (!m.rotation) return { lines, filled };

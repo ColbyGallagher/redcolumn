@@ -28,10 +28,10 @@ Select the text markup and open the [Properties panel](#properties) for more:
 
 ## Use a font installed on your computer
 
-The **Font** list (on the toolbar and in the Properties panel) starts with the three standard fonts, then fonts you used recently, then every font installed on your computer. Each name is shown in its own typeface; type in the box at the top to narrow the list.
+The **Font** list (on the toolbar and in the Properties panel) starts with any fonts you have **starred** (click the star icon on a row to pin it to the top), then the standard fonts (Helvetica / Arial, Arial Narrow, Times New Roman and Courier New), then fonts you used recently, then every font installed on your computer. Each name is shown in its own typeface; type in the box at the top to narrow the list.
 
 - **Desktop app** — your installed fonts are listed straight away.
-- **Browser** — click **Show installed fonts…** at the bottom of the list. Chrome and Edge ask your permission once. Other browsers cannot list them, so only the three standard fonts are offered.
+- **Browser** — click **Show installed fonts…** at the bottom of the list. Chrome and Edge ask your permission once. Other browsers cannot list them, so only the standard fonts are offered.
 
 When you save or export, the font is **embedded** in the PDF (only the letters you used), so the text looks the same in every viewer, even on a computer without that font.
 

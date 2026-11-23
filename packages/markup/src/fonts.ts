@@ -145,6 +145,7 @@ export function familyFromPdfName(rawName: string): FontFamily {
   const base = postScript ? style(style(name).replace(/(?:PSMT|MT|PS)$/, '')).replace(/(?:PSMT|MT|PS)$/, '') : style(name);
   const squashed = base.toLowerCase().replace(/[\s_-]+/g, '');
   if (['helv', 'helvetica', 'arial'].includes(squashed)) return 'sans';
+  if (squashed === 'arialnarrow') return 'Arial Narrow';
   if (['tiro', 'times', 'timesroman', 'timesnewroman'].includes(squashed)) return 'serif';
   if (['cour', 'courier', 'couriernew'].includes(squashed)) return 'mono';
   return cleanFontName(base) ?? 'sans';

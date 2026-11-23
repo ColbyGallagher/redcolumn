@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { FONT_FAMILIES, cssFontFamily } from '@nb/markup';
 import { desktop } from '../desktop/host';
-import { buildFontList, loadRecentFonts, rememberFont, type FontEntry } from '../fonts/fontList';
+import { buildFontList, loadRecentFonts, loadStarredFonts, rememberFont, toggleStarredFont, type FontEntry } from '../fonts/fontList';
 
 type Sys = typeof import('../fonts/systemFonts');
 let sysPromise: Promise<Sys> | null = null;
@@ -11,10 +11,10 @@ const loadSys = () => (sysPromise ??= import('../fonts/systemFonts'));
 /** Installed family names, once listed in this window (shared by every picker). */
 let installedNames: string[] | null = null;
 
-const GROUP_LABEL: Record<FontEntry['group'], string> = { standard: 'Standard', recent: 'Recent', installed: 'Installed' };
+const GROUP_LABEL: Record<FontEntry['group'], string> = { starred: 'Starred', standard: 'Standard', recent: 'Recent', installed: 'Installed' };
 
 /**
- * The font choice for text: the three standard fonts, then recently used fonts, then the fonts
+ * The font choice for text: starred fonts, standard fonts, recently used fonts, then the fonts
  * installed on the computer, each name shown in its own face, with type-to-filter. In the desktop
  * app installed fonts are listed straight away; in a browser they come after "Show installed
  * fonts…", which asks permission. `mixed` shows that a selection holds several fonts.
@@ -23,6 +23,7 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
   const [openList, setOpenList] = useState(false);
   const [filter, setFilter] = useState('');
   const [active, setActive] = useState(0);
+  const [starred, setStarred] = useState<string[]>(() => loadStarredFonts());
   const [recent, setRecent] = useState<string[]>(() => loadRecentFonts());
   const [installed, setInstalled] = useState<string[] | null>(installedNames);
   const [asking, setAsking] = useState(false);
@@ -49,9 +50,10 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
     }
   }, []);
 
-  // Opening: place the list under the button, refresh the recent list, and load installed fonts where that needs no permission prompt.
+  // Opening: place the list under the button, refresh starred/recent lists, and load installed fonts where that needs no permission prompt.
   useEffect(() => {
     if (!openList) return;
+    setStarred(loadStarredFonts());
     setRecent(loadRecentFonts());
     const r = button.current?.getBoundingClientRect();
     if (r) {
@@ -62,10 +64,12 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
       setPlace({ left: Math.max(4, Math.min(r.left, window.innerWidth - 260)), top: up ? Math.max(4, r.top - maxHeight - 2) : r.bottom + 2, width: Math.max(r.width, 240), maxHeight });
     }
     input.current?.focus();
-    if (installedNames) {
-      void loadSys().then(setSys);
-      return;
-    }
+    // Ensure bundled standard fonts (e.g. Arial Narrow) load into document.fonts so they preview in their own face.
+    void loadSys().then((mod) => {
+      setSys(mod);
+      void mod.ensureBundledFonts();
+    });
+    if (installedNames) return;
     if (desktop()?.fonts) {
       void show();
       return;
@@ -92,10 +96,15 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
 
   // A value that is not a standard font gets its own face loaded, so the button shows it too.
   useEffect(() => {
-    if (current !== 'sans' && current !== 'serif' && current !== 'mono' && !sys) void loadSys().then(setSys);
+    if (current !== 'sans' && current !== 'serif' && current !== 'mono') {
+      void loadSys().then((mod) => {
+        if (!sys) setSys(mod);
+        if (mod.isBundledFont(current)) void mod.ensureBundledFonts();
+      });
+    }
   }, [current, sys]);
 
-  const entries = useMemo(() => buildFontList({ installed: installed ?? [], recent, current: mixed ? null : current, filter, missing: (f) => sys?.isFontMissing(f) ?? false }), [installed, recent, current, mixed, filter, sys]);
+  const entries = useMemo(() => buildFontList({ starred, installed: installed ?? [], recent, current: mixed ? null : current, filter, missing: (f) => sys?.isFontMissing(f) ?? false }), [starred, installed, recent, current, mixed, filter, sys]);
   useEffect(() => setActive(0), [filter, openList]);
   useEffect(() => {
     if (openList) document.getElementById(`${id}-${active}`)?.scrollIntoView({ block: 'nearest' });
@@ -185,8 +194,36 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => choose(f)}
                 >
-                  {f.label}
-                  {f.missing && <span className="font-picker-missing"> (not installed)</span>}
+                  <span className="font-picker-option-label">
+                    {f.label}
+                    {f.missing && <span className="font-picker-missing"> (not installed)</span>}
+                  </span>
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    className={`font-picker-star${f.starred ? ' starred' : ''}`}
+                    title={f.starred ? 'Unstar font' : 'Star font'}
+                    aria-label={f.starred ? `Unstar ${f.label}` : `Star ${f.label}`}
+                    aria-pressed={!!f.starred}
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setStarred(toggleStarredFont(f.value));
+                    }}
+                  >
+                    <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true">
+                      <path
+                        d="M8 1.5l1.95 4.05 4.45.65-3.2 3.15.75 4.45L8 11.7l-3.95 2.1.75-4.45-3.2-3.15 4.45-.65L8 1.5z"
+                        fill={f.starred ? 'currentColor' : 'none'}
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinejoin="round"
+                      />
+                    </svg>
+                  </button>
                 </div>
               </div>
             ))}

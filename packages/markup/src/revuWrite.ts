@@ -3,6 +3,8 @@ import type { Dropped } from './diagnostics';
 import type { HatchSet } from './hatchSet';
 import type { LineSet } from './lineSet';
 import type { Markup, MarkupStyle, MarkupType } from './model';
+import { COUNT_STYLE_TO_PDF } from './countSymbol';
+import { countMarkerOutline } from './geometry';
 import { daFontName, isNamedFont } from './fonts';
 import type { LineEnding } from './style';
 import { parsePdfObject, type PdfDict, type PdfName, type PdfValue, type RevuToolSource, type ToolChestItem, type ToolSet } from './toolchest';
@@ -305,6 +307,13 @@ function applyStyle(d: PdfDict, type: MarkupType, s: MarkupStyle) {
   }
   // A text box drawn without its box has no border (see `toolStyle`).
   if (type === 'text' && s.noBox) bs.W = 0;
+  if (type === 'count') {
+    const shape = s.countShape ?? 'circle';
+    d.CountStyle = name(COUNT_STYLE_TO_PDF[shape]);
+    d.Rect = [0, 0, 20, 20];
+    // Page space is y down; /Rect space is y up, so mirror Y into [0, 20].
+    d.Vertices = countMarkerOutline(shape, 10, 10, 8).flatMap(([x, y]) => [Math.round(x * 1000) / 1000, Math.round((20 - y) * 1000) / 1000]);
+  }
 }
 
 /** A fresh dictionary for a tool with no Revu original: its class keys and a small default shape. */
@@ -549,6 +558,10 @@ export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: D
       const parsed = parsePdfObject(src.raw);
       const d = parsed && typeof parsed === 'object' && !Array.isArray(parsed) && !isName(parsed) ? (parsed as PdfDict) : {};
       applyStyle(d, it.type, it.style);
+      if (it.type === 'count' && it.style.countSymbol) {
+        const fallback = COUNT_STYLE_TO_PDF[it.style.countShape ?? 'circle'];
+        dropped.push({ item, reason: `custom count symbols have no Revu .btx equivalent, so ${fallback} is written` });
+      }
       d.Subj = it.subject || it.name;
       labelAndComment(d, it, !!src.comment);
       parts = [{ type: src.revuType, raw: pdfText(d), x: src.x, y: src.y }];
@@ -576,6 +589,10 @@ export async function writeBtx(set: Pick<ToolSet, 'title' | 'items'>, dropped: D
       const k = KINDS[it.type]!;
       const d = baseDict(it.type, k, it.subject || it.name);
       if (it.tool === 'cloudPlus') d.ITEx = name('PolyText');
+      if (it.type === 'count' && it.style.countSymbol) {
+        const fallback = COUNT_STYLE_TO_PDF[it.style.countShape ?? 'circle'];
+        dropped.push({ item, reason: `custom count symbols have no Revu .btx equivalent, so ${fallback} is written` });
+      }
       labelAndComment(d, it);
       applyStyle(d, it.type, it.style);
       parts = [{ type: `Bluebeam.PDF.Annotations.${k.cls}`, raw: pdfText(d), x: 5, y: 5 }];
