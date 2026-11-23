@@ -4,8 +4,10 @@ import { expect, test } from '../support/app.ts';
 // (the Modify tab's Align group once wrapped to four rows and its last row sat behind the label,
 // unclickable). Buttons' padding may reach a few pixels into the label strip; a row may not start there.
 
-test.describe('ribbon layout', () => {
-  test.use({ toolbar: 'ribbon' });
+// The accented pseudo-locale is 40% longer than English, more than German (about 30%): if the
+// ribbon holds its shape in it, it holds in any language we translate to.
+for (const uiLanguage of ['en', 'en-XA']) test.describe(`ribbon layout (${uiLanguage})`, () => {
+  test.use({ toolbar: 'ribbon', settings: { uiLanguage } });
 
   test.beforeEach(async ({ app }) => {
     await app.open('plan.pdf');

@@ -56,6 +56,42 @@ test.describe('menus in the accented pseudo-locale', () => {
   });
 });
 
+test.describe('ribbon in the accented pseudo-locale', () => {
+  // Clipboard is hidden by its English name, as a person who customised the ribbon in English left it.
+  test.use({ toolbar: 'ribbon', settings: { ...IMPERIAL, uiLanguage: 'en-XA', hiddenRibbonGroups: ['home/Clipboard'] } });
+
+  test('every tab and group is translated, and hidden groups stay hidden', async ({ app }) => {
+    await app.open('plan.pdf');
+    const ribbon = app.page.locator('.ribbon, .rb-tabs');
+    const tabs = await ribbon.getByRole('tab').allTextContents();
+    expect(tabs.length).toBeGreaterThan(5);
+    const untranslated: string[] = [];
+    let groups = 0;
+    let buttons = 0;
+    for (const name of tabs) {
+      expect(name, name).toMatch(/^\[\[.*\]\]$/);
+      await ribbon.getByRole('tab', { name, exact: true }).click();
+      await expect(ribbon.getByRole('tab', { name, exact: true })).toHaveAttribute('aria-selected', 'true');
+      const labels = await app.page.locator('.ribbon .rb-group-label').allInnerTexts();
+      groups += labels.length;
+      untranslated.push(...labels.filter((l) => !/^\[\[/.test(l.trim())).map((l) => `${name} › group ${l}`));
+      const items = await app.page.locator('.ribbon .rb-items .rb-label').allInnerTexts();
+      buttons += items.length;
+      untranslated.push(...items.filter((i) => /[A-Za-z]{2}/.test(i) && !/^\[\[/.test(i.trim())).map((i) => `${name} › ${i}`));
+    }
+    expect(groups).toBeGreaterThan(40);
+    expect(buttons).toBeGreaterThan(150);
+    // Still English: markup, measure, CAD and flowchart tool names (the tool-labels PR) and the Bulk
+    // tab's processes (BATCH_LABELS; the dialogs PR). Lower this as those land.
+    expect(untranslated.filter((u) => u.includes(' › group ')), untranslated.join('\n')).toEqual([]);
+    expect(untranslated.length, untranslated.join('\n')).toBeLessThanOrEqual(103);
+
+    await ribbon.getByRole('tab').first().click();
+    await expect(app.page.locator('.ribbon [data-ribbon-command="edit.formatPainter"]')).toHaveCount(0);
+    expect(app.errors).toEqual([]);
+  });
+});
+
 test.describe('restarting with unsaved changes', () => {
   test.use({ settings: { ...IMPERIAL, uiLanguage: 'en-XA' } });
 

@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Assembly, Markup, MarkupStore } from '@nb/markup';
@@ -71,30 +72,30 @@ export function RibbonAssembly({ info, selection, enabled }: { info: TakeoffAsse
 
   const title =
     choice.target === 'none'
-      ? 'No measurements selected: select measurements, or nothing to set the next ones'
+      ? msg('No measurements selected: select measurements, or nothing to set the next ones')
       : value === '*'
-        ? 'The selected measurements use different assemblies: pick one to edit its variables'
+        ? msg('The selected measurements use different assemblies: pick one to edit its variables')
         : assembly
           ? `${assembly.name}: ${vars ? `${vars} variable${vars === 1 ? '' : 's'}` : 'no variables'}`
-          : 'Pick an assembly first';
+          : msg('Pick an assembly first');
   return (
     <div className="rb-stack rb-assembly">
       <select
-        aria-label="Takeoff assembly"
-        title={choice.target === 'none' ? 'No measurements selected' : `The assembly ${chosen.length ? 'the selected measurements are' : 'the next measurements are'} taken off as`}
+        aria-label={msg('Takeoff assembly')}
+        title={choice.target === 'none' ? msg('No measurements selected') : chosen.length ? msg('The assembly the selected measurements are taken off as') : msg('The assembly the next measurements are taken off as')}
         value={value}
         disabled={!canEdit}
         onChange={(e) => (e.target.value === '__manage' ? info?.onManage() : pick(e.target.value))}
       >
-        {value === '*' && <option value="*">(several)</option>}
-        <option value="">None</option>
+        {value === '*' && <option value="*">{msg('(several)')}</option>}
+        <option value="">{msg('None')}</option>
         {(info?.assemblies ?? []).map((a) => (
           <option key={a.id} value={a.id}>
             {a.name}
           </option>
         ))}
-        {value && value !== '*' && !assembly && <option value={value}>(deleted assembly)</option>}
-        <option value="__manage">Manage assemblies…</option>
+        {value && value !== '*' && !assembly && <option value={value}>{msg('(deleted assembly)')}</option>}
+        <option value="__manage">{msg('Manage assemblies…')}</option>
       </select>
       <span className="rb-asm-row">
         <button
@@ -111,25 +112,25 @@ export function RibbonAssembly({ info, selection, enabled }: { info: TakeoffAsse
             setOpen({ x: Math.max(4, Math.min(r.left, window.innerWidth - 284)), y: r.bottom + 2 });
           }}
         >
-          <span className="rb-label">Variables ▾</span>
+          <span className="rb-label">{msg('Variables ▾')}</span>
         </button>
-        <span className="rb-asm-applies" data-testid="assembly-applies" title="Where a change of assembly or variable goes">
+        <span className="rb-asm-applies" data-testid="assembly-applies" title={msg('Where a change of assembly or variable goes')}>
           {applies}
         </span>
       </span>
       {open &&
         assembly &&
         createPortal(
-          <div ref={pop} className="rb-asm-pop" role="dialog" aria-label="Assembly variables" style={{ left: open.x, top: open.y }} onKeyDown={(e) => e.stopPropagation()}>
+          <div ref={pop} className="rb-asm-pop" role="dialog" aria-label={msg('Assembly variables')} style={{ left: open.x, top: open.y }} onKeyDown={(e) => e.stopPropagation()}>
             <div className="rb-asm-head">
               <strong>{assembly.name}</strong>
-              <span className="muted">Applies to: {applies}</span>
+              <span className="muted">{msg('Applies to: {target}', { target: applies })}</span>
             </div>
             <AssemblyInputFields key={`${chosen.map((m) => m.id).join(',')}:${assembly.id}`} assembly={assembly} values={choice.values} varies={choice.varies} disabled={!canEdit} commitOnBlur onChange={setInput} />
-            <p className="muted rb-asm-note">{chosen.length ? 'Changes these measurements’ inputs (Enter or Tab to apply); their quantities follow.' : 'The next measurements you draw take these values (Enter or Tab to apply).'}</p>
+            <p className="muted rb-asm-note">{chosen.length ? msg('Changes these measurements’ inputs (Enter or Tab to apply); their quantities follow.') : msg('The next measurements you draw take these values (Enter or Tab to apply).')}</p>
             {setByHand && (
               <p className="warn rb-asm-note" role="note">
-                Some quantities were set by hand when the takeoff was approved: they stay as set, whatever these inputs.
+                {msg('Some quantities were set by hand when the takeoff was approved: they stay as set, whatever these inputs.')}
               </p>
             )}
           </div>,

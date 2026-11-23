@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import type { MarkupTools } from '../markup/MarkupTools';
 
 interface Props {
@@ -15,27 +16,27 @@ interface Props {
 export function TextSelectionBar({ tools, length, readOnly, onCopy }: Props) {
   const mark = (type: 'textHighlight' | 'underline' | 'strikeout' | 'squiggly') => () => tools.markSelectedText(type);
   return (
-    <div className="text-selection-bar" role="toolbar" aria-label="Selected text">
+    <div className="text-selection-bar" role="toolbar" aria-label={msg('Selected text')}>
       <span className="text-selection-count">
-        {length} character{length === 1 ? '' : 's'}
+        {msg('{count, plural, one {# character} other {# characters}}', { count: length })}
       </span>
-      <button type="button" className="btn" title="Copy the selected text (Ctrl+C)" onClick={onCopy}>
-        Copy
+      <button type="button" className="btn" title={msg('Copy the selected text (Ctrl+C)')} onClick={onCopy}>
+        {msg('Copy')}
       </button>
       <span className="sep" />
-      <button type="button" className="btn" disabled={readOnly} title="Highlight the selected text" onClick={mark('textHighlight')}>
-        Highlight
+      <button type="button" className="btn" disabled={readOnly} title={msg('Highlight the selected text')} onClick={mark('textHighlight')}>
+        {msg('Highlight')}
       </button>
-      <button type="button" className="btn u" disabled={readOnly} title="Underline the selected text" onClick={mark('underline')}>
-        Underline
+      <button type="button" className="btn u" disabled={readOnly} title={msg('Underline the selected text')} onClick={mark('underline')}>
+        {msg('Underline')}
       </button>
-      <button type="button" className="btn s" disabled={readOnly} title="Strike through the selected text" onClick={mark('strikeout')}>
-        Strikethrough
+      <button type="button" className="btn s" disabled={readOnly} title={msg('Strike through the selected text')} onClick={mark('strikeout')}>
+        {msg('Strikethrough')}
       </button>
-      <button type="button" className="btn" disabled={readOnly} title="Mark the selected text with a wavy line" onClick={mark('squiggly')}>
-        Squiggly
+      <button type="button" className="btn" disabled={readOnly} title={msg('Mark the selected text with a wavy line')} onClick={mark('squiggly')}>
+        {msg('Squiggly')}
       </button>
-      <button type="button" className="btn" title="Deselect (Esc)" aria-label="Deselect" onClick={() => tools.clearTextSelection()}>
+      <button type="button" className="btn" title={msg('Deselect (Esc)')} aria-label={msg('Deselect')} onClick={() => tools.clearTextSelection()}>
         ✕
       </button>
     </div>

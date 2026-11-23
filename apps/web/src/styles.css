@@ -2038,8 +2038,14 @@ select[size] {
   border-bottom: 0;
 }
 
+/* Tabs shrink, ending in "…", rather than run under the search and buttons after them: longer
+   languages and narrow windows. */
 .menubar .rb-tab {
-  flex: none;
+  flex: 0 1 auto;
+  min-width: 3.5em;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* The selected tab covers the menu bar's bottom edge, so it runs into the commands below. */
