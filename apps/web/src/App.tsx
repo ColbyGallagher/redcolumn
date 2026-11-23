@@ -12435,7 +12435,6 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   {
     id: 'stitching',
     title: 'Stitching',
-    experimental: true,
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M1.5 3.5h6v9h-6zM8.5 3.5h6v9h-6z" />
@@ -12446,7 +12445,6 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   {
     id: 'ai',
     title: 'Compare',
-    experimental: true,
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M1.5 2.5h4.5v11H1.5zM10 2.5h4.5v11H10z" />
