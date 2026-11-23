@@ -67,6 +67,51 @@ export function namedFontUses(markups: readonly Markup[]): Map<string, Set<strin
   return out;
 }
 
+// ---- Bundled fonts ------------------------------------------------------------------------------------
+
+/**
+ * Named fonts bundled in `public/fonts/` so they work on every browser and OS even when not
+ * installed locally. Each entry maps a family name to [regular, bold, italic, boldItalic].
+ */
+const BUNDLED_FONT_FILES: Record<string, [string, string, string, string]> = {
+  'Arial Narrow': [
+    'LiberationSansNarrow-Regular.ttf',
+    'LiberationSansNarrow-Bold.ttf',
+    'LiberationSansNarrow-Italic.ttf',
+    'LiberationSansNarrow-BoldItalic.ttf',
+  ],
+};
+
+const bundledCache = new Map<string, Promise<Uint8Array | null>>();
+
+function bundledKey(family: string): string | undefined {
+  const lower = family.toLowerCase();
+  return Object.keys(BUNDLED_FONT_FILES).find((k) => k.toLowerCase() === lower);
+}
+
+/** Whether a named font has bundled TrueType files in `public/fonts/`. */
+export function isBundledFont(family: string | undefined | null): boolean {
+  return typeof family === 'string' && bundledKey(family) !== undefined;
+}
+
+async function loadBundledFont(family: string, bold: boolean, italic: boolean): Promise<Uint8Array | null> {
+  const key = bundledKey(family);
+  if (!key) return null;
+  const file = BUNDLED_FONT_FILES[key]![(bold ? 1 : 0) + (italic ? 2 : 0)]!;
+  let p = bundledCache.get(file);
+  if (!p) {
+    const base = typeof import.meta !== 'undefined' && import.meta.env?.BASE_URL ? import.meta.env.BASE_URL : '/';
+    p = fetch(`${base}fonts/${file}`)
+      .then(async (r) => (r.ok ? new Uint8Array(await r.arrayBuffer()) : null))
+      .catch(() => null);
+    void p.then((res) => {
+      if (!res) bundledCache.delete(file);
+    });
+    bundledCache.set(file, p);
+  }
+  return p;
+}
+
 // ---- The list -------------------------------------------------------------------------------------------
 
 let listed: SystemFontFamily[] | null = null;
@@ -75,6 +120,30 @@ let listing: Promise<SystemFontFamily[]> | null = null;
 const localHandles = new Map<string, LocalFont>();
 
 const styleFlags = (style: string) => ({ bold: /\b(bold|black|heavy|semibold|demibold|extrabold)\b/i.test(style), italic: /\b(italic|oblique)\b/i.test(style) });
+
+const RIBBI_WORDS = new Set(['regular', 'normal', 'book', 'roman', 'bold', 'italic', 'oblique']);
+
+/**
+ * Splits a browser LocalFont's typographic subfamily (e.g. family "Arial", style "Narrow Bold")
+ * into a 4-style RIBBI family and style ("Arial Narrow", "Bold"), matching how desktop font
+ * scanning uses OpenType name IDs 1 & 2. Plain Regular/Bold/Italic/Bold Italic styles stay
+ * under the base family.
+ */
+export function splitBrowserFontFamily(family: string, style: string): { family: string; style: string } {
+  const words = style.trim().split(/\s+/).filter(Boolean);
+  const qualifier: string[] = [];
+  const ribbi: string[] = [];
+  for (const w of words) {
+    if (RIBBI_WORDS.has(w.toLowerCase())) ribbi.push(w);
+    else qualifier.push(w);
+  }
+  if (!qualifier.length) return { family, style: style.trim() || 'Regular' };
+  const suffix = qualifier.join(' ');
+  const lowerFamily = family.toLowerCase();
+  const lowerSuffix = suffix.toLowerCase();
+  const fullFamily = lowerFamily === lowerSuffix || lowerFamily.endsWith(` ${lowerSuffix}`) ? family : `${family} ${suffix}`;
+  return { family: fullFamily, style: ribbi.join(' ') || 'Regular' };
+}
 
 /** Whether this window can list installed fonts at all (the desktop app, or a browser with the Local Font Access API). */
 export const canListSystemFonts = (): boolean => !!desktop()?.fonts || typeof window !== 'undefined' && typeof window.queryLocalFonts === 'function';
@@ -93,8 +162,9 @@ export function listSystemFonts(): Promise<SystemFontFamily[]> {
       const families = new Map<string, SystemFontFamily>();
       for (const f of fonts) {
         localHandles.set(f.postscriptName, f);
-        if (!families.has(f.family)) families.set(f.family, { family: f.family, styles: [] });
-        families.get(f.family)!.styles.push({ id: f.postscriptName, style: f.style, ...styleFlags(f.style) });
+        const { family, style } = splitBrowserFontFamily(f.family, f.style);
+        if (!families.has(family)) families.set(family, { family, styles: [] });
+        families.get(family)!.styles.push({ id: f.postscriptName, style, ...styleFlags(style) });
       }
       const out = [...families.values()].sort((a, b) => a.family.localeCompare(b.family));
       if (out.length) listed = out;
@@ -111,16 +181,22 @@ export function listSystemFonts(): Promise<SystemFontFamily[]> {
 /** The font file for a family at a weight and slant, or null where it is not installed or cannot be read. */
 export async function loadSystemFont(family: string, bold: boolean, italic: boolean): Promise<Uint8Array | null> {
   try {
-    const entry = (listed ?? (await listSystemFonts())).find((f) => f.family === family);
-    const style = entry && pickStyle(entry.styles, bold, italic);
-    if (!style) return null;
     const host = desktop()?.fonts;
-    if (host) return await host.read(style.id);
-    const handle = localHandles.get(style.id);
-    return handle ? new Uint8Array(await (await handle.blob()).arrayBuffer()) : null;
+    // Only query installed fonts without prompting: in the desktop app, or once already listed in a browser,
+    // or for non-bundled fonts that have no fallback.
+    const available = listed ?? (host || !isBundledFont(family) ? await listSystemFonts() : []);
+    const lower = family.toLowerCase();
+    const entry = available.find((f) => f.family.toLowerCase() === lower);
+    const style = entry && pickStyle(entry.styles, bold, italic);
+    if (style) {
+      if (host) return await host.read(style.id);
+      const handle = localHandles.get(style.id);
+      if (handle) return new Uint8Array(await (await handle.blob()).arrayBuffer());
+    }
   } catch {
-    return null;
+    // Fall through to bundled font if one exists.
   }
+  return loadBundledFont(family, bold, italic);
 }
 
 /** For `exportWithAnnotations({ systemFonts })`: installed fonts embedded into the exported PDF. */
@@ -191,6 +267,29 @@ export async function ensureMarkupFonts(markups: readonly Markup[]): Promise<voi
       const next: Status = status.get(family) === 'ready' || browserHasFont(family) ? 'ready' : 'missing';
       if (status.get(family) !== next) changed = true;
       status.set(family, next);
+    }
+  }
+  if (changed) for (const cb of listeners) cb();
+}
+
+/** Loads the regular face of every bundled font into `document.fonts` so the picker can preview it. */
+export async function ensureBundledFonts(): Promise<void> {
+  if (typeof document === 'undefined' || !document.fonts) return;
+  let changed = false;
+  for (const family of Object.keys(BUNDLED_FONT_FILES)) {
+    const key = `${family}|00`;
+    if (registered.has(key)) continue;
+    registered.add(key);
+    const bytes = await loadSystemFont(family, false, false);
+    if (bytes) {
+      try {
+        const face = new FontFace(family, bytes as BufferSource, { weight: '400', style: 'normal' });
+        document.fonts.add(await face.load());
+        if (status.get(family) !== 'ready') changed = true;
+        status.set(family, 'ready');
+      } catch {
+        // Leave it to CSS fallback.
+      }
     }
   }
   if (changed) for (const cb of listeners) cb();

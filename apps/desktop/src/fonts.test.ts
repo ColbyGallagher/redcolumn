@@ -101,3 +101,10 @@ test('the font folders per system', () => {
   assert.deepEqual(systemFontDirs('win32', { WINDIR: 'C:\\Windows', LOCALAPPDATA: 'C:\\Users\\me\\AppData\\Local' }), ['C:\\Windows\\Fonts', 'C:\\Users\\me\\AppData\\Local\\Microsoft\\Windows\\Fonts']);
   assert.deepEqual(systemFontDirs('darwin', {}, '/Users/me'), ['/System/Library/Fonts', '/Library/Fonts', '/Users/me/Library/Fonts']);
 });
+
+test('width subfamilies like Arial Narrow stay separate via name ID 1', async () => {
+  const dir = await folder({ 'a.ttf': 'LiberationSans-Regular.ttf', 'n.ttf': 'LiberationSansNarrow-Regular.ttf', 'nb.ttf': 'LiberationSansNarrow-Bold.ttf' });
+  const list = await new SystemFonts([dir]).list();
+  assert.deepEqual(list.map((f) => f.family), ['Liberation Sans', 'Liberation Sans Narrow']);
+  assert.deepEqual(list[1]!.styles.map((s) => [s.style, s.bold, s.italic]), [['Regular', false, false], ['Bold', true, false]]);
+});

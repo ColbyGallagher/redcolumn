@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { CountTool } from '../search/countFromHits';
+import { CountSymbolSwatch } from './CountSymbolSwatch';
 
 interface Props {
   /** How many found items will be counted. */
@@ -14,7 +15,9 @@ interface Props {
 export function CountToolDialog({ total, tools, onApply, onCancel }: Props) {
   const [choice, setChoice] = useState<string>('');
   const tool = tools.find((t) => t.id === choice) ?? null;
-  const swatch = (t: CountTool | null) => <span className="count-tool-swatch" aria-hidden="true" style={{ background: t?.style.stroke ?? '#e03131' }} />;
+  const swatch = (t: CountTool | null) => (
+    <CountSymbolSwatch shape={t?.style.countShape ?? 'circle'} symbol={t?.style.countSymbol} style={t?.style} size={18} className="count-tool-swatch-canvas" />
+  );
   return (
     <div className="modal-backdrop" onMouseDown={onCancel}>
       <form

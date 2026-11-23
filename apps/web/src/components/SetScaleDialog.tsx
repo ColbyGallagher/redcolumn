@@ -14,7 +14,7 @@ import {
   type Scale,
 } from '@nb/measure';
 import { SCALE_GROUPS, unitsFor, useSettings } from '../settings/settings';
-import { PAPER_UNITS, closeScale, loadPresets, matchPreset, pagesOf, precisionText, precisionValue, rangeText, writePresets, type SavedPreset } from '../measure/scalePresets';
+import { PAPER_UNITS, closeScale, loadPresets, committedFormat, matchPreset, pagesOf, precisionText, precisionValue, rangeText, writePresets, type SavedPreset } from '../measure/scalePresets';
 
 interface Props {
   /** Scale of the first page the dialog acts on, used to fill the fields. */
@@ -89,8 +89,7 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
 
   const built = ((): Scale | null => {
     if (!xBase) return null;
-    const feetInches = precValue[0] === 'f';
-    const precision = Number(precValue.slice(1));
+    const { feetInches, precision } = committedFormat(precValue, xBase.unit, scale);
     const builtin = SCALE_PRESETS.find((p) => closeScale(p.scale, xBase));
     const next: Scale = { ...(builtin?.scale ?? xBase), feetInches, precision };
     // Area and volume wording set elsewhere stays with the page.
