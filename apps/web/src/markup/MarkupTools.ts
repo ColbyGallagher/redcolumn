@@ -22,11 +22,18 @@ import {
   joinPaths,
   bulgeMidpoint,
   eraseStroke,
+  calloutKneeForSide,
+  calloutKneeIndices,
   calloutLanding,
   calloutLeaders,
   calloutPoints,
+  calloutRelocateKneeForTip,
+  calloutSideForPoint,
+  calloutStackedKnees,
   contentBox,
+  isCalloutKnee,
   isCalloutTip,
+  snapCalloutKnee,
   CLICK_SHAPES,
   DEFAULT_STYLES,
   drawMarkup,
@@ -323,7 +330,11 @@ type Gesture =
   | { kind: 'groupXform'; ids: string[]; groupId: string; handle: GroupHandle; f: GroupFrame; t: MarkupAffine; angle: number }
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
   | { kind: 'calloutBox'; id: string; start: Point; dx: number; dy: number }
-  | { kind: 'handle'; id: string; index: number; point: Point }
+  /** Placing a callout: first click sets the arrow tip, second click places the text box. */
+  | { kind: 'calloutPlace'; markup: Markup; tip: Point; down: Point }
+  /** Adding a leader to an existing callout: the new arrow tip follows the pointer until clicked. */
+  | { kind: 'calloutLeader'; id: string; tip: Point | null }
+  | { kind: 'handle'; id: string; index: number; point: Point; linkedIndices?: number[]; calloutSnap?: Point | null }
   /** Alt-dragging a segment's midpoint knob of a measurement: the segment curves through the pointer. */
   | { kind: 'bend'; id: string; segment: number; bulge: number }
   /** Dragging a middle segment of an elbow connector across (to `to`, a y or an x), as Visio's segment handles do. */
@@ -693,6 +704,8 @@ export class MarkupTools implements ViewerOverlay {
   private outlineCache = new WeakMap<Markup, number[]>();
   /** Page the current pointer event is on (pages differ across a stitched view). */
   private page = 0;
+  /** Most recent pointer position on a page, used so Add Leader sticks to the cursor immediately. */
+  private lastPointer: { pageIndex: number; at: Point } | null = null;
 
   constructor(
     private viewer: TileViewer,
@@ -2020,31 +2033,16 @@ export class MarkupTools implements ViewerOverlay {
     store.batch(() => chosen.sort((a, b) => a.createdAt - b.createdAt).forEach((m, i) => store.update(m.id, { createdAt: edge + i })));
   }
 
-  /** Gives a callout another leader, on the side of its text box away from the existing ones. */
+  /**
+   * Starts adding another leader to a callout: the new arrow tip follows the pointer until clicked
+   * (Escape or right-click cancels).
+   */
   addCalloutLeader(id: string) {
     const m = this.store?.get(id);
-    if (!this.store || !m || m.type !== 'callout' || this.frozen(m) || m.points.length < 4) return;
-    const z = this.viewer.zoomFor(m.pageIndex);
-    const box = contentBox(m);
-    const [cx, cy] = [box.x + box.w / 2, box.y + box.h / 2];
-    const land = CALLOUT_LANDING_PX / z;
-    const reach = 50 / z;
-    const used = calloutLeaders(m.points).length;
-    // Opposite the first leader, then fanned out so further ones do not sit on top of each other.
-    const opposite = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' } as const;
-    const side = opposite[calloutLanding(m.points[1]!, box).side];
-    const fan = (((used - 1) % 3) - 1) * 30 / z;
-    const [knee, tip]: [Point, Point] =
-      side === 'left'
-        ? [[box.x - land, cy + fan], [box.x - land - reach, cy + fan + 30 / z]]
-        : side === 'right'
-          ? [[box.x + box.w + land, cy + fan], [box.x + box.w + land + reach, cy + fan + 30 / z]]
-          : side === 'top'
-            ? [[cx + fan, box.y - land], [cx + fan + 30 / z, box.y - land - reach]]
-            : [[cx + fan, box.y + box.h + land], [cx + fan + 30 / z, box.y + box.h + land + reach]];
-    this.store.checkpoint();
-    this.store.update(id, { points: [...m.points, tip, knee] });
-    this.select([id]);
+    if (!this.store || this.store.readOnly || !m || m.type !== 'callout' || this.frozen(m) || m.points.length < 4) return;
+    const tip = this.lastPointer?.pageIndex === m.pageIndex ? this.lastPointer.at : null;
+    this.setState({ tool: 'select', selected: new Set([id]) });
+    this.setGesture({ kind: 'calloutLeader', id, tip });
   }
 
   /** Takes away a callout's most recently added leader (the first one stays). */
@@ -2501,7 +2499,7 @@ export class MarkupTools implements ViewerOverlay {
       for (const r of markupLines(g.markup.points)) ctx.fillRect(r.x, r.y, r.w, r.h);
       ctx.restore();
     }
-    if ((g?.kind === 'draw' || g?.kind === 'textMark' || g?.kind === 'pendingHighlight') && g.markup.pageIndex === pageIndex && g.markup.points.length) drawMarkup(ctx, g.markup, zoom, store.scaleOf(g.markup), legends);
+    if ((g?.kind === 'draw' || g?.kind === 'calloutPlace' || g?.kind === 'textMark' || g?.kind === 'pendingHighlight') && g.markup.pageIndex === pageIndex && g.markup.points.length) drawMarkup(ctx, g.markup, zoom, store.scaleOf(g.markup), legends);
     if (g?.kind === 'multi' && g.markup.pageIndex === pageIndex) {
       const { markup, hover } = g;
       let live = g.dragRect ? { ...markup, points: g.dragRect } : hover && markup.type !== 'count' ? { ...markup, points: [...markup.points, hover] } : markup;
@@ -2579,6 +2577,19 @@ export class MarkupTools implements ViewerOverlay {
     if (this.snapHit && this.snapPage === pageIndex) {
       drawSnapIndicator(ctx, this.snapHit, zoom);
       if (!this.snapIsGrid) drawSnapTip(ctx, SNAP_NAMES[this.snapHit.kind], this.snapHit.point, zoom);
+    }
+    if (g?.kind === 'handle' && g.calloutSnap && store.get(g.id)?.pageIndex === pageIndex) {
+      const [sx, sy] = g.calloutSnap;
+      const r = 5 / zoom;
+      ctx.save();
+      ctx.strokeStyle = '#2563eb';
+      ctx.fillStyle = 'rgba(37, 99, 235, 0.2)';
+      ctx.lineWidth = 1.5 / zoom;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
     }
     if (this.ghost?.pageIndex === pageIndex && this.state.tool === 'eraser') {
       const [x, y] = this.ghost.at;
@@ -3031,6 +3042,40 @@ export class MarkupTools implements ViewerOverlay {
     // Pressing anywhere else lets go of selected text (a drag over words picks new text).
     if (e.button === 0) this.clearTextSelection();
 
+    // Adding a leader to a callout: left-click places the arrow tip, right-click cancels.
+    if (this.gesture?.kind === 'calloutLeader') {
+      const g = this.gesture;
+      this.setGesture(null);
+      this.snapHit = null;
+      if (e.button !== 0) return true;
+      const m = this.store.get(g.id);
+      if (m && m.type === 'callout' && !this.frozen(m) && !this.store.readOnly && m.points.length >= 4 && pageIndex === m.pageIndex) {
+        const tip = this.resolve(pt, e, null, m.id);
+        const box = contentBox(m);
+        const zoom = this.viewer.zoomFor(m.pageIndex);
+        const knee = calloutKneeForSide(calloutSideForPoint(tip, box), box, CALLOUT_LANDING_PX / zoom);
+        this.store.checkpoint();
+        this.store.update(m.id, { points: [...m.points, tip, knee] });
+        this.select([m.id]);
+      }
+      return true;
+    }
+
+    // Placing a callout (second click): places the text box and finishes.
+    if (this.gesture?.kind === 'calloutPlace') {
+      const g = this.gesture;
+      this.setGesture(null);
+      this.snapHit = null;
+      if (e.button !== 0) return true;
+      if (pageIndex === g.markup.pageIndex) {
+        const zoom = this.viewer.zoomFor(pageIndex);
+        g.markup.points = calloutPoints(g.tip, toPoint(pt), CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom);
+      }
+      this.store.checkpoint();
+      this.commitDraft(g.markup);
+      return true;
+    }
+
     // The Geospatial panel's model: dragged, or a point on it or the sheet picked for alignment.
     const geo = this.geoOverlay;
     const layer = this.geoLayer(pageIndex);
@@ -3257,6 +3302,16 @@ export class MarkupTools implements ViewerOverlay {
     if (tool !== 'select' && tool !== 'calibrate') {
       // Highlight marks the words under the pointer. Ctrl draws a free stroke, including over text.
       if (tool === 'highlighter' && this.startHighlighter(e, pageIndex, toPoint(pt))) return true;
+      // Callout: first click places the arrow tip, second click places the text box (Bluebeam workflow).
+      if (tool === 'callout') {
+        if (e.button !== 0) return false;
+        const tip = this.resolve(pt, e, null);
+        const zoom = this.viewer.zoomFor(pageIndex);
+        const land = CALLOUT_LANDING_PX / zoom;
+        const markup = this.newMarkup('callout', pageIndex, calloutPoints(tip, [tip[0] + land, tip[1]], CALLOUT_BOX.w, CALLOUT_BOX.h, land));
+        this.setGesture({ kind: 'calloutPlace', markup, tip, down: tip });
+        return true;
+      }
       // Cloud+ draws a cloud, then adds a callout pointing at it.
       const type: MarkupType = tool === 'cloudPlus' ? 'cloud' : (tool as MarkupType);
       // A connector glues to shapes rather than snapping to points.
@@ -3315,7 +3370,9 @@ export class MarkupTools implements ViewerOverlay {
           if (arcs && !this.store.readOnly) this.toggleSmooth(m, index);
           return true;
         }
-        this.setGesture({ kind: 'handle', id: m.id, index, point: p });
+        const linkedIndices =
+          m.type === 'callout' && isCalloutKnee(index) && !e.altKey ? calloutStackedKnees(m.points, index, Math.max(0.5, 2 / zoom)) : undefined;
+        this.setGesture({ kind: 'handle', id: m.id, index, point: p, ...(linkedIndices && linkedIndices.length > 1 ? { linkedIndices } : {}) });
         return true;
       }
       // Shift-click on a measurement's segment adds a vertex there (a curved segment splits into two arcs of the same curve).
@@ -3449,8 +3506,22 @@ export class MarkupTools implements ViewerOverlay {
 
   pointerMove(e: PointerEvent, pt: PagePoint, pageIndex: number) {
     this.page = pageIndex;
+    this.lastPointer = { pageIndex, at: toPoint(pt) };
     const g = this.gesture;
     if (!g || g.kind === 'link' || g.kind === 'formField') return;
+    if (g.kind === 'calloutLeader') {
+      const m = this.store?.get(g.id);
+      if (m && pageIndex === m.pageIndex) g.tip = this.resolve(pt, e, null, g.id);
+      this.viewer.invalidate();
+      return;
+    }
+    if (g.kind === 'calloutPlace') {
+      if (pageIndex === g.markup.pageIndex) {
+        g.markup.points = calloutPoints(g.tip, toPoint(pt), CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / this.viewer.zoomFor(pageIndex));
+        this.viewer.invalidate();
+      }
+      return;
+    }
     if (g.kind === 'guideEnd') {
       const line = this.stitchGuides?.lines.find((l) => l.id === g.id);
       if (!line) return;
@@ -3617,7 +3688,20 @@ export class MarkupTools implements ViewerOverlay {
     } else {
       const m = this.store?.get(g.id);
       const anchor = m && CLICK_SHAPES[m.type] ? (m.points[g.index - 1] ?? m.points[g.index + 1] ?? null) : null;
-      if (m && m.type !== 'connector' && g.index < 4 && lockedRatio(m, e.shiftKey)) {
+      if (m && m.type === 'callout' && isCalloutKnee(g.index)) {
+        const raw = toPoint(pt);
+        this.snapHit = null;
+        if (e.altKey) {
+          g.point = raw;
+          g.calloutSnap = null;
+        } else {
+          const moving = new Set(g.linkedIndices ?? [g.index]);
+          const otherKnees = calloutKneeIndices(m.points).filter((k) => !moving.has(k)).map((k) => m.points[k]!);
+          const snap = snapCalloutKnee(raw, contentBox(m), otherKnees, snapPx() / this.viewer.zoomFor(this.page));
+          g.point = snap.point;
+          g.calloutSnap = snap.snappedTo;
+        }
+      } else if (m && m.type !== 'connector' && g.index < 4 && lockedRatio(m, e.shiftKey)) {
         // The corner rides the box's diagonal, so snapping to a point off it would only mislead.
         this.snapHit = null;
         g.point = cornerKeepingAspect(m, g.index, toPoint(pt));
@@ -3711,8 +3795,19 @@ export class MarkupTools implements ViewerOverlay {
       }
       return;
     }
-    // Scale to Length goes click by click.
-    if (g.kind === 'scaleRef') return;
+    // Scale to Length and Add Leader go click by click.
+    if (g.kind === 'scaleRef' || g.kind === 'calloutLeader') return;
+    if (g.kind === 'calloutPlace') {
+      // A click stays in placement mode for the second click; a deliberate drag finishes immediately.
+      const zoom = this.viewer.zoomFor(g.markup.pageIndex);
+      if (Math.hypot(pt[0] - g.down[0], pt[1] - g.down[1]) * zoom > this.dragPx * 2) {
+        g.markup.points = calloutPoints(g.tip, toPoint(pt), CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom);
+        this.setGesture(null);
+        this.store.checkpoint();
+        this.commitDraft(g.markup);
+      }
+      return;
+    }
     this.setGesture(null);
     if (g.kind === 'link') {
       if (Math.hypot(pt[0] - g.start[0], pt[1] - g.start[1]) * this.viewer.zoomFor(this.page) < this.dragPx) this.options.onFollowLink(g.link);
@@ -3801,13 +3896,13 @@ export class MarkupTools implements ViewerOverlay {
       } else if (g.drill) this.selectOnly([g.drill]);
     } else if (g.kind === 'calloutBox') {
       const m = this.store.get(g.id);
-      if (m && (g.dx || g.dy)) this.store.update(g.id, { points: calloutBoxMoved(m.points, g.dx, g.dy) });
+      if (m && (g.dx || g.dy)) this.store.update(g.id, { points: calloutBoxMoved(m.points, g.dx, g.dy, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex)) });
     } else if (g.kind === 'handle') {
       const m = this.store.get(g.id);
       if (m?.type === 'connector') {
         const next = this.connectorEndMoved(m, g.index, g.point);
         this.store.update(g.id, { points: next.points, connect: next.connect });
-      } else if (m) this.store.update(g.id, { points: handleEdit(m, g.index, g.point) });
+      } else if (m) this.store.update(g.id, { points: handleEdit(m, g.index, g.point, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex), g.linkedIndices) });
     } else if (g.kind === 'bend') {
       const m = this.store.get(g.id);
       if (m) this.store.update(g.id, { bulges: withBulge(m, g.segment, g.bulge) });
@@ -3906,6 +4001,7 @@ export class MarkupTools implements ViewerOverlay {
 
   hover(pt: PagePoint | null, pageIndex: number): string | null {
     this.page = pageIndex;
+    this.lastPointer = pt ? { pageIndex, at: toPoint(pt) } : null;
     const tool = pt && this.selectsHere(pageIndex, pt) ? 'select' : this.state.tool;
     if (!pt) {
       this.hidePopup();
@@ -3914,8 +4010,23 @@ export class MarkupTools implements ViewerOverlay {
       this.pickIds = [];
       this.connectHover = null;
       if (this.gesture?.kind === 'multi') this.gesture.hover = null;
+      if (this.gesture?.kind === 'calloutLeader') this.gesture.tip = null;
       this.viewer.invalidate();
       return null;
+    }
+    if (this.gesture?.kind === 'calloutLeader') {
+      const m = this.store?.get(this.gesture.id);
+      if (m && pageIndex === m.pageIndex) this.gesture.tip = this.resolve(pt, lastModifiers, null, this.gesture.id);
+      this.viewer.invalidate();
+      return 'crosshair';
+    }
+    if (this.gesture?.kind === 'calloutPlace') {
+      if (pageIndex === this.gesture.markup.pageIndex) {
+        const zoom = this.viewer.zoomFor(pageIndex);
+        this.gesture.markup.points = calloutPoints(this.gesture.tip, toPoint(pt), CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom);
+        this.viewer.invalidate();
+      }
+      return 'crosshair';
     }
     const geo = this.geoOverlay;
     if (geo && geo.mode !== 'none' && this.geoLayer(pageIndex)) {
@@ -4004,7 +4115,7 @@ export class MarkupTools implements ViewerOverlay {
       }
       this.resolve(pt, mods, null);
     } else if (anchor && anchor.pageIndex === pageIndex) anchor.hover = this.resolve(pt, mods, anchor.at);
-    else if (tool === 'calibrate' || tool === 'matchLine' || tool === 'stitchPolygon' || tool === 'portalPolygon' || tool === 'snapshot' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
+    else if (tool === 'calibrate' || tool === 'matchLine' || tool === 'stitchPolygon' || tool === 'portalPolygon' || tool === 'snapshot' || tool === 'callout' || (isMarkupTool(tool) && snapsWhileDrawing(tool))) this.resolve(pt, mods, null);
     this.viewer.invalidate();
     return 'crosshair';
   }
@@ -5072,8 +5183,17 @@ export class MarkupTools implements ViewerOverlay {
   private ownPreview(m: Markup): Markup {
     const g = this.gesture;
     if (g?.kind === 'move' && !g.copy && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
-    if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy) };
-    if (g?.kind === 'handle' && g.id === m.id) return m.type === 'connector' ? this.connectorEndMoved(m, g.index, g.point) : { ...m, points: handleEdit(m, g.index, g.point) };
+    if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex)) };
+    if (g?.kind === 'calloutLeader' && g.id === m.id && g.tip && m.points.length >= 4) {
+      const box = contentBox(m);
+      const knee = calloutKneeForSide(calloutSideForPoint(g.tip, box), box, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex));
+      return { ...m, points: [...m.points, g.tip, knee] };
+    }
+    if (g?.kind === 'handle' && g.id === m.id) {
+      return m.type === 'connector'
+        ? this.connectorEndMoved(m, g.index, g.point)
+        : { ...m, points: handleEdit(m, g.index, g.point, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex), g.linkedIndices) };
+    }
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
     if (g?.kind === 'segment' && g.id === m.id) return this.withBends(m, moveSegment(g.route, g.mid, g.to, g.start));
     if (g?.kind === 'rotate' && g.id === m.id) return { ...m, rotation: g.angle };
@@ -5312,8 +5432,46 @@ function midpoints(m: Markup): { index: number; at: Point }[] {
  * edges, its edge handles one; whichever it is, the handle across from it stays where it is on the
  * page, rotated box or not.
  */
-function handleEdit(m: Markup, index: number, point: Point): Point[] {
+function handleEdit(m: Markup, index: number, point: Point, defaultLanding = CALLOUT_LANDING_PX, linkedIndices?: readonly number[]): Point[] {
   const points = [...m.points];
+  if (m.type === 'callout' && points.length >= 4) {
+    // Box corner or edge-midpoint handle (indices 2, 3, or appended beyond m.points).
+    if (index === 2 || index === 3 || index >= points.length) {
+      const bi = index === 2 ? 0 : index === 3 ? 1 : index - points.length + 2;
+      const [a, b] = [points[2]!, points[3]!];
+      let [ax, ay, bx, by] = [a[0], a[1], b[0], b[1]];
+      switch (bi) {
+        case 0: [ax, ay] = point; break;
+        case 1: [bx, by] = point; break;
+        case 2: [bx, ay] = point; break;
+        case 3: [ax, by] = point; break;
+        case 4: ay = point[1]; break;
+        case 5: by = point[1]; break;
+        case 6: ax = point[0]; break;
+        default: bx = point[0];
+      }
+      points[2] = [ax, ay];
+      points[3] = [bx, by];
+      return points;
+    }
+    // Arrow tip handle: move the tip and re-attach its knee to the facing side if it crossed sides.
+    if (isCalloutTip(index) && index + 1 < points.length) {
+      points[index] = point;
+      const box = boundsOf(points.slice(2, 4));
+      points[index + 1] = calloutRelocateKneeForTip(point, points[index + 1]!, box, defaultLanding);
+      return points;
+    }
+    // Leader knee handle: move it along with any other knees stacked at the same position.
+    if (isCalloutKnee(index)) {
+      points[index] = point;
+      if (linkedIndices) {
+        for (const k of linkedIndices) if (k < points.length) points[k] = point;
+      }
+      return points;
+    }
+    points[index] = point;
+    return points;
+  }
   if (TYPE_INFO[m.type].handles !== 'box' || points.length !== 2) {
     if (!m.rotation || TYPE_INFO[m.type].handles !== 'ends' || points.length !== 2) {
       points[index] = point;
@@ -5380,8 +5538,15 @@ function cornerKeepingAspect(m: Markup, index: number, point: Point): Point {
 }
 
 /** A callout's points with everything but the arrow tips (the knee and the box) moved by (dx, dy). */
-function calloutBoxMoved(points: readonly Point[], dx: number, dy: number): Point[] {
-  return points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy]));
+function calloutBoxMoved(points: readonly Point[], dx: number, dy: number, defaultLanding = CALLOUT_LANDING_PX): Point[] {
+  const next = points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy]));
+  if (next.length < 4) return next;
+  const box = boundsOf(next.slice(2, 4));
+  next[1] = calloutRelocateKneeForTip(next[0]!, next[1]!, box, defaultLanding);
+  for (let i = 4; i + 1 < next.length; i += 2) {
+    next[i + 1] = calloutRelocateKneeForTip(next[i]!, next[i + 1]!, box, defaultLanding);
+  }
+  return next;
 }
 
 /** How much a separate Y scale stretches the page up it, relative to across it (1 without one). */
