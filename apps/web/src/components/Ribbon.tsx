@@ -264,6 +264,7 @@ const TABS: { id: TabId; label: string }[] = [
 ];
 
 const TAB_KEY = 'rc.ribbonTab';
+const FORMAT_MODIFY_KEY = 'rc.formatModifyOpen';
 
 function savedTab(): TabId {
   try {
@@ -274,6 +275,135 @@ function savedTab(): TabId {
   }
   return 'home';
 }
+
+function savedFormatModify(): boolean {
+  try {
+    return localStorage.getItem(FORMAT_MODIFY_KEY) === '1';
+  } catch {
+    /* storage off limits: start collapsed */
+    return false;
+  }
+}
+
+interface FormatModifyItem {
+  id: string;
+  label?: string;
+  size?: Size;
+}
+
+interface FormatModifyGroup {
+  label: string;
+  items: readonly FormatModifyItem[];
+  /** Use the compact 3-row icon grid when more than 3 commands are available. */
+  iconGrid?: boolean;
+}
+
+/** Modify tab tools that operate on selected markups, shown (collapsible) on the Markup Format tab. */
+const FORMAT_MODIFY_GROUPS: readonly FormatModifyGroup[] = [
+  {
+    label: 'Transform',
+    items: [
+      { id: 'edit.move', size: 'large' },
+      { id: 'edit.copyBase', label: 'Copy' },
+      { id: 'edit.rotate' },
+      { id: 'edit.scale' },
+      { id: 'edit.mirror' },
+      { id: 'edit.stretch' },
+      { id: 'edit.alignPoints' },
+      { id: 'edit.scaleToLength' },
+      { id: 'edit.flipHorizontal' },
+      { id: 'edit.flipVertical' },
+      { id: 'edit.cropImage' },
+      { id: 'edit.resetCrop' },
+    ],
+  },
+  {
+    label: 'Picture',
+    items: [
+      { id: 'edit.adjustImage', label: 'Adjust Image', size: 'large' },
+      { id: 'edit.pictureColours', label: 'Colours' },
+    ],
+  },
+  {
+    label: 'Edit Geometry',
+    items: [
+      { id: 'edit.offset', size: 'large' },
+      { id: 'edit.trim' },
+      { id: 'edit.extend' },
+      { id: 'edit.break' },
+      { id: 'edit.lengthen' },
+      { id: 'edit.fillet' },
+      { id: 'edit.chamfer' },
+    ],
+  },
+  {
+    label: 'Convert',
+    items: [
+      { id: 'edit.join' },
+      { id: 'edit.explode' },
+      { id: 'edit.reverse' },
+      { id: 'edit.toCloud' },
+      { id: 'edit.autoSize', label: 'Auto-size Text' },
+    ],
+  },
+  {
+    label: 'Pattern',
+    items: [
+      { id: 'edit.arrayPolar' },
+      { id: 'edit.arrayPath' },
+      { id: 'edit.divide' },
+      { id: 'edit.multiply' },
+    ],
+  },
+  {
+    label: 'Arrange',
+    items: [
+      { id: 'edit.bringToFront' },
+      { id: 'edit.bringForward' },
+      { id: 'edit.sendBackward' },
+      { id: 'edit.sendToBack' },
+    ],
+  },
+  {
+    label: 'Align',
+    iconGrid: true,
+    items: [
+      { id: 'edit.alignLeft' },
+      { id: 'edit.alignCenter' },
+      { id: 'edit.alignRight' },
+      { id: 'edit.alignTop' },
+      { id: 'edit.alignMiddle' },
+      { id: 'edit.alignBottom' },
+      { id: 'edit.distributeHorizontal' },
+      { id: 'edit.distributeVertical' },
+      { id: 'edit.centerInDocument' },
+      { id: 'edit.sameWidth' },
+      { id: 'edit.sameHeight' },
+      { id: 'edit.sameSize' },
+    ],
+  },
+  {
+    label: 'Group',
+    items: [
+      { id: 'edit.group' },
+      { id: 'edit.ungroup' },
+      { id: 'edit.lock' },
+    ],
+  },
+  {
+    label: 'Remove',
+    items: [
+      { id: 'edit.delete', size: 'large' },
+      { id: 'edit.hide' },
+      { id: 'edit.editAction' },
+    ],
+  },
+];
+
+/** Commands that still make sense when every selected markup is locked. */
+const LOCKED_MODIFY_COMMANDS = new Set(['edit.lock', 'edit.copyBase', 'edit.hide', 'edit.editAction']);
+
+const MODIFY_TOGGLE_ICON = ic('M10.5 2a3 3 0 0 0-3.7 3.7L2 10.5 4.5 13l4.8-4.8A3 3 0 0 0 13 4.5l-2 2-1.5-1.5 2-2z');
 
 export interface RibbonProps {
   /** Every command by id: the ribbon's buttons run them and show their enabled and checked state. */
@@ -450,14 +580,14 @@ const TabCtx = createContext<TabId>('home');
 
 const groupKey = (tab: TabId, label: string) => `${tab}/${label}`;
 
-function Group({ label, children, wide }: { label: string; children: ReactNode; wide?: boolean }) {
+function Group({ label, children, wide, hideLabel }: { label: string; children: ReactNode; wide?: boolean; hideLabel?: boolean }) {
   const tab = useContext(TabCtx);
   const { hiddenRibbonGroups } = useSettings();
   if (hiddenRibbonGroups.includes(groupKey(tab, label))) return null;
   return (
-  <div className={`rb-group${wide ? ' wide' : ''}`} role="group" aria-label={label}>
+  <div className={`rb-group${wide ? ' wide' : ''}${hideLabel ? ' no-label' : ''}`} role="group" aria-label={label}>
     <div className="rb-items">{children}</div>
-    <div className="rb-group-label">{label}</div>
+    {!hideLabel && <div className="rb-group-label">{label}</div>}
   </div>
   );
 }
@@ -755,6 +885,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
   const [pressed, setPressed] = useState(false);
   // With the ribbon collapsed, the tab whose commands are dropped down (none: just the tabs).
   const [dropped, setDropped] = useState(false);
+  const [formatModifyOpen, setFormatModifyOpen] = useState<boolean>(savedFormatModify);
   const [customizing, setCustomizing] = useState(false);
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
   const root = useRef<HTMLDivElement>(null);
@@ -820,8 +951,8 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
     if (!dropped) return;
     const close = (e: MouseEvent) => {
       const t = e.target as Element;
-      // Stamp, hatch and combo menus pop out of the ribbon; clicks in them keep it open.
-      if (root.current?.contains(t) || tabsRef.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop, .color-pop, .combo-list')) return;
+      // Stamp, hatch, style and combo menus pop out of the ribbon; clicks in them keep it open.
+      if (root.current?.contains(t) || tabsRef.current?.contains(t) || t.closest?.('.stamp-menu, .hatch-pop, .color-pop, .combo-list, .ls-list, .font-picker-pop, .rb-asm-pop')) return;
       setDropped(false);
     };
     const onKey = (e: KeyboardEvent) => {
@@ -840,8 +971,87 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
     if (collapsed) setDropped(false);
   };
 
+  const toggleFormatModify = () => {
+    setFormatModifyOpen((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(FORMAT_MODIFY_KEY, next ? '1' : '0');
+      } catch {
+        /* storage off limits: lasts for this session */
+      }
+      return next;
+    });
+  };
+
+  /**
+   * Applicable Modify tools for the currently selected markup(s) on the Markup Format tab.
+   * Collapsed by default (remembered in localStorage), and only commands enabled for the selection appear.
+   */
+  const formatModify = (() => {
+    const sel = toolbar.selection?.markups;
+    if (!sel?.length) return null;
+    const allLocked = sel.every((m) => m.locked);
+    const groups = FORMAT_MODIFY_GROUPS.map((g) => ({
+      ...g,
+      items: g.items.filter((item) => {
+        if (allLocked && !LOCKED_MODIFY_COMMANDS.has(item.id)) return false;
+        const c = commands.get(item.id);
+        return !!c && !c.managed && c.enabled;
+      }),
+    })).filter((g) => g.items.length > 0);
+    if (!groups.length) return null;
+    return (
+      <div className={`rb-format-modify${formatModifyOpen ? ' open' : ''}`}>
+        <div className="rb-group rb-modify-toggle-group" role="group" aria-label="Modify tools">
+          <div className="rb-items">
+            <button
+              type="button"
+              className={`btn tool rb-btn large rb-modify-toggle${formatModifyOpen ? ' active' : ''}`}
+              aria-expanded={formatModifyOpen}
+              title={formatModifyOpen ? 'Collapse Modify tools' : 'Expand Modify tools for the selected markup'}
+              onClick={toggleFormatModify}
+            >
+              <span className="rb-icon">{MODIFY_TOGGLE_ICON}</span>
+              <span className="rb-label">{formatModifyOpen ? '◂ Modify' : 'Modify ▸'}</span>
+            </button>
+          </div>
+          <div className="rb-group-label">Modify</div>
+        </div>
+        {formatModifyOpen &&
+          groups.map((g) => {
+            if (g.iconGrid && g.items.length > 3) {
+              return (
+                <Group key={g.label} label={g.label}>
+                  <div className="rb-icon-grid">
+                    {g.items.map((item) => (
+                      <Cmd key={item.id} id={item.id} label={item.label} />
+                    ))}
+                  </div>
+                </Group>
+              );
+            }
+            const first = g.items[0];
+            const hasLarge = first?.size === 'large';
+            const rest = hasLarge ? g.items.slice(1) : g.items;
+            return (
+              <Group key={g.label} label={g.label}>
+                {hasLarge && <Cmd id={first.id} size="large" label={first.label} />}
+                {Array.from({ length: Math.ceil(rest.length / 3) }, (_, i) => (
+                  <Stack key={i}>
+                    {rest.slice(i * 3, i * 3 + 3).map((item) => (
+                      <Cmd key={item.id} id={item.id} label={item.label} />
+                    ))}
+                  </Stack>
+                ))}
+              </Group>
+            );
+          })}
+      </div>
+    );
+  })();
+
   const properties = (
-    <Group label="Properties" wide>
+    <Group label="Properties" wide hideLabel>
       <div className="rb-props">
         <StyleControls {...toolbar} />
       </div>
@@ -935,6 +1145,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Group>
             )}
             {properties}
+            {formatModify}
           </>
         );
       case 'measure':
