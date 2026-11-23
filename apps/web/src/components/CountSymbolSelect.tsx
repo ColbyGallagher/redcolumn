@@ -11,6 +11,8 @@ interface Props {
   /** The open document's markups, so imported custom count symbols also appear in the list. */
   markups: readonly Markup[];
   onChange: (patch: Partial<MarkupStyle>) => void;
+  /** Called while hovering or stepping through options, and with null when leaving or closing. */
+  onPreview?: (patch: Partial<MarkupStyle> | null) => void;
   /** Selected counts have different shapes or symbols. */
   mixed?: boolean;
   disabled?: boolean;
@@ -28,7 +30,7 @@ interface Item {
  * Count marker shape & custom symbol picker: lists the 6 standard shapes, custom symbols present
  * in the current PDF, the user's saved symbols, and a Manage symbols… action.
  */
-export function CountSymbolSelect({ style, markups, onChange, mixed, disabled }: Props) {
+export function CountSymbolSelect({ style, markups, onChange, onPreview, mixed, disabled }: Props) {
   const ws = useWorkspace();
   const saved = useMemo(() => countSymbolLibrary(ws), [ws]);
   const inDocument = useMemo(() => documentCountSymbols(markups, saved), [markups, saved]);
@@ -62,26 +64,31 @@ export function CountSymbolSelect({ style, markups, onChange, mixed, disabled }:
   const optionId = (i: number) => `${uid}-opt-${i}`;
   const buttonRef = useRef<HTMLButtonElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef(onPreview);
+  previewRef.current = onPreview;
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [box, setBox] = useState<{ left: number; top?: number; bottom?: number; width: number; maxHeight: number }>({ left: 0, width: 0, maxHeight: 300 });
 
   const selectedIndex = items.findIndex((it) => it.value === selected);
 
+  const patchFor = (item: Item | undefined): Partial<MarkupStyle> | null => {
+    if (!item || item.value === 'custom' || item.value === 'manage') return null;
+    if (item.shape) return { countShape: item.shape === 'circle' ? undefined : item.shape, countSymbol: undefined };
+    if (item.symbol) return { countShape: undefined, countSymbol: structuredClone(item.symbol) };
+    return null;
+  };
+
   const pick = (item: Item) => {
+    onPreview?.(null);
     setOpen(false);
     if (item.value === 'custom') return;
     if (item.value === 'manage') {
       openCountSymbols();
       return;
     }
-    if (item.shape) {
-      onChange({ countShape: item.shape === 'circle' ? undefined : item.shape, countSymbol: undefined });
-      return;
-    }
-    if (item.symbol) {
-      onChange({ countShape: undefined, countSymbol: structuredClone(item.symbol) });
-    }
+    const patch = patchFor(item);
+    if (patch) onChange(patch);
   };
 
   const openList = (at = selectedIndex) => {
@@ -112,7 +119,10 @@ export function CountSymbolSelect({ style, markups, onChange, mixed, disabled }:
   }, [open, active]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      previewRef.current?.(null);
+      return;
+    }
     const away = (e: PointerEvent) => {
       const t = e.target as Node;
       if (!buttonRef.current?.contains(t) && !listRef.current?.contains(t)) setOpen(false);
@@ -130,6 +140,13 @@ export function CountSymbolSelect({ style, markups, onChange, mixed, disabled }:
       window.removeEventListener('scroll', scrolled, true);
     };
   }, [open]);
+  useEffect(() => () => previewRef.current?.(null), []);
+
+  const move = (i: number) => {
+    const next = Math.max(0, Math.min(items.length - 1, i));
+    setActive(next);
+    onPreview?.(patchFor(items[next]));
+  };
 
   const onKeyDown = (e: KeyboardEvent) => {
     if (!open) {
@@ -145,16 +162,16 @@ export function CountSymbolSelect({ style, markups, onChange, mixed, disabled }:
       buttonRef.current?.focus();
     } else if (e.key === 'ArrowDown') {
       e.preventDefault();
-      setActive((i) => Math.min(items.length - 1, i + 1));
+      move(active + 1);
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
-      setActive((i) => Math.max(0, i - 1));
+      move(active - 1);
     } else if (e.key === 'Home') {
       e.preventDefault();
-      setActive(0);
+      move(0);
     } else if (e.key === 'End') {
       e.preventDefault();
-      setActive(items.length - 1);
+      move(items.length - 1);
     } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       const it = items[active];
@@ -202,6 +219,7 @@ export function CountSymbolSelect({ style, markups, onChange, mixed, disabled }:
             aria-label="Marker shape"
             className="ls-list"
             style={{ left: box.left, top: box.top, bottom: box.bottom, width: box.width, maxHeight: box.maxHeight }}
+            onMouseLeave={() => onPreview?.(null)}
           >
             {items.map((item, i) => {
               const prev = items[i - 1];
@@ -214,7 +232,10 @@ export function CountSymbolSelect({ style, markups, onChange, mixed, disabled }:
                     role="option"
                     aria-selected={item.value === selected}
                     className={`ls-option${i === active ? ' active' : ''}${item.value === 'manage' ? ' manage' : ''}`}
-                    onMouseEnter={() => setActive(i)}
+                    onMouseEnter={() => {
+                      setActive(i);
+                      onPreview?.(patchFor(item));
+                    }}
                     onMouseDown={(e) => {
                       e.preventDefault();
                       pick(item);

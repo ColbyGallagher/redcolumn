@@ -1,11 +1,11 @@
 import { msg, msgc } from '@nb/i18n';
-import { Children, Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Children, Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { HATCH_PATTERNS, TEXT_PADDING, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
+import { HATCH_PATTERNS, isMeasureKind, TEXT_PADDING, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
 import { ALIGN_ICONS, LineSpacing, NumberField, VALIGN_ICONS } from './PropertiesPanel';
 import type { Scale } from '@nb/measure';
 import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
-import { ComboField } from './ComboField';
+import { ComboField, FONT_SIZES } from './ComboField';
 import { LineStyleSelect } from './LineStyleSelect';
 import { CountSymbolSelect } from './CountSymbolSelect';
 import { FontPicker } from './FontPicker';
@@ -21,6 +21,8 @@ import { commonCapabilities, distinctIdentities, identityOf, identityPatch, shar
 import { saveToolBack } from '../toolchest/saveBack';
 import { useMenubarSlot } from './menubarSlot';
 import type { TakeoffAssemblyProps } from './RibbonAssembly';
+import { takesAssembly } from '../assemblies/assemblyChoice';
+import { useAssemblyChoice } from './AssemblyInputs';
 
 /** How a tool's shortcut is shown in menus and tooltips, e.g. `L` or `Shift+N` (from the active profile). */
 export function toolShortcut(tool: Tool): string | undefined {
@@ -269,6 +271,8 @@ const ARROW_CHOICES: { value: LineEnding; label: string }[] = [
 const WIDTHS = [0.5, 1, 1.5, 2, 3, 5, 8, 12, 16, 24];
 /** The highlighter sweeps wide bands. */
 const HIGHLIGHT_WIDTHS = [4, 8, 12, 16, 20, 30, 40, 60, 80, 100, 150, 200];
+/** Types with no separate outer line vs interior/content: Line › Opacity dims the whole markup. */
+const WHOLE_OPACITY_TYPES = new Set<MarkupType>(['highlighter', 'textHighlight', 'image', 'signature', 'stamp']);
 
 /** What the Units & Scale group works on: the current page's scale, set the same way the navigation bar's scale list does. */
 export interface UnitsScaleProps {
@@ -417,6 +421,11 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
   const textCaps = textType ? (mixedTypes ? caps : styleCapabilities(textType)) : null;
   const mixedOf = <K extends keyof MarkupStyle>(key: K, resolve?: (v: MarkupStyle[K]) => unknown) => !!sel && styleMixed(sel.markups, key, resolve);
   const mixedDash = mixedOf('dash', (v) => v ?? 'solid') || mixedOf('dashArray') || mixedOf('lineStyle');
+  const wholeOpacity = styleType ? (mixedTypes ? [...selTypes!].every((t) => WHOLE_OPACITY_TYPES.has(t)) : WHOLE_OPACITY_TYPES.has(styleType)) : false;
+  const mixedFontSize = mixedOf('fontSize', (v) => (v === undefined ? undefined : Math.round(v)));
+  const preview = (type: MarkupType, patch: Partial<MarkupStyle> | null) => {
+    tools.previewStyle(patch, mixedTypes ? undefined : type);
+  };
   // One edit to the whole selection is one undo step.
   const apply = (type: MarkupType, patch: Partial<MarkupStyle>) => {
     // A field commits on Enter and again on blur: the repeat changes nothing and must not make a second undo step.
@@ -426,12 +435,13 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
       tools.applyStyle(sel!.markups.map((m) => m.id), patch);
     } else tools.setStyle(type, patch);
   };
+  const hatchActive = !!style && !!resolveHatch(style.hatch, style.hatchSpec);
   return (
     <>
       {state.tool === 'dynamicFill' && (
         <label className="field" title={msg('What Smart Fill makes from the region it finds')}>
           {msg('Fill as')}
-          <select value={state.fillAs} onChange={(e) => tools.setFillAs(e.target.value as FillType)}>
+          <select value={state.fillAs} disabled={!enabled} onChange={(e) => tools.setFillAs(e.target.value as FillType)}>
             {FILL_TYPES.map((t) => (
               <option key={t} value={t}>
                 {MARKUP_LABELS[t]}
@@ -457,7 +467,9 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             icon={STYLE_ICONS.line}
             value={style.stroke}
             mixed={mixedOf('stroke')}
+            disabled={!enabled}
             onChange={(c) => c && apply(styleType, { stroke: c })}
+            onPreview={(c) => preview(styleType, c === undefined ? null : c ? { stroke: c } : null)}
           />
           {/* A text box drawn without its border has no outline to give a width to. */}
           {!(styleType === 'text' && !mixedTypes && (style.noBox || style.borderless)) && (
@@ -471,7 +483,9 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
                 min={0}
                 max={200}
                 unit="pt"
+                disabled={!enabled}
                 onChange={(w) => apply(styleType, { width: w })}
+                onPreview={(w) => preview(styleType, w === null ? null : { width: w })}
               />
             </label>
           )}
@@ -479,6 +493,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             <label className="field" title={msg('Draw an outline around the text box (its fill draws either way)')}>
               <input
                 type="checkbox"
+                disabled={!enabled}
                 checked={!textStyle.noBox && !textStyle.borderless}
                 onChange={(e) => apply(textType, e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
               />
@@ -490,12 +505,47 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           {caps!.dash && (
             <label className="field" title={msg('Line style')}>
               <FieldTag icon={STYLE_ICONS.lineStyle} label={msg('Line')} />
-              <LineStyleSelect style={style} mixed={mixedDash} markups={markups} onChange={(patch) => apply(styleType, patch)} />
+              <LineStyleSelect
+                style={style}
+                mixed={mixedDash}
+                disabled={!enabled}
+                markups={markups}
+                onChange={(patch) => apply(styleType, patch)}
+                onPreview={(patch) => preview(styleType, patch)}
+              />
             </label>
           )}
-          <label className="field" title={msg('Opacity')}>
+          <label className="field" title={wholeOpacity ? msg('Opacity') : msg('Opacity of the outer line')}>
             <FieldTag icon={STYLE_ICONS.opacity} label={msg('Opacity')} />
-            <ComboField title={msg('Opacity')} value={mixedOf('opacity') ? undefined : Math.round(style.opacity * 100)} placeholder={mixedOf('opacity') ? msg('Mixed') : undefined} options={[100, 80, 60, 40, 20]} min={1} max={100} unit="%" onChange={(o) => apply(styleType, { opacity: o / 100 })} />
+            {wholeOpacity ? (
+              <ComboField
+                title={msg('Opacity')}
+                integer
+                value={mixedOf('opacity') ? undefined : Math.round(style.opacity * 100)}
+                placeholder={mixedOf('opacity') ? msg('Mixed') : undefined}
+                options={[100, 80, 60, 40, 20]}
+                min={1}
+                max={100}
+                unit="%"
+                disabled={!enabled}
+                onChange={(o) => apply(styleType, { opacity: o / 100 })}
+                onPreview={(o) => preview(styleType, o === null ? null : { opacity: o / 100 })}
+              />
+            ) : (
+              <ComboField
+                title={msg('Line opacity')}
+                integer
+                value={mixedOf('strokeOpacity', (v) => v ?? 1) ? undefined : Math.round((style.strokeOpacity ?? 1) * 100)}
+                placeholder={mixedOf('strokeOpacity', (v) => v ?? 1) ? msg('Mixed') : undefined}
+                options={[100, 80, 60, 40, 20, 0]}
+                min={0}
+                max={100}
+                unit="%"
+                disabled={!enabled}
+                onChange={(o) => apply(styleType, { strokeOpacity: o === 100 ? undefined : o / 100 })}
+                onPreview={(o) => preview(styleType, o === null ? null : { strokeOpacity: o === 100 ? undefined : o / 100 })}
+              />
+            )}
           </label>
           </PropLine>
         </Cluster>
@@ -511,21 +561,25 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             value={style.fill ?? null}
             mixed={mixedOf('fill', (v) => v ?? null)}
             noneLabel="No fill"
-            disabled={!caps!.fill}
+            disabled={!enabled || !caps!.fill}
             onChange={(c) => apply(styleType, { fill: c })}
+            onPreview={(c) => preview(styleType, c === undefined ? null : { fill: c })}
           />
           {caps!.fill && (style.fill || (sel && sel.markups.some((m) => m.style.fill))) && (
             <label className="field" title={msg('Opacity of the fill alone')}>
               <FieldTag icon={STYLE_ICONS.fill} label={msg('Opacity')} />
               <ComboField
                 title={msg('Fill opacity')}
+                integer
                 value={mixedOf('fillOpacity', (v) => v ?? 1) ? undefined : Math.round((style.fillOpacity ?? 1) * 100)}
                 placeholder={mixedOf('fillOpacity', (v) => v ?? 1) ? msg('Mixed') : undefined}
                 options={[100, 80, 60, 40, 20]}
                 min={1}
                 max={100}
                 unit="%"
+                disabled={!enabled}
                 onChange={(o) => apply(styleType, { fillOpacity: o / 100 })}
+                onPreview={(o) => preview(styleType, o === null ? null : { fillOpacity: o / 100 })}
               />
             </label>
           )}
@@ -535,12 +589,28 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
       {style && styleType && (
         <Cluster label={msg('Hatch')} show={!!caps!.hatch}>
           <PropLine>
-            <HatchMenu bare mixed={mixedOf('hatch')} style={style} disabled={!enabled} onChange={(patch) => apply(styleType, patch)} />
+            <div className="field" title={msg('Hatch pattern')}>
+              <FieldTag icon={STYLE_ICONS.hatch} />
+              <HatchMenu
+                bare
+                mixed={mixedOf('hatch')}
+                style={style}
+                disabled={!enabled}
+                onChange={(patch) => apply(styleType, patch)}
+                onPreview={(patch) => preview(styleType, patch)}
+              />
+            </div>
           </PropLine>
           <PropLine>
-            <HatchColor style={style} active={!!resolveHatch(style.hatch, style.hatchSpec)} mixed={mixedOf('hatchColor', (v) => v ?? null)} onChange={(patch) => apply(styleType, patch)} />
+            <HatchColor
+              style={style}
+              active={enabled && hatchActive}
+              mixed={mixedOf('hatchColor', (v) => v ?? null)}
+              onChange={(patch) => apply(styleType, patch)}
+              onPreview={(patch) => preview(styleType, patch)}
+            />
             <label className="field hatch-scale" title={msg('50 is half the pattern, 200 is twice. 100 is a quarter inch.')}>
-              <HatchScale style={style} active={!!resolveHatch(style.hatch, style.hatchSpec)} mixed={mixedOf('hatchScale', (v) => v ?? 100)} onChange={(patch) => apply(styleType, patch)} />
+              <HatchScale style={style} active={enabled && hatchActive} mixed={mixedOf('hatchScale', (v) => v ?? 100)} onChange={(patch) => apply(styleType, patch)} />
             </label>
           </PropLine>
         </Cluster>
@@ -548,25 +618,37 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
       {style && styleType && !mixedTypes && (styleType === 'length' || styleType === 'polylength') && (
         <Cluster label={msg('Arrows')}>
           <PropLine>
-          <label className="field" title={msg('Arrowheads on the ends of the line')}>
+          <div className="field" title={msg('Arrowheads on the ends of the line')}>
             {msg('Arrows')}
-            <select
+            <PreviewSelect
+              label={msg('Arrowheads')}
               value={lineEnds({ type: styleType, style })[1]}
-              onChange={(e) => apply(styleType, { startCap: e.target.value as LineEnding, endCap: e.target.value as LineEnding })}
-            >
-              {ARROW_CHOICES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-              {!ARROW_CHOICES.some((c) => c.value === lineEnds({ type: styleType, style })[1]) && <option value={lineEnds({ type: styleType, style })[1]}>{msg('Other')}</option>}
-            </select>
-          </label>
+              options={
+                ARROW_CHOICES.some((c) => c.value === lineEnds({ type: styleType, style })[1])
+                  ? ARROW_CHOICES
+                  : [...ARROW_CHOICES, { value: lineEnds({ type: styleType, style })[1], label: msg('Other') }]
+              }
+              disabled={!enabled}
+              onChange={(cap) => apply(styleType, { startCap: cap, endCap: cap })}
+              onPreview={(cap) => preview(styleType, cap === null ? null : { startCap: cap, endCap: cap })}
+            />
+          </div>
           </PropLine>
           <PropLine>
           {lineEnds({ type: styleType, style }).some((e) => e !== 'none') && (
             <label className="field">
-              <ComboField title={msg('Arrow size')} value={Math.round((style.capScale ?? 1) * 100)} options={[50, 75, 100, 150, 200, 300]} min={10} max={1000} unit="%" onChange={(v) => apply(styleType, { capScale: v / 100 })} />
+              <ComboField
+                title={msg('Arrow size')}
+                integer
+                value={Math.round((style.capScale ?? 1) * 100)}
+                options={[50, 75, 100, 150, 200, 300]}
+                min={10}
+                max={1000}
+                unit="%"
+                disabled={!enabled}
+                onChange={(v) => apply(styleType, { capScale: v / 100 })}
+                onPreview={(v) => preview(styleType, v === null ? null : { capScale: v / 100 })}
+              />
             </label>
           )}
           </PropLine>
@@ -576,7 +658,18 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         <Cluster label={msg('Cloud')}>
           <label className="field" title={msg('Size of the cloud\'s bubbles (pt)')}>
             {msg('Bubbles')}
-            <ComboField title={msg('Bubble size')} value={cloudBubble.value} options={BUBBLE_SIZES} min={1} max={200} unit="pt" placeholder={msg('Auto')} onChange={(v) => tools.setStyle('cloud', { arcRadius: v })} />
+            <ComboField
+              title={msg('Bubble size')}
+              value={cloudBubble.value}
+              options={BUBBLE_SIZES}
+              min={1}
+              max={200}
+              unit="pt"
+              placeholder={msg('Auto')}
+              disabled={!enabled}
+              onChange={(v) => tools.setStyle('cloud', { arcRadius: v })}
+              onPreview={(v) => tools.previewStyle(v === null ? null : { arcRadius: v }, 'cloud')}
+            />
           </label>
         </Cluster>
       )}
@@ -589,7 +682,9 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
                 style={style}
                 markups={markups}
                 mixed={mixedOf('countShape', (v) => v ?? 'circle') || mixedOf('countSymbol')}
+                disabled={!enabled}
                 onChange={(patch) => apply('count', patch)}
+                onPreview={(patch) => preview('count', patch)}
               />
             </div>
           </PropLine>
@@ -604,7 +699,9 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
                 max={200}
                 unit="pt"
                 placeholder={mixedOf('arcRadius') ? msg('Mixed') : msg('Auto')}
+                disabled={!enabled}
                 onChange={(v) => apply('count', { arcRadius: v })}
+                onPreview={(v) => preview('count', v === null ? null : { arcRadius: v })}
               />
             </label>
           </PropLine>
@@ -615,30 +712,40 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
       {textStyle && textType && textCaps!.font && (
         <div className="field" title={msg('Font')}>
           <FieldTag icon={STYLE_ICONS.font} label={msg('Font')} />
-          <FontPicker className="font-family" value={textStyle.fontFamily} mixed={!!mixedOf('fontFamily', (v) => v ?? 'sans')} onChange={(family) => apply(textType, { fontFamily: family as FontFamily })} />
+          <FontPicker
+            className="font-family"
+            value={textStyle.fontFamily}
+            mixed={!!mixedOf('fontFamily', (v) => v ?? 'sans')}
+            disabled={!enabled}
+            onChange={(family) => apply(textType, { fontFamily: family as FontFamily })}
+            onPreview={(family) => preview(textType, family === null ? null : { fontFamily: family as FontFamily })}
+          />
         </div>
       )}
       {textStyle && textType && textCaps!.font && (
         <label className="field" title={msg('Font size (pt)')}>
           <FieldTag icon={STYLE_ICONS.fontSize} label={msg('Size')} />
-          <input
-            className="font-size"
-            type="number"
-            min={4}
-            max={144}
-            value={mixedOf('fontSize') ? '' : (textStyle.fontSize ?? '')}
-            placeholder={mixedOf('fontSize') ? msg('Mixed') : msg('Auto')}
-            onChange={(e) => Number(e.target.value) > 0 && apply(textType, { fontSize: Number(e.target.value) })}
+          <ComboField
+            title={msg('Font size')}
+            integer
+            value={mixedFontSize ? undefined : textStyle.fontSize !== undefined ? Math.round(textStyle.fontSize) : undefined}
+            placeholder={mixedFontSize ? msg('Mixed') : msg('Auto')}
+            options={FONT_SIZES}
+            min={2}
+            max={288}
+            unit="pt"
+            disabled={!enabled}
+            onChange={(v) => apply(textType, { fontSize: Math.round(v) })}
+            onPreview={(v) => preview(textType, v === null ? null : { fontSize: Math.round(v) })}
           />
-          {msg('pt')}
         </label>
       )}
       {textStyle && textType && textCaps!.font && (
         <span className="seg" role="group" aria-label={msg('Text style')}>
-          <FormatToggle on={!!textStyle.bold} mixed={mixedOf('bold', (v) => !!v)} label="B" title={msg('Bold')} className="b" onChange={(v) => apply(textType, { bold: v })} />
-          <FormatToggle on={!!textStyle.italic} mixed={mixedOf('italic', (v) => !!v)} label="I" title={msg('Italic')} className="i" onChange={(v) => apply(textType, { italic: v || undefined })} />
-          <FormatToggle on={!!textStyle.underline} mixed={mixedOf('underline', (v) => !!v)} label="U" title={msg('Underline')} className="u" onChange={(v) => apply(textType, { underline: v || undefined })} />
-          <FormatToggle on={!!textStyle.strikethrough} mixed={mixedOf('strikethrough', (v) => !!v)} label="S" title={msg('Strikethrough')} className="s" onChange={(v) => apply(textType, { strikethrough: v || undefined })} />
+          <FormatToggle on={!!textStyle.bold} mixed={mixedOf('bold', (v) => !!v)} disabled={!enabled} label="B" title={msg('Bold')} className="b" onChange={(v) => apply(textType, { bold: v })} />
+          <FormatToggle on={!!textStyle.italic} mixed={mixedOf('italic', (v) => !!v)} disabled={!enabled} label="I" title={msg('Italic')} className="i" onChange={(v) => apply(textType, { italic: v || undefined })} />
+          <FormatToggle on={!!textStyle.underline} mixed={mixedOf('underline', (v) => !!v)} disabled={!enabled} label="U" title={msg('Underline')} className="u" onChange={(v) => apply(textType, { underline: v || undefined })} />
+          <FormatToggle on={!!textStyle.strikethrough} mixed={mixedOf('strikethrough', (v) => !!v)} disabled={!enabled} label="S" title={msg('Strikethrough')} className="s" onChange={(v) => apply(textType, { strikethrough: v || undefined })} />
         </span>
       )}
       </PropLine>
@@ -647,21 +754,21 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         <>
           <span className="seg" role="group" aria-label={msg('Text alignment')}>
             {(['left', 'center', 'right', 'justify'] as TextAlign[]).map((a) => (
-              <FormatToggle key={a} on={(textStyle.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={ALIGN_TITLES[a]()} className="" onChange={() => apply(textType, { textAlign: a === 'left' ? undefined : a })} />
+              <FormatToggle key={a} on={(textStyle.textAlign ?? 'left') === a} disabled={!enabled} label={ALIGN_ICONS[a]} title={ALIGN_TITLES[a]()} className="" onChange={() => apply(textType, { textAlign: a === 'left' ? undefined : a })} />
             ))}
           </span>
           <span className="seg" role="group" aria-label={msg('Vertical alignment')}>
             {(['top', 'middle', 'bottom'] as VerticalAlign[]).map((a) => (
-              <FormatToggle key={a} on={(textStyle.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={VALIGN_TITLES[a]()} className="" onChange={() => apply(textType, { verticalAlign: a === 'top' ? undefined : a })} />
+              <FormatToggle key={a} on={(textStyle.verticalAlign ?? 'top') === a} disabled={!enabled} label={VALIGN_ICONS[a]} title={VALIGN_TITLES[a]()} className="" onChange={() => apply(textType, { verticalAlign: a === 'top' ? undefined : a })} />
             ))}
           </span>
           <label className="field" title={msg('Line spacing')}>
             {msg('Spacing')}
-            <LineSpacing key={textType} value={textStyle.lineHeight} onChange={(v) => apply(textType, { lineHeight: v })} />
+            <LineSpacing key={textType} value={textStyle.lineHeight} disabled={!enabled} onChange={(v) => apply(textType, { lineHeight: v })} />
           </label>
           <label className="field" title={msg('Gap between the box edge and the text lines (measured to the line box, not the ink)')}>
             {msg('Padding')}
-            <NumberField key={textType} value={textStyle.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" onChange={(v) => apply(textType, { textMargin: v })} />
+            <NumberField key={textType} value={textStyle.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" disabled={!enabled} onChange={(v) => apply(textType, { textMargin: v })} />
           </label>
         </>
       )}
@@ -694,20 +801,34 @@ function Cluster({ label, kind, show = true, children }: { label: string; /** A 
 const NEW_LAYER = '\u0000new-layer';
 const MIXED = '\u0000mixed';
 
-export type MarkupFieldsProps = Pick<ToolBarProps, 'tools' | 'state' | 'markups' | 'selection' | 'enabled' | 'layerNames' | 'askLayer'>;
+export type MarkupFieldsProps = Pick<ToolBarProps, 'tools' | 'state' | 'markups' | 'selection' | 'enabled' | 'layerNames' | 'askLayer' | 'takeoffAssembly'>;
 
 /**
- * Subject, Label and Layer in the Markup Format tab. With markups selected they edit those markups
- * (mixed values read "Mixed", and one edit is one undo step); with a drawing tool running they edit what
- * the tool gives the markups it places next, and the command carries on. A Tool Chest tool can be saved back.
+ * Subject, Label, Layer and Assembly in the Markup Format tab. With markups selected they edit those
+ * markups (mixed values read "Mixed", and one edit is one undo step); with a drawing tool running they
+ * edit what the tool gives the markups it places next, and the command carries on. A Tool Chest tool can
+ * be saved back.
  */
-export function MarkupFields({ tools, state, markups, selection, enabled, layerNames = [], askLayer }: MarkupFieldsProps) {
+export function MarkupFields({ tools, state, markups, selection, enabled, layerNames = [], askLayer, takeoffAssembly }: MarkupFieldsProps) {
   const sel = selection && selection.markups.length > 0 ? selection : null;
   const drawing = !sel && (isMarkupTool(state.tool) || state.tool === 'cloudPlus');
   const preset = state.preset;
   const ws = useWorkspace();
   const item = preset?.id ? ws.toolChests.flatMap((t) => t.items).find((i) => i.id === preset.id) : undefined;
+  const asmChosen = (sel?.markups ?? []).filter(takesAssembly);
+  const toolTakesAsm = !sel && isMeasureKind(state.tool) && state.tool !== 'angle';
+  const asmMayEdit = !!takeoffAssembly && (asmChosen.length ? !!sel?.store && asmChosen.every((m) => sel.store.mayEdit(m)) : enabled && toolTakesAsm);
+  const { choice: asmChoice, pick: pickAssembly, dialog: asmDialog } = useAssemblyChoice({
+    chosen: asmChosen,
+    selected: sel ? sel.markups.length : toolTakesAsm ? 0 : 1,
+    store: sel?.store ?? null,
+    canEdit: asmMayEdit,
+    defaults: takeoffAssembly?.defaults ?? { subject: '', label: '' },
+    onDefaults: (next) => takeoffAssembly?.onDefaults(next),
+    assemblies: takeoffAssembly?.assemblies ?? [],
+  });
   if (!sel && !drawing) return null;
+  const canEditAssembly = asmMayEdit && asmChoice.target !== 'none';
   const base = { subject: preset?.subject, label: preset?.label, layer: preset?.layer };
   const edits = state.toolFields ?? {};
   // The Markups list names a markup with no subject of its own by its type, so the field shows that name too.
@@ -797,6 +918,35 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
           {askLayer && <option value={NEW_LAYER}>{msg('New layer…')}</option>}
         </select>
       </label>
+      <label
+        className="field"
+        title={
+          !canEditAssembly
+            ? msg('Assemblies apply to measurement markups')
+            : asmChosen.length
+              ? msg('Assembly the selected measurements are taken off as')
+              : msg('Assembly the next measurements are taken off as')
+        }
+      >
+        {msg('Assembly')}
+        <select
+          className="ident"
+          aria-label={msg('Assembly')}
+          value={asmChoice.value}
+          disabled={!canEditAssembly}
+          onChange={(e) => (e.target.value === '__manage' ? takeoffAssembly?.onManage() : pickAssembly(e.target.value))}
+        >
+          {asmChoice.value === '*' && <option value="*">{msg('(several)')}</option>}
+          <option value="">{msg('None')}</option>
+          {(takeoffAssembly?.assemblies ?? []).map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+          {asmChoice.value && asmChoice.value !== '*' && !asmChoice.assembly && <option value={asmChoice.value}>{msg('(deleted assembly)')}</option>}
+          <option value="__manage">{msg('Manage assemblies…')}</option>
+        </select>
+      </label>
       {drawing && item && (
         <button
           type="button"
@@ -810,16 +960,170 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
       )}
     </PropLine>
     </div>
+    {asmDialog}
     </div>
   );
 }
 
 /** A toggle button; `mixed` (a selection that is half on) shows it indeterminate, and a click turns it on for all. */
-function FormatToggle({ on, mixed, label, title, className, onChange }: { on: boolean; mixed?: boolean; label: string; title: string; className: string; onChange: (on: boolean) => void }) {
+function FormatToggle({ on, mixed, disabled, label, title, className, onChange }: { on: boolean; mixed?: boolean; disabled?: boolean; label: string; title: string; className: string; onChange: (on: boolean) => void }) {
   return (
-    <button type="button" className={`seg-btn ${className}${mixed ? ' mixed' : on ? ' active' : ''}`} title={title} aria-label={title} aria-pressed={mixed ? 'mixed' : on} onClick={() => onChange(mixed ? true : !on)}>
+    <button type="button" disabled={disabled} className={`seg-btn ${className}${mixed ? ' mixed' : on ? ' active' : ''}`} title={title} aria-label={title} aria-pressed={mixed ? 'mixed' : on} onClick={() => onChange(mixed ? true : !on)}>
       {label}
     </button>
+  );
+}
+
+/** A compact listbox dropdown that previews options in real time as the user hovers or steps through them. */
+function PreviewSelect<T extends string>({
+  label,
+  value,
+  options,
+  disabled,
+  onChange,
+  onPreview,
+}: {
+  label: string;
+  value: T;
+  options: readonly { value: T; label: string }[];
+  disabled?: boolean;
+  onChange: (value: T) => void;
+  onPreview?: (value: T | null) => void;
+}) {
+  const uid = useId();
+  const listId = `${uid}-list`;
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const previewRef = useRef(onPreview);
+  previewRef.current = onPreview;
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(0);
+  const [box, setBox] = useState<{ left: number; top?: number; bottom?: number; width: number }>({ left: 0, width: 120 });
+  const selectedIndex = options.findIndex((o) => o.value === value);
+
+  useLayoutEffect(() => {
+    if (!open || !buttonRef.current) return;
+    const r = buttonRef.current.getBoundingClientRect();
+    const below = window.innerHeight - r.bottom - 8;
+    const flip = below < 160 && r.top - 8 > below;
+    setBox({
+      left: Math.max(4, Math.min(r.left, window.innerWidth - Math.max(r.width, 130) - 4)),
+      top: flip ? undefined : r.bottom + 2,
+      bottom: flip ? window.innerHeight - r.top + 2 : undefined,
+      width: Math.max(r.width, 130),
+    });
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) {
+      previewRef.current?.(null);
+      return;
+    }
+    const away = (e: PointerEvent) => {
+      const t = e.target as Node;
+      if (!buttonRef.current?.contains(t) && !listRef.current?.contains(t)) setOpen(false);
+    };
+    const close = () => setOpen(false);
+    document.addEventListener('pointerdown', away, true);
+    window.addEventListener('resize', close);
+    return () => {
+      document.removeEventListener('pointerdown', away, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [open]);
+  useEffect(() => () => previewRef.current?.(null), []);
+
+  const pick = (v: T) => {
+    onPreview?.(null);
+    setOpen(false);
+    if (v !== value) onChange(v);
+  };
+  const move = (i: number) => {
+    const next = Math.max(0, Math.min(options.length - 1, i));
+    setActive(next);
+    const opt = options[next];
+    if (opt) onPreview?.(opt.value);
+  };
+  const shown = options[selectedIndex]?.label ?? value;
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        role="combobox"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        disabled={disabled}
+        className="ls-select"
+        onClick={() => {
+          if (disabled) return;
+          if (open) setOpen(false);
+          else {
+            setActive(selectedIndex >= 0 ? selectedIndex : 0);
+            setOpen(true);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (disabled) return;
+          if (!open) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setActive(selectedIndex >= 0 ? selectedIndex : 0);
+              setOpen(true);
+            }
+            return;
+          }
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            setOpen(false);
+          } else if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            move(active + 1);
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            move(active - 1);
+          } else if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            const opt = options[active];
+            if (opt) pick(opt.value);
+          } else if (e.key === 'Tab') setOpen(false);
+        }}
+      >
+        <span className="ls-name">{shown}</span>
+      </button>
+      {open &&
+        createPortal(
+          <div
+            ref={listRef}
+            id={listId}
+            role="listbox"
+            aria-label={label}
+            className="ls-list"
+            style={{ left: box.left, top: box.top, bottom: box.bottom, width: box.width }}
+            onMouseDown={(e) => e.preventDefault()}
+            onMouseLeave={() => onPreview?.(null)}
+          >
+            {options.map((opt, i) => (
+              <div
+                key={opt.value}
+                role="option"
+                aria-selected={opt.value === value}
+                className={`ls-option${i === active ? ' active' : ''}`}
+                onMouseEnter={() => {
+                  setActive(i);
+                  onPreview?.(opt.value);
+                }}
+                onClick={() => pick(opt.value)}
+              >
+                <span className="ls-name">{opt.label}</span>
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
+    </>
   );
 }
 
@@ -839,14 +1143,19 @@ function FieldTag({ icon, label }: { icon: ReactNode; label?: string }) {
   );
 }
 
-/** Hatch pattern, color and scale, behind one toolbar button. */
-function HatchMenu({ style, mixed, disabled, bare, onChange }: { style: MarkupStyle; mixed?: boolean; disabled: boolean; /** Pattern list only: the colour and scale sit beside the button instead. */ bare?: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
+/** Hatch pattern dropdown (and color/scale when not `bare`), with real-time hover preview. */
+function HatchMenu({ style, mixed, disabled, bare, onChange, onPreview }: { style: MarkupStyle; mixed?: boolean; disabled: boolean; /** Pattern list only: the colour and scale sit beside the dropdown instead. */ bare?: boolean; onChange: (patch: Partial<MarkupStyle>) => void; onPreview?: (patch: Partial<MarkupStyle> | null) => void }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const pop = useRef<HTMLDivElement>(null);
+  const previewRef = useRef(onPreview);
+  previewRef.current = onPreview;
   const floating = useFloatingPopup(root, open);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      previewRef.current?.(null);
+      return;
+    }
     const close = (e: PointerEvent) => {
       const t = e.target as Node;
       // The color menu opened from here is its own portal, so a click in it is not outside.
@@ -863,29 +1172,51 @@ function HatchMenu({ style, mixed, disabled, bare, onChange }: { style: MarkupSt
       window.removeEventListener('keydown', onKey);
     };
   }, [open]);
+  useEffect(() => () => previewRef.current?.(null), []);
 
   const current = style.hatch;
   const { hatchSets } = useWorkspace();
   const active = !!resolveHatch(current, style.hatchSpec);
   const color = style.hatchColor ?? style.stroke;
-  const name = mixed ? msg('Mixed') : !current ? msg('Hatch') : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS[current]) ?? msg('Hatch'));
+  const name = mixed ? msg('Mixed') : !current ? msg('None') : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS[current]) ?? msg('None'));
+  const patchFor = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec): Partial<MarkupStyle> =>
+    value === 'none' ? { hatch: undefined, hatchSpec: undefined, hatchColor: undefined, hatchScale: undefined } : { hatch: value, hatchSpec: spec };
   const choose = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec) => {
-    if (value === 'none') onChange({ hatch: undefined, hatchSpec: undefined, hatchColor: undefined, hatchScale: undefined });
-    else onChange({ hatch: value, hatchSpec: spec });
+    onPreview?.(null);
+    onChange(patchFor(value, spec));
+    if (bare) setOpen(false);
   };
   return (
     <div className="hatch-menu" ref={root}>
-      <button type="button" className={`btn hatch-btn${active ? ' on' : ''}`} disabled={disabled} title={msg('Hatch pattern, color and scale')} aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((v) => !v)}>
-        <span className="field-icon">{STYLE_ICONS.hatch}</span>
-        {name}
-        {active && current && <HatchSwatch pattern={current} spec={style.hatchSpec} color={color} width={36} height={18} />}
+      <button
+        type="button"
+        role="combobox"
+        className={`ls-select hatch-select${active ? ' on' : ''}`}
+        disabled={disabled}
+        aria-label={msg('Hatch pattern')}
+        title={msg('Hatch pattern')}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        onClick={() => !disabled && setOpen((v) => !v)}
+      >
+        {active && current && <HatchSwatch pattern={current} spec={style.hatchSpec} color={color} width={24} height={14} />}
+        <span className="ls-name">{name}</span>
       </button>
       {open && floating && createPortal(
-        <div className="hatch-pop" role="dialog" aria-label={msg('Hatch')} ref={pop} style={{ ...floating, minWidth: undefined }}>
+        <div className="hatch-pop" role="listbox" aria-label={msg('Hatch')} ref={pop} style={{ ...floating, minWidth: undefined }} onMouseLeave={() => onPreview?.(null)}>
           {HATCH_PATTERNS.map((h) => {
             const on = h.value === 'none' ? !current : current === h.value;
             return (
-              <button key={h.value} type="button" className={`hatch-choice${on ? ' on' : ''}`} aria-pressed={on} onClick={() => choose(h.value)}>
+              <button
+                key={h.value}
+                type="button"
+                role="option"
+                aria-selected={on}
+                className={`hatch-choice${on ? ' on' : ''}`}
+                onMouseEnter={() => onPreview?.(h.value === 'none' ? { hatch: undefined, hatchSpec: undefined } : { hatch: h.value, hatchSpec: undefined })}
+                onFocus={() => onPreview?.(h.value === 'none' ? { hatch: undefined, hatchSpec: undefined } : { hatch: h.value, hatchSpec: undefined })}
+                onClick={() => choose(h.value)}
+              >
                 {h.value !== 'none' && <HatchSwatch pattern={h.value} color={color} width={48} height={22} />}
                 {h.label}
               </button>
@@ -897,7 +1228,16 @@ function HatchMenu({ style, mixed, disabled, bare, onChange }: { style: MarkupSt
               {set.hatches.map((h) => {
                 const on = current === h.id;
                 return (
-                  <button key={h.id} type="button" className={`hatch-choice${on ? ' on' : ''}`} aria-pressed={on} onClick={() => choose(h.id, h.spec)}>
+                  <button
+                    key={h.id}
+                    type="button"
+                    role="option"
+                    aria-selected={on}
+                    className={`hatch-choice${on ? ' on' : ''}`}
+                    onMouseEnter={() => onPreview?.({ hatch: h.id, hatchSpec: h.spec })}
+                    onFocus={() => onPreview?.({ hatch: h.id, hatchSpec: h.spec })}
+                    onClick={() => choose(h.id, h.spec)}
+                  >
                     <HatchSwatch pattern={h.id} spec={h.spec} color={color} width={48} height={22} />
                     {h.name}
                   </button>
@@ -906,7 +1246,14 @@ function HatchMenu({ style, mixed, disabled, bare, onChange }: { style: MarkupSt
             </div>
           ))}
           {current && !HATCH_PATTERNS.some((h) => h.value === current) && !hatchSets.some((s) => s.hatches.some((h) => h.id === current)) && (
-            <button type="button" className="hatch-choice on" aria-pressed onClick={() => choose(current, style.hatchSpec)}>
+            <button
+              type="button"
+              role="option"
+              aria-selected
+              className="hatch-choice on"
+              onMouseEnter={() => onPreview?.({ hatch: current, hatchSpec: style.hatchSpec })}
+              onClick={() => choose(current, style.hatchSpec)}
+            >
               <HatchSwatch pattern={current} spec={style.hatchSpec} color={color} width={48} height={22} />
               {current.startsWith('set:') ? customHatchName(current) : (LEGACY_HATCH_LABELS[current] ?? current)}
             </button>
@@ -914,7 +1261,7 @@ function HatchMenu({ style, mixed, disabled, bare, onChange }: { style: MarkupSt
           {!bare && (
             <>
               <div className="hatch-pop-row">
-                <HatchColor wide style={style} active={active} onChange={onChange} />
+                <HatchColor wide style={style} active={active} onChange={onChange} onPreview={onPreview} />
               </div>
               <div className="hatch-pop-row">
                 <HatchScale style={style} active={active} onChange={onChange} />
@@ -928,7 +1275,7 @@ function HatchMenu({ style, mixed, disabled, bare, onChange }: { style: MarkupSt
   );
 }
 
-function HatchColor({ wide, style, active, mixed, onChange }: { wide?: boolean; style: MarkupStyle; active: boolean; mixed?: boolean; onChange: (patch: Partial<MarkupStyle>) => void }) {
+function HatchColor({ wide, style, active, mixed, onChange, onPreview }: { wide?: boolean; style: MarkupStyle; active: boolean; mixed?: boolean; onChange: (patch: Partial<MarkupStyle>) => void; onPreview?: (patch: Partial<MarkupStyle> | null) => void }) {
   return (
     <ColorMenu
       wide={wide}
@@ -941,6 +1288,7 @@ function HatchColor({ wide, style, active, mixed, onChange }: { wide?: boolean; 
       noneLabel={msg('Same as line')}
       disabled={!active}
       onChange={(c) => onChange({ hatchColor: c ?? undefined })}
+      onPreview={onPreview ? (c) => onPreview(c === undefined ? null : { hatchColor: c ?? undefined }) : undefined}
     />
   );
 }

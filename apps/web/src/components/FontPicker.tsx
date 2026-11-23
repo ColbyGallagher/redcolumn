@@ -19,7 +19,7 @@ const GROUP_LABEL: Record<FontEntry['group'], string> = { starred: 'Starred', st
  * app installed fonts are listed straight away; in a browser they come after "Show installed
  * fonts…", which asks permission. `mixed` shows that a selection holds several fonts.
  */
-export function FontPicker({ value, onChange, mixed = false, className = '', title = 'Font', label }: { value: string | undefined; onChange: (family: string) => void; mixed?: boolean; className?: string; title?: string; label?: string }) {
+export function FontPicker({ value, onChange, onPreview, mixed = false, disabled = false, className = '', title = 'Font', label }: { value: string | undefined; onChange: (family: string) => void; onPreview?: (family: string | null) => void; mixed?: boolean; disabled?: boolean; className?: string; title?: string; label?: string }) {
   const [openList, setOpenList] = useState(false);
   const [filter, setFilter] = useState('');
   const [active, setActive] = useState(0);
@@ -32,6 +32,8 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
   const button = useRef<HTMLButtonElement>(null);
   const root = useRef<HTMLSpanElement>(null);
   const input = useRef<HTMLInputElement>(null);
+  const previewRef = useRef(onPreview);
+  previewRef.current = onPreview;
   const id = useId();
   const current = value || 'sans';
 
@@ -86,13 +88,17 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
   }, [openList, show]);
 
   useEffect(() => {
-    if (!openList) return;
+    if (!openList) {
+      previewRef.current?.(null);
+      return;
+    }
     const away = (e: PointerEvent) => {
       if (!root.current?.contains(e.target as Node)) setOpenList(false);
     };
     document.addEventListener('pointerdown', away, true);
     return () => document.removeEventListener('pointerdown', away, true);
   }, [openList]);
+  useEffect(() => () => previewRef.current?.(null), []);
 
   // A value that is not a standard font gets its own face loaded, so the button shows it too.
   useEffect(() => {
@@ -110,7 +116,15 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
     if (openList) document.getElementById(`${id}-${active}`)?.scrollIntoView({ block: 'nearest' });
   }, [active, openList, id]);
 
+  const highlight = (i: number) => {
+    const next = Math.max(0, Math.min(entries.length - 1, i));
+    setActive(next);
+    const entry = entries[next];
+    if (entry) onPreview?.(entry.value);
+  };
+
   const choose = (entry: FontEntry) => {
+    onPreview?.(null);
     setRecent(rememberFont(entry.value));
     setOpenList(false);
     setFilter('');
@@ -119,10 +133,10 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
   };
 
   const onKey = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowDown') setActive((a) => Math.min(entries.length - 1, a + 1));
-    else if (e.key === 'ArrowUp') setActive((a) => Math.max(0, a - 1));
-    else if (e.key === 'Home') setActive(0);
-    else if (e.key === 'End') setActive(entries.length - 1);
+    if (e.key === 'ArrowDown') highlight(active + 1);
+    else if (e.key === 'ArrowUp') highlight(active - 1);
+    else if (e.key === 'Home') highlight(0);
+    else if (e.key === 'End') highlight(entries.length - 1);
     else if (e.key === 'Enter') {
       const entry = entries[active];
       if (entry) choose(entry);
@@ -145,14 +159,15 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
         ref={button}
         type="button"
         className="font-picker-button"
+        disabled={disabled}
         title={title}
         aria-label={label ?? title}
         aria-haspopup="listbox"
         aria-expanded={openList}
         style={mixed ? undefined : { fontFamily: cssFontFamily(current) }}
-        onClick={() => setOpenList((o) => !o)}
+        onClick={() => !disabled && setOpenList((o) => !o)}
         onKeyDown={(e) => {
-          if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          if (!disabled && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
             e.preventDefault();
             setOpenList(true);
           }
@@ -176,7 +191,7 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
-          <div className="font-picker-list" role="listbox" id={`${id}-list`} aria-label={title}>
+          <div className="font-picker-list" role="listbox" id={`${id}-list`} aria-label={title} onMouseLeave={() => onPreview?.(null)}>
             {entries.map((f, i) => (
               <div key={f.value}>
                 {(i === 0 || entries[i - 1]!.group !== f.group) && (
@@ -190,7 +205,8 @@ export function FontPicker({ value, onChange, mixed = false, className = '', tit
                   aria-selected={!mixed && f.value === current}
                   className={`font-picker-option${i === active ? ' active' : ''}${!mixed && f.value === current ? ' selected' : ''}`}
                   style={{ fontFamily: f.css }}
-                  onMouseMove={() => setActive(i)}
+                  onMouseEnter={() => highlight(i)}
+                  onMouseMove={() => i !== active && highlight(i)}
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => choose(f)}
                 >
