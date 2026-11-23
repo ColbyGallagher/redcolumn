@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
