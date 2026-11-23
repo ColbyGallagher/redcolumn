@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
 import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
-import { currentLocale, localeInfo, msg } from '@nb/i18n';
+import { currentLocale, localeInfo, msg, numberLocale, supportedNumberLocale } from '@nb/i18n';
 import { THEMES } from '../theme/themes';
-import { browserLanguages, offeredLanguages, resolveLanguage } from '../i18n/language';
+import { browserLanguages, NUMBER_FORMATS, numberSample, offeredLanguages, resolveLanguage, resolveNumberFormat, systemNumberLocale } from '../i18n/language';
 import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, DEFAULT_UNIT_CHOICES, gridUnitOf, settings, switchUnitSystem, type SetTag, type SetTemplate, type Settings, type UnitSystem } from '../settings/settings';
 import { addToDictionary, personalWords, removeFromDictionary } from '../spelling/spell';
 import { askText } from './AskText';
@@ -352,10 +352,21 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             ))}
           </select>
         </Row>
-        {onRestart && resolveLanguage(d.uiLanguage, browserLanguages()) !== currentLocale().code && (
+        <Row>
+          {L(msg('Number Format'), 'numberFormat')}
+          <select aria-label={msg('Number Format')} value={d.numberFormat} onChange={(e) => set({ numberFormat: e.target.value })}>
+            <option value="auto">{msg('Match the system ({sample})', { sample: numberSample(systemNumberLocale()) })}</option>
+            {NUMBER_FORMATS.map((code) => (
+              <option key={code} value={code}>
+                {numberSample(code)}
+              </option>
+            ))}
+          </select>
+        </Row>
+        {onRestart && (resolveLanguage(d.uiLanguage, browserLanguages()) !== currentLocale().code || supportedNumberLocale(resolveNumberFormat(d.numberFormat, systemNumberLocale())) !== numberLocale()) && (
           <C>
             <span className="pref-hint">
-              {msg('The new language applies when redcolumn restarts.')}{' '}
+              {msg('The new language and number format apply when redcolumn restarts.')}{' '}
               <button
                 type="button"
                 onClick={async () => {

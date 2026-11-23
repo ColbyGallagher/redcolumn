@@ -945,6 +945,10 @@ function listCommands(params: unknown, env: AssistantEnv) {
   };
 }
 
+/**
+ * A label ending in "…" opens a dialog. Labels are translated, but every translation keeps the
+ * closing "…" (i18n:check enforces it, and the pseudo-locales keep it last).
+ */
 function commandNeedsYou(command: AssistantCommand): boolean {
   return command.label.endsWith('…') || command.label.endsWith('...') || NEEDS_YOU.has(command.id);
 }

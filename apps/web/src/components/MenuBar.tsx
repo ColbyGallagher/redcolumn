@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { msg, msgc } from '@nb/i18n';
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
 import { desktop, type UpdateState } from '../desktop/host';
@@ -15,12 +16,12 @@ import type { PrefEntry } from './PreferencesDialog';
  * Tools › Markup, in groups. Left out because the menus list them elsewhere: Stamp, File
  * Attachment, Hyperlink, Eraser, Redaction and Snapshot. Select and Lasso are not markups.
  */
-const MARKUP_GROUPS: { label: string; tools: Tool[] }[] = [
-  { label: 'Lines & Shapes', tools: ['line', 'arrow', 'dimension', 'polyline', 'arc', 'ellipticalArc', 'rect', 'ellipse', 'polygon', 'cloud', 'polygonCloud', 'cloudPlus'] },
-  { label: 'Freehand', tools: ['pen', 'highlighter'] },
-  { label: 'Text Markup', tools: ['textHighlight', 'underline', 'strikeout', 'squiggly', 'replaceText'] },
-  { label: 'Text & Notes', tools: ['text', 'callout', 'typewriter', 'flagLabel', 'note'] },
-  { label: 'Other', tools: ['image', 'legend', 'table', 'space'] },
+const markupGroups = (): { label: string; tools: Tool[] }[] => [
+  { label: msg('Lines & Shapes'), tools: ['line', 'arrow', 'dimension', 'polyline', 'arc', 'ellipticalArc', 'rect', 'ellipse', 'polygon', 'cloud', 'polygonCloud', 'cloudPlus'] },
+  { label: msg('Freehand'), tools: ['pen', 'highlighter'] },
+  { label: msg('Text Markup'), tools: ['textHighlight', 'underline', 'strikeout', 'squiggly', 'replaceText'] },
+  { label: msg('Text & Notes'), tools: ['text', 'callout', 'typewriter', 'flagLabel', 'note'] },
+  { label: msg('Other'), tools: ['image', 'legend', 'table', 'space'] },
 ];
 
 export type LeftTab =
@@ -45,27 +46,31 @@ export type LeftTab =
   | 'markups';
 export type BottomTab = 'markups' | 'links';
 
-export const LEFT_TITLES: Record<LeftTab, string> = {
-  files: 'File Access',
-  pages: 'Thumbnails',
-  bookmarks: 'Bookmarks',
-  toolchest: 'Tool Library',
-  properties: 'Properties',
-  layers: 'Layers',
-  measurements: 'Measurements',
-  spaces: 'Spaces',
-  signatures: 'Signatures',
-  flags: 'Flags',
-  stitching: 'Stitching',
-  geospatial: 'Geospatial',
-  ai: 'Compare',
-  search: 'Search',
-  forms: 'Forms',
-  sets: 'Sets',
-  sessions: 'Sessions',
-  projects: 'Projects',
-  markups: 'Markups',
-};
+/** Every panel, in the order Profiles lists them. */
+export const LEFT_TABS: readonly LeftTab[] = ['files', 'pages', 'bookmarks', 'toolchest', 'properties', 'layers', 'measurements', 'spaces', 'signatures', 'flags', 'stitching', 'geospatial', 'ai', 'search', 'forms', 'sets', 'sessions', 'projects', 'markups'];
+
+/** Each panel's name as shown. */
+export const leftTitles = (): Record<LeftTab, string> => ({
+  files: msg('File Access'),
+  pages: msg('Thumbnails'),
+  bookmarks: msg('Bookmarks'),
+  toolchest: msg('Tool Library'),
+  properties: msg('Properties'),
+  layers: msg('Layers'),
+  measurements: msg('Measurements'),
+  spaces: msg('Spaces'),
+  signatures: msg('Signatures'),
+  flags: msg('Flags'),
+  stitching: msg('Stitching'),
+  geospatial: msg('Geospatial'),
+  ai: msg('Compare'),
+  search: msg('Search'),
+  forms: msg('Forms'),
+  sets: msg('Sets'),
+  sessions: msg('Sessions'),
+  projects: msg('Projects'),
+  markups: msg('Markups'),
+});
 
 export interface RecentFile {
   id: string;
@@ -106,15 +111,15 @@ export interface MenuBarProps {
 
 type MenuId = 'file' | 'edit' | 'view' | 'document' | 'batch' | 'tools' | 'window' | 'help';
 
-const MENUS: { id: MenuId; label: string }[] = [
-  { id: 'file', label: 'File' },
-  { id: 'edit', label: 'Edit' },
-  { id: 'view', label: 'View' },
-  { id: 'document', label: 'Document' },
-  { id: 'batch', label: 'Bulk' },
-  { id: 'tools', label: 'Tools' },
-  { id: 'window', label: 'Window' },
-  { id: 'help', label: 'Help' },
+const menus = (): { id: MenuId; label: string }[] => [
+  { id: 'file', label: msg('File') },
+  { id: 'edit', label: msg('Edit') },
+  { id: 'view', label: msg('View') },
+  { id: 'document', label: msg('Document') },
+  { id: 'batch', label: msg('Bulk') },
+  { id: 'tools', label: msg('Tools') },
+  { id: 'window', label: msg('Window') },
+  { id: 'help', label: msg('Help') },
 ];
 
 function Item({
@@ -140,10 +145,10 @@ function Item({
 }
 
 /** The Feedback dropdown's items: Help-menu commands, labelled for what the user is trying to do. */
-const FEEDBACK_ITEMS: [string, string][] = [
-  ['help.support', 'Report a Bug / Get Support'],
-  ['help.suggest', 'Suggest a Feature'],
-  ['help.sponsor', 'Sponsor redcolumn'],
+const feedbackItems = (): [string, string][] => [
+  ['help.support', msg('Report a Bug / Get Support')],
+  ['help.suggest', msg('Suggest a Feature')],
+  ['help.sponsor', msg('Sponsor redcolumn')],
 ];
 
 function Sep() {
@@ -222,10 +227,25 @@ function Submenu({ label, children }: { label: string; children: ReactNode }) {
 /** What the header's update button says and does for each update state; null while there is nothing to show. */
 export function updateButton(update: UpdateState | null | undefined): { label: string; title: string; busy: boolean } | null {
   if (!update) return null;
-  const version = update.latest ? `redcolumn ${update.latest}` : 'A new version';
-  if (update.status === 'available') return { label: update.latest ? `Update to ${update.latest}` : 'Update available', title: `${version} is available. Click to open the download page.`, busy: false };
-  if (update.status === 'downloading') return { label: `Downloading update ${update.percent ?? 0}%`, title: `${version} is downloading in the background. It installs when you close redcolumn.`, busy: true };
-  if (update.status === 'ready') return { label: 'Restart to update', title: `${version} is ready. Click to restart into it; it also installs when you close redcolumn.`, busy: false };
+  const latest = update.latest ?? '';
+  if (update.status === 'available')
+    return {
+      label: latest ? msg('Update to {latest}', { latest }) : msg('Update available'),
+      title: latest ? msg('redcolumn {latest} is available. Click to open the download page.', { latest }) : msg('A new version is available. Click to open the download page.'),
+      busy: false,
+    };
+  if (update.status === 'downloading')
+    return {
+      label: msg('Downloading update {percent}%', { percent: update.percent ?? 0 }),
+      title: latest ? msg('redcolumn {latest} is downloading in the background. It installs when you close redcolumn.', { latest }) : msg('A new version is downloading in the background. It installs when you close redcolumn.'),
+      busy: true,
+    };
+  if (update.status === 'ready')
+    return {
+      label: msg('Restart to update'),
+      title: latest ? msg('redcolumn {latest} is ready. Click to restart into it; it also installs when you close redcolumn.', { latest }) : msg('A new version is ready. Click to restart into it; it also installs when you close redcolumn.'),
+      busy: false,
+    };
   return null;
 }
 
@@ -299,7 +319,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
           <>
             <Cmd id="file.about" />
             <Cmd id="file.preferences" />
-            <Submenu label="Profiles">
+            <Submenu label={msg('Profiles')}>
               {profiles.map((p) => (
                 <Item key={p.id} label={p.name} checked={p.id === activeProfileId} onClick={run(() => on.switchProfile(p.id))} />
               ))}
@@ -312,23 +332,23 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="file.newPdf" />
             <Cmd id="file.newFromTemplate" />
             <Cmd id="file.open" />
-            <Submenu label="Open Recent">
+            <Submenu label={msg('Open Recent')}>
               {recents.length === 0 ? (
-                <Item label="No recent files" disabled />
+                <Item label={msg('No recent files')} disabled />
               ) : (
                 <>
                   {recents.map((f) => <Item key={f.id} label={f.name} onClick={run(() => on.openRecent(f.id))} />)}
                   {on.clearRecents && (
                     <>
                       <Sep />
-                      <Item label="Clear Recent Files" onClick={run(() => on.clearRecents?.())} />
+                      <Item label={msg('Clear Recent Files')} onClick={run(() => on.clearRecents?.())} />
                     </>
                   )}
                 </>
               )}
             </Submenu>
-            <Submenu label="Create">
-              <Cmd id="file.newPdf" label="Blank PDF…" />
+            <Submenu label={msg('Create')}>
+              <Cmd id="file.newPdf" label={msg('Blank PDF…')} />
               <Cmd id="file.fromCamera" />
             </Submenu>
             <Cmd id="file.combine" />
@@ -342,24 +362,24 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Sep />
             <Cmd id="file.publish" />
             <Cmd id="file.share" />
-            <Submenu label="Export">
-              <Cmd id="file.save" label="PDF with markups" />
+            <Submenu label={msg('Export')}>
+              <Cmd id="file.save" label={msg('PDF with markups')} />
               <Cmd id="file.exportImages" />
-              <Cmd id="file.exportCsv" label="Markups CSV" />
-              <Cmd id="file.exportXlsx" label="Markups for Excel" />
-              <Cmd id="file.exportRegister" label="Comment Register…" />
+              <Cmd id="file.exportCsv" label={msg('Markups CSV')} />
+              <Cmd id="file.exportXlsx" label={msg('Markups for Excel')} />
+              <Cmd id="file.exportRegister" label={msg('Comment Register…')} />
               <Cmd id="file.registerTemplates" />
               <Cmd id="file.exportXfdf" />
               <Cmd id="file.exportFdf" />
               <Cmd id="file.exportBax" />
               <Cmd id="file.exportSummary" />
             </Submenu>
-            <Submenu label="Import">
-              <Cmd id="file.importXfdf" label="Markups from XFDF…" />
-              <Cmd id="file.importFdf" label="Markups from FDF…" />
-              <Cmd id="file.importBax" label="Markups from Bluebeam BAX…" />
-              <Cmd id="file.importPdfMarkups" label="Markups from Another PDF…" />
-              <Cmd id="file.importXlsx" label="Markups from Excel…" />
+            <Submenu label={msg('Import')}>
+              <Cmd id="file.importXfdf" label={msg('Markups from XFDF…')} />
+              <Cmd id="file.importFdf" label={msg('Markups from FDF…')} />
+              <Cmd id="file.importBax" label={msg('Markups from Bluebeam BAX…')} />
+              <Cmd id="file.importPdfMarkups" label={msg('Markups from Another PDF…')} />
+              <Cmd id="file.importXlsx" label={msg('Markups from Excel…')} />
             </Submenu>
             <Cmd id="file.print" />
           </>
@@ -377,7 +397,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="edit.pasteInPlace" />
             <Cmd id="edit.offset" />
             <Cmd id="edit.multiply" />
-            <Submenu label="Modify">
+            <Submenu label={msg('Modify')}>
               <Cmd id="edit.move" />
               <Cmd id="edit.copyBase" />
               <Cmd id="edit.offset" />
@@ -414,7 +434,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="edit.delete" />
             <Sep />
             <Cmd id="tool.pan" />
-            <Cmd id="tool.select" label="Select" />
+            <Cmd id="tool.select" label={msg('Select')} />
             <Cmd id="edit.selectAll" />
             <Cmd id="edit.selectSimilar" />
             <Cmd id="tool.lasso" />
@@ -426,7 +446,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="edit.ungroup" />
             <Cmd id="edit.lock" />
             <Cmd id="edit.find" />
-            <Submenu label="PDF Content">
+            <Submenu label={msg('PDF Content')}>
               <Cmd id="edit.selectText" />
               <Cmd id="edit.eraseContent" />
               <Cmd id="tools.bulkRedact" />
@@ -435,8 +455,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             </Submenu>
             <Cmd id="edit.checkSpelling" />
             <Sep />
-            <label className="menu-field" title="Name recorded on your markups">
-              Author
+            <label className="menu-field" title={msg('Name recorded on your markups')}>
+              {msg('Author')}
               <input value={author} onChange={(e) => onAuthorChange(e.target.value)} onClick={(e) => e.stopPropagation()} />
             </label>
           </>
@@ -455,15 +475,15 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="view.sideBySide" />
             <Cmd id="view.continuousSideBySide" />
             <Cmd id="view.coverPage" />
-            <Submenu label="Rotate View">
-              <Cmd id="view.rotateClockwise" label="Clockwise" />
-              <Cmd id="view.rotateCounterclockwise" label="Counterclockwise" />
+            <Submenu label={msg('Rotate View')}>
+              <Cmd id="view.rotateClockwise" label={msg('Clockwise')} />
+              <Cmd id="view.rotateCounterclockwise" label={msg('Counterclockwise')} />
             </Submenu>
             <Sep />
             <Cmd id="view.split" />
             <Cmd id="view.splitHorizontal" />
-            <Cmd id="view.switchPanes" label="Switch" />
-            <Cmd id="view.balance" label="Balance" />
+            <Cmd id="view.switchPanes" label={msgc('verb: swap the two panes', 'Switch')} />
+            <Cmd id="view.balance" label={msgc('verb: make the two panes equal', 'Balance')} />
             <Cmd id="view.unsplit" />
             <Cmd id="view.stitched" />
             <Cmd id="view.syncDocument" />
@@ -487,14 +507,14 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="view.keepView" />
             <Cmd id="view.magnifier" />
             <Cmd id="view.fullScreen" />
-            <Submenu label="Navigation Tools">
+            <Submenu label={msg('Navigation Tools')}>
               <Cmd id="tool.pan" />
               <Cmd id="tool.zoomBox" />
               <Cmd id="tool.dynamicZoom" />
             </Submenu>
             <Sep />
-            <Cmd id="view.back" label="Back" />
-            <Cmd id="view.forward" label="Forward" />
+            <Cmd id="view.back" label={msg('Back')} />
+            <Cmd id="view.forward" label={msg('Forward')} />
           </>
         );
       case 'document':
@@ -503,12 +523,12 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="document.properties" />
             <Cmd id="document.addBookmark" />
             <Cmd id="document.pageSetup" />
-            <Cmd id="document.rotatePages" label="Rotate Pages…" />
-            <Cmd id="document.rotateCounterclockwise" label="Rotate Counterclockwise" />
-            <Submenu label="Insert">
-              <Cmd id="document.insertPages" label="Pages from PDF…" />
-              <Cmd id="document.bulkInsertPages" label="Bulk Insert PDFs…" />
-              <Cmd id="document.insertBlank" label="Blank Pages…" />
+            <Cmd id="document.rotatePages" label={msg('Rotate Pages…')} />
+            <Cmd id="document.rotateCounterclockwise" label={msg('Rotate Counterclockwise')} />
+            <Submenu label={msg('Insert')}>
+              <Cmd id="document.insertPages" label={msg('Pages from PDF…')} />
+              <Cmd id="document.bulkInsertPages" label={msg('Bulk Insert PDFs…')} />
+              <Cmd id="document.insertBlank" label={msg('Blank Pages…')} />
             </Submenu>
             <Cmd id="document.extractPages" />
             <Cmd id="document.splitDocument" />
@@ -516,11 +536,11 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="document.deletePages" />
             <Cmd id="document.cropPages" />
             <Cmd id="document.numberPages" />
-            <Submenu label="Page Labels">
-              <Cmd id="document.labelRegions" label="From Page Region…" />
-              <Cmd id="document.thumbnails" label="Edit in Thumbnails…" />
+            <Submenu label={msg('Page Labels')}>
+              <Cmd id="document.labelRegions" label={msg('From Page Region…')} />
+              <Cmd id="document.thumbnails" label={msg('Edit in Thumbnails…')} />
             </Submenu>
-            <Cmd id="document.scaleRegions" label="Bulk Apply Page Scale…" />
+            <Cmd id="document.scaleRegions" label={msg('Bulk Apply Page Scale…')} />
             <Cmd id="document.scaleReview" />
             <Cmd id="document.drawingStandards" />
             <Cmd id="document.headerFooter" />
@@ -551,7 +571,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
       case 'batch':
         return (
           <>
-            <Cmd id="file.combine" label="Combine PDFs…" />
+            <Cmd id="file.combine" label={msg('Combine PDFs…')} />
             <Cmd id="document.slipSheet" />
             <Cmd id="batch.link" />
             <Cmd id="document.compare" />
@@ -582,8 +602,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
       case 'tools':
         return (
           <>
-            <Submenu label="Markup">
-              {MARKUP_GROUPS.map((group) => (
+            <Submenu label={msg('Markup')}>
+              {markupGroups().map((group) => (
                 <Submenu key={group.label} label={group.label}>
                   {group.tools.map((tool) => (
                     <Cmd key={tool} id={`tool.${tool}`} />
@@ -591,19 +611,19 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
                 </Submenu>
               ))}
             </Submenu>
-            <Submenu label="Stamp">
+            <Submenu label={msg('Stamp')}>
               {stamps.map((s) => (
                 <Item key={s.id} label={s.name} disabled={!commands.get('tool.stamp')?.enabled} onClick={run(() => on.placeStamp(s.id))} />
               ))}
               <Sep />
               <Cmd id="tools.stamps" />
             </Submenu>
-            <Submenu label="Measure">
+            <Submenu label={msg('Measure')}>
               {MEASURE_TOOLS.map(({ tool }) => (
                 <Cmd key={tool} id={`tool.${tool}`} />
               ))}
             </Submenu>
-            <Submenu label="Takeoff">
+            <Submenu label={msg('Takeoff')}>
               <Cmd id="tools.assemblies" />
               <Cmd id="tools.quantities" />
               <Cmd id="tools.takeoffReview" />
@@ -625,21 +645,21 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="tools.lineStyles" />
             <Cmd id="tools.sketchToScale" />
             <Cmd id="tools.scripts" />
-            <Submenu label="Sign & Certify">
+            <Submenu label={msg('Sign & Certify')}>
               <Cmd id="tools.sign" />
               <Cmd id="tools.digitalIds" />
             </Submenu>
-            <Submenu label="Markups List">
-              <Cmd id="tools.columns" label="Columns & Statuses…" />
-              <Cmd id="file.exportSummary" label="Summary…" />
+            <Submenu label={msg('Markups List')}>
+              <Cmd id="tools.columns" label={msg('Columns & Statuses…')} />
+              <Cmd id="file.exportSummary" label={msg('Summary…')} />
             </Submenu>
-            <Submenu label="Form">
-              <Cmd id="tools.formField" label="Draw Field" />
+            <Submenu label={msg('Form')}>
+              <Cmd id="tools.formField" label={msg('Draw Field')} />
               <Cmd id="tools.autoFields" />
-              <Cmd id="tools.forms" label="Forms Panel" />
+              <Cmd id="tools.forms" label={msg('Forms Panel')} />
             </Submenu>
-            <Submenu label="Redaction">
-              <Cmd id="tool.redaction" label="Mark for Redaction" />
+            <Submenu label={msg('Redaction')}>
+              <Cmd id="tool.redaction" label={msg('Mark for Redaction')} />
               <Cmd id="tools.applyRedactions" />
               <Cmd id="tools.bulkRedact" />
             </Submenu>
@@ -647,30 +667,30 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="tool.attachment" />
             <Cmd id="tools.sound" />
             <Cmd id="tools.video" />
-            <Submenu label="Eraser">
-              <Cmd id="tool.eraser" label="Eraser" />
-              <Cmd id="tools.eraserSmall" label="Small" />
-              <Cmd id="tools.eraserMedium" label="Medium" />
-              <Cmd id="tools.eraserLarge" label="Large" />
+            <Submenu label={msg('Eraser')}>
+              <Cmd id="tool.eraser" label={msg('Eraser')} />
+              <Cmd id="tools.eraserSmall" label={msg('Small')} />
+              <Cmd id="tools.eraserMedium" label={msg('Medium')} />
+              <Cmd id="tools.eraserLarge" label={msg('Large')} />
               <Cmd id="tools.eraserWhole" />
             </Submenu>
-            <Submenu label="Toolbars">
+            <Submenu label={msg('Toolbars')}>
               <Cmd id="window.toolbar" />
               <Sep />
               <Cmd id="window.ribbon" />
               <Cmd id="window.ribbonTabs" />
               <Cmd id="window.simplifiedToolbar" />
             </Submenu>
-            <Cmd id="view.reuse" label="Reuse" />
+            <Cmd id="view.reuse" label={msg('Reuse')} />
           </>
         );
       case 'window':
         return (
           <>
             <Cmd id="window.toolbar" />
-            <Submenu label="Toolbar Display">
-              <Cmd id="window.ribbon" label="Ribbon: Tabs and Commands" />
-              <Cmd id="window.ribbonTabs" label="Ribbon: Tabs Only" />
+            <Submenu label={msg('Toolbar Display')}>
+              <Cmd id="window.ribbon" label={msg('Ribbon: Tabs and Commands')} />
+              <Cmd id="window.ribbonTabs" label={msg('Ribbon: Tabs Only')} />
               <Cmd id="window.simplifiedToolbar" />
               <Sep />
               <Cmd id="window.collapseRibbon" />
@@ -681,7 +701,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="window.panels" />
             <Cmd id="window.resetLayout" />
             <Sep />
-            <Submenu label="Panels">
+            <Submenu label={msg('Panels')}>
               <Cmd id="window.files" />
               <Cmd id="window.pages" />
               <Cmd id="window.bookmarks" />
@@ -714,7 +734,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="help.logs" />
             <Sep />
             <Cmd id="help.whatsNew" />
-            <Cmd id="file.shortcuts" label="Keyboard Shortcuts Guide" />
+            <Cmd id="file.shortcuts" label={msg('Keyboard Shortcuts Guide')} />
           </>
         );
     }
@@ -729,12 +749,13 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
           role="menuitem"
           aria-haspopup="true"
           aria-expanded={open}
-          aria-label="redcolumn menu"
-          title={updateBtn ? `redcolumn menu: ${updateBtn.label}` : 'redcolumn menu: File, Edit, View, search and more'}
+          aria-label={msg('redcolumn menu')}
+          title={updateBtn ? msg('redcolumn menu: {update}', { update: updateBtn.label }) : msg('redcolumn menu: File, Edit, View, search and more')}
           onClick={() => setOpen(!open)}
         >
           <img className="brand-col" src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" draggable={false} />
           <span className="brand-word">
+            {/* The product name: never translated. */}
             <b>red</b>column
           </span>
           <span className="brand-caret" aria-hidden="true">
@@ -744,19 +765,19 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         </button>
         {open && (
           <div className="menu-drop brand-drop" role="menu">
-            {MENUS.map(({ id, label }) => (
+            {menus().map(({ id, label }) => (
               <Submenu key={id} label={label}>
                 {menu(id)}
               </Submenu>
             ))}
             <Sep />
             <Item
-              label="Autosave"
+              label={msg('Autosave')}
               checked={autosave}
               onClick={() => settings.set({ autosave: !autosave })}
             />
             {updateBtn && <Item label={updateBtn.label} disabled={updateBtn.busy} onClick={on.update && run(on.update)} />}
-            {!installed && <Item label="Install App…" onClick={run(on.install)} />}
+            {!installed && <Item label={msg('Install App…')} onClick={run(on.install)} />}
           </div>
         )}
       </div>
@@ -768,21 +789,21 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
           className="menubar-icon-btn feedback-btn"
           aria-haspopup="true"
           aria-expanded={feedbackOpen}
-          aria-label="Feedback"
-          title="Report a bug, suggest a feature or sponsor redcolumn"
+          aria-label={msg('Feedback')}
+          title={msg('Report a bug, suggest a feature or sponsor redcolumn')}
           onClick={() => setFeedbackOpen(!feedbackOpen)}
         >
           <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
             <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" d="M2.5 3h11v7.5H8L5 13.5v-3H2.5z" />
           </svg>
-          <span className="feedback-label">Feedback</span>
+          <span className="feedback-label">{msg('Feedback')}</span>
           <span className="brand-caret" aria-hidden="true">
             ▾
           </span>
         </button>
         {feedbackOpen && (
           <div className="menu-drop feedback-drop" role="menu">
-            {FEEDBACK_ITEMS.map(([id, label]) => {
+            {feedbackItems().map(([id, label]) => {
               const c = commands.get(id);
               return c && !c.managed ? <Item key={id} label={label} disabled={!c.enabled} onClick={() => { setFeedbackOpen(false); c.run(); }} /> : null;
             })}
@@ -794,8 +815,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         role="switch"
         className={`menubar-icon-btn autosave-btn${autosave ? ' on' : ''}`}
         aria-checked={autosave}
-        aria-label="Autosave"
-        title={autosave ? 'Autosave is on: changes are saved to the file a few seconds after you make them. Click to turn off.' : 'Autosave is off. Click to save changes to the file in the background.'}
+        aria-label={msg('Autosave')}
+        title={autosave ? msg('Autosave is on: changes are saved to the file a few seconds after you make them. Click to turn off.') : msg('Autosave is off. Click to save changes to the file in the background.')}
         onClick={() => settings.set({ autosave: !autosave })}
       >
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">

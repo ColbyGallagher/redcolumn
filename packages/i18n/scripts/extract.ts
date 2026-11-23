@@ -96,6 +96,8 @@ export function checkCatalog(file: string, entries: readonly PoEntry[]): string[
       const want = [...argNames(parseIcu(e.id))].sort().join(', ');
       const got = [...argNames(parseIcu(e.str))].sort().join(', ');
       if (want !== got) errors.push(`${where}: placeholders {${got}} should be {${want}}`);
+      // A closing "…" marks a command that opens a dialog; code relies on it (commandNeedsYou).
+      if (e.id.endsWith('…') && !e.str.endsWith('…')) errors.push(`${where}: should end with "…" as the English does`);
     } catch (err) {
       errors.push(`${where}: ${(err as Error).message}`);
     }

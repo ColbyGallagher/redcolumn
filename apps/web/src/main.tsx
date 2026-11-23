@@ -65,10 +65,10 @@ if (!host)
   });
 
 // Before anything opens a document: local data is sealed on this device when "Encrypt local data" is on.
-// The interface language is chosen before the first render. Modules are already loaded by then,
+// The interface language and number format are chosen before the first render. Modules are already loaded by then,
 // so interface text is built when rendered, never at a module's top level (packages/i18n/src/runtime.ts).
 void installLocalEncryption(rewriteLibrary)
-  .finally(() => startI18n(settings.get().uiLanguage))
+  .finally(() => startI18n(settings.get().uiLanguage, settings.get().numberFormat))
   .finally(() => {
     createRoot(document.getElementById('root')!).render(
       <StrictMode>

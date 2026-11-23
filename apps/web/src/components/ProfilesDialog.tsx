@@ -6,7 +6,7 @@ import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { availableBackends, backendLabel, backUpProfiles, hasBackup, restoreProfiles, stopBackingUp, useProfileBackup } from '../workspace/profileBackup';
 import { profiles, updateWorkspace, useProfiles, type WorkspaceState } from '../workspace/profiles';
 import { InlineName } from './InlineName';
-import { LEFT_TITLES, type LeftTab } from './MenuBar';
+import { LEFT_TABS, leftTitles, type LeftTab } from './MenuBar';
 import { MARKUP_TOOLS, MEASURE_TOOLS } from './ToolBar';
 import { importBpxProfile } from '../workspace/revuProfile';
 
@@ -234,7 +234,7 @@ export function ProfilesDialog({ documentColumns, canApplyToDocument, onApplyToD
                 <>
                   <p className="hint-text">Side panels available on the panel bar and Window menu:</p>
                   <div className="check-grid">
-                    {(Object.keys(LEFT_TITLES) as LeftTab[]).filter((id) => id !== 'markups').map((id) => (
+                    {LEFT_TABS.filter((id) => id !== 'markups').map((id) => (
                       <label key={id} className="check-tile">
                         <input
                           type="checkbox"
@@ -242,7 +242,7 @@ export function ProfilesDialog({ documentColumns, canApplyToDocument, onApplyToD
                           disabled={id === 'files'}
                           onChange={(e) => edit((s) => ({ ...s, hiddenPanels: e.target.checked ? s.hiddenPanels.filter((x) => x !== id) : [...s.hiddenPanels, id] }))}
                         />
-                        {LEFT_TITLES[id]}
+                        {leftTitles()[id]}
                         <button
                           type="button"
                           className="btn small flat dock-side"

@@ -39,6 +39,7 @@ import {
   type Rect,
   relinkCopies,
 } from '@nb/markup';
+import { parseNumber } from '@nb/i18n';
 import { settings } from '../settings/settings';
 import { parseRotationInput } from './rotationInput';
 
@@ -197,7 +198,12 @@ function signedLength(ctx: CadContext, text: string, m: Markup): number | null {
 
 /** A fillet radius or chamfer distance: empty is zero (a sharp corner). */
 function cornerSize(ctx: CadContext, text: string, m: Markup): number | null {
-  return text.trim() === '' || Number(text) === 0 ? 0 : ctx.length(text, m);
+  return text.trim() === '' || parseNumber(text) === 0 ? 0 : ctx.length(text, m);
+}
+
+/** A plain number typed in the chosen number format (`0,5` in German); empty is 0, anything else NaN. */
+function typedNumber(text: string): number {
+  return parseNumber(text) ?? (text.trim() ? Number.NaN : 0);
 }
 
 /** Both arms of a Fillet or Chamfer between two different markups, or why not. */
@@ -343,7 +349,7 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
     case 'scale': {
       const typed = s.scaleFactor.trim();
       if (typed) {
-        const k = Number(typed);
+        const k = typedNumber(typed);
         if (!(k > 0) || !Number.isFinite(k)) return { error: 'The factor must be a number above 0' };
         return transformSelection(ctx, [scalingAbout(p, k)], false);
       }
@@ -386,7 +392,7 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
     case 'lengthen': {
       const hit = ctx.hit(p);
       if (!hit || ctx.frozen(hit) || !canCut(hit)) return { error: 'Click near the end of a line or polyline' };
-      const value = s.lengthenMode === 'percent' ? Number(s.lengthenValue) : s.lengthenMode === 'delta' ? signedLength(ctx, s.lengthenValue, hit) : ctx.length(s.lengthenValue, hit);
+      const value = s.lengthenMode === 'percent' ? typedNumber(s.lengthenValue) : s.lengthenMode === 'delta' ? signedLength(ctx, s.lengthenValue, hit) : ctx.length(s.lengthenValue, hit);
       if (value === null || !Number.isFinite(value) || s.lengthenValue.trim() === '') return { error: 'Type the length first' };
       // Worked out with the page stretched by a separate Y scale, so the typed length is a real one.
       const [to, back] = stretching(ctx, hit);
