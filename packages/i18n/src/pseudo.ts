@@ -22,5 +22,9 @@ export function pseudoLocalize(nodes: readonly IcuNode[], kind: 'accents' | 'bid
     return t.replace(/[a-zA-Z]/g, (c) => ACCENTS[c] ?? c);
   });
   const pad = '~'.repeat(Math.max(1, Math.round(length * EXPANSION)));
+  // A closing "…" stays last, as every translation keeps it (checkCatalog): it marks commands that
+  // open a dialog, and code reads it (the assistant's "needs you", the ribbon dropping it).
+  const last = mapped.at(-1);
+  if (typeof last === 'string' && last.endsWith('…')) return ['[[', ...mapped.slice(0, -1), last.slice(0, -1), ` ${pad}]]…`];
   return ['[[', ...mapped, ` ${pad}]]`];
 }

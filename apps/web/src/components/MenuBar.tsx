@@ -456,8 +456,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Cmd id="edit.checkSpelling" />
             <Sep />
             <label className="menu-field" title={msg('Name recorded on your markups')}>
-              Author
-        {msg('Author')}<input value={author} onChange={(e) => onAuthorChange(e.target.value)} onClick={(e) => e.stopPropagation()} />
+              {msg('Author')}
+              <input value={author} onChange={(e) => onAuthorChange(e.target.value)} onClick={(e) => e.stopPropagation()} />
             </label>
           </>
         );
@@ -755,7 +755,8 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
         >
           <img className="brand-col" src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" draggable={false} />
           <span className="brand-word">
-            <b>{msg('red')}</b>{msg('column')}
+            {/* The product name: never translated. */}
+            <b>red</b>column
           </span>
           <span className="brand-caret" aria-hidden="true">
             ▾
