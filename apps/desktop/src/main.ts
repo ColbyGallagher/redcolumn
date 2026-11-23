@@ -29,6 +29,7 @@ import { harden, installMenu, installPermissions } from './security';
 import { isSmokeRun, lockHeldMessage, smokeUserData } from './smoke';
 import { createUpdater } from './updater';
 import { blockedRequests, describePolicy, failedPolicy, loadPolicy, type ManagedPolicy } from './policy';
+import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, WindowStateStore, type SavedWindowState } from './window-state';
 
 const openFiles = captureOpenFiles();
 const allowlist = new PathAllowlist();
@@ -58,6 +59,7 @@ const windows = new Map<Electron.WebContents, WindowState>();
 const anyUnsaved = () => [...windows.values()].some((w) => w.unsaved);
 /** A quit is under way, so confirming the close quits rather than only closing the window. */
 let quitting = false;
+let windowStateStore: WindowStateStore | null = null;
 
 const smoke = isSmokeRun();
 // Before the lock: the lock belongs to the user-data folder, and a smoke run must not share the person's.
@@ -125,6 +127,8 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
     event.returnValue = { nativeFiles: NATIVE_OPEN_SAVE, printMode: PRINT_MODE, policy };
   });
   await restoreLastDir(path.join(app.getPath('userData'), 'last-dir.json'));
+  windowStateStore = new WindowStateStore(path.join(app.getPath('userData'), 'window-state.json'));
+  await windowStateStore.load();
   registerPathIpc(allowlist, (contents) => windows.get(contents)?.launches ?? null, () => mainWindow);
   // Every handler below answers the app's own page only: not help windows, not blob previews.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown) => {
@@ -447,12 +451,23 @@ function createWindow(child?: { x: number; y: number; open: LaunchItem }) {
   // The e2e suite runs the real app on the person's desktop. In the background it opens off-screen,
   // out of the taskbar and never takes focus, so the machine stays usable while it runs.
   const background = process.env.RECOLUMN_E2E === '1' && process.env.RECOLUMN_E2E_FOREGROUND !== '1';
+  const displays = screen.getAllDisplays().map((d) => d.workArea);
+  const primaryWorkArea = screen.getPrimaryDisplay().workArea;
+  const bounds = windowStateStore?.resolve(displays, primaryWorkArea) ?? { width: 1440, height: 900, maximized: false };
+  const shouldMaximize = !background && !child && bounds.maximized === true;
+  const position = background
+    ? { x: -32000, y: -32000, skipTaskbar: true }
+    : child
+      ? { x: child.x, y: child.y }
+      : bounds.x !== undefined && bounds.y !== undefined
+        ? { x: bounds.x, y: bounds.y }
+        : {};
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    ...(background ? { x: -32000, y: -32000, skipTaskbar: true } : child ? { x: child.x, y: child.y } : {}),
-    minWidth: 800,
-    minHeight: 600,
+    width: bounds.width,
+    height: bounds.height,
+    ...position,
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     title: 'redcolumn',
     // The taskbar and window icon on Windows and Linux (an installed Windows app also has it in the
     // exe). macOS takes the Dock icon from the app bundle.
@@ -481,8 +496,38 @@ function createWindow(child?: { x: number; y: number; open: LaunchItem }) {
   windows.set(contents, state);
   queue.attach(win);
   if (child) queue.open(child.open);
+  let shown = false;
+  const captureBounds = (): SavedWindowState | null => {
+    if (win.isDestroyed()) return null;
+    const maximized = win.isMaximized();
+    const rect = maximized || win.isMinimized() || win.isFullScreen() ? win.getNormalBounds() : win.getBounds();
+    return {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.max(MIN_WINDOW_WIDTH, Math.round(rect.width)),
+      height: Math.max(MIN_WINDOW_HEIGHT, Math.round(rect.height)),
+      maximized,
+    };
+  };
+  const noteBounds = () => {
+    if (background || !shown || !windowStateStore || win.isDestroyed() || win.isMinimized()) return;
+    const next = captureBounds();
+    if (next) windowStateStore.update(next);
+  };
+  win.on('resize', noteBounds);
+  win.on('move', noteBounds);
+  win.on('maximize', noteBounds);
+  win.on('unmaximize', noteBounds);
   win.on('focus', () => (mainWindow = win));
-  win.once('ready-to-show', () => (background ? win.showInactive() : win.show()));
+  win.once('ready-to-show', () => {
+    if (background) {
+      win.showInactive();
+      return;
+    }
+    if (shouldMaximize) win.maximize();
+    win.show();
+    shown = true;
+  });
   // With unsaved changes the page asks Save, Don't Save or Cancel for each document, and closes the
   // window itself when done. A page that crashed or hung cannot answer, so it does not hold the window open.
   let hung = false;
@@ -490,6 +535,10 @@ function createWindow(child?: { x: number; y: number; open: LaunchItem }) {
   win.on('responsive', () => (hung = false));
   win.webContents.on('render-process-gone', () => (state.unsaved = false));
   win.on('close', (event) => {
+    if (!background && shown && windowStateStore) {
+      const next = win.isMinimized() ? undefined : captureBounds() ?? undefined;
+      windowStateStore.flushSync(next);
+    }
     if (state.confirmed || !state.unsaved || hung || win.webContents.isCrashed()) return;
     event.preventDefault();
     win.webContents.send('window:close-request');
