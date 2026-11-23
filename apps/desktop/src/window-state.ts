@@ -121,14 +121,16 @@ export function saveWindowStateSync(filePath: string, state: SavedWindowState): 
 
 /** Remembers the app window's size, position and maximized state across sessions. */
 export class WindowStateStore {
+  private readonly filePath: string;
+  private readonly debounceMs: number;
   private current: SavedWindowState | null = null;
   private lastSavedJson: string | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(
-    private readonly filePath: string,
-    private readonly debounceMs = 300,
-  ) {}
+  constructor(filePath: string, debounceMs = 300) {
+    this.filePath = filePath;
+    this.debounceMs = debounceMs;
+  }
 
   async load(): Promise<SavedWindowState | null> {
     this.current = await loadWindowState(this.filePath);
