@@ -34,4 +34,6 @@ The {{View}} menu has two kinds of sync:
 
 > **Tip:** Drag the bar between the panes to make one bigger.
 
+> **Tip:** With a 3D model in one pane and a sheet registered to the map in the other, **Sync** keeps the model looking down on what the sheet shows. See [3D models and sheets on the map](#model-sheets).
+
 > **Note:** To see the differences between two revisions highlighted for you, use [Compare](#compare) or [Overlay](#overlay) instead.

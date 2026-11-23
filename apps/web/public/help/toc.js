@@ -242,6 +242,17 @@ window.HELP_TOC = [
     ],
   },
   {
+    title: '3D Models',
+    children: [
+      { id: 'model-open', title: 'Open a 3D model (IFC)' },
+      { id: 'model-navigate', title: 'Move around a 3D model' },
+      { id: 'model-find', title: 'Find and show parts of a model' },
+      { id: 'model-sheets', title: '3D models and sheets on the map' },
+      { id: 'model-issues', title: 'Issues in 3D models' },
+      { id: 'model-review', title: 'Compare revisions and total quantities' },
+    ],
+  },
+  {
     title: 'Forms & Signatures',
     children: [
       { id: 'forms', title: 'Fill in a form' },

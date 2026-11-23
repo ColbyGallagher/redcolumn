@@ -186,6 +186,8 @@ import { CAD_ACCEPT, isCadFile } from './cad/files';
 import { MODEL_ACCEPT, isModelFile } from './model3d/files';
 import { openModelView } from './model3d/host';
 import { ModelStage } from './model3d/ModelStage';
+import type { PlanView } from '@nb/model3d';
+import { planForSheet, samePlan, sheetForPlan } from './model3d/viewSync';
 import { modelLinework } from './model3d/onDrawing';
 import { modelLayers, type ModelLayer } from './geospatial/modelOnSheet';
 import type { GeoModel } from './geospatial/model';
@@ -6386,7 +6388,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   // Synchronised views: moving either pane moves the other, by page number or keeping the offset
   // between their pages when sync was turned on.
   useEffect(() => {
-    if (!split || !sync || !ctl || !ctlB) return;
+    if (!split || !sync || !ctl || !ctlB || modelA || modelB) return;
     const a = ctl.viewer;
     const b = ctlB.viewer;
     const offset = sync === 'page' ? b.currentPageIndex - a.currentPageIndex : 0;
@@ -6401,10 +6403,58 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       offA();
       offB();
     };
-  }, [split, sync, ctl, ctlB]);
+  }, [split, sync, ctl, ctlB, modelA, modelB]);
   useEffect(() => {
     if (!split) setSync(null);
   }, [split]);
+
+  // Sync view between a model in one pane and a sheet in the other: the model looks straight down
+  // on what the sheet shows (where its registered region puts it on the map), and moving either
+  // moves the other. Turned on, the model follows the sheet first.
+  const modelSheetPair = split && ((!!modelA && !!openB) || (!!modelB && !!open));
+  useEffect(() => {
+    if (!split || !sync) return;
+    const model = modelA && openB ? modelA : modelB && open ? modelB : null;
+    const sheet = model === modelA ? openB : open;
+    const viewer = (model === modelA ? ctlB : ctl)?.viewer;
+    if (!model || !sheet || !viewer) return;
+    let started = false;
+    let last: PlanView | null = null;
+    const regions = () => sheet.store.allGeoRegions();
+    let told = false;
+    const toModel = () => {
+      const controls = model.view.controls();
+      const plan = controls?.state().georeferenced ? planForSheet(regions(), viewer.pageView()) : null;
+      if (controls && !plan && !told) {
+        told = true;
+        setNotice('Sync View follows the sheet where it is registered to the map: move the sheet to a registered area and the model follows.');
+      }
+      if (!controls || !plan) return;
+      last = plan;
+      controls.run({ type: 'planView', view: plan });
+    };
+    const toSheet = () => {
+      const controls = model.view.controls();
+      if (!controls?.state().georeferenced) return;
+      if (!started) {
+        started = true;
+        return toModel();
+      }
+      const plan = controls.planView();
+      // The model settling where the sheet put it is not a move to follow.
+      if (!plan || samePlan(plan, last)) return;
+      last = plan;
+      const view = sheetForPlan(regions(), plan, viewer.pageView());
+      if (view) viewer.setPageView(view);
+    };
+    const offSheet = viewer.onViewChange(toModel);
+    const offModel = model.view.subscribe(toSheet);
+    toSheet();
+    return () => {
+      offSheet();
+      offModel();
+    };
+  }, [split, sync, modelA, modelB, open, openB, ctl, ctlB]);
 
   // Rulers (in each page's drawing scale) and the crosshair, in both panes.
   useEffect(() => {
@@ -7880,7 +7930,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       return;
     }
     const rest = (from === 'b' ? tabsBRef.current : tabsARef.current).filter((x) => x !== t);
-    const front = from === 'b' ? openBRef.current : openRef.current;
+    const front = frontTabOf(from);
     setTabs(from, rest);
     if (front === t) showInPane(from, rest[0] ?? null);
     setTabs(to, [...(to === 'b' ? tabsBRef.current : tabsARef.current), t]);
@@ -8010,10 +8060,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       { label: 'Close All But This', disabled: tabs.length < 2, onClick: () => closeMany(tabs.filter((x) => x !== t)) },
       { label: 'Close Tabs to the Right', disabled: idx === tabs.length - 1, onClick: () => closeMany(tabs.slice(idx + 1)) },
     ];
-    // A 3D model has no markups to save or share, so its menu only closes it or shows where it lives.
+    // A 3D model has no markups to save or share, so its menu only closes it, moves it to the other
+    // pane (beside a sheet, to sync their views) or shows where it lives.
     if (t.kind === 'model')
       return [
         ...closing,
+        SEP,
+        { label: pane === 'a' ? (split ? 'Move to Right Pane' : 'Open in Split View') : 'Move to Left Pane', onClick: () => moveTab(pane, t) },
         ...(desktop()
           ? [SEP, {
               label: 'Open File Location',
@@ -9630,6 +9683,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     stitched: activeMode === 'stitch',
     modelOnDrawings,
     anyModelOpen,
+    modelSheetPair,
     canStitch: !!currentStitch,
     canStitchToPage: !!currentStitch && !!activeOpen && !activeReadOnly,
     canApplyStitching: !!activeOpen && stitchSourceSheets(paneB ? manualStitchB : manualStitchA).length >= 2,
