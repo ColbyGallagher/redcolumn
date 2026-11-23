@@ -44,7 +44,21 @@ export { applySpanStyle, baseTextStyle, hasSpans, layoutRuns, normalizeSpans, ra
 export { autoFormatList, backspaceList, continueList, layoutParagraphs, parseListItem, shiftList, toggleList, type ListItem, type ListKind, type TextEdit } from './textLists';
 export { arcPoints, circleThrough } from './arc';
 export { addBend, anchorOf, anchorsOf, canConnect, connectorLabel, CONNECTOR_STUB, editableRoute, elbowRoute, facingSides, FLOW_SHAPES, flowShapeLabel, gluedTo, manualRoute, moveSegment, nearestSide, relinkCopies, removeSegment, routeConnector, routeHandles, routeOf } from './flowchart';
-export { calloutAttach, calloutLanding, calloutLeaders, calloutPoints, isCalloutTip } from './callout';
+export {
+  calloutAttach,
+  calloutKneeForSide,
+  calloutKneeIndices,
+  calloutLanding,
+  calloutLandingLength,
+  calloutLeaders,
+  calloutPoints,
+  calloutRelocateKneeForTip,
+  calloutSideForPoint,
+  calloutStackedKnees,
+  isCalloutKnee,
+  isCalloutTip,
+  snapCalloutKnee,
+} from './callout';
 export { canOffset, eraseStroke, offsetCopies, offsetDistance, offsetPath, offsetPoints } from './offset';
 export { cropImage, cropOf, imageFrame, mirrorCrop, uncropImage } from './imageCrop';
 export { base64ToBytes, bytesToBase64, hasVector, mirrorVector, pictureMatrix, pictureSegments, userToShown, type Matrix as PictureMatrix } from './vectorPicture';
