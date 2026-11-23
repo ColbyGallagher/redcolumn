@@ -439,6 +439,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.rotate((m.rotation * Math.PI) / 180);
     ctx.translate(-cx, -cy);
   }
+  const strokeAlpha = style.opacity * (style.strokeOpacity ?? 1);
   ctx.globalAlpha = style.opacity;
   // Highlighters multiply by default so drawing detail stays visible underneath.
   const blend = BLEND_MODES.find((b) => b.value === effectiveBlendMode(m))!.canvas;
@@ -455,7 +456,10 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   const dash = draftDash ? [draftDash * 5, draftDash * 3] : (style.dashArray ?? dashPattern(style.dash, lineWidth));
   for (const part of styledParts(markupShape(m), style.lineStyle, style.width, style.lineStyle ? canvasMeasure(ctx) : () => 0)) {
     if (part.art) {
+      ctx.save();
+      ctx.globalAlpha = strokeAlpha;
       paintArt(ctx, part.art);
+      ctx.restore();
       continue;
     }
     if (part.hatch && part.clip) {
@@ -469,16 +473,19 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     if (part.fill) {
       ctx.save();
       if (fillOnly && !part.decoration) ctx.globalCompositeOperation = blend;
-      ctx.globalAlpha = style.opacity * (part.decoration ? 1 : (style.fillOpacity ?? 1));
+      ctx.globalAlpha = part.decoration ? strokeAlpha : style.opacity * (style.fillOpacity ?? 1);
       ctx.fillStyle = part.fill;
       ctx.fill(part.evenOdd ? 'evenodd' : 'nonzero');
       ctx.restore();
     }
     if (part.stroke) {
+      ctx.save();
+      ctx.globalAlpha = strokeAlpha;
       ctx.setLineDash(part.decoration ? [] : dash);
       // An exact dash pattern is drawn with flat ends, as other viewers do; presets use round ones for dots.
       if (style.dashArray) ctx.lineCap = part.decoration ? 'round' : 'butt';
       ctx.stroke();
+      ctx.restore();
     }
   }
   ctx.setLineDash([]);
@@ -522,6 +529,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
       ctx.globalAlpha = style.opacity;
       ctx.fillStyle = style.fill ?? '#ffffff';
       ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      ctx.globalAlpha = strokeAlpha;
       ctx.strokeStyle = style.stroke;
       ctx.setLineDash(dash.length ? dash : [style.width * 3, style.width * 2]);
       ctx.strokeRect(x - w / 2, y - h / 2, w, h);

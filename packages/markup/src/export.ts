@@ -269,12 +269,12 @@ const artStandardFont = (t: Pick<ArtText, 'font' | 'bold' | 'italic'>): Standard
 
 /** A custom line style's laid out strokes, fills and text as content stream operators, in the line color. */
 function artOps(art: LineArt, ctx: Ctx, color: [number, number, number], fontRefs: Record<string, PDFRef>): string[] {
-  const ops: string[] = ['/GS0 gs [] 0 d'];
+  const ops: string[] = ['/GSD gs [] 0 d'];
   const [r, g, b] = color;
   if (art.fill.length) ops.push(`${fmt(r)} ${fmt(g)} ${fmt(b)} rg`, pathOps(art.fill), 'f');
   if (art.stroke.length) ops.push(pathOps(art.stroke), 'S');
   if (art.texts.length) {
-    ops.push('/GS1 gs', `${fmt(r)} ${fmt(g)} ${fmt(b)} rg`);
+    ops.push('/GSD gs', `${fmt(r)} ${fmt(g)} ${fmt(b)} rg`);
     for (const t of art.texts) {
       const name = artStandardFont(t);
       const font = ctx.fonts.get(name);
@@ -500,6 +500,7 @@ function appendCountSymbolOps(ctx: Ctx, m: Markup, ops: string[], xobjects: Lite
 function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number]): PDFRef {
   const { doc, matrix } = ctx;
   const { style } = m;
+  const strokeAlpha = style.opacity * (style.strokeOpacity ?? 1);
   const fillAlpha = style.opacity * (style.fillOpacity ?? 1);
   const [sr, sg, sb] = rgb(style.stroke);
   const [tr, tg, tb] = rgb(textColor(style));
@@ -578,12 +579,12 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   const fillBm = blendName && fillOnly ? { BM: blendName } : {};
   const resources: LiteralObject = {
     ExtGState: {
-      GS0: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...bm },
-      GSD: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
+      GS0: { Type: 'ExtGState', CA: strokeAlpha, ca: fillAlpha, ...bm },
+      GSD: { Type: 'ExtGState', CA: strokeAlpha, ca: strokeAlpha, ...bmExplicit },
       GS1: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
       GSL: { Type: 'ExtGState', CA: 0.85 * style.opacity, ca: 0.85 * style.opacity },
       GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha, ...fillBm },
-      GSF: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...fillBm },
+      GSF: { Type: 'ExtGState', CA: strokeAlpha, ca: fillAlpha, ...fillBm },
     },
   };
   if (hatchPattern) {

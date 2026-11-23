@@ -40,6 +40,7 @@ import { useWorkspace } from '../workspace/profiles';
 import { LineStyleSelect } from './LineStyleSelect';
 import { CountSymbolSelect } from './CountSymbolSelect';
 import { ColorMenu } from './ColorMenu';
+import { ComboField, FONT_SIZES } from './ComboField';
 import { STYLE_ICONS } from './toolIcons';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { StampFieldsForm } from './StampsDialog';
@@ -289,7 +290,16 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           </fieldset>
         </Section>
       )}
-      <StyleEditor style={shownStyle} type={m.type} caps={caps} disabled={disabled} markups={markups} segments={types.every((t) => t === 'polylength')} onChange={changeStyle} />
+      <StyleEditor
+        style={shownStyle}
+        type={m.type}
+        caps={caps}
+        disabled={disabled}
+        markups={markups}
+        segments={types.every((t) => t === 'polylength')}
+        onChange={changeStyle}
+        onPreview={disabled ? undefined : (patch) => tools?.previewStyle(patch, cellSel ? 'table' : undefined)}
+      />
       {tools && (
         <div className="props-actions">
           {types.length === 1 && (
@@ -466,11 +476,16 @@ interface EditorProps {
   /** Offer the segment-lengths toggle: every markup edited is a polylength. */
   segments: boolean;
   onChange: (patch: Partial<MarkupStyle>) => void;
+  onPreview?: (patch: Partial<MarkupStyle> | null) => void;
 }
 
-function StyleEditor({ style, type, caps, disabled, markups, segments, onChange }: EditorProps) {
+const WHOLE_OPACITY_TYPES = new Set<MarkupType>(['highlighter', 'textHighlight', 'image', 'signature', 'stamp']);
+
+function StyleEditor({ style, type, caps, disabled, markups, segments, onChange, onPreview }: EditorProps) {
   const [startCap, endCap] = lineEnds({ type, style });
   const set = <K extends keyof MarkupStyle>(key: K, value: MarkupStyle[K] | undefined) => onChange({ [key]: value } as Partial<MarkupStyle>);
+  const previewColor = <K extends keyof MarkupStyle>(key: K, clearUndefined = false) =>
+    onPreview ? (c: string | null | undefined) => onPreview(c === undefined ? null : ({ [key]: clearUndefined ? (c ?? undefined) : c } as Partial<MarkupStyle>)) : undefined;
   const measure = isMeasureKind(type);
   const hatchOn = !!resolveHatch(style.hatch, style.hatchSpec);
   const hatchValue = style.hatch ?? 'none';
@@ -479,7 +494,15 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
     <fieldset className="props-style" disabled={disabled}>
       <Section title="Appearance">
         <Row label="Line color" title="The outline of the shape, or the line itself">
-          <ColorMenu wide label="Line color" short="Line" icon={STYLE_ICONS.line} value={style.stroke} onChange={(c) => c && set('stroke', c)} />
+          <ColorMenu
+            wide
+            label="Line color"
+            short="Line"
+            icon={STYLE_ICONS.line}
+            value={style.stroke}
+            onChange={(c) => c && set('stroke', c)}
+            onPreview={onPreview ? (c) => onPreview(c === undefined ? null : c ? { stroke: c } : null) : undefined}
+          />
         </Row>
         {!(type === 'text' && (style.noBox || style.borderless)) && (
           <Row label="Line width">
@@ -488,7 +511,12 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
         )}
         {caps.dash && (
           <Row label="Line style">
-            <LineStyleSelect style={style} markups={markups} onChange={onChange} />
+            <LineStyleSelect style={style} markups={markups} disabled={disabled} onChange={onChange} onPreview={onPreview} />
+          </Row>
+        )}
+        {!WHOLE_OPACITY_TYPES.has(type) && (
+          <Row label="Line opacity" title="Opacity of the outer line alone">
+            <Percent value={style.strokeOpacity ?? 1} onChange={(v) => set('strokeOpacity', v >= 1 ? undefined : v)} />
           </Row>
         )}
         <Row label="Opacity">
@@ -508,7 +536,7 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
         {caps.fill && (
           <>
             <Row label="Fill color" title="The inside of the shape">
-              <ColorMenu wide label="Fill color" short="Fill" icon={STYLE_ICONS.fill} value={style.fill ?? null} noneLabel="No fill" onChange={(c) => set('fill', c)} />
+              <ColorMenu wide label="Fill color" short="Fill" icon={STYLE_ICONS.fill} value={style.fill ?? null} noneLabel="No fill" onChange={(c) => set('fill', c)} onPreview={previewColor('fill')} />
             </Row>
             {(style.fill || hatchOn) && (
               <Row label="Fill opacity">
@@ -554,7 +582,7 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
             {hatchOn && (
               <>
                 <Row label="Hatch color">
-                  <ColorMenu wide label="Hatch color" short="Hatch" icon={STYLE_ICONS.hatch} value={style.hatchColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('hatchColor', c ?? undefined)} />
+                  <ColorMenu wide label="Hatch color" short="Hatch" icon={STYLE_ICONS.hatch} value={style.hatchColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('hatchColor', c ?? undefined)} onPreview={previewColor('hatchColor', true)} />
                 </Row>
                 <Row label="Scale" title="50 is half the pattern, 200 is twice. 100 is a quarter inch.">
                   <NumberField value={style.hatchScale ?? 100} min={50} max={200} step={1} unit="%" onChange={(v) => set('hatchScale', v ?? 100)} />
@@ -573,7 +601,7 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
         )}
         {caps.arcRadius === 'Marker size' && (
           <Row label="Marker shape" title="The shape or custom symbol placed at each counted item">
-            <CountSymbolSelect style={style} markups={markups} disabled={disabled} onChange={onChange} />
+            <CountSymbolSelect style={style} markups={markups} disabled={disabled} onChange={onChange} onPreview={onPreview} />
           </Row>
         )}
         {caps.arcRadius && (
@@ -627,10 +655,27 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
       {caps.font && (
         <Section title={measure || caps.label ? 'Label text' : 'Font'}>
           <Row label="Font">
-            <FontPicker value={style.fontFamily} onChange={(family) => set('fontFamily', family === 'sans' ? undefined : (family as FontFamily))} />
+            <FontPicker
+              value={style.fontFamily}
+              disabled={disabled}
+              onChange={(family) => set('fontFamily', family === 'sans' ? undefined : (family as FontFamily))}
+              onPreview={onPreview ? (family) => onPreview(family === null ? null : { fontFamily: family === 'sans' ? undefined : (family as FontFamily) }) : undefined}
+            />
           </Row>
           <Row label="Size">
-            <NumberField value={style.fontSize} placeholder="Auto" min={1} max={288} step={0.5} unit="pt" onChange={(v) => set('fontSize', v)} />
+            <ComboField
+              title="Font size"
+              integer
+              value={style.fontSize !== undefined ? Math.round(style.fontSize) : undefined}
+              placeholder="Auto"
+              options={FONT_SIZES}
+              min={2}
+              max={288}
+              unit="pt"
+              disabled={disabled}
+              onChange={(v) => set('fontSize', Math.round(v))}
+              onPreview={onPreview ? (v) => onPreview(v === null ? null : { fontSize: Math.round(v) }) : undefined}
+            />
           </Row>
           <Row label="Style">
             <span className="seg">
@@ -641,7 +686,7 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
             </span>
           </Row>
           <Row label="Text color">
-            <ColorMenu wide label="Text color" short="Text" icon={STYLE_ICONS.line} value={style.textColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('textColor', c ?? undefined)} />
+            <ColorMenu wide label="Text color" short="Text" icon={STYLE_ICONS.line} value={style.textColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('textColor', c ?? undefined)} onPreview={previewColor('textColor', true)} />
           </Row>
           {caps.textLayout && (
             <>
@@ -678,7 +723,7 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
                 </Row>
               )}
               <Row label="Background">
-                <ColorMenu wide label="Label background" short="Background" icon={STYLE_ICONS.fill} value={style.labelBackground === undefined ? '#ffffff' : style.labelBackground} noneLabel="No background" onChange={(c) => set('labelBackground', c)} />
+                <ColorMenu wide label="Label background" short="Background" icon={STYLE_ICONS.fill} value={style.labelBackground === undefined ? '#ffffff' : style.labelBackground} noneLabel="No background" onChange={(c) => set('labelBackground', c)} onPreview={previewColor('labelBackground')} />
               </Row>
             </>
           )}
@@ -1022,13 +1067,14 @@ interface NumberFieldProps {
   step: number;
   unit: string;
   placeholder?: string;
+  disabled?: boolean;
   onChange: (v: number | undefined) => void;
 }
 
 const LINE_SPACINGS = [1, 1.15, 1.5, 2];
 
 /** Line spacing as a multiple of the font size: a preset, or a custom value. Unset is the default (1.2). Keyed by the selection, so each starts from its own value rather than the last one's Custom. */
-export function LineSpacing({ value, onChange }: { value: number | undefined; onChange: (v: number | undefined) => void }) {
+export function LineSpacing({ value, disabled, onChange }: { value: number | undefined; disabled?: boolean; onChange: (v: number | undefined) => void }) {
   const preset = value !== undefined && LINE_SPACINGS.includes(value);
   const [custom, setCustom] = useState(value !== undefined && !preset);
   const choice = value === undefined ? 'default' : preset && !custom ? String(value) : 'custom';
@@ -1037,6 +1083,7 @@ export function LineSpacing({ value, onChange }: { value: number | undefined; on
       <select
         aria-label="Line spacing"
         value={choice}
+        disabled={disabled}
         onChange={(e) => {
           const v = e.target.value;
           setCustom(v === 'custom');
@@ -1053,7 +1100,7 @@ export function LineSpacing({ value, onChange }: { value: number | undefined; on
         ))}
         <option value="custom">Custom</option>
       </select>
-      {choice === 'custom' && <NumberField value={value} min={0.5} max={5} step={0.05} unit="×" onChange={(v) => onChange(v)} />}
+      {choice === 'custom' && <NumberField value={value} min={0.5} max={5} step={0.05} unit="×" disabled={disabled} onChange={(v) => onChange(v)} />}
     </>
   );
 }
@@ -1111,7 +1158,7 @@ function RotationField({ value, onApply }: { value: number | undefined; onApply:
 }
 
 /** Number input that lets partial entries ("1.") be typed; commits whenever the text is a valid number. */
-export function NumberField({ value, min, max, step, unit, placeholder, onChange }: NumberFieldProps) {
+export function NumberField({ value, min, max, step, unit, placeholder, disabled, onChange }: NumberFieldProps) {
   const shown = value === undefined ? '' : String(Math.round(value * 100) / 100);
   const [text, setText] = useState(shown);
   useEffect(() => setText(shown), [shown]);
@@ -1125,6 +1172,7 @@ export function NumberField({ value, min, max, step, unit, placeholder, onChange
         max={max}
         step={step}
         placeholder={placeholder}
+        disabled={disabled}
         onChange={(e) => {
           setText(e.target.value);
           if (e.target.value === '' && placeholder) return onChange(undefined);

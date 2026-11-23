@@ -647,6 +647,8 @@ export class MarkupTools implements ViewerOverlay {
   private store: MarkupStore | null = null;
   private unsubscribe: (() => void) | null = null;
   private gesture: Gesture | null = null;
+  /** Transient live-preview style patch while hovering options in a style dropdown (never committed to the store). */
+  private stylePreview: { ids: ReadonlySet<string>; patch: Partial<MarkupStyle>; tableCells?: { id: string; range: ReturnType<typeof tableRange> } | null } | null = null;
   private listeners = new Set<() => void>();
   /** Markups the Markups list's filter leaves out, and whether they show faintly or not at all. */
   private filteredOut: ((m: Markup) => boolean) | null = null;
@@ -1048,6 +1050,7 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Chooses a tool; `preset` arms it with a tool library look or a signature image. */
   setTool(tool: Tool, preset?: ToolPreset) {
+    this.stylePreview = null;
     // Pan and the zoom tools are the viewer's own.
     if (tool !== this.state.tool) this.clearTextSelection();
     this.viewer.setNavTool(tool === 'pan' || tool === 'zoomBox' || tool === 'dynamicZoom' ? tool : null);
@@ -1500,11 +1503,13 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Selects markups, together with the rest of any group they belong to. */
   select(ids: Iterable<string>) {
+    this.stylePreview = null;
     this.setState({ selected: this.withGroups(ids) });
   }
 
   /** Selects exactly these markups, even part of a group (to edit one member of it alone). */
   selectOnly(ids: Iterable<string>) {
+    this.stylePreview = null;
     this.setState({ selected: new Set(ids) });
   }
 
@@ -1817,8 +1822,42 @@ export class MarkupTools implements ViewerOverlay {
     this.select([...this.state.selected, ...ids]);
   }
 
+  /** Temporarily previews a style patch on the selected markups (or selected table cells) without mutating the store. */
+  previewStyle(patch: Partial<MarkupStyle> | null, type?: MarkupType) {
+    if (!patch) {
+      if (!this.stylePreview) return;
+      this.stylePreview = null;
+      this.viewer.invalidate();
+      return;
+    }
+    const store = this.store;
+    if (!store || !this.state.selected.size) return;
+    if (type === 'table' && this.state.tableCells && Object.keys(patch).every(isCellStyleKey)) {
+      const s = this.tableSelection();
+      if (!s || this.frozen(s.markup)) return;
+      this.stylePreview = { ids: new Set([s.markup.id]), patch, tableCells: { id: s.markup.id, range: s.range } };
+      this.viewer.invalidate();
+      return;
+    }
+    const ids = new Set<string>();
+    for (const id of this.state.selected) {
+      const m = store.get(id);
+      if (m && !this.frozen(m) && (!type || m.type === type)) ids.add(id);
+    }
+    if (!ids.size) {
+      if (this.stylePreview) {
+        this.stylePreview = null;
+        this.viewer.invalidate();
+      }
+      return;
+    }
+    this.stylePreview = { ids, patch };
+    this.viewer.invalidate();
+  }
+
   /** Updates the style for `type` (future markups) and applies it to selected markups of that type. */
   setStyle(type: MarkupType, patch: Partial<MarkupStyle>) {
+    this.stylePreview = null;
     // With cells selected, the text settings are theirs: the table and the tool's defaults stay as they are.
     if (type === 'table' && this.state.tableCells && Object.keys(patch).every(isCellStyleKey)) {
       this.applyCellStyle(patch as Partial<CellFormat>);
@@ -1862,6 +1901,7 @@ export class MarkupTools implements ViewerOverlay {
 
   /** Applies a style change to specific markups (of any type). Rapid changes merge into one undo step. */
   applyStyle(ids: Iterable<string>, patch: Partial<MarkupStyle>) {
+    this.stylePreview = null;
     const store = this.store;
     if (!store) return;
     store.batch(() => {
@@ -1877,6 +1917,7 @@ export class MarkupTools implements ViewerOverlay {
    * undefined goes back to the table's. Rapid changes merge into one undo step.
    */
   applyCellStyle(patch: Partial<CellFormat>) {
+    this.stylePreview = null;
     const s = this.tableSelection();
     const store = this.store;
     if (!s || !store || store.readOnly || this.frozen(s.markup)) return;
@@ -4209,11 +4250,11 @@ export class MarkupTools implements ViewerOverlay {
     // Sizes the user set explicitly in the tool's defaults are kept as they are.
     if (preset?.stamp) style.stroke = stampColor(preset.stamp);
     if (type === 'cloud' || type === 'polygonCloud') style.arcRadius ??= CLOUD_ARC_PX / zoom;
-    if (type === 'legend' || type === 'table') style.fontSize ??= LABEL_PX / zoom;
-    if (type === 'space') style.fontSize ??= (LABEL_PX * 1.4) / zoom;
+    if (type === 'legend' || type === 'table') style.fontSize ??= Math.max(2, Math.round(LABEL_PX / zoom));
+    if (type === 'space') style.fontSize ??= Math.max(2, Math.round((LABEL_PX * 1.4) / zoom));
     if (isMeasureKind(type)) {
       style.arcRadius ??= MARKER_PX / zoom;
-      style.fontSize ??= LABEL_PX / zoom;
+      style.fontSize ??= Math.max(2, Math.round(LABEL_PX / zoom));
     }
     const now = Date.now();
     const fields = this.options.defaultFields?.();
@@ -5166,9 +5207,9 @@ export class MarkupTools implements ViewerOverlay {
       .find((m) => hitTest(m, p, tol));
   }
 
-  /** The markup as it should appear mid-gesture; connectors follow their shapes as those move. */
+  /** The markup as it should appear mid-gesture or mid-style-preview; connectors follow their shapes as those move. */
   private previewOf(m: Markup): Markup {
-    const own = this.ownPreview(m);
+    const own = this.applyStylePreview(this.ownPreview(m));
     const g = this.gesture;
     if (m.type !== 'connector' || !m.connect || !g || !['move', 'handle', 'rotate', 'groupXform', 'scaleRef', 'calloutBox'].includes(g.kind)) return own;
     const get = (id: string) => {
@@ -5177,6 +5218,16 @@ export class MarkupTools implements ViewerOverlay {
     };
     const points = routeConnector(own, get);
     return points === own.points ? own : { ...own, points };
+  }
+
+  /** Applies any active dropdown hover style preview to `m` without modifying the store. */
+  private applyStylePreview(m: Markup): Markup {
+    const p = this.stylePreview;
+    if (!p || !p.ids.has(m.id)) return m;
+    if (p.tableCells && p.tableCells.id === m.id) {
+      return { ...m, table: formatTableCells(m, p.tableCells.range, p.patch as Partial<CellFormat>) };
+    }
+    return { ...m, style: mergeStyle(m.style, p.patch), ...tableOwnStyleCleared(m, p.patch) };
   }
 
   /** The markup as it should appear mid-gesture (moved or reshaped), without committing. */
