@@ -15,7 +15,10 @@ const EXPANSION = 0.4;
  *   Arabic would, and layout bugs in right-to-left show up.
  */
 export function pseudoLocalize(nodes: readonly IcuNode[], kind: 'accents' | 'bidi'): IcuNode[] {
-  if (kind === 'bidi') return mapIcuText(nodes, (t) => `‮${t}‬`);
+  if (kind === 'bidi') {
+    // The closing "…" stays last, outside the marks (see below).
+    return mapIcuText(nodes, (t) => (t.endsWith('…') ? `‮${t.slice(0, -1)}‬…` : `‮${t}‬`));
+  }
   let length = 0;
   const mapped = mapIcuText(nodes, (t) => {
     length += t.length;

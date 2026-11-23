@@ -40,6 +40,7 @@ test('pseudo-locales', () => {
   assert.match(msg('Open…'), /^\[\[Öþéñ ~+\]\]…$/);
   activate('ar-XB');
   assert.equal(currentLocale().dir, 'rtl');
+  assert.ok(msg('Open…').endsWith('…'), 'the closing ellipsis stays last right to left too');
   assert.equal(msg('Hi {name}', { name: 'Ann' }), '‮Hi ‬Ann');
   activate('en');
 });
