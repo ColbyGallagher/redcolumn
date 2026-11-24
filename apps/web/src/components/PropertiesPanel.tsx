@@ -723,7 +723,7 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange,
                   </optgroup>
                 ))}
                 {hatchValue !== 'none' && !HATCH_PATTERNS.some((h) => h.value === hatchValue) && !hatchSets.some((s) => s.hatches.some((h) => h.id === hatchValue)) && (
-                  <option value={hatchValue}>{hatchValue.startsWith('set:') ? customHatchName(hatchValue) : (LEGACY_HATCH_LABELS[hatchValue] ?? hatchValue)}</option>
+                  <option value={hatchValue}>{hatchValue.startsWith('set:') ? customHatchName(hatchValue) : (LEGACY_HATCH_LABELS()[hatchValue] ?? hatchValue)}</option>
                 )}
               </select>
               {hatchOn && style.hatch && <HatchSwatch pattern={style.hatch} spec={style.hatchSpec} color={style.hatchColor ?? style.stroke} />}

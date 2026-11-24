@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useMemo, useState } from 'react';
 import { COMMENT_COLUMNS, commentsToCsv, filterComments, sortComments, type CommentColumn, type CommentRow, type StatusFilter } from '../studio/comments';
 
@@ -35,17 +36,17 @@ export function CommentsTableDialog({ title, rows, progress, failed = [], onOpen
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal quantities-dialog comments-table-dialog" role="dialog" aria-label="All comments" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="modal quantities-dialog comments-table-dialog" role="dialog" aria-label={msg('All comments')} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <div className="columns-head">
-          <h3>Comments · {title}</h3>
+          <h3>{msg('Comments · {title}', { title })}</h3>
         </div>
         <div className="qty-toolbar">
           <label>
-            Status{' '}
-            <select aria-label="Status filter" value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
-              <option value="all">All</option>
-              <option value="open">Open (no status)</option>
-              <option value="resolved">Resolved (any status)</option>
+            {msg('Status')}{' '}
+            <select aria-label={msg('Status filter')} value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)}>
+              <option value="all">{msg('All')}</option>
+              <option value="open">{msg('Open (no status)')}</option>
+              <option value="resolved">{msg('Resolved (any status)')}</option>
               {statuses.map(([id, name]) => (
                 <option key={id} value={`status:${id}`}>
                   {name}
@@ -54,9 +55,9 @@ export function CommentsTableDialog({ title, rows, progress, failed = [], onOpen
             </select>
           </label>
           <label>
-            File{' '}
-            <select aria-label="File filter" value={fileId ?? ''} onChange={(e) => setFileId(e.target.value || null)}>
-              <option value="">All files</option>
+            {msg('File')}{' '}
+            <select aria-label={msg('File filter')} value={fileId ?? ''} onChange={(e) => setFileId(e.target.value || null)}>
+              <option value="">{msg('All files')}</option>
               {files.map(([id, name]) => (
                 <option key={id} value={id}>
                   {name}
@@ -64,12 +65,12 @@ export function CommentsTableDialog({ title, rows, progress, failed = [], onOpen
               ))}
             </select>
           </label>
-          <input type="search" aria-label="Find in comments" placeholder="Find text or author" value={text} onChange={(e) => setText(e.target.value)} />
+          <input type="search" aria-label={msg('Find in comments')} placeholder={msg('Find text or author')} value={text} onChange={(e) => setText(e.target.value)} />
           <span className="hint-text">
-            {rows ? `${shown.length} of ${rows.length}` : progress ? `Reading files… ${progress.done} of ${progress.total}` : 'Reading files…'}
+            {rows ? `${shown.length} of ${rows.length}` : progress ? msg('Reading files… {done} of {total}', { done: progress.done, total: progress.total }) : msg('Reading files…')}
           </span>
         </div>
-        {failed.length > 0 && <p className="warn">Not read: {failed.join('; ')}</p>}
+        {failed.length > 0 && <p className="warn">{msg('Not read: {failed}', { failed: failed.join('; ') })}</p>}
         <div className="qty-scroll">
           <table className="qty-table comments-table">
             <thead>
@@ -86,7 +87,7 @@ export function CommentsTableDialog({ title, rows, progress, failed = [], onOpen
             </thead>
             <tbody>
               {shown.map((r) => (
-                <tr key={`${r.fileId}:${r.key}`} className={r.replyId ? 'reply' : undefined} tabIndex={0} title="Open the sheet at this markup" onClick={() => onOpen(r)} onKeyDown={(e) => e.key === 'Enter' && onOpen(r)}>
+                <tr key={`${r.fileId}:${r.key}`} className={r.replyId ? 'reply' : undefined} tabIndex={0} title={msg('Open the sheet at this markup')} onClick={() => onOpen(r)} onKeyDown={(e) => e.key === 'Enter' && onOpen(r)}>
                   <td>{r.file}</td>
                   <td>{r.sheet}</td>
                   <td>{r.author}</td>
@@ -100,20 +101,20 @@ export function CommentsTableDialog({ title, rows, progress, failed = [], onOpen
               ))}
             </tbody>
           </table>
-          {rows && !shown.length && <p className="empty">{rows.length ? 'No comments match these filters.' : 'No comments or replies yet.'}</p>}
+          {rows && !shown.length && <p className="empty">{rows.length ? msg('No comments match these filters.') : msg('No comments or replies yet.')}</p>}
         </div>
         <div className="actions">
           <button type="button" className="btn small" disabled={!shown.length} onClick={() => onExportCsv(commentsToCsv(shown))}>
-            Export CSV
+            {msg('Export CSV')}
           </button>
           {onRefresh && (
-            <button type="button" className="btn small" title="Read the files again" onClick={onRefresh}>
-              Refresh
+            <button type="button" className="btn small" title={msg('Read the files again')} onClick={onRefresh}>
+              {msg('Refresh')}
             </button>
           )}
           <span className="grow" />
           <button type="button" className="btn primary" onClick={onClose} autoFocus>
-            Close
+            {msg('Close')}
           </button>
         </div>
       </div>

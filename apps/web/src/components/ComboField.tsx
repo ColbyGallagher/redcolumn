@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useFloatingPopup } from './useFloatingPopup';
@@ -92,7 +93,7 @@ export function ComboField({ value, options, min, max, unit, placeholder, title,
         }}
       />
       <span className="combo-unit">{unit}</span>
-      <button type="button" className="combo-caret" aria-label={`${title}: common values`} aria-haspopup="listbox" aria-expanded={open} disabled={disabled} onClick={() => setOpen(!open)}>
+      <button type="button" className="combo-caret" aria-label={msg('{title}: common values', { title })} aria-haspopup="listbox" aria-expanded={open} disabled={disabled} onClick={() => setOpen(!open)}>
         ▾
       </button>
       {open &&

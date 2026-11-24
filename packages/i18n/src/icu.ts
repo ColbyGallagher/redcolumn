@@ -216,7 +216,7 @@ export function formatIcuParts(nodes: readonly IcuNode[], values: IcuValues, loc
       else if (!(n.name in values)) push(`{${n.name}}`);
       else {
         const v = values[n.name];
-        if (n.kind === 'arg') push(typeof v === 'number' ? numberFormat(locale).format(v) : typeof v === 'string' ? v : v == null ? '' : typeof v === 'object' ? v : String(v));
+        if (n.kind === 'arg') push(typeof v === 'number' ? numberFormat(locale).format(v) : typeof v === 'string' ? v : v == null || v === false ? '' : typeof v === 'object' ? v : String(v));
         else if (n.kind === 'number') push(numberFormat(locale, n.style).format(Number(v)));
         else if (n.kind === 'select') walk(n.options[String(v)] ?? n.options.other!, pound);
         else {

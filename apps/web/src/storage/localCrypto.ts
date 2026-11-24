@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import * as Y from 'yjs';
 import { plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence } from '@nb/markup';
 import { desktop } from '../desktop/host';
@@ -30,7 +31,7 @@ let key: Promise<CryptoKey> | null = null;
 function localKey(): Promise<CryptoKey> {
   key ??= (async () => {
     const raw = await desktop()?.localDataKey?.();
-    if (!raw) throw new Error('This computer cannot keep an encryption key (no system key store).');
+    if (!raw) throw new Error(msg('This computer cannot keep an encryption key (no system key store).'));
     return aesKey(raw);
   })();
   return key;

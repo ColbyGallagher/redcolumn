@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import forge from 'node-forge';
 
 /**
@@ -164,16 +165,16 @@ export function unlockP12(p12Der: string, password: string): UnlockedId {
   try {
     p12 = forge.pkcs12.pkcs12FromAsn1(asn1.fromDer(p12Der), false, password);
   } catch {
-    throw new Error('Wrong password, or not a Digital ID file');
+    throw new Error(msg('Wrong password, or not a Digital ID file'));
   }
   const bags = (type: string): forge.pkcs12.Bag[] => p12.getBags({ bagType: type })[type] ?? [];
   const keyBag = [...bags(forge.pki.oids.pkcs8ShroudedKeyBag!), ...bags(forge.pki.oids.keyBag!)][0];
   const key = keyBag?.key as forge.pki.rsa.PrivateKey | undefined;
-  if (!key) throw new Error('The Digital ID has no private key (or it is not an RSA key)');
+  if (!key) throw new Error(msg('The Digital ID has no private key (or it is not an RSA key)'));
   const certs = bags(forge.pki.oids.certBag!).map((b) => b.cert).filter((c): c is forge.pki.Certificate => !!c);
   // The signer's certificate is the one whose public key matches the private key.
   const mine = certs.find((c) => (c.publicKey as forge.pki.rsa.PublicKey).n?.equals(key.n));
-  if (!mine) throw new Error('The Digital ID has no certificate for its key');
+  if (!mine) throw new Error(msg('The Digital ID has no certificate for its key'));
   const chain = [mine, ...certs.filter((c) => c !== mine)];
   return { key, chain, chainDer: chain.map((c) => fromBinary(asn1.toDer(forge.pki.certificateToAsn1(c)).getBytes())) };
 }
@@ -186,7 +187,7 @@ export async function importDigitalId(bytes: Uint8Array, password: string): Prom
 }
 
 export function unlockId(record: DigitalIdRecord, password: string): UnlockedId {
-  if (record.token) throw new Error('This Digital ID is on a card: sign with its PIN');
+  if (record.token) throw new Error(msg('This Digital ID is on a card: sign with its PIN'));
   return unlockP12(forge.util.decode64(record.p12), password);
 }
 
@@ -233,7 +234,7 @@ function write(key: string, value: unknown) {
   try {
     localStorage.setItem(key, JSON.stringify(value));
   } catch {
-    throw new Error('The browser did not allow saving on this device');
+    throw new Error(msg('The browser did not allow saving on this device'));
   }
 }
 
@@ -266,7 +267,7 @@ export interface IdBackup {
 /** Restores a backup into this device's IDs or trusted certificates; returns how many were added. */
 export function restoreIdBackup(json: string, kind: IdBackup['kind']): number {
   const b = JSON.parse(json) as Partial<IdBackup>;
-  if (b.app !== 'RedColumn' || b.kind !== kind) throw new Error(kind === 'digital-ids' ? 'This is not a Digital IDs backup.' : 'This is not a trusted identities backup.');
+  if (b.app !== 'RedColumn' || b.kind !== kind) throw new Error(kind === 'digital-ids' ? msg('This is not a Digital IDs backup.') : msg('This is not a trusted identities backup.'));
   if (kind === 'digital-ids') {
     // By certificate and kind, as digitalIds.add: a card ID for the same certificate does not stand in for its .p12.
     const kindOf = (r: DigitalIdRecord) => `${r.fingerprint}\u0000${r.token ? 'card' : 'p12'}`;

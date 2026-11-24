@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import forge from 'node-forge';
 import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFSignature, PDFString, StandardFonts, type PDFPage } from 'pdf-lib';
 import { applyMatrix, pageMatrix } from '@nb/markup/export';
@@ -103,7 +104,7 @@ export function softwareSigner(id: UnlockedId): Signer {
     chainDer: id.chainDer,
     sign: async (data, hash) => {
       const make = FORGE_MD[hash as keyof typeof FORGE_MD];
-      if (!make) throw new Error(`Cannot sign with ${hash}`);
+      if (!make) throw new Error(msg('Cannot sign with {hash}', { hash }));
       const md = make();
       md.update(bytesToBinary(data));
       return binaryToBytes(id.key.sign(md));
@@ -114,7 +115,7 @@ export function softwareSigner(id: UnlockedId): Signer {
 /** Signs a PDF with a Digital ID or another `Signer`. The input's bytes are kept; the signature is appended. */
 export async function signPdf(bytes: Uint8Array, id: UnlockedId | Signer, req: SignRequest): Promise<Uint8Array> {
   const signerKey = 'sign' in id ? id : softwareSigner(id);
-  if (!signerKey.chainDer.length) throw new Error('This Digital ID has no certificate to sign with');
+  if (!signerKey.chainDer.length) throw new Error(msg('This Digital ID has no certificate to sign with'));
   const doc = await PDFDocument.load(bytes, { updateMetadata: false });
   const before = snapshot(doc, bytes);
   const ctx = doc.context;
@@ -131,8 +132,8 @@ export async function signPdf(bytes: Uint8Array, id: UnlockedId | Signer, req: S
   let page: PDFPage;
   if (req.fieldName) {
     const field = form.getField(req.fieldName);
-    if (!(field instanceof PDFSignature)) throw new Error(`${req.fieldName} is not a signature field`);
-    if (field.acroField.dict.get(PDFName.of('V'))) throw new Error(`${req.fieldName} is already signed`);
+    if (!(field instanceof PDFSignature)) throw new Error(msg('{fieldName} is not a signature field', { fieldName: req.fieldName }));
+    if (field.acroField.dict.get(PDFName.of('V'))) throw new Error(msg('{fieldName} is already signed', { fieldName: req.fieldName }));
     widget = field.acroField.getWidgets()[0]!.dict;
     const p = widget.get(PDFName.of('P'));
     page = pages.find((pg) => pg.ref === p) ?? pages.find((pg) => pg.node.Annots()?.asArray().some((r) => ctx.lookup(r) === widget)) ?? pages[0]!;
@@ -188,12 +189,12 @@ export async function signPdf(bytes: Uint8Array, id: UnlockedId | Signer, req: S
   const zeros = '0'.repeat(space * 2);
   const hexAt = text.indexOf(`<${zeros}>`);
   const rangeMatch = /\/ByteRange\s*\[\s*0\s+9999999999\s+9999999999\s+9999999999\s*\]/.exec(text);
-  if (hexAt < 0 || !rangeMatch) throw new Error('Could not find the space for the signature');
+  if (hexAt < 0 || !rangeMatch) throw new Error(msg('Could not find the space for the signature'));
   const a = bytes.length + hexAt;
   const b = a + zeros.length + 2;
   const range = [0, a, b, out.length - b];
   const rangeText = `/ByteRange [${range.join(' ')}]`;
-  if (rangeText.length > rangeMatch[0].length) throw new Error('The byte range does not fit');
+  if (rangeText.length > rangeMatch[0].length) throw new Error(msg('The byte range does not fit'));
   out.set(new TextEncoder().encode(rangeText.padEnd(rangeMatch[0].length, ' ')), bytes.length + rangeMatch.index);
 
   const signed = new Uint8Array(a + (out.length - b));
@@ -204,13 +205,13 @@ export async function signPdf(bytes: Uint8Array, id: UnlockedId | Signer, req: S
   const spki = (await certFacts(signerKey.chainDer[0]!)).spki;
   const checkedSign: RawSign = async (data, hash) => {
     const value = await signerKey.sign(data, hash);
-    if (!(await verifySignature(spki, hash, data, value))) throw new Error('The signature does not match the certificate: the card or token signed with another key, or in a way this app cannot use');
+    if (!(await verifySignature(spki, hash, data, value))) throw new Error(msg('The signature does not match the certificate: the card or token signed with another key, or in a way this app cannot use'));
     return value;
   };
   let der = await buildSignedData(signed, signerKey.chainDer, date, req.digest ?? 'SHA-256', checkedSign, { pades });
   if (req.timestamp) der = withTimestamp(der, await req.timestamp(signatureValueOf(der)));
   const hexSig = [...der].map((x) => x.toString(16).padStart(2, '0')).join('').toUpperCase();
-  if (hexSig.length > zeros.length) throw new Error('The signature is larger than the space for it');
+  if (hexSig.length > zeros.length) throw new Error(msg('The signature is larger than the space for it'));
   out.set(new TextEncoder().encode(hexSig), a + 1);
   return out;
 }
@@ -306,7 +307,7 @@ function rawCertificates(der: Uint8Array): Uint8Array[] {
 
 /** The certificate hashes a signing-certificate (v1: SHA-1) or -v2 attribute names, first the signer's. */
 function namedCertificate(attr: Node, v2: boolean): { hash: 'SHA-1' | 'SHA-256' | 'SHA-384' | 'SHA-512'; value: Uint8Array } {
-  const unreadable = () => new Error('The signature’s signing-certificate attribute cannot be read');
+  const unreadable = () => new Error(msg('The signature’s signing-certificate attribute cannot be read'));
   // SigningCertificate(V2) { certs SEQUENCE OF ESSCertID(v2) { [hashAlgorithm DEFAULT sha256,] certHash, issuerSerial? } }
   let id: Node[];
   let algOid: string | null = null;
@@ -317,7 +318,7 @@ function namedCertificate(attr: Node, v2: boolean): { hash: 'SHA-1' | 'SHA-256' 
     throw unreadable();
   }
   const hash = !v2 ? 'SHA-1' : algOid ? OIDS[algOid] : 'SHA-256';
-  if (!hash) throw new Error('The signature names its certificate with a digest this app cannot check');
+  if (!hash) throw new Error(msg('The signature names its certificate with a digest this app cannot check'));
   const value = id[algOid ? 1 : 0];
   if (!value || value.type !== forge.asn1.Type.OCTETSTRING) throw unreadable();
   return { hash, value: binaryToBytes(value.value as string) };
@@ -446,9 +447,9 @@ export async function checkSignatures(bytes: Uint8Array, trust: TrustAnchors = {
     try {
       const range = v.lookup(PDFName.of('ByteRange'), PDFArray).asArray().map((n) => (n as PDFNumber).asNumber());
       const contents = v.lookup(PDFName.of('Contents'));
-      if (range.length !== 4 || !(contents instanceof PDFHexString || contents instanceof PDFString)) throw new Error('The signature has no byte range or contents');
+      if (range.length !== 4 || !(contents instanceof PDFHexString || contents instanceof PDFString)) throw new Error(msg('The signature has no byte range or contents'));
       const [s1, l1, s2, l2] = range as [number, number, number, number];
-      if (s1 !== 0 || s2 + l2 > bytes.length || l1 > s2) throw new Error('The signature’s byte range is outside the file');
+      if (s1 !== 0 || s2 + l2 > bytes.length || l1 > s2) throw new Error(msg('The signature’s byte range is outside the file'));
       check.signedLength = s2 + l2;
       check.coversWholeFile = s2 + l2 === bytes.length;
       check.vri = await vriKey(contents.asBytes());
@@ -469,7 +470,7 @@ export async function checkSignatures(bytes: Uint8Array, trust: TrustAnchors = {
         }
         return signerDer ? readCertificate(signerDer) : null;
       })();
-      if (!signerInfo) throw new Error('The signature has no certificate');
+      if (!signerInfo) throw new Error(msg('The signature has no certificate'));
       check.signer = signerInfo.subject.name || check.signer;
       check.email = signerInfo.subject.email;
       check.org = signerInfo.subject.org;
@@ -478,7 +479,7 @@ export async function checkSignatures(bytes: Uint8Array, trust: TrustAnchors = {
       const raw = cms.rawCerts[cms.certs.findIndex((c) => same(c, signerInfo.der))] ?? signerInfo.der;
       for (const attr of cms.signingCerts) {
         const named = namedCertificate(attr.node, attr.v2);
-        if (!same(named.value, new Uint8Array(await globalThis.crypto.subtle.digest(named.hash, raw as BufferSource)))) throw new Error('The signature names a different certificate from the one it carries');
+        if (!same(named.value, new Uint8Array(await globalThis.crypto.subtle.digest(named.hash, raw as BufferSource)))) throw new Error(msg('The signature names a different certificate from the one it carries'));
       }
       if (cms.signingTime) check.signedAt = cms.signingTime;
       // The signer's own certificate first.
@@ -503,16 +504,16 @@ export async function checkSignatures(bytes: Uint8Array, trust: TrustAnchors = {
       }
       const at = check.signedAt ?? new Date();
       check.certificate = { fingerprint: signerInfo.fingerprint, selfSigned: signerInfo.selfSigned, notBefore: signerInfo.notBefore, notAfter: signerInfo.notAfter, validAtSigning: at >= signerInfo.notBefore && at <= signerInfo.notAfter };
-      if (!cms.digest) throw new Error('The signature uses a digest this app cannot check');
+      if (!cms.digest) throw new Error(msg('The signature uses a digest this app cannot check'));
       const signedBytes = new Uint8Array(l1 + l2);
       signedBytes.set(bytes.subarray(0, l1), 0);
       signedBytes.set(bytes.subarray(s2, s2 + l2), l1);
       const digest = new Uint8Array(await globalThis.crypto.subtle.digest(cms.digest, signedBytes as BufferSource));
       if (cms.signedAttrsDer) {
-        if (!cms.messageDigest || !same(cms.messageDigest, digest)) throw new Error('The document was changed after it was signed');
-        if (!(await verifySignature(signerInfo.spki, cms.digest, cms.signedAttrsDer, cms.signature))) throw new Error('The signature does not match its certificate');
+        if (!cms.messageDigest || !same(cms.messageDigest, digest)) throw new Error(msg('The document was changed after it was signed'));
+        if (!(await verifySignature(signerInfo.spki, cms.digest, cms.signedAttrsDer, cms.signature))) throw new Error(msg('The signature does not match its certificate'));
       } else if (!(await verifySignature(signerInfo.spki, cms.digest, signedBytes, cms.signature))) {
-        throw new Error('The document was changed after it was signed');
+        throw new Error(msg('The document was changed after it was signed'));
       }
       check.intact = true;
       // Only a valid signature with a trusted time stamp can be LTV (PAdES B-LT builds on B-T): its
@@ -642,10 +643,10 @@ export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, op
   if (!checks.length)
     throw new Error(
       asked.length && asked.every((c) => c.certificate?.selfSigned)
-        ? 'A self-signed certificate has no certificate authority to vouch for it'
+        ? msg('A self-signed certificate has no certificate authority to vouch for it')
         : asked.length && asked.every((c) => c.certificate?.selfSigned || !c.timestamp?.verified)
           ? 'Long-term validation needs a trusted time stamp on the signature'
-          : 'No signature needs validation data',
+          : msg('No signature needs validation data'),
     );
   const anchors = opts.anchors ?? [];
   const problems: string[] = [];
@@ -654,17 +655,17 @@ export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, op
   const gather = async (certs: readonly Uint8Array[], entry: ValidationEntry, t: Date, revokedLater: boolean, pool: readonly Uint8Array[] = []) => {
     let chain = await buildChain(certs[0]!, [...certs, ...kept.certs, ...pool]);
     if (!chain.complete) chain = await completeChain(chain, fetcher, { pool: [...certs.slice(1), ...pool], anchors });
-    if (!chain.complete) throw new Error(chain.problem ?? 'Its certificate chain is incomplete');
-    if (chain.certs.length < 2) throw new Error('A self-signed certificate has no certificate authority to vouch for it');
+    if (!chain.complete) throw new Error(chain.problem ?? msg('Its certificate chain is incomplete'));
+    if (chain.certs.length < 2) throw new Error(msg('A self-signed certificate has no certificate authority to vouch for it'));
     entry.certs.push(...chain.certs.map((c) => c.der));
     for (let i = 0; i < chain.certs.length - 1; i++) {
       const cert = chain.certs[i]!;
       // An answer that does not show the certificate good at the time stamp sends it to the next source (OCSP, then the CRL).
       const { revocation, answer } = await revocationEvidence(cert, chain.certs[i + 1]!, fetcher, (r) => {
-        if (!r.verified) return `The ${r.via} answer about ${cert.subjectName} is not signed by its issuer`;
+        if (!r.verified) return msg('The {via} answer about {subjectName} is not signed by its issuer', { via: r.via, subjectName: cert.subjectName });
         const s = statusAt(r, cert, t, i === 0, revokedLater);
-        if (s === 'revoked') throw new Error(`${cert.subjectName}’s certificate is revoked`);
-        if (s === 'none') return r.status === 'unknown' ? `${cert.subjectName}’s certificate is unknown to its CA` : `The ${r.via} answer about ${cert.subjectName} does not cover the signature’s time stamp`;
+        if (s === 'revoked') throw new Error(msg('{subjectName}’s certificate is revoked', { subjectName: cert.subjectName }));
+        if (s === 'none') return r.status === 'unknown' ? msg('{subjectName}’s certificate is unknown to its CA', { subjectName: cert.subjectName }) : msg('The {via} answer about {subjectName} does not cover the signature’s time stamp', { via: r.via, subjectName: cert.subjectName });
         return null;
       });
       (revocation.via === 'OCSP' ? entry.ocsps : entry.crls).push(answer);
@@ -688,7 +689,7 @@ export async function addValidationData(bytes: Uint8Array, fetcher: PkiFetch, op
         await gather(c.timestamp.certificates, tsa, c.timestamp.time, false, entry.certs);
         entries.push(tsa);
       } catch (err) {
-        problems.push(`${c.timestamp.tsa || 'Time stamp server'}: ${err instanceof Error ? err.message : String(err)}`);
+        problems.push(`${c.timestamp.tsa || msg('Time stamp server')}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
   }

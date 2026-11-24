@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useMemo, useState } from 'react';
 import { isTextType, MARKUP_LABELS, type Markup, type MarkupStore } from '@nb/markup';
 import type { PdfDocument } from '@nb/pdf-core';
@@ -85,7 +87,7 @@ export function SpellCheckDialog({ store, markups, doc, readOnly, onShowMarkup, 
         for (const miss of misspellings(checker, w.text, ignored, upperCase)) {
           const key = `pdf:${i}:${miss.index}`;
           if (skipped.has(key)) continue;
-          out.push({ key, word: miss.word, index: miss.index, context: w.text, where: { kind: 'pdf', pageIndex: w.pageIndex, rect: w.rect }, label: `Drawing text, page ${w.pageIndex + 1}` });
+          out.push({ key, word: miss.word, index: miss.index, context: w.text, where: { kind: 'pdf', pageIndex: w.pageIndex, rect: w.rect }, label: msg('Drawing text, page {page}', { page: w.pageIndex + 1 }) });
         }
       });
     }
@@ -141,20 +143,19 @@ export function SpellCheckDialog({ store, markups, doc, readOnly, onShowMarkup, 
           if (e.key === 'Escape') onClose();
         }}
       >
-        <h3>Check Spelling</h3>
+        <h3>{msg('Check Spelling')}</h3>
         <label className="field">
-          <input type="checkbox" checked={withPdf} onChange={(e) => setWithPdf(e.target.checked)} />
-          Also check the drawing's own text
+          {keyed(msgParts('{input}Also check the drawing\'s own text', { input: <input type="checkbox" checked={withPdf} onChange={(e) => setWithPdf(e.target.checked)} /> }))}
         </label>
         {error && <p className="error-text">{error}</p>}
-        {!checker && !error && <p>Loading the dictionary…</p>}
+        {!checker && !error && <p>{msg('Loading the dictionary…')}</p>}
         {checker && !issue && (
-          <p className="spell-done">{withPdf && !pdfWords ? 'Reading the drawing text…' : 'No spelling mistakes found.'}</p>
+          <p className="spell-done">{withPdf && !pdfWords ? msg('Reading the drawing text…') : msg('No spelling mistakes found.')}</p>
         )}
         {issue && (
           <>
             <p className="spell-where">
-              {issues.length} to review · {issue.label}
+              {msg('{count} to review · {label}', { count: issues.length, label: issue.label })}
             </p>
             <p className="spell-context">
               {issue.context.slice(Math.max(0, issue.index - 60), issue.index)}
@@ -162,7 +163,7 @@ export function SpellCheckDialog({ store, markups, doc, readOnly, onShowMarkup, 
               {issue.context.slice(issue.index + issue.word.length, issue.index + issue.word.length + 60)}
             </p>
             <div className="form-grid">
-              <label htmlFor="spell-to">Change to</label>
+              <label htmlFor="spell-to">{msg('Change to')}</label>
               <input id="spell-to" value={replacement} onChange={(e) => setReplacement(e.target.value)} disabled={issue.where.kind === 'pdf'} />
             </div>
             {suggestions.length > 0 && (
@@ -176,26 +177,26 @@ export function SpellCheckDialog({ store, markups, doc, readOnly, onShowMarkup, 
             )}
             <div className="actions spell-actions">
               <button className="btn" onClick={() => setSkipped((s) => new Set(s).add(issue.key))}>
-                Ignore
+                {msg('Ignore')}
               </button>
               <button className="btn" onClick={() => setIgnored((s) => new Set(s).add(issue.word.toLowerCase()))}>
-                Ignore All
+                {msg('Ignore All')}
               </button>
               <button className="btn" onClick={() => void addToDictionary(issue.word).then(() => setAdded((n) => n + 1))}>
-                Add to Dictionary
+                {msg('Add to Dictionary')}
               </button>
               <button className="btn" disabled={readOnly || issue.where.kind === 'pdf' || !replacement} onClick={() => change(true)}>
-                Change All
+                {msg('Change All')}
               </button>
               <button className="btn primary" disabled={readOnly || issue.where.kind === 'pdf' || !replacement} onClick={() => change(false)}>
-                Change
+                {msg('Change')}
               </button>
             </div>
           </>
         )}
         <div className="actions">
           <button className="btn" onClick={onClose}>
-            Close
+            {msg('Close')}
           </button>
         </div>
       </div>

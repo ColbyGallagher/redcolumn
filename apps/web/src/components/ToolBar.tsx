@@ -1,4 +1,5 @@
 import { msg, msgc } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { Children, Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { HATCH_PATTERNS, isMeasureKind, TEXT_PADDING, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
@@ -198,7 +199,7 @@ export const MEASURE_GROUPS: ToolGroup[] = [
 export const MARKUP_TOOLS: ToolEntry[] = MARKUP_GROUPS.flatMap((g) => g.tools);
 export const MEASURE_TOOLS: ToolEntry[] = MEASURE_GROUPS.flatMap((g) => g.tools);
 
-const TOOL_HINTS = (): Partial<Record<Tool, string>> => ({
+const TOOL_HINTS = lazy((): Partial<Record<Tool, string>> => ({
   polyline: msg('click points; double-click or Enter to finish'),
   polygon: msg('click vertices; click the first point, double-click or Enter to finish'),
   arc: msg('click the start, a point on the curve, then the end'),
@@ -240,7 +241,7 @@ const TOOL_HINTS = (): Partial<Record<Tool, string>> => ({
   eraseContent: msg('drag over PDF content to remove it from the page, or click corners for an outline (click the first corner to finish)'),
   cutContent: msg('drag over PDF content to copy and remove it, or click corners for an outline (click the first corner to finish)'),
   cutout: msg('click the hole inside the area; click the first point to finish'),
-});
+}));
 
 /** Tooltips for the text alignment buttons (functions: msg runs at render, not import). */
 const ALIGN_TITLES: Record<TextAlign, () => string> = {
@@ -1308,7 +1309,7 @@ function HatchMenu({ style, mixed, disabled, bare, onChange, onPreview }: { styl
   const { hatchSets } = useWorkspace();
   const active = !!resolveHatch(current, style.hatchSpec);
   const color = style.hatchColor ?? style.stroke;
-  const name = mixed ? msg('Mixed') : !current ? msg('None') : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS[current]) ?? msg('None'));
+  const name = mixed ? msg('Mixed') : !current ? msg('None') : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS()[current]) ?? msg('None'));
   const patchFor = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec): Partial<MarkupStyle> =>
     value === 'none' ? { hatch: undefined, hatchSpec: undefined, hatchColor: undefined, hatchScale: undefined } : { hatch: value, hatchSpec: spec };
   const choose = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec) => {
@@ -1385,7 +1386,7 @@ function HatchMenu({ style, mixed, disabled, bare, onChange, onPreview }: { styl
               onClick={() => choose(current, style.hatchSpec)}
             >
               <HatchSwatch pattern={current} spec={style.hatchSpec} color={color} width={48} height={22} />
-              {current.startsWith('set:') ? customHatchName(current) : (LEGACY_HATCH_LABELS[current] ?? current)}
+              {current.startsWith('set:') ? customHatchName(current) : (LEGACY_HATCH_LABELS()[current] ?? current)}
             </button>
           )}
           {!bare && (

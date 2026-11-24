@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { settings } from '../settings/settings';
 
@@ -65,7 +66,7 @@ export function SoundDialog({ kind = 'sound', onDone, onCancel }: Props) {
         if (s >= MAX_SECONDS[kind] && rec.state === 'recording') rec.stop();
       }, 250);
     } catch (err) {
-      setError(err instanceof Error && err.name === 'NotAllowedError' ? `The ${video ? 'camera' : 'microphone'} is blocked for this site.` : `Recording failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(err instanceof Error && err.name === 'NotAllowedError' ? msg('The {value} is blocked for this site.', { value: video ? msg('camera') : msg('microphone') }) : msg('Recording failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -87,17 +88,17 @@ export function SoundDialog({ kind = 'sound', onDone, onCancel }: Props) {
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>{video ? 'Video' : 'Sound'}</h3>
-        <p>Record a {video ? 'video' : 'spoken note'}. It is placed on the page as a file attachment; double-click it to play it back.</p>
+        <h3>{video ? msg('Video') : msg('Sound')}</h3>
+        <p>{video ? msg('Record a video. It is placed on the page as a file attachment; double-click it to play it back.') : msg('Record a spoken note. It is placed on the page as a file attachment; double-click it to play it back.')}</p>
         {video && state !== 'done' && <video ref={live} className="camera-video" autoPlay playsInline muted />}
         <div className="sound-controls">
           {state === 'recording' ? (
             <button className="btn primary" onClick={() => recorder.current?.stop()}>
-              ■ Stop ({time})
+              {msg('■ Stop ({time})', { time })}
             </button>
           ) : (
             <button className="btn" onClick={() => void start()}>
-              ● {state === 'done' ? 'Record again' : 'Record'}
+              ● {state === 'done' ? msg('Record again') : msg('Record')}
             </button>
           )}
           {clip && state === 'done' && (video ? <video className="camera-video" controls src={clip.url} /> : <audio controls src={clip.url} />)}
@@ -105,10 +106,10 @@ export function SoundDialog({ kind = 'sound', onDone, onCancel }: Props) {
         {error && <p className="error-text">{error}</p>}
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="button" className="btn primary" disabled={!clip || state !== 'done'} onClick={place}>
-            Place on Page
+            {msg('Place on Page')}
           </button>
         </div>
       </div>

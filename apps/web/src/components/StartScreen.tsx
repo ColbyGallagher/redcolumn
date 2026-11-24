@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useState, type ReactNode } from 'react';
 import { CHANGELOG } from '../help/changelog';
 import { TIP_PAGES, inlineParts, parseTip, type Tip } from '../help/startTips';
@@ -128,8 +129,8 @@ export function StartScreen({ launchOpen, onOpen, onNew, showTip, onHideTip, onH
               <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
             </svg>
             <span>
-              <strong>Open PDF…</strong>
-              <small>From this computer · Ctrl+O</small>
+              <strong>{msg('Open PDF…')}</strong>
+              <small>{msg('From this computer · Ctrl+O')}</small>
             </span>
           </button>
           <button type="button" className="start-action" onClick={onNew}>
@@ -137,33 +138,33 @@ export function StartScreen({ launchOpen, onOpen, onNew, showTip, onHideTip, onH
               <path d="M6 3h8l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z M14 3v5h5 M12 11v6 M9 14h6" />
             </svg>
             <span>
-              <strong>New PDF…</strong>
-              <small>Blank, title block or template · Ctrl+N</small>
+              <strong>{msg('New PDF…')}</strong>
+              <small>{msg('Blank, title block or template · Ctrl+N')}</small>
             </span>
           </button>
         </div>
-        <p className="start-drop">or drop a PDF anywhere on this window</p>
+        <p className="start-drop">{msg('or drop a PDF anywhere on this window')}</p>
 
         {showTip && !failed && tip && (
-          <section className="tip-card" aria-label="Tip">
+          <section className="tip-card" aria-label={msg('Tip')}>
             <header>
               <span className="tip-badge">
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <path d="M9 18h6 M10 21h4 M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" />
                 </svg>
-                Did you know?
+                {msg('Did you know?')}
               </span>
               <span className="tip-nav">
-                <button type="button" className="icon-btn" title="Previous tip" aria-label="Previous tip" onClick={() => step(-1)}>
+                <button type="button" className="icon-btn" title={msg('Previous tip')} aria-label={msg('Previous tip')} onClick={() => step(-1)}>
                   ‹
                 </button>
                 <span className="tip-count">
                   {index + 1} / {TIP_PAGES.length}
                 </span>
-                <button type="button" className="icon-btn" title="Next tip" aria-label="Next tip" onClick={() => step(1)}>
+                <button type="button" className="icon-btn" title={msg('Next tip')} aria-label={msg('Next tip')} onClick={() => step(1)}>
                   ›
                 </button>
-                <button type="button" className="icon-btn" title="Hide tips (turn them back on in Preferences › Interface)" aria-label="Hide tips" onClick={onHideTip}>
+                <button type="button" className="icon-btn" title={msg('Hide tips (turn them back on in Preferences › Interface)')} aria-label={msg('Hide tips')} onClick={onHideTip}>
                   ×
                 </button>
               </span>
@@ -205,14 +206,14 @@ export function StartScreen({ launchOpen, onOpen, onNew, showTip, onHideTip, onH
             )}
             <footer>
               <button type="button" className="tip-link" onClick={() => onHelp(page)}>
-                Read the full guide →
+                {msg('Read the full guide →')}
               </button>
             </footer>
           </section>
         )}
       </div>
-      <aside className="changelog-card" aria-label="What's new">
-        <h2>What's new</h2>
+      <aside className="changelog-card" aria-label={msg('What\'s new')}>
+        <h2>{msg('What\'s new')}</h2>
         <div className="changelog-list">
           {CHANGELOG.map((e) => (
             <section key={e.version}>

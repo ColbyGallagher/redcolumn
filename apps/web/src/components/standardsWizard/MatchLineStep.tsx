@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../../i18n/keyed';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_LINK_HINTS, spotCheckSample, stepMeter, type PageText, type SheetInfo } from '@nb/sheets';
 import type { DrawingStandard } from '../../sheets/standards';
@@ -108,39 +110,39 @@ export function MatchLineStep(p: Props) {
     const says = phase === 'first' ? firstSays : secondSays;
     return (
       <section className="sw-question">
-        <p className="sw-progress">Match lines · {phase === 'first' ? 1 : 2} of 3</p>
-        <h2>{phase === 'first' ? 'Box a match-line label' : 'Box the matching label'}</h2>
+        <p className="sw-progress">{msg('Match lines · {value} of 3', { value: phase === 'first' ? 1 : 2 })}</p>
+        <h2>{phase === 'first' ? msg('Box a match-line label') : msg('Box the matching label')}</h2>
         <p>
           {phase === 'first'
-            ? 'Find a match line on a plan (where the drawing continues on another sheet) and drag a box around its label: the words, and the drawing number it names.'
-            : 'This is the sheet the label names. Find the same match line here and drag a box around its label.'}
+            ? msg('Find a match line on a plan (where the drawing continues on another sheet) and drag a box around its label: the words, and the drawing number it names.')
+            : msg('This is the sheet the label names. Find the same match line here and drag a box around its label.')}
         </p>
-        <Gif src={gif(phase)} alt={`Where to draw the ${phase === 'first' ? 'match-line label' : 'matching label'} box on a sample drawing`} />
-        {!box && <p className="sw-hint">Drag on the sheet to draw the box. Scroll to zoom; drag with the middle button to move around.</p>}
+        <Gif src={gif(phase)} alt={msg('Where to draw the {value} box on a sample drawing', { value: phase === 'first' ? msg('match-line label') : msg('matching label') })} />
+        {!box && <p className="sw-hint">{msg('Drag on the sheet to draw the box. Scroll to zoom; drag with the middle button to move around.')}</p>}
         {box && says && (
           <div className="sw-result">
             <p className="sw-read">
-              Reads: <strong>{says.text || 'no text'}</strong>
+              {keyed(msgParts('Reads: {strong}', { strong: <strong>{says.text || 'no text'}</strong> }))}
             </p>
             <p className={`sw-verdict ${says.sheet !== null ? 'good' : 'some'}`}>
-              {says.sheet !== null ? `Names ${numbers[says.sheet] ?? `sheet ${says.sheet + 1}`}.` : 'It names no drawing in this set: go to the adjoining sheet yourself.'}
+              {says.sheet !== null ? msg('Names {sheet}.', { sheet: numbers[says.sheet] ?? msg('sheet {number}', { number: says.sheet + 1 }) }) : msg('It names no drawing in this set: go to the adjoining sheet yourself.')}
             </p>
           </div>
         )}
         {problem && <p className="sw-warn">{problem}</p>}
-        <p className="sw-hint">Once a few examples are set up, an AI assistant connected over MCP can use them to find the links that text search misses.</p>
+        <p className="sw-hint">{msg('Once a few examples are set up, an AI assistant connected over MCP can use them to find the links that text search misses.')}</p>
         <div className="sw-nav">
           <button type="button" className="btn" onClick={phase === 'first' ? p.onBack : () => setPhase('first')}>
-            Back
+            {msg('Back')}
           </button>
           {box && !p.readOnly && (
             <button type="button" className="btn" onClick={() => (phase === 'first' ? setFirst(null) : setSecond(null))}>
-              Re-draw box
+              {msg('Re-draw box')}
             </button>
           )}
           {phase === 'first' && !first && (
-            <button type="button" className="btn flat" onClick={p.onNext} title="Skip match lines: this set has none">
-              This set has none
+            <button type="button" className="btn flat" onClick={p.onNext} title={msg('Skip match lines: this set has none')}>
+              {msg('This set has none')}
             </button>
           )}
           {phase === 'first' ? (
@@ -153,11 +155,11 @@ export function MatchLineStep(p: Props) {
                 if (firstSays?.sheet != null) p.setPage(firstSays.sheet);
               }}
             >
-              Next
+              {msg('Next')}
             </button>
           ) : (
             <button type="button" className="btn primary" disabled={!second || !p.texts} onClick={learn}>
-              Find the rest
+              {msg('Find the rest')}
             </button>
           )}
         </div>
@@ -167,8 +169,8 @@ export function MatchLineStep(p: Props) {
 
   return (
     <section className="sw-question">
-      <p className="sw-progress">Match lines · 3 of 3</p>
-      <h2>Check the match lines found</h2>
+      <p className="sw-progress">{msg('Match lines · 3 of 3')}</p>
+      <h2>{msg('Check the match lines found')}</h2>
       {notes.length > 0 && (
         <ul className="sw-notes">
           {notes.map((n) => (
@@ -176,14 +178,14 @@ export function MatchLineStep(p: Props) {
           ))}
         </ul>
       )}
-      {!run && <p className="sw-hint">Looking through the set…</p>}
+      {!run && <p className="sw-hint">{msg('Looking through the set…')}</p>}
       {run && meter && (
         <>
-          <Meter meter={meter} places={run.places} linked={run.linked} what="match line" />
+          <Meter meter={meter} places={run.places} linked={run.linked} what={msg('match line')} />
           {sample.length > 0 && (
             <>
-              <h3>Are these right?</h3>
-              <p className="sw-hint">Click a picture to see it on the sheet. Your answers set the meter, and are kept on the links.</p>
+              <h3>{msg('Are these right?')}</h3>
+              <p className="sw-hint">{msg('Click a picture to see it on the sheet. Your answers set the meter, and are kept on the links.')}</p>
               <ol className="sw-checks">
                 {sample.map((l) => (
                   <CheckCard
@@ -206,8 +208,7 @@ export function MatchLineStep(p: Props) {
           )}
           {meter.band === 'ai' && (
             <div className="sw-ai">
-              <strong>Recommended: finish this step with AI.</strong> Text search finds too few of this set’s match lines, or too many are wrong. An AI assistant connected to redcolumn over MCP can read the sheets and use the labels you boxed to find the rest.
-              <AskAi prompt={aiPrompt(p.standard, p.fileName, ['matchLines'])} />
+              {keyed(msgParts('{strong} Text search finds too few of this set’s match lines, or too many are wrong. An AI assistant connected to redcolumn over MCP can read the sheets and use the labels you boxed to find the rest.{askai}', { strong: <strong>{msg('Recommended: finish this step with AI.')}</strong>, askai: <AskAi prompt={aiPrompt(p.standard, p.fileName, ['matchLines'])} /> }))}
             </div>
           )}
           {p.onStitch && run.links.length > 0 && (
@@ -221,7 +222,7 @@ export function MatchLineStep(p: Props) {
                   p.onStitch?.();
                 }}
               >
-                {stitched ? 'Stitching the plans…' : 'Use these to stitch the plans'}
+                {stitched ? msg('Stitching the plans…') : msg('Use these to stitch the plans')}
               </button>
             </div>
           )}
@@ -229,7 +230,7 @@ export function MatchLineStep(p: Props) {
       )}
       <div className="sw-nav">
         <button type="button" className="btn" onClick={p.onBack}>
-          Back
+          {msg('Back')}
         </button>
         <button
           type="button"
@@ -241,10 +242,10 @@ export function MatchLineStep(p: Props) {
             setPhase('first');
           }}
         >
-          Teach another example
+          {msg('Teach another example')}
         </button>
         <button type="button" className="btn primary" onClick={p.onNext}>
-          Next
+          {msg('Next')}
         </button>
       </div>
     </section>

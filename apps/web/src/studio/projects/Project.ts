@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import * as Y from 'yjs';
 import { ownMarkupsOnly, type EditRule, type Markup, type MarkupStore } from '@nb/markup';
 import { DriveAuthError, DriveForbiddenError, type DriveApi, type DriveFile, type DrivePermission } from '../drive/DriveApi';
@@ -37,13 +38,16 @@ import {
 /** A Project needs a drive that can delete (check-out locks are released by deleting them). */
 export type ProjectDrive = DriveApi & Required<Pick<DriveApi, 'remove'>>;
 
+/** Access levels in English, for the shared record (read by everyone, whatever their language). */
+const LEVEL_ENGLISH: Record<Level, string> = { viewer: 'Can view', editor: 'Can edit', owner: 'Owner' };
+
 export class ProjectError extends Error {}
 
 /** The file is checked out by someone else. */
 export class CheckedOutError extends ProjectError {
   readonly by: string;
   constructor(by: string) {
-    super(`${by} has this file checked out.`);
+    super(msg('{by} has this file checked out.', { by }));
     this.by = by;
   }
 }
@@ -365,7 +369,7 @@ export class Project {
   /** Makes a Project: a folder in the host's OneDrive, shared by link. */
   static async create(api: ProjectDrive, name: string, me: Person, opts: ProjectOptions & { linkCanEdit?: boolean }): Promise<Project> {
     const clean = cleanItemName(name, 120);
-    if (!clean) throw new ProjectError('Give the Project a name.');
+    if (!clean) throw new ProjectError(msg('Give the Project a name.'));
     await opts.authorize();
     const created = await api.createFolder(`${clean} (redcolumn project)`, { nbStudio: 'project' });
     // A view link by default: editors are invited by email (docs/SECURITY-HARDENING.md, 4.2). Project links do not expire.
@@ -382,7 +386,7 @@ export class Project {
     if (opts.interactive) await opts.authorize();
     const files = await api.list(folderId);
     const mf = files.find((f) => f.properties.nbRole === ROLE.manifest);
-    if (!mf) throw new ProjectError('That folder is not a redcolumn Project.');
+    if (!mf) throw new ProjectError(msg('That folder is not a redcolumn Project.'));
     const manifest = JSON.parse(dec.decode(await api.download(mf.id))) as ProjectManifest;
     const isOwner = await api.ownedByMe(mf.id).catch(() => false);
     const project = new Project(api, me, folderId, isOwner, { manifest, folders: [], files: [], record: [], level: isOwner ? 'owner' : 'editor', loadedAt: 0, presence: [] }, opts);
@@ -462,14 +466,14 @@ export class Project {
     } catch (err) {
       if (err instanceof DriveForbiddenError) {
         if (!this.isOwner) this.set({ level: 'viewer' });
-        throw new ProjectError('You can view this Project but not change it. Ask the owner to let you edit the OneDrive folder.');
+        throw new ProjectError(msg('You can view this Project but not change it. Ask the owner to let you edit the OneDrive folder.'));
       }
       throw err;
     }
   }
 
   private requireWrite() {
-    if (!this.canWrite) throw new ProjectError('You can view this Project but not change it.');
+    if (!this.canWrite) throw new ProjectError(msg('You can view this Project but not change it.'));
   }
 
   /** Adds an entry to the Project Record (this person's own share of it). */
@@ -498,9 +502,9 @@ export class Project {
   async addFolder(name: string, parentId: string | null): Promise<ProjectFolder> {
     this.requireWrite();
     const clean = cleanItemName(name);
-    if (!clean) throw new ProjectError('Give the folder a name.');
-    if (parentId && !this.snap.folders.some((f) => f.id === parentId)) throw new ProjectError('That folder is gone.');
-    if (this.snap.folders.some((f) => f.parentId === parentId && f.name.toLowerCase() === clean.toLowerCase())) throw new ProjectError(`There is already a folder called “${clean}” here.`);
+    if (!clean) throw new ProjectError(msg('Give the folder a name.'));
+    if (parentId && !this.snap.folders.some((f) => f.id === parentId)) throw new ProjectError(msg('That folder is gone.'));
+    if (this.snap.folders.some((f) => f.parentId === parentId && f.name.toLowerCase() === clean.toLowerCase())) throw new ProjectError(msg('There is already a folder called “{clean}” here.', { clean }));
     const folder: ProjectFolder = { id: newId(), name: clean, parentId, by: this.me.name, at: Date.now() };
     await this.write(() => this.api.createFile(this.folderId, `dir-${folder.id}.json`, 'application/json', jsonBlob(folder), { nbRole: ROLE.dir, nbId: folder.id }));
     this.set({ folders: [...this.snap.folders, folder].sort((a, b) => a.name.localeCompare(b.name)) });
@@ -520,9 +524,9 @@ export class Project {
   async addFile(name: string, folderId: string | null, bytes: ArrayBuffer): Promise<ProjectFile> {
     this.requireWrite();
     const clean = cleanItemName(name);
-    if (!clean) throw new ProjectError('Give the file a name.');
-    if (folderId && !this.snap.folders.some((f) => f.id === folderId)) throw new ProjectError('That folder is gone.');
-    if (this.snap.files.some((f) => f.folderId === folderId && f.name.toLowerCase() === clean.toLowerCase())) throw new ProjectError(`“${clean}” is already in this folder. Check it out and in to add a revision.`);
+    if (!clean) throw new ProjectError(msg('Give the file a name.'));
+    if (folderId && !this.snap.folders.some((f) => f.id === folderId)) throw new ProjectError(msg('That folder is gone.'));
+    if (this.snap.files.some((f) => f.folderId === folderId && f.name.toLowerCase() === clean.toLowerCase())) throw new ProjectError(msg('“{clean}” is already in this folder. Check it out and in to add a revision.', { clean }));
     const id = newId();
     const rev: ProjectRevision = { n: 1, name: clean, folderId, size: bytes.byteLength, sha256: await sha256(bytes), at: Date.now(), by: this.me.name, comment: 'First revision' };
     await this.putRevision(id, rev, bytes);
@@ -533,7 +537,7 @@ export class Project {
 
   private file(fileId: string): ProjectFile {
     const f = this.snap.files.find((x) => x.id === fileId);
-    if (!f) throw new ProjectError('That file is gone.');
+    if (!f) throw new ProjectError(msg('That file is gone.'));
     return f;
   }
 
@@ -590,7 +594,7 @@ export class Project {
     await this.poll();
     const file = this.file(fileId);
     if (file.checkout && !this.heldByMe(file)) throw new CheckedOutError(file.checkout.by);
-    if (!file.checkout) throw new ProjectError('Check the file out before checking it in.');
+    if (!file.checkout) throw new ProjectError(msg('Check the file out before checking it in.'));
     const last = file.revisions[file.revisions.length - 1]!;
     const name = edit.name ? cleanItemName(edit.name) || file.name : file.name;
     const rev: ProjectRevision = {
@@ -622,31 +626,31 @@ export class Project {
   async download(fileId: string, n?: number): Promise<{ bytes: ArrayBuffer; revision: ProjectRevision }> {
     const file = this.file(fileId);
     const revision = file.revisions.find((r) => r.n === (n ?? file.revisions[file.revisions.length - 1]!.n));
-    if (!revision) throw new ProjectError('That revision does not exist.');
+    if (!revision) throw new ProjectError(msg('That revision does not exist.'));
     const listed = await this.api.list(this.folderId);
     const pdf = listed.find((f) => f.name === pdfName(fileId, revision.n));
-    if (!pdf) throw new ProjectError('That revision’s PDF is missing from the folder.');
+    if (!pdf) throw new ProjectError(msg('That revision’s PDF is missing from the folder.'));
     const bytes = await this.api.download(pdf.id);
-    if ((await sha256(bytes)) !== revision.sha256) throw new ProjectError('That revision’s PDF does not match what was checked in. It may still be syncing; try again.');
+    if ((await sha256(bytes)) !== revision.sha256) throw new ProjectError(msg('That revision’s PDF does not match what was checked in. It may still be syncing; try again.'));
     return { bytes, revision };
   }
 
   /** Invites someone by email to edit the OneDrive folder, and lists them as a member. Owner only. */
   async invite(email: string, level: Grant['level'] = 'editor'): Promise<void> {
-    if (!this.isOwner) throw new ProjectError('Only the owner can invite people.');
+    if (!this.isOwner) throw new ProjectError(msg('Only the owner can invite people.'));
     const who = email.trim();
-    if (!/^\S+@\S+\.\S+$/.test(who)) throw new ProjectError('Enter an email address.');
-    await this.write(() => this.api.shareWithUser(this.folderId, who, `You are invited to the redcolumn Project “${this.snap.manifest.name}”.`, level === 'viewer' ? 'reader' : 'writer'));
+    if (!/^\S+@\S+\.\S+$/.test(who)) throw new ProjectError(msg('Enter an email address.'));
+    await this.write(() => this.api.shareWithUser(this.folderId, who, msg('You are invited to the redcolumn Project “{name}”.', { name: this.snap.manifest.name }), level === 'viewer' ? 'reader' : 'writer'));
     const manifest: ProjectManifest = { ...this.snap.manifest, members: [...this.snap.manifest.members.filter((m) => m.who.toLowerCase() !== who.toLowerCase()), { who, level }] };
     await this.writeManifest(manifest);
-    await this.note('members', `invited ${who} (${LEVEL_LABELS[level].toLowerCase()})`);
+    await this.note('members', `invited ${who} (${LEVEL_ENGLISH[level].toLowerCase()})`);
   }
 
   /** Renames the Project (its OneDrive folder keeps its name). Owner only. */
   async rename(name: string): Promise<void> {
-    if (!this.isOwner) throw new ProjectError('Only the owner can rename the Project.');
+    if (!this.isOwner) throw new ProjectError(msg('Only the owner can rename the Project.'));
     const clean = name.trim().slice(0, 120);
-    if (!clean) throw new ProjectError('Give the Project a name.');
+    if (!clean) throw new ProjectError(msg('Give the Project a name.'));
     const before = this.snap.manifest.name;
     if (clean === before) return;
     await this.writeManifest({ ...this.snap.manifest, name: clean });
@@ -658,7 +662,7 @@ export class Project {
    * or none. Owner only: it lives in project.json, so everyone's copy picks it up.
    */
   async setStandard(exported: string | null, name = ''): Promise<void> {
-    if (!this.isOwner) throw new ProjectError('Only the owner can choose the Project’s drawing standard.');
+    if (!this.isOwner) throw new ProjectError(msg('Only the owner can choose the Project’s drawing standard.'));
     const { standard: _old, ...rest } = this.snap.manifest;
     await this.writeManifest(exported ? { ...rest, standard: JSON.parse(exported) as unknown } : rest);
     await this.note('project', exported ? `chose the drawing standard ${name}` : 'stopped using a drawing standard');
@@ -666,26 +670,26 @@ export class Project {
 
   /** Who the OneDrive folder is shared with. Only the owner can see this. */
   async members(): Promise<DrivePermission[]> {
-    if (!this.isOwner) throw new ProjectError('Only the owner can see who the Project is shared with.');
-    if (!this.api.listPermissions) throw new ProjectError('This drive cannot list who a folder is shared with.');
+    if (!this.isOwner) throw new ProjectError(msg('Only the owner can see who the Project is shared with.'));
+    if (!this.api.listPermissions) throw new ProjectError(msg('This drive cannot list who a folder is shared with.'));
     return this.api.listPermissions(this.folderId);
   }
 
   /** Lets someone view or edit. Their access is changed in OneDrive itself. */
   async setLevel(permissionId: string, level: Grant['level']): Promise<void> {
-    if (!this.isOwner) throw new ProjectError('Only the owner can change who can edit.');
-    if (!this.api.setPermissionRole) throw new ProjectError('This drive cannot change access.');
+    if (!this.isOwner) throw new ProjectError(msg('Only the owner can change who can edit.'));
+    if (!this.api.setPermissionRole) throw new ProjectError(msg('This drive cannot change access.'));
     const who = (await this.members()).find((p) => p.id === permissionId);
     await this.write(() => this.api.setPermissionRole!(this.folderId, permissionId, level === 'viewer' ? 'reader' : 'writer'));
-    await this.note('members', `changed ${who?.email ?? who?.name ?? 'access'} to ${LEVEL_LABELS[level].toLowerCase()}`);
+    await this.note('members', `changed ${who?.email ?? who?.name ?? 'access'} to ${LEVEL_ENGLISH[level].toLowerCase()}`);
   }
 
   /** Stops sharing the folder with one person (or the link). */
   async removeMember(permissionId: string): Promise<void> {
-    if (!this.isOwner) throw new ProjectError('Only the owner can remove people.');
-    if (!this.api.removePermission) throw new ProjectError('This drive cannot change access.');
+    if (!this.isOwner) throw new ProjectError(msg('Only the owner can remove people.'));
+    if (!this.api.removePermission) throw new ProjectError(msg('This drive cannot change access.'));
     const who = (await this.members()).find((p) => p.id === permissionId);
-    if (who?.kind === 'owner') throw new ProjectError('The owner cannot be removed.');
+    if (who?.kind === 'owner') throw new ProjectError(msg('The owner cannot be removed.'));
     await this.write(() => this.api.removePermission!(this.folderId, permissionId));
     const email = who?.email?.toLowerCase();
     if (email && this.snap.manifest.members.some((m) => m.who.toLowerCase() === email)) await this.writeManifest({ ...this.snap.manifest, members: this.snap.manifest.members.filter((m) => m.who.toLowerCase() !== email) });
@@ -695,7 +699,7 @@ export class Project {
   private async writeManifest(manifest: ProjectManifest) {
     const listed = await this.api.list(this.folderId);
     const mf = listed.find((f) => f.properties.nbRole === ROLE.manifest);
-    if (!mf) throw new ProjectError('The Project’s settings file is missing.');
+    if (!mf) throw new ProjectError(msg('The Project’s settings file is missing.'));
     await this.write(() => this.api.updateContent(mf.id, jsonBlob(manifest)));
     this.set({ manifest });
   }
@@ -717,20 +721,20 @@ export class Project {
 
   private checkFileName(name: string, folderId: string | null, exceptId: string): string {
     const clean = cleanItemName(name);
-    if (!clean) throw new ProjectError('Give the file a name.');
-    if (this.snap.files.some((f) => f.id !== exceptId && f.folderId === folderId && f.name.toLowerCase() === clean.toLowerCase())) throw new ProjectError(`“${clean}” is already in that folder.`);
+    if (!clean) throw new ProjectError(msg('Give the file a name.'));
+    if (this.snap.files.some((f) => f.id !== exceptId && f.folderId === folderId && f.name.toLowerCase() === clean.toLowerCase())) throw new ProjectError(msg('“{clean}” is already in that folder.', { clean }));
     return clean;
   }
 
   private checkFolderName(name: string, parentId: string | null, exceptId: string): string {
     const clean = cleanItemName(name);
-    if (!clean) throw new ProjectError('Give the folder a name.');
-    if (this.snap.folders.some((f) => f.id !== exceptId && f.parentId === parentId && f.name.toLowerCase() === clean.toLowerCase())) throw new ProjectError(`There is already a folder called “${clean}” there.`);
+    if (!clean) throw new ProjectError(msg('Give the folder a name.'));
+    if (this.snap.folders.some((f) => f.id !== exceptId && f.parentId === parentId && f.name.toLowerCase() === clean.toLowerCase())) throw new ProjectError(msg('There is already a folder called “{clean}” there.', { clean }));
     return clean;
   }
 
   private checkFolderExists(id: string | null) {
-    if (id && !this.snap.folders.some((f) => f.id === id)) throw new ProjectError('That folder is gone.');
+    if (id && !this.snap.folders.some((f) => f.id === id)) throw new ProjectError(msg('That folder is gone.'));
   }
 
   async renameFile(fileId: string, name: string): Promise<void> {
@@ -760,7 +764,7 @@ export class Project {
     this.requireWrite();
     const file = this.file(fileId);
     if (file.checkout && !this.heldByMe(file)) throw new CheckedOutError(file.checkout.by);
-    if (file.checkout) throw new ProjectError('Undo your check-out before deleting the file.');
+    if (file.checkout) throw new ProjectError(msg('Undo your check-out before deleting the file.'));
     await this.putEdit({ target: 'file', id: fileId, deleted: true });
     await this.note('file', `deleted ${file.name}`, { fileId });
     await this.poll();
@@ -769,7 +773,7 @@ export class Project {
   async renameFolder(folderId: string, name: string): Promise<void> {
     this.requireWrite();
     const folder = this.snap.folders.find((f) => f.id === folderId);
-    if (!folder) throw new ProjectError('That folder is gone.');
+    if (!folder) throw new ProjectError(msg('That folder is gone.'));
     const clean = this.checkFolderName(name, folder.parentId, folderId);
     if (clean === folder.name) return;
     await this.putEdit({ target: 'folder', id: folderId, name: clean });
@@ -780,9 +784,9 @@ export class Project {
   async moveFolder(folderId: string, parentId: string | null): Promise<void> {
     this.requireWrite();
     const folder = this.snap.folders.find((f) => f.id === folderId);
-    if (!folder) throw new ProjectError('That folder is gone.');
+    if (!folder) throw new ProjectError(msg('That folder is gone.'));
     this.checkFolderExists(parentId);
-    if (wouldCycle(this.snap.folders, folderId, parentId)) throw new ProjectError('A folder cannot be moved into itself.');
+    if (wouldCycle(this.snap.folders, folderId, parentId)) throw new ProjectError(msg('A folder cannot be moved into itself.'));
     if (parentId === folder.parentId) return;
     this.checkFolderName(folder.name, parentId, folderId);
     await this.putEdit({ target: 'folder', id: folderId, to: parentId });
@@ -803,10 +807,10 @@ export class Project {
   async deleteFolder(folderId: string): Promise<void> {
     this.requireWrite();
     const folder = this.snap.folders.find((f) => f.id === folderId);
-    if (!folder) throw new ProjectError('That folder is gone.');
+    if (!folder) throw new ProjectError(msg('That folder is gone.'));
     const ids = new Set([folderId, ...descendantFolders(this.snap.folders, folderId).map((f) => f.id)]);
     const out = this.snap.files.find((f) => f.folderId && ids.has(f.folderId) && f.checkout);
-    if (out) throw new ProjectError(`${out.name} is checked out${out.checkout ? ` by ${this.heldByMe(out) ? 'you' : out.checkout.by}` : ''}. Release it before deleting the folder.`);
+    if (out) throw new ProjectError(msg('{name} is checked out{value}. Release it before deleting the folder.', { name: out.name, value: out.checkout ? ' ' + msg('by {value}', { value: this.heldByMe(out) ? msg('you') : out.checkout.by }) : '' }));
     await this.putEdit({ target: 'folder', id: folderId, deleted: true });
     await this.note('folder', `deleted the folder ${folder.name}`, { folderId });
     await this.poll();

@@ -1,3 +1,5 @@
+import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { deriveTemplate, numberParts, readBox, type PageText, type SheetInfo, type TitleBox, type TitleField } from '@nb/sheets';
 import { SETUP_STEPS, type DrawingStandard, type SetupStep } from './standards';
 
@@ -17,13 +19,13 @@ export interface WizardStep {
 }
 
 export const WIZARD_STEPS: WizardStep[] = [
-  { id: 'titleBlock', label: 'Title block', ready: true },
-  { id: 'sections', label: 'Sections', ready: true },
-  { id: 'elevations', label: 'Elevations', ready: true },
-  { id: 'details', label: 'Details', ready: true },
-  { id: 'matchLines', label: 'Match lines', ready: true },
-  { id: 'chainage', label: 'Chainages', ready: true },
-  { id: 'review', label: 'Review', ready: true },
+  { id: 'titleBlock', get label() { return msg('Title block'); }, ready: true },
+  { id: 'sections', get label() { return msg('Sections'); }, ready: true },
+  { id: 'elevations', get label() { return msg('Elevations'); }, ready: true },
+  { id: 'details', get label() { return msg('Details'); }, ready: true },
+  { id: 'matchLines', get label() { return msg('Match lines'); }, ready: true },
+  { id: 'chainage', get label() { return msg('Chainages'); }, ready: true },
+  { id: 'review', get label() { return msg('Review'); }, ready: true },
 ];
 
 /** One title-block question: which box to draw, and what to say about it. */
@@ -38,23 +40,23 @@ export interface TitleQuestion {
   optional: boolean;
 }
 
-export const TITLE_QUESTIONS: TitleQuestion[] = [
-  { key: 'number', field: 'number', label: 'Drawing number', prompt: 'Drag a box around the drawing number in the title block. Take in the whole number; its label can be inside the box too.', optional: false },
-  { key: 'revision', field: 'revision', label: 'Revision', prompt: 'Drag a box around the current revision (the letter or number in the revision box, not the revision table).', optional: true },
-  { key: 'title', field: 'title', label: 'Title', prompt: 'Drag a box around the drawing title, every line of it.', optional: true },
-  { key: 'scale', field: 'scale', label: 'Scale', prompt: 'Drag a box around the scale, such as 1:500 or AS SHOWN.', optional: true },
-  { key: 'sheetSize', field: 'sheetSize', label: 'Sheet size', prompt: 'Drag a box around the sheet size the drawing is made for, such as A1.', optional: true },
-  { key: 'custom:Project', field: 'custom', name: 'Project', label: 'Project', prompt: 'If the title block names the project (a name or number), drag a box around it. Skip if not.', optional: true },
-  { key: 'custom:Status', field: 'custom', name: 'Status', label: 'Status', prompt: 'If the title block gives a status or suitability (FOR CONSTRUCTION, S3), drag a box around it. Skip if not.', optional: true },
-  { key: 'custom:Date', field: 'custom', name: 'Date', label: 'Date', prompt: 'If the title block gives an issue date, drag a box around it. Skip if not.', optional: true },
-];
+export const TITLE_QUESTIONS = lazy((): TitleQuestion[] => [
+  { key: 'number', field: 'number', label: msg('Drawing number'), prompt: msg('Drag a box around the drawing number in the title block. Take in the whole number; its label can be inside the box too.'), optional: false },
+  { key: 'revision', field: 'revision', label: msg('Revision'), prompt: msg('Drag a box around the current revision (the letter or number in the revision box, not the revision table).'), optional: true },
+  { key: 'title', field: 'title', label: msg('Title'), prompt: msg('Drag a box around the drawing title, every line of it.'), optional: true },
+  { key: 'scale', field: 'scale', label: msg('Scale'), prompt: msg('Drag a box around the scale, such as 1:500 or AS SHOWN.'), optional: true },
+  { key: 'sheetSize', field: 'sheetSize', label: msg('Sheet size'), prompt: msg('Drag a box around the sheet size the drawing is made for, such as A1.'), optional: true },
+  { key: 'custom:Project', field: 'custom', name: 'Project', label: msg('Project'), prompt: msg('If the title block names the project (a name or number), drag a box around it. Skip if not.'), optional: true },
+  { key: 'custom:Status', field: 'custom', name: 'Status', label: msg('Status'), prompt: msg('If the title block gives a status or suitability (FOR CONSTRUCTION, S3), drag a box around it. Skip if not.'), optional: true },
+  { key: 'custom:Date', field: 'custom', name: 'Date', label: msg('Date'), prompt: msg('If the title block gives an issue date, drag a box around it. Skip if not.'), optional: true },
+]);
 
 /** After the questions: the person's own fields, numbers to ignore, and how drawing numbers are built. */
 export type TitleExtra = 'ownFields' | 'ignore' | 'numbers';
 export const TITLE_EXTRAS: { id: TitleExtra; label: string }[] = [
-  { id: 'ownFields', label: 'Your own fields' },
-  { id: 'ignore', label: 'Other numbers' },
-  { id: 'numbers', label: 'Drawing numbers' },
+  { id: 'ownFields', get label() { return msg('Your own fields'); } },
+  { id: 'ignore', get label() { return msg('Other numbers'); } },
+  { id: 'numbers', get label() { return msg('Drawing numbers'); } },
 ];
 
 /** The box that answers a question, if one was drawn. */
@@ -167,17 +169,17 @@ export function disciplineCandidates(numbers: readonly string[]): { part: number
 export function customNameProblem(name: string, boxes: readonly TitleBox[]): string | null {
   const n = name.trim().toUpperCase();
   if (!n) return null;
-  const asked = TITLE_QUESTIONS.find((q) => q.field === 'custom' && q.name?.toUpperCase() === n);
-  if (asked) return `${asked.label} has its own question above; box it there.`;
+  const asked = TITLE_QUESTIONS().find((q) => q.field === 'custom' && q.name?.toUpperCase() === n);
+  if (asked) return msg('{label} has its own question above; box it there.', { label: asked.label });
   const taken = boxes.find((b) => b.field === 'custom' && b.name?.trim().toUpperCase() === n);
-  if (taken) return `There is already a field called ${taken.name}. Use another name, or remove that one first.`;
+  if (taken) return msg('There is already a field called {name}. Use another name, or remove that one first.', { name: taken.name });
   return null;
 }
 
 /** Where the wizard was, kept per standard so closing the window resumes there. */
 export interface WizardPlace {
   step: WizardStepId;
-  /** Index into TITLE_QUESTIONS, then TITLE_EXTRAS after them. */
+  /** Index into TITLE_QUESTIONS(), then TITLE_EXTRAS after them. */
   question: number;
 }
 
@@ -221,7 +223,8 @@ export function saveSplit(v: number) {
   }
 }
 
-const STEP_NAME: Record<SetupStep, string> = { sections: 'Sections', elevations: 'Elevations', details: 'Details', matchLines: 'Match lines', chainage: 'Chainages' };
+/** Step names in the English MCP prompt (aiPrompt), which stays English whatever the interface language. */
+const STEP_ENGLISH: Record<SetupStep, string> = { sections: 'Sections', elevations: 'Elevations', details: 'Details', matchLines: 'Match lines', chainage: 'Chainages' };
 
 /** The steps worth handing to an AI assistant: those whose meter says AI, then those to review. */
 export function stepsForAi(results: DrawingStandard['results']): SetupStep[] {
@@ -239,9 +242,9 @@ export function aiPrompt(standard: DrawingStandard, fileName: string, steps: rea
   const r = standard.results ?? {};
   const lines = steps.map((s) => {
     const x = r[s];
-    if (!x) return `- ${STEP_NAME[s]}`;
+    if (!x) return `- ${STEP_ENGLISH[s]}`;
     const why = [`${x.linked} of ${x.references} references linked`, x.wrong ? `${x.wrong} of ${x.checked} checked links wrong` : '', x.unreadable ? `${x.unreadable} marks found by shape but not read` : '', x.ambiguous ? `${x.ambiguous} chainages whose alignment is unclear` : ''].filter(Boolean);
-    return `- ${STEP_NAME[s]}: ${why.join('; ')}.`;
+    return `- ${STEP_ENGLISH[s]}: ${why.join('; ')}.`;
   });
   return [
     `In redcolumn, ${fileName} is open with the drawing standard "${standard.name}". Text and shape search did not finish these setup steps:`,
@@ -253,6 +256,6 @@ export function aiPrompt(standard: DrawingStandard, fileName: string, steps: rea
     '4. Propose the missing or wrong links with propose_sheet_links, saying how you read each one.',
     '5. If the standard is missing words that would let text search find these next time (title words, match-line words, chainage prefixes, alignment names), propose them with propose_standard_hints.',
     '',
-    'Do not change anything else. I will review your links in the Links panel and your words in the setup’s Review step.',
+    `Do not change anything else. I will review your links in the Links panel and your words in the setup’s Review step.`,
   ].join('\n');
 }

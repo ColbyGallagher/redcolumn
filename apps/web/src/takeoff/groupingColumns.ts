@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import type { CustomColumn, GroupingAssignment, GroupingProposal, MarkupStore, RuleContext } from '@nb/markup';
 
 /**
@@ -58,7 +59,7 @@ export function acceptGrouping(store: MarkupStore, id: string, by: string): { co
   if (!g || g.status === 'accepted' || store.readOnly || !g.name.trim()) return null;
   const set = store.columnSet();
   const existing = set.columns.find((c) => lower(c.name) === lower(g.name));
-  if (existing && existing.type !== 'text' && existing.type !== 'choice') throw new Error(`The document already has a “${existing.name}” column that is not text or a drop-down. Rename this one first.`);
+  if (existing && existing.type !== 'text' && existing.type !== 'choice') throw new Error(msg('The document already has a “{name}” column that is not text or a drop-down. Rename this one first.', { name: existing.name }));
   const values = groupValues(g);
   const column: CustomColumn = existing
     ? existing.type === 'choice'

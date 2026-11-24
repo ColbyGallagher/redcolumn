@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { decodePDFRawStream, PDFArray, PDFContext, PDFDict, PDFDocument, PDFName, PDFNumber, PDFObjectParser, PDFRawStream, PDFRef, PDFString, type PDFObject } from 'pdf-lib';
 import { highestObjectNumber, lastXref, saveIncremental, snapshot } from './incremental';
 
@@ -184,7 +185,7 @@ function skipBlank(bytes: Uint8Array, at: number): number {
 /** Undoes a PNG predictor (DecodeParms /Predictor 10-15) on rows of `columns` bytes, as cross-reference streams use. */
 function unpredict(data: Uint8Array, columns: number): Uint8Array {
   const row = columns + 1;
-  if (data.length % row) throw new Error('Unreadable cross-reference stream');
+  if (data.length % row) throw new Error(msg('Unreadable cross-reference stream'));
   const out = new Uint8Array((data.length / row) * columns);
   for (let r = 0; r < data.length / row; r++) {
     const kind = data[r * row]!;
@@ -202,7 +203,7 @@ function unpredict(data: Uint8Array, columns: number): Uint8Array {
         const p = left + up - upLeft;
         const [pa, pb, pc] = [Math.abs(p - left), Math.abs(p - up), Math.abs(p - upLeft)];
         v = x + (pa <= pb && pa <= pc ? left : pb <= pc ? up : upLeft);
-      } else throw new Error('Unreadable cross-reference stream');
+      } else throw new Error(msg('Unreadable cross-reference stream'));
       out[r * columns + c] = v & 0xff;
     }
   }
@@ -231,7 +232,7 @@ class StrictParser extends PDFObjectParser {
     const dict = new Map<PDFName, PDFObject>();
     while (!this.bytes.done() && this.bytes.peek() !== 0x3e && this.bytes.peekAhead(1) !== 0x3e) {
       const key = this.parseName();
-      if (dict.has(key)) throw new Error(`The key ${key.toString()} is given twice`);
+      if (dict.has(key)) throw new Error(msg('The key {key} is given twice', { key: key.toString() }));
       dict.set(key, this.parseObject());
       this.skipWhitespaceAndComments();
     }
@@ -249,8 +250,8 @@ class StrictParser extends PDFObjectParser {
  */
 function objectAt(bytes: Uint8Array, offset: number, ctx: PDFContext, expect?: { n: number; g: number }, lenient = false): { obj: PDFObject; end: number } {
   const head = (lenient ? /^[\0\t\n\f\r ]*(\d+)[\0\t\n\f\r ]+(\d+)[\0\t\n\f\r ]+obj/ : /^(\d+)[\0\t\n\f\r ]+(\d+)[\0\t\n\f\r ]+obj/).exec(latin1(bytes.subarray(offset, offset + 64)));
-  if (!head) throw new Error('No object there');
-  if (expect && (Number(head[1]) !== expect.n || Number(head[2]) !== expect.g)) throw new Error('Another object there');
+  if (!head) throw new Error(msg('No object there'));
+  if (expect && (Number(head[1]) !== expect.n || Number(head[2]) !== expect.g)) throw new Error(msg('Another object there'));
   const start = offset + head[0].length;
   const parser = StrictParser.of(bytes.subarray(start), ctx);
   const obj = parser.parseObject();
@@ -272,11 +273,11 @@ function xrefAt(bytes: Uint8Array, offset: number, ctx: PDFContext): XrefSection
     for (let i = 0; i < tokens.length; ) {
       const start = Number(tokens[i++]);
       const count = Number(tokens[i++]);
-      if (!Number.isInteger(start) || !Number.isInteger(count) || start < 0 || count < 0) throw new Error('Unreadable cross-reference table');
+      if (!Number.isInteger(start) || !Number.isInteger(count) || start < 0 || count < 0) throw new Error(msg('Unreadable cross-reference table'));
       for (let k = 0; k < count; k++, i += 3) {
         const [o, g, t] = [tokens[i], tokens[i + 1], tokens[i + 2]];
         // Entries are exactly 10 and 5 digits (ISO 32000-2 7.5.4).
-        if (!o || !g || !/^\d{10}$/.test(o) || !/^\d{5}$/.test(g) || (t !== 'n' && t !== 'f')) throw new Error('Unreadable cross-reference table');
+        if (!o || !g || !/^\d{10}$/.test(o) || !/^\d{5}$/.test(g) || (t !== 'n' && t !== 'f')) throw new Error(msg('Unreadable cross-reference table'));
         if (!entries.has(start + k)) entries.set(start + k, { type: t === 'n' ? 1 : 0, offset: Number(o), gen: Number(g) });
       }
     }
@@ -286,10 +287,10 @@ function xrefAt(bytes: Uint8Array, offset: number, ctx: PDFContext): XrefSection
     return { at: offset, end: end + 7 + parser.at(), entries, trailer, prev: num(trailer.get(PDFName.of('Prev'))), xrefStm: num(trailer.get(PDFName.of('XRefStm'))) };
   }
   const { obj: stream, end } = objectAt(bytes, offset, ctx);
-  if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Type')) !== PDFName.of('XRef')) throw new Error('No cross-reference there');
+  if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Type')) !== PDFName.of('XRef')) throw new Error(msg('No cross-reference there'));
   const dict = stream.dict;
   const w = dict.lookup(PDFName.of('W'), PDFArray).asArray().map(num);
-  if (w.length !== 3 || w.some((x) => x === null || x < 0 || x > 8)) throw new Error('Unreadable cross-reference stream');
+  if (w.length !== 3 || w.some((x) => x === null || x < 0 || x > 8)) throw new Error(msg('Unreadable cross-reference stream'));
   const [w0, w1, w2] = w as [number, number, number];
   const rowSize = w0 + w1 + w2;
   let data = decodePDFRawStream(stream).decode();
@@ -297,9 +298,9 @@ function xrefAt(bytes: Uint8Array, offset: number, ctx: PDFContext): XrefSection
   const predictor = num(parms?.get(PDFName.of('Predictor'))) ?? 1;
   if (predictor >= 10) {
     // Rows of whole entries, one byte a sample: anything else a reader would read otherwise.
-    if ((num(parms?.get(PDFName.of('Colors'))) ?? 1) !== 1 || (num(parms?.get(PDFName.of('BitsPerComponent'))) ?? 8) !== 8 || (num(parms?.get(PDFName.of('Columns'))) ?? 1) !== rowSize) throw new Error('Unreadable cross-reference stream');
+    if ((num(parms?.get(PDFName.of('Colors'))) ?? 1) !== 1 || (num(parms?.get(PDFName.of('BitsPerComponent'))) ?? 8) !== 8 || (num(parms?.get(PDFName.of('Columns'))) ?? 1) !== rowSize) throw new Error(msg('Unreadable cross-reference stream'));
     data = unpredict(data, rowSize);
-  } else if (predictor !== 1) throw new Error('Unreadable cross-reference stream');
+  } else if (predictor !== 1) throw new Error(msg('Unreadable cross-reference stream'));
   const size = num(dict.get(PDFName.of('Size'))) ?? 0;
   const index = dict.lookupMaybe(PDFName.of('Index'), PDFArray)?.asArray().map(num) ?? [0, size];
   const field = (at: number, width: number) => {
@@ -310,9 +311,9 @@ function xrefAt(bytes: Uint8Array, offset: number, ctx: PDFContext): XrefSection
   let at = 0;
   for (let i = 0; i + 1 < index.length; i += 2) {
     const [start, count] = [index[i], index[i + 1]];
-    if (start === null || start === undefined || count === null || count === undefined) throw new Error('Unreadable cross-reference stream');
+    if (start === null || start === undefined || count === null || count === undefined) throw new Error(msg('Unreadable cross-reference stream'));
     for (let k = 0; k < count; k++, at += rowSize) {
-      if (at + rowSize > data.length) throw new Error('Unreadable cross-reference stream');
+      if (at + rowSize > data.length) throw new Error(msg('Unreadable cross-reference stream'));
       const type = w0 ? field(at, w0) : 1;
       if (!entries.has(start + k)) entries.set(start + k, { type, offset: field(at + w0, w1), gen: w2 ? field(at + w0 + w1, w2) : 0 });
     }
@@ -330,7 +331,7 @@ function xrefChain(bytes: Uint8Array, start: number, from: number, ctx: PDFConte
   const visited = new Set<number>();
   for (let at: number | null = start; at !== null; ) {
     if (at < from) return { sections, end: at };
-    if (visited.has(at) || sections.length > 256) throw new Error('A cross-reference loop');
+    if (visited.has(at) || sections.length > 256) throw new Error(msg('A cross-reference loop'));
     visited.add(at);
     const section = xrefAt(bytes, at, ctx);
     sections.push(section);
@@ -354,18 +355,18 @@ function latestEntries(sections: readonly XrefSection[]): Map<number, XrefEntry>
 function resolve(bytes: Uint8Array, latest: Map<number, XrefEntry>, n: number, g: number, ctx: PDFContext): PDFObject {
   const e = latest.get(n);
   if (e?.type === 1 && e.gen === g) return objectAt(bytes, e.offset, ctx, { n, g }, true).obj;
-  if (e?.type !== 2 || g !== 0) throw new Error(`Object ${n} ${g} is not in the file`);
+  if (e?.type !== 2 || g !== 0) throw new Error(msg('Object {n} {g} is not in the file', { n: String(n), g: String(g) }));
   const holder = latest.get(e.offset);
-  if (holder?.type !== 1) throw new Error(`Object ${n} ${g} is not in the file`);
+  if (holder?.type !== 1) throw new Error(msg('Object {n} {g} is not in the file', { n: String(n), g: String(g) }));
   const { obj: stream } = objectAt(bytes, holder.offset, ctx, { n: e.offset, g: holder.gen }, true);
-  if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Type')) !== PDFName.of('ObjStm')) throw new Error('Not an object stream');
+  if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Type')) !== PDFName.of('ObjStm')) throw new Error(msg('Not an object stream'));
   const data = decodePDFRawStream(stream).decode();
   const first = num(stream.dict.get(PDFName.of('First')));
   const count = num(stream.dict.get(PDFName.of('N')));
-  if (first === null || count === null) throw new Error('Unreadable object stream');
+  if (first === null || count === null) throw new Error(msg('Unreadable object stream'));
   const header = latin1(data.subarray(0, first)).trim().split(/[\0\t\n\f\r ]+/).map(Number);
   // The index in the cross-reference says which; the number there must agree.
-  if (e.gen >= count || header[e.gen * 2] !== n) throw new Error(`Object ${n} ${g} is not in its object stream`);
+  if (e.gen >= count || header[e.gen * 2] !== n) throw new Error(msg('Object {n} {g} is not in its object stream', { n: String(n), g: String(g) }));
   return StrictParser.of(data.subarray(first + header[e.gen * 2 + 1]!), ctx).parseObject();
 }
 
