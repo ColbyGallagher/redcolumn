@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { parseNumber, type ProductList } from '@nb/markup';
 
 /** Rows of a CSV file (RFC 4180: quoted fields, doubled quotes, CRLF or LF); blank lines are skipped. */
