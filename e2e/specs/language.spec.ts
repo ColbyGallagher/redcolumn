@@ -125,6 +125,27 @@ test.describe('right-to-left pseudo-locale', () => {
   });
 });
 
+test.describe('German', () => {
+  test.use({ toolbar: 'ribbon', settings: { ...IMPERIAL, uiLanguage: 'de' } });
+
+  test('menus, ribbon and preferences are in German, marked as a preview', async ({ app }) => {
+    expect(await app.page.evaluate(() => document.documentElement.lang)).toBe('de');
+    await app.open('plan.pdf');
+    await app.page.locator('.menubar .brand-mark').click();
+    const titles = (await app.page.locator('.brand-drop > .menu-sub > .menu-item .label').allInnerTexts()).map((t) => t.trim());
+    expect(titles).toEqual(expect.arrayContaining(['Datei', 'Bearbeiten', 'Ansicht', 'Werkzeuge', 'Fenster', 'Hilfe']));
+    await app.page.keyboard.press('Escape');
+    const tabs = await app.page.locator('.ribbon, .rb-tabs').getByRole('tab').allTextContents();
+    expect(tabs).toEqual(expect.arrayContaining(['Start', 'Mengenermittlung', 'Dokument']));
+
+    await app.cmd('file.preferences');
+    const language = app.page.getByRole('combobox', { name: 'Sprache', exact: true });
+    await expect(language).toHaveValue('de');
+    await expect(language.locator('option[value="de"]')).toHaveText('Deutsch (German) · Vorschau: maschinell übersetzt');
+    expect(app.errors).toEqual([]);
+  });
+});
+
 test('English by default, with no restart pending', async ({ app }) => {
   expect(await app.page.evaluate(() => document.documentElement.lang)).toBe('en');
   await app.cmd('file.preferences');

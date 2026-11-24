@@ -113,8 +113,8 @@ export function LibraryDialog({ onInstall, onHelp, onClose }: Props) {
                 <h4>{e.name}</h4>
                 <div className="library-meta">
                   {e.trade}
-                  {e.units ? ` · ${e.units === 'metric' ? 'Metric' : 'Imperial'}` : ''}
-                  {e.author ? ` · by ${e.author}` : ''} · {formatSize(e.size)}
+                  {e.units ? ' · ' + (e.units === 'metric' ? msg('Metric') : msg('Imperial')) : ''}
+                  {e.author ? ' ' + msg('· by {author}', { author: e.author }) : ''} · {formatSize(e.size)}
                 </div>
                 {e.description && <p>{e.description}</p>}
                 <div className="library-meta">{describeCounts({ assemblies: 0, items: 0, productLists: 0, templates: 0, toolSets: 0, tools: 0, standards: 0, ...e.contents })}</div>

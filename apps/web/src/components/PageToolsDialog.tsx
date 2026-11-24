@@ -257,7 +257,7 @@ export function PageToolsDialog({ kind, pageCount, currentPage, fileName, bookma
             {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!spec || busy}>
-            {busy ? msg('Working…') : 'OK'}
+            {busy ? msg('Working…') : msg('OK')}
           </button>
         </div>
       </form>

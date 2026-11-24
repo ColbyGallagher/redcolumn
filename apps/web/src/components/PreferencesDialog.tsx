@@ -999,6 +999,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             ['en-AU', 'English (Australia)'],
             ['en-GB', 'English (UK)'],
             ['en-US', 'English (US)'],
+            ['de-DE', 'Deutsch'],
           ])}
         </Grid>
         <div className="pref-table" role="listbox" aria-label={msg('Custom Words')}>

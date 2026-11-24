@@ -67,7 +67,7 @@ export function CommentsTableDialog({ title, rows, progress, failed = [], onOpen
           </label>
           <input type="search" aria-label={msg('Find in comments')} placeholder={msg('Find text or author')} value={text} onChange={(e) => setText(e.target.value)} />
           <span className="hint-text">
-            {rows ? `${shown.length} of ${rows.length}` : progress ? msg('Reading files… {done} of {total}', { done: progress.done, total: progress.total }) : msg('Reading files…')}
+            {rows ? msg('{shown} of {total}', { shown: shown.length, total: rows.length }) : progress ? msg('Reading files… {done} of {total}', { done: progress.done, total: progress.total }) : msg('Reading files…')}
           </span>
         </div>
         {failed.length > 0 && <p className="warn">{msg('Not read: {failed}', { failed: failed.join('; ') })}</p>}

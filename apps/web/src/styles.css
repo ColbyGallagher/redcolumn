@@ -6474,6 +6474,7 @@ select[size] {
 
 .model-status {
   position: absolute;
+  /* logical-css-ignore: centred with translate(-50%), the same either way round */
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);

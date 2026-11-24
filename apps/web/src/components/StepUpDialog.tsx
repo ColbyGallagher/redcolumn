@@ -88,11 +88,15 @@ export function FirstUseHost() {
           </li>
         </ul>
         <p className="access-note">
-          See Preferences › Account to check what was allowed and what the app did, or read the{' '}
-          <a href={`${PROJECT_URL}/blob/master/PRIVACY.md`} target="_blank" rel="noopener noreferrer">
-            {msg('privacy policy')}
-          </a>
-          .
+          {keyed(
+            msgParts('See Preferences › Account to check what was allowed and what the app did, or read the {link}.', {
+              link: (
+                <a href={`${PROJECT_URL}/blob/master/PRIVACY.md`} target="_blank" rel="noopener noreferrer">
+                  {msg('privacy policy')}
+                </a>
+              ),
+            }),
+          )}
         </p>
         <div className="actions">
           <button type="button" className="btn" onClick={() => done(false)}>
