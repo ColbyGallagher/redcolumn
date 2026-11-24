@@ -17,7 +17,8 @@ const TOOL_ICONS = new Map<string, ReactNode>([...MARKUP_TOOLS, ...MEASURE_TOOLS
 /** How well a preference matches: every word in its label, tab or category; label matches rank first. */
 function settingScore(s: PrefEntry, words: string[]): number {
   const label = s.label.toLowerCase();
-  const hay = msg('{label} {tabLabel} {categoryLabel} preferences settings', { label, tabLabel: s.tabLabel.toLowerCase(), categoryLabel: s.categoryLabel.toLowerCase() });
+  // The label first (ranking reads its position), then the tab and category, and the words people search with.
+  const hay = `${label} ${s.tabLabel.toLowerCase()} ${s.categoryLabel.toLowerCase()} preferences settings ${msg('preferences settings').toLowerCase()}`;
   let total = 0;
   for (const w of words) {
     const at = hay.indexOf(w);
