@@ -510,6 +510,10 @@ msgid "Could not read the pages' scale bars: {value}"
 msgstr "Die Maßstabsleisten der Seiten konnten nicht gelesen werden: {value}"
 
 #: apps/web/src/App.tsx
+msgid "Could not reopen \"{name}\": the file is no longer available."
+msgstr ""
+
+#: apps/web/src/App.tsx
 msgid "Could not restart to update. It installs when you close redcolumn."
 msgstr "Neustart zum Aktualisieren nicht möglich. Das Update wird installiert, wenn Sie redcolumn schließen."
 
@@ -1550,6 +1554,10 @@ msgstr "Sitzung und ihre Dateien werden entfernt"
 msgid "Rename Page Label"
 msgstr "Seitenbeschriftung umbenennen"
 
+#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts
+msgid "Reopen Closed Tab"
+msgstr ""
+
 #: apps/web/src/App.tsx
 msgid "Repair failed: {value}"
 msgstr "Reparieren fehlgeschlagen: {value}"
@@ -1625,6 +1633,14 @@ msgstr "Wiederhergestellt. Die vorherige Version wird als Revision behalten."
 #: apps/web/src/App.tsx
 msgid "Resume"
 msgstr "Fortsetzen"
+
+#: apps/web/src/App.tsx
+msgid "Reveal in Explorer"
+msgstr ""
+
+#: apps/web/src/App.tsx
+msgid "Reveal in Finder"
+msgstr ""
 
 #: apps/web/src/App.tsx
 msgid "Revert {name}? The {n, plural, one {# change} other {# changes}} made since it was opened are undone (Redo brings them back)."
@@ -1885,6 +1901,10 @@ msgstr "Sitzungsordner anzeigen"
 #: apps/web/src/App.tsx
 msgid "Show in File Access"
 msgstr "Im Dateizugriff anzeigen"
+
+#: apps/web/src/App.tsx
+msgid "Show in File Manager"
+msgstr ""
 
 #: apps/web/src/App.tsx
 msgid "Show in Legends"
@@ -5000,6 +5020,14 @@ msgstr "Lesezeichenvorlage"
 msgid "Bookmark title"
 msgstr "Lesezeichentitel"
 
+#: apps/web/src/components/BookmarksPanel.tsx apps/web/src/components/CompareDialog.tsx apps/web/src/components/FilterBuilderDialog.tsx apps/web/src/components/MarkupList.tsx apps/web/src/components/ProfilesDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/SearchPanel.tsx apps/web/src/components/SheetScaleReview.tsx apps/web/src/components/SignaturesPanel.tsx apps/web/src/components/StitchPanel.tsx
+msgid "Clear"
+msgstr "Löschen"
+
+#: apps/web/src/components/BookmarksPanel.tsx
+msgid "Clear bookmark filter"
+msgstr ""
+
 #: apps/web/src/components/BookmarksPanel.tsx
 msgid "Create a bookmark for every page from its page label"
 msgstr "Für jede Seite ein Lesezeichen aus ihrer Seitenbeschriftung erstellen"
@@ -5023,6 +5051,10 @@ msgstr "Seiten nach ihren Blattnummern unter einer Lesezeichenvorlage einordnen"
 #: apps/web/src/components/BookmarksPanel.tsx
 msgid "Filed {filed} of {total} pages under \"{name}\"."
 msgstr "{filed} von {total} Seiten unter „{name}“ eingeordnet."
+
+#: apps/web/src/components/BookmarksPanel.tsx
+msgid "Filter bookmarks…"
+msgstr ""
 
 #: apps/web/src/components/BookmarksPanel.tsx
 msgid "From labels"
@@ -5067,6 +5099,10 @@ msgstr "Unter dem Lesezeichen darüber einordnen"
 #: apps/web/src/components/BookmarksPanel.tsx
 msgid "No Places. A Place is a named view that hyperlinks jump to; move it and the links follow."
 msgstr "Keine Orte. Ein Ort ist eine benannte Ansicht, zu der Hyperlinks springen; verschieben Sie ihn, folgen die Links."
+
+#: apps/web/src/components/BookmarksPanel.tsx
+msgid "No bookmarks match \"{query}\"."
+msgstr ""
 
 #: apps/web/src/components/BookmarksPanel.tsx
 msgid "No bookmarks."
@@ -6257,10 +6293,6 @@ msgstr "Wählen Sie zwei verschiedene Dokumente."
 #: apps/web/src/components/CompareDialog.tsx
 msgid "Choose two different sets."
 msgstr "Wählen Sie zwei verschiedene Sätze."
-
-#: apps/web/src/components/CompareDialog.tsx apps/web/src/components/FilterBuilderDialog.tsx apps/web/src/components/MarkupList.tsx apps/web/src/components/ProfilesDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/SearchPanel.tsx apps/web/src/components/SheetScaleReview.tsx apps/web/src/components/SignaturesPanel.tsx apps/web/src/components/StitchPanel.tsx
-msgid "Clear"
-msgstr "Löschen"
 
 #: apps/web/src/components/CompareDialog.tsx
 msgid "Click the same three points on both pages"

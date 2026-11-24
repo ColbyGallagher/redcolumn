@@ -5,6 +5,7 @@ import {
   bookmarkPos,
   bookmarksFromLabels,
   DEFAULT_BOOKMARK_TEMPLATE,
+  filterBookmarkRows,
   findBookmark,
   flattenBookmarks,
   indentBookmark,
@@ -55,6 +56,7 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
   const [selected, setSelected] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [query, setQuery] = useState('');
   const [placeSel, setPlaceSel] = useState<string | null>(null);
   const [renamingPlace, setRenamingPlace] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -66,13 +68,20 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
 
   const sel = selected ? findBookmark(bookmarks, selected) : null;
   const pos = sel ? bookmarkPos(bookmarks, sel.id) : null;
-  // Rows under a collapsed bookmark are hidden.
-  const rows: { bookmark: Bookmark; depth: number }[] = [];
-  let hideBelow = Infinity;
-  for (const row of flattenBookmarks(bookmarks)) {
-    if (row.depth > hideBelow) continue;
-    hideBelow = collapsed.has(row.bookmark.id) ? row.depth : Infinity;
-    rows.push(row);
+  const trimmedQuery = query.trim();
+  const filtering = trimmedQuery.length > 0;
+  // When filtering, use filterBookmarkRows without mutating `collapsed` so clearing restores it.
+  const rows: { bookmark: Bookmark; depth: number; matched: boolean }[] = [];
+  if (filtering) {
+    rows.push(...filterBookmarkRows(bookmarks, trimmedQuery, pageLabel));
+  } else {
+    // Rows under a collapsed bookmark are hidden.
+    let hideBelow = Infinity;
+    for (const row of flattenBookmarks(bookmarks)) {
+      if (row.depth > hideBelow) continue;
+      hideBelow = collapsed.has(row.bookmark.id) ? row.depth : Infinity;
+      rows.push({ ...row, matched: true });
+    }
   }
 
   const add = (child: boolean) => {
@@ -202,29 +211,66 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
           />
         </div>
       )}
+      <div className="bookmark-filter">
+        <input
+          type="text"
+          placeholder={msg('Filter bookmarks…')}
+          aria-label={msg('Filter bookmarks…')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Escape' && query) {
+              e.preventDefault();
+              setQuery('');
+            }
+          }}
+        />
+        {query && (
+          <button
+            type="button"
+            className="btn small bookmark-filter-clear"
+            aria-label={msg('Clear bookmark filter')}
+            title={msg('Clear')}
+            onClick={() => setQuery('')}
+          >
+            ×
+          </button>
+        )}
+      </div>
       {note && (
         <p className="pref-hint" role="status" onClick={() => setNote(null)}>
           {note}
         </p>
       )}
       {!rows.length ? (
-        <p className="empty">{editable ? msg('No bookmarks. Add one for the current view, or create them from page labels or from boxes on the title block.') : msg('No bookmarks.')}</p>
+        <p className="empty">
+          {filtering
+            ? msg('No bookmarks match "{query}".', { query: trimmedQuery })
+            : editable
+              ? msg('No bookmarks. Add one for the current view, or create them from page labels or from boxes on the title block.')
+              : msg('No bookmarks.')}
+        </p>
       ) : (
         <ul className="bookmark-list bookmark-tree" role="tree">
-          {rows.map(({ bookmark: b, depth }) => (
+          {rows.map(({ bookmark: b, depth, matched }) => (
             <li key={b.id} role="treeitem" aria-level={depth + 1} aria-selected={b.id === selected} style={{ paddingLeft: depth * 14 }}>
               {b.children.length ? (
-                <button
-                  className="twisty"
-                  aria-label={collapsed.has(b.id) ? msg('Expand') : msg('Collapse')}
-                  onClick={() => {
-                    const next = new Set(collapsed);
-                    if (!next.delete(b.id)) next.add(b.id);
-                    setCollapsed(next);
-                  }}
-                >
-                  {collapsed.has(b.id) ? '▸' : '▾'}
-                </button>
+                filtering ? (
+                  <span className="twisty" aria-hidden="true">▾</span>
+                ) : (
+                  <button
+                    className="twisty"
+                    aria-label={collapsed.has(b.id) ? msg('Expand') : msg('Collapse')}
+                    onClick={() => {
+                      const next = new Set(collapsed);
+                      if (!next.delete(b.id)) next.add(b.id);
+                      setCollapsed(next);
+                    }}
+                  >
+                    {collapsed.has(b.id) ? '▸' : '▾'}
+                  </button>
+                )
               ) : (
                 <span className="twisty" />
               )}
@@ -239,7 +285,7 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
                 />
               ) : (
                 <button
-                  className={`bookmark${b.id === selected ? ' active' : ''}${b.pageIndex === currentPage ? ' current' : ''}`}
+                  className={`bookmark${b.id === selected ? ' active' : ''}${b.pageIndex === currentPage ? ' current' : ''}${!matched ? ' ancestor' : ''}`}
                   title={b.action ? (b.action.kind === 'url' ? b.action.url : b.action.kind === 'file' ? msg('{name}, page {page}', { name: b.action.name, page: b.action.pageIndex + 1 }) : msg('A Place')) : b.rect && b.rect.w > 0 ? msg('{page} (zoomed view)', { page: pageLabel(b.pageIndex) }) : pageLabel(b.pageIndex)}
                   onClick={() => {
                     setSelected(b.id);

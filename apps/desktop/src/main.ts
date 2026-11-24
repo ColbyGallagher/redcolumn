@@ -22,6 +22,7 @@ import { LINK_SCHEME } from './links';
 import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
 import { SystemFonts, systemFontDirs } from './fonts';
 import { RevuSettings, revuSettingsRoot } from './revuSettings';
+import { revealFileByToken } from './reveal';
 import { pkiRequest } from './pki';
 import { TokenClient } from './token-ipc';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
@@ -131,6 +132,10 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
   windowStateStore = new WindowStateStore(path.join(app.getPath('userData'), 'window-state.json'));
   await windowStateStore.load();
   registerPathIpc(allowlist, (contents) => windows.get(contents)?.launches ?? null, () => mainWindow);
+  ipcMain.handle('file:reveal', async (event, token: unknown): Promise<boolean> => {
+    if (!windows.has(event.sender) || !fromApp(event)) return false;
+    return revealFileByToken(allowlist, token, (resolvedPath) => shell.showItemInFolder(resolvedPath));
+  });
   // Every handler below answers the app's own page only: not help windows, not blob previews.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown) => {
     ipcMain.handle(channel, (event, ...args) => {
