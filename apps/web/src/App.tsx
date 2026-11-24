@@ -145,7 +145,7 @@ import type { SignatureCheck } from './documents/pdfSign';
 import { FormsPanel, type NewFieldType } from './components/FormsPanel';
 import { FieldEditor } from './components/FieldEditor';
 import type { FieldChanges, FormField, FormModel } from './documents/forms';
-import { BatchDialog, batchLabel, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
+import { BatchDialog, BATCH_ENGLISH, batchLabel, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
 import { drawingSets, type SetSheet, type SheetIndex } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
@@ -2802,7 +2802,7 @@ export function App() {
       const { open, release } = await acquireDocument(file.id);
       try {
         const found = await readPdfAnnotations(bytes.slice(0), open.store);
-        await commitDocument(open, bytes, () => open.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported, found.extras), msg('Before reopening from the embedding application'));
+        await commitDocument(open, bytes, () => open.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported, found.extras), `Before reopening from the embedding application`);
       } finally {
         release();
       }
@@ -3375,7 +3375,7 @@ export function App() {
             }
             for (const p of plan.add) bytes = await tools.appendPages(bytes, opened[p.source]!.bytes, [p.page]);
             const replacedLabels = plan.replace.map((r) => labelOf(r.incoming));
-            const note = msg('Before Slip Sheet: {slice}{value}', { slice: [...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', '), value: plan.replace.length + plan.add.length > 6 ? '…' : '' });
+            const note = `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`;
             // The revision kept is the stored file, which has no markups in it. Comments left behind are
             // written into the copy that is kept, so they can still be read there.
             if (behind.length) await keepRevisionOf(cur.file.id, (await annotatedBytes(cur)).slice().buffer, msg('{note} (with its markups: {count} closed {count2, plural, one {comment} other {comments}} left behind)', { note, count: behind.length, count2: behind.length }));
@@ -3421,7 +3421,7 @@ export function App() {
   const restoreRevision = useCallback(
     async (fileId: string, r: FileRevision) => {
       try {
-        await keepRevision(fileId, msg('Before restoring the version of {date}', { date: new Date(r.savedAt).toLocaleString() }));
+        await keepRevision(fileId, `Before restoring the version of ${new Date(r.savedAt).toLocaleString()}`);
         const bytes = await readFile(r.hash);
         const inA = tabsARef.current.find((t) => t.file.id === fileId);
         const inB = tabsBRef.current.find((t) => t.file.id === fileId);
@@ -3613,7 +3613,7 @@ export function App() {
                     fonts.done();
                     const { flattenSelection } = await import('./documents/process');
                     const { bytes } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), {});
-                    await commitDocument(b.open, bytes.slice().buffer, () => store.removeFlattened(copies.map((m) => m.id), {}), msg('Before flattening markups copied from the earlier revision'));
+                    await commitDocument(b.open, bytes.slice().buffer, () => store.removeFlattened(copies.map((m) => m.id), {}), `Before flattening markups copied from the earlier revision`);
                   }
                 }
               }
@@ -3687,11 +3687,12 @@ export function App() {
   const runBatch = useCallback(
     async (spec: BatchSpec, onResult: (r: BatchResult) => void) => {
       const label = batchLabel(spec.command.kind);
-      const note = spec.keepRevisions ? msg('Before Bulk {label}', { label }) : undefined;
+      // Revision notes are kept in English: they are stored with the file, and stepLabel reads them back.
+      const note = spec.keepRevisions ? `Before Bulk ${BATCH_ENGLISH[spec.command.kind]}` : undefined;
       const nameOf = (id: string) => library.find((f) => f.id === id)?.name ?? id;
       const fail = (fileId: string, err: unknown) => onResult({ fileId, name: nameOf(fileId), ok: false, message: err instanceof Error ? err.message : String(err) });
       try {
-        await runJob(`Bulk ${label}`, async (ctx) => {
+        await runJob(msg('Bulk {operation}', { operation: label }), async (ctx) => {
           const { signal, progress } = ctx;
           const cancelled = () => {
             if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -5193,7 +5194,7 @@ export function App() {
         const held = tab ? null : await acquireDocument(back.fileId);
         const target: OpenFile = tab ?? held!.open;
         try {
-          if ((d.version ?? 1) > 1) await commitDocument(target, bytes.slice(0), () => target.store.forgetImported(target.doc.pages.map((_, i) => i)), msg('Before the Session “{name}”', { name: meta.name }));
+          if ((d.version ?? 1) > 1) await commitDocument(target, bytes.slice(0), () => target.store.forgetImported(target.doc.pages.map((_, i) => i)), `Before the Session “${meta.name}”`);
           target.store.checkpoint?.();
           target.store.batch(() => {
             target.store.remove(target.store.all().map((m) => m.id));
@@ -5320,7 +5321,7 @@ export function App() {
             // The new revision's own annotations: ones this app wrote are already shared live (hidden
             // here, so they are not drawn twice); other tools' markups are brought in.
             const found = await readPdfAnnotations(got.bytes.slice(0), target.store);
-            await commitDocument(target, got.bytes, () => target.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported, found.extras), msg('Before Project revision {n}', { n: got.revision.n }));
+            await commitDocument(target, got.bytes, () => target.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported, found.extras), `Before Project revision ${got.revision.n}`);
           } finally {
             held?.release();
           }
@@ -7402,7 +7403,7 @@ export function App() {
       const { flattenSelection } = await import('./documents/process');
       const { bytes, count } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), drop);
       c?.tools.select([]);
-      await commitDocument(o, bytes.slice().buffer, () => store.removeFlattened(targets.map((m) => m.id), drop), msg('Before flattening {n}', { n }));
+      await commitDocument(o, bytes.slice().buffer, () => store.removeFlattened(targets.map((m) => m.id), drop), `Before flattening ${n}`);
       setNotice(msg('Flattened {count, plural, one {# markup} other {# markups}} into the page. File › Revisions has the file as it was.', { count }));
     } catch (err) {
       setError(msg('Flatten failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
@@ -10151,7 +10152,7 @@ export function App() {
                         note = out.problems.length ? msg('Added, but not for all of it: {problems}', { problems: out.problems.join('; ') }) : null;
                         return out.bytes;
                       },
-                      msg('Before adding long-term validation'),
+                      `Before adding long-term validation`,
                       true,
                     );
                     return ok ? (note ?? 'Long-term validation added: the chain and revocation answers are kept in the PDF.') : 'LTV not added.';

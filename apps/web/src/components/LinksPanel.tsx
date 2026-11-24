@@ -43,7 +43,7 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
       <button className="link-row" onClick={() => (from ? onFollow(l) : onReveal(l))} title={from ? msg('Go to the target') : msg('Go to the callout')}>
         <span className="num">{l.label}</span>
         <span className="name">
-          {from ? `→ ${sheetName(sheets, l.targetPage)}` : `from ${sheetName(sheets, l.pageIndex)}`}
+          {from ? `→ ${sheetName(sheets, l.targetPage)}` : msg('from {sheet}', { sheet: sheetName(sheets, l.pageIndex) })}
           {l.kind !== 'sheet' ? ` · ${LINK_KINDS[l.kind]}` : ''}
           {l.detail && !l.targetRect ? ' ' + msg('(not located)') : ''}
         </span>

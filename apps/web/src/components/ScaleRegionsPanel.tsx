@@ -61,7 +61,7 @@ export function ScaleRegionsPanel({ regions, drawing, pageCount, currentPage, te
         ))}
       </ol>
       <div className="lr-preview">
-        {keyed(msgParts('Page {page}: {b}', { page: currentPage + 1, b: <b>{texts === null ? msg('reading text…') : preview?.label || 'no scale found'}</b> }))}
+        {keyed(msgParts('Page {page}: {b}', { page: currentPage + 1, b: <b>{texts === null ? msg('reading text…') : preview?.label || msg('no scale found')}</b> }))}
       </div>
       <fieldset className="lr-row">
         <legend>{msg('Pages')}</legend>
