@@ -960,14 +960,14 @@ function Viewers({ project, fileId }: { project: Project; fileId: string }) {
   if (!others.length) return null;
   return (
     <p className="project-viewers">
-      {msg('Viewing now: {page}', { page: others.map((p, i) => (
+      {keyed(msgParts('Viewing now: {page}', { page: others.map((p, i) => (
         <span key={p.seat}>
           {i > 0 && ', '}
           <i style={{ background: p.color }} aria-hidden="true" />
           <b>{p.name}</b>
           {p.page != null && <span className="hint-text"> {msg('(page {page})', { page: p.page + 1 })}</span>}
         </span>
-      )) })}
+      )) }))}
     </p>
   );
 }

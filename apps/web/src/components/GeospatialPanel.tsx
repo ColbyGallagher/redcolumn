@@ -319,23 +319,23 @@ export function GeospatialPanel(props: Props) {
     const elsewhere = stitchGroups.filter((g) => g.placements.length > 1);
     const lines = props.matchLines.filter((l) => l.pageIndex === pageIndex);
     if (lines.length && lines.every((l) => !l.matchTo))
-      return <>{msg('{pageLabel} has match lines, but none is paired with a line on another sheet: set “Match to…” for each in the {stitching}.', { pageLabel: pageLabel(pageIndex), stitching })}</>;
+      return <>{keyed(msgParts('{pageLabel} has match lines, but none is paired with a line on another sheet: set “Match to…” for each in the {stitching}.', { pageLabel: pageLabel(pageIndex), stitching }))}</>;
     if (elsewhere.length)
       return (
         <>
-          {msg('{pageLabel} is not in a stitch. Stitched sheets: {list}.', { pageLabel: pageLabel(pageIndex), list: elsewhere.map((g, i) => (
+          {keyed(msgParts('{pageLabel} is not in a stitch. Stitched sheets: {list}.', { pageLabel: pageLabel(pageIndex), list: elsewhere.map((g, i) => (
             <span key={i}>
               {i > 0 && '; '}
               <button className="link-button" onClick={() => onGoTo(g.placements[0]!.pageIndex)}>
                 {g.placements.map((p) => pageLabel(p.pageIndex)).join(', ')}
               </button>
             </span>
-          )) })}
+          )) }))}
         </>
       );
     return (
       <>
-        {msg('To register a set of plans in one go, join them with match lines in the {stitching} first. (Stitch to New Page makes a single flat page, which is registered on its own.)', { stitching })}
+        {keyed(msgParts('To register a set of plans in one go, join them with match lines in the {stitching} first. (Stitch to New Page makes a single flat page, which is registered on its own.)', { stitching }))}
       </>
     );
   };
@@ -362,7 +362,7 @@ export function GeospatialPanel(props: Props) {
         )}
         {registered.size > 0 && (
           <p className="geo-pages">
-            {msg('Registered: {list}', { list: [...registered]
+            {keyed(msgParts('Registered: {list}', { list: [...registered]
               .sort((a, b) => a - b)
               .map((p, i) => (
                 <span key={p}>
@@ -371,7 +371,7 @@ export function GeospatialPanel(props: Props) {
                     {pageLabel(p)}
                   </button>
                 </span>
-              )) })}
+              )) }))}
           </p>
         )}
       </section>
