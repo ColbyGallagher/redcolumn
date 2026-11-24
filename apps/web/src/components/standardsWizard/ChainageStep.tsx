@@ -210,7 +210,7 @@ export function ChainageStep(p: Props) {
             </p>
             {isChainage && (
               <p className={`sw-verdict ${ch ? 'good' : 'some'}`}>
-                {ch ? msg('Chainage {value}{value2}.', { value: ch.value, value2: ch.prefix ? msg(', written after {prefix}', { prefix: ch.prefix }) : ch.plus ? '' : msg(', a bare number') }) : msg('No chainage read in this box.')}
+                {ch ? msg('Chainage {value}{value2}.', { value: String(ch.value), value2: ch.prefix ? msg(', written after {prefix}', { prefix: ch.prefix }) : ch.plus ? '' : msg(', a bare number') }) : msg('No chainage read in this box.')}
               </p>
             )}
             {phase === 'sectionAlignment' && planName && !` ${alignmentSays(box)} `.includes(` ${planName} `) && <p className="sw-warn">{msg('The plan’s alignment is {planName}, but this box reads {value}.', { planName, value: alignmentSays(box) || msg('nothing') })}</p>}
@@ -273,7 +273,7 @@ export function ChainageStep(p: Props) {
                 {groupAmbiguous(run.ambiguous).map((g) => (
                   <li key={g.key}>
                     <button type="button" onClick={() => p.look(g.first.pageIndex, g.first.rect)}>
-                      {msg('CH {value} on {name}', { value: g.first.value, name: name(g.first.pageIndex) })}
+                      {msg('CH {value} on {name}', { value: String(g.first.value), name: name(g.first.pageIndex) })}
                     </button>{' '}
                     {msg('could be on')} {g.first.alignments.join(' or ')}
                     {g.count > 1 ? ` (${g.count} places)` : ''}.

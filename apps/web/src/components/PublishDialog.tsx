@@ -115,7 +115,7 @@ export function PublishDialog({ mode, pageCount, currentPage, busy, onRun, onClo
               {keyed(msgParts('{input}Include markups', { input: <input type="checkbox" checked={markups} onChange={(e) => setMarkups(e.target.checked)} /> }))}
             </label>
             <p className="pref-hint">
-              {format === 'tiff' && settings.get().tiffCompression === 'ccittG4' ? msg('TIFFs use CCITT Group 4 compression, which is black and white (Preferences › Images). ') : ''}
+              {format === 'tiff' && settings.get().tiffCompression === 'ccittG4' ? msg('TIFFs use CCITT Group 4 compression, which is black and white (Preferences › Images).') + ' ' : ''}
               {format === 'tiff' && settings.get().multiPageTiff ? msg('All the pages go into one multi-page TIFF.') : msg('Several pages are saved together in a .zip.')}
             </p>
           </>
