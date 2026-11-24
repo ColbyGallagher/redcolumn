@@ -96,7 +96,11 @@ export function ImportExcelDialog({ fileName, result, rowLabel, blocked, replyAu
                   const options = u.column.kind === 'choice' ? (u.column.options ?? []) : [];
                   return (
                     <p key={`${u.column.key}\n${u.value}`} className="warn">
-                      {u.column.label}: “{u.value}{msg('” in')} {u.rows.length} {msg('row')}{u.rows.length === 1 ? '' : 's'} {msg('is not')} {options.length ? msg('one of this column’s values') : `a ${u.column.kind === 'check' ? msg('Yes or No') : u.column.kind}`}.{' '}
+                      {options.length
+                        ? msg('{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not one of this column’s values.', { column: u.column.label, value: u.value, rows: u.rows.length })
+                        : u.column.kind === 'check'
+                          ? msg('{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not Yes or No.', { column: u.column.label, value: u.value, rows: u.rows.length })
+                          : msg('{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not a {kind}.', { column: u.column.label, value: u.value, rows: u.rows.length, kind: u.column.kind })}{' '}
                       {options.length > 0 ? (
                         <label>
                           {msg('Map to')}{' '}
@@ -157,7 +161,9 @@ export function ImportExcelDialog({ fileName, result, rowLabel, blocked, replyAu
             {(result.skipped.length > 0 || result.removed.length > 0) && (
               <details className="import-skipped">
                 <summary>
-                  {msg('{count, plural, one {# row} other {# rows}} skipped{value}', { count: result.skipped.length, value: result.removed.length ? `, ${result.removed.length} exported row${result.removed.length === 1 ? ' is' : 's are'} no longer in the sheet (${result.removed.length === 1 ? 'its markup is' : 'their markups are'} kept)` : '' })}
+                  {result.removed.length
+                    ? msg('{count, plural, one {# row} other {# rows}} skipped, {removed, plural, one {# exported row is no longer in the sheet (its markup is kept)} other {# exported rows are no longer in the sheet (their markups are kept)}}', { count: result.skipped.length, removed: result.removed.length })
+                    : msg('{count, plural, one {# row} other {# rows}} skipped', { count: result.skipped.length })}
                 </summary>
                 <ul>
                   {result.skipped.map((s) => (

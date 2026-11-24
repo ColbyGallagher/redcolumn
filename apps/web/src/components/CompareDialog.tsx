@@ -257,8 +257,8 @@ export function CompareDialog({ mode, files, openIds, currentId, currentPage, pr
           <>
             {(['Old', 'New'] as const).map((which) => (
               <label className="row" key={which}>
-                {which} {msg('set')}
-                <select aria-label={msg('{which} set', { which })} value={which === 'Old' ? oldSet : newSet} onChange={(e) => (which === 'Old' ? setOldSet : setNewSet)(e.target.value)}>
+                {which === 'Old' ? msg('Old set') : msg('New set')}
+                <select aria-label={which === 'Old' ? msg('Old set') : msg('New set')} value={which === 'Old' ? oldSet : newSet} onChange={(e) => (which === 'Old' ? setOldSet : setNewSet)(e.target.value)}>
                   {sets.map((x) => (
                     <option key={x.id} value={x.id}>
                       {msg('{name} ({count, plural, one {# file} other {# files}})', { name: x.name, count: setFiles(x.id).length })}
