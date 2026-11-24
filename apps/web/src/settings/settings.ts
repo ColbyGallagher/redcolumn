@@ -189,6 +189,8 @@ export interface Settings {
   gridSize: number;
   /** Rulers along the top and left of the view (View → Rulers). */
   showRulers: boolean;
+  /** Keep File, Edit, View and the other menus across the top bar instead of under the redcolumn button. */
+  showMenuBar: boolean;
   /** Full-screen crosshair cursor (View → Full-Screen Crosshair). */
   crosshair: boolean;
   /** How latitudes and longitudes on maps (geospatial PDFs) are shown: decimal degrees or degrees, minutes and seconds. */
@@ -468,6 +470,7 @@ export const DEFAULT_SETTINGS: Settings = {
   rightClickFinishes: false,
   gridSize: 5,
   showRulers: false,
+  showMenuBar: false,
   crosshair: false,
   geoFormat: 'decimal',
   showSpaces: true,
