@@ -194,8 +194,8 @@ function SessionList({
   const rows = recent.map((r) => {
     const j = joined.find((x) => x.session.id === r.id);
     const meta = j?.snapshot.meta ?? null;
-    const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? 'Ended' : j.snapshot.meta.status === 'finished' ? 'Closed' : 'Joined') : r.removed ? 'Removed' : r.backend === 'folder' ? 'Folder' : 'OneDrive';
-    const access = j ? (j.snapshot.isHost ? 'Host' : ACCESS_SHORT[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
+    const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? msg('Ended') : j.snapshot.meta.status === 'finished' ? msg('Closed') : msg('Joined')) : r.removed ? msg('Removed') : r.backend === 'folder' ? msg('Folder') : 'OneDrive';
+    const access = j ? (j.snapshot.isHost ? msg('Host') : ACCESS_SHORT[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
     return { ref: r, joined: j, meta, status, usable: true, access };
   });
   const notJoinedCount = rows.filter((row) => !row.joined && !row.ref.removed).length;
@@ -487,8 +487,8 @@ function InSession({
                 ? msg('Saving changes on this device…')
                 : snapshot.pendingChanges
                   ? snapshot.syncing
-                    ? msg('Saved on this device · {count} updates waiting to sync (syncing…).', { count: snapshot.pendingChanges })
-                    : msg('Saved on this device · {count} updates waiting to sync.', { count: snapshot.pendingChanges })
+                    ? msg('Saved on this device · {count, plural, one {# update} other {# updates}} waiting to sync (syncing…).', { count: snapshot.pendingChanges })
+                    : msg('Saved on this device · {count, plural, one {# update} other {# updates}} waiting to sync.', { count: snapshot.pendingChanges })
                   : inFolder
                     ? msg('No pending changes on this device. Delivery to other reviewers depends on your folder sync.')
                     : msg('No pending changes on this device. Writes to OneDrive are complete.')}
@@ -524,7 +524,7 @@ function InSession({
                           <PersonIcon />
                           <span className="rc-name">
                             {p.name}
-                            {p.here?.self ? ' (you)' : ''}
+                            {p.here?.self ? ' ' + msg('(you)') : ''}
                           </span>
                         </button>
                       </li>
@@ -599,7 +599,8 @@ function InSession({
                     <span className="rc-doc-actions">
                         {isHost && !finished && (
                           <label className="rc-mini" title={msg('Update to a new revision')}>
-                            {keyed(msgParts('Update{input}', { input: <input type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f && confirm(msg('Update {name} to {name2}? Everyone\'s markups stay on the same pages of the new revision.', { name: d.name, name2: f.name }))) onUpdateDocument(session.id, d.id, f); }} /> }))}
+                            {msg('Update')}
+                            <input type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f && confirm(msg('Update {name} to {name2}? Everyone\'s markups stay on the same pages of the new revision.', { name: d.name, name2: f.name }))) onUpdateDocument(session.id, d.id, f); }} />
                           </label>
                         )}
                         {isHost && !finished && (

@@ -229,7 +229,7 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
         <button className="btn small" disabled={!list.length} onClick={() => go(at < 0 ? -1 : at - 1)}>
           {msg('‹ Previous')}
         </button>
-        <span>{at >= 0 ? `${at + 1} of ${list.length}` : `${list.length} shown`}</span>
+        <span>{at >= 0 ? msg('{current} of {total}', { current: at + 1, total: list.length }) : msg('{count} shown', { count: list.length })}</span>
         <button className="btn small" disabled={!list.length} onClick={() => go(at + 1)}>
           {msg('Next ›')}
         </button>
