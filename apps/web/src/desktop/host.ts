@@ -158,6 +158,10 @@ export interface RedcolumnDesktop {
   /** Collects (once) the contents of a document moved here from another window. */
   takeTransfer?(id: string): Promise<Uint8Array | null>;
   setUnsavedChanges?(on: boolean): void;
+  /** The system's regional format (BCP 47), for Number Format › Match the system. */
+  systemLocale?: string;
+  /** Gives the main process the interface language's text for its dialogs (desktop/mainStrings.ts). */
+  setInterfaceStrings?(strings: Record<string, string>): void;
   /** Colour of the title-bar buttons' symbols (Windows), so they contrast with the active theme. */
   setTitleBarSymbols?(color: string): void;
   /** Experimental (read through desktop/embedHost.ts, only with its setting on; asked on every render, so it must be quick): refuses a command an embedding host cannot allow (one that rewrites a document its own records are linked to); null leaves the command as it was. */

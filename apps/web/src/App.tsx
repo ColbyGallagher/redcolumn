@@ -4201,7 +4201,7 @@ export function App() {
         })
         .catch((err) => {
           if (rethrow) throw err;
-          setError(`${what} failed: ${err instanceof Error ? err.message : String(err)}`);
+          setError(msg('{what} failed: {error}', { what, error: err instanceof Error ? err.message : String(err) }));
           return false;
         });
       // The queue carries on after a failure.
@@ -9516,7 +9516,8 @@ export function App() {
       }
       setPublishFor(null);
     } catch (err) {
-      setError(`${req.kind === 'pdf' ? 'Publish' : 'Export'} failed: ${err instanceof Error ? err.message : String(err)}`);
+      const error = err instanceof Error ? err.message : String(err);
+      setError(req.kind === 'pdf' ? msg('Publish failed: {error}', { error }) : msg('Export failed: {error}', { error }));
     } finally {
       job.end();
     }
@@ -11749,7 +11750,7 @@ export function App() {
           stamp={stampToFill}
           author={author}
           title={stampToFill.name}
-          applyLabel="Place"
+          applyLabel={msg('Place')}
           onCancel={() => setStampToFill(null)}
           onApply={(values) => {
             setStampToFill(null);
@@ -11768,8 +11769,8 @@ export function App() {
               stamp={{ name: m.subject ?? 'Stamp', ...formStamp(m.stamp)! }}
               author={form.placed.user}
               initial={form.values}
-              title={m.subject ?? 'Stamp'}
-              applyLabel="Update"
+              title={m.subject ?? msg('Stamp')}
+              applyLabel={msg('Update')}
               onCancel={() => setStampEdit(null)}
               onApply={(values) => {
                 setStampEdit(null);

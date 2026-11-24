@@ -79,7 +79,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
       return (
         <div className="props-panel">
           <div className="props-heading">
-            <strong>Cloud+</strong> {msg('tool defaults')}
+            <strong>{/* i18n-ignore: product feature name */}Cloud+</strong> {msg('tool defaults')}
           </div>
           <p className="empty">{msg('Applies to new cloud+ markups.')}</p>
           <StyleEditor
@@ -659,35 +659,35 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange,
                 />
               </Row>
               {(cloudPlus.cloudStyle.fill || hatchOn) && (
-                <Row label="Cloud fill opacity">
+                <Row label={msg('Cloud fill opacity')}>
                   <Percent value={cloudPlus.cloudStyle.fillOpacity ?? 1} onChange={(v) => cloudPlus.onCloudChange({ fillOpacity: v })} />
                 </Row>
               )}
-              <Row label="Text box fill" title="The background of the text box">
+              <Row label={msg('Text box fill')} title={msg('The background of the text box')}>
                 <ColorMenu
                   wide
-                  label="Text box fill"
-                  short="Text box"
+                  label={msg('Text box fill')}
+                  short={msg('Text box')}
                   icon={STYLE_ICONS.fill}
                   value={cloudPlus.calloutStyle.fill ?? null}
-                  noneLabel="No fill"
+                  noneLabel={msg('No fill')}
                   onChange={(c) => cloudPlus.onCalloutChange({ fill: c })}
                   onPreview={cloudPlus.onCalloutPreview ? (c) => cloudPlus.onCalloutPreview!(c === undefined ? null : { fill: c }) : undefined}
                 />
               </Row>
               {cloudPlus.calloutStyle.fill && (
-                <Row label="Text box fill opacity">
+                <Row label={msg('Text box fill opacity')}>
                   <Percent value={cloudPlus.calloutStyle.fillOpacity ?? 1} onChange={(v) => cloudPlus.onCalloutChange({ fillOpacity: v })} />
                 </Row>
               )}
             </>
           ) : (
             <>
-              <Row label="Fill color" title="The inside of the shape">
-                <ColorMenu wide label="Fill color" short="Fill" icon={STYLE_ICONS.fill} value={style.fill ?? null} noneLabel="No fill" onChange={(c) => set('fill', c)} onPreview={previewColor('fill')} />
+              <Row label={msg('Fill color')} title={msg('The inside of the shape')}>
+                <ColorMenu wide label={msg('Fill color')} short={msg('Fill')} icon={STYLE_ICONS.fill} value={style.fill ?? null} noneLabel={msg('No fill')} onChange={(c) => set('fill', c)} onPreview={previewColor('fill')} />
               </Row>
               {(style.fill || hatchOn) && (
-                <Row label="Fill opacity">
+                <Row label={msg('Fill opacity')}>
                   <Percent value={style.fillOpacity ?? 1} onChange={(v) => set('fillOpacity', v)} />
                 </Row>
               )}

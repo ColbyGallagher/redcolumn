@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 import type { ManagedPolicy } from './policy';
 
-const info = ipcRenderer.sendSync('desktop:info') as { nativeFiles: boolean; printMode: 'viewer' | 'verb' | 'images'; policy: ManagedPolicy };
+const info = ipcRenderer.sendSync('desktop:info') as { nativeFiles: boolean; printMode: 'viewer' | 'verb' | 'images'; policy: ManagedPolicy; systemLocale: string };
 
 function unsubscribe(channel: string, listener: (...args: unknown[]) => void) {
   ipcRenderer.removeListener(channel, listener);
@@ -120,6 +120,10 @@ contextBridge.exposeInMainWorld('redcolumn', {
     return bytes ? new Uint8Array(bytes) : null;
   },
   setUnsavedChanges: (on: boolean) => ipcRenderer.send('window:unsaved', on === true),
+  // The system's regional format (Windows: Region › Regional format), for Number Format: Match the system.
+  systemLocale: info.systemLocale,
+  // Translations of the text the main process shows, sent once the page has chosen its language.
+  setInterfaceStrings: (strings: Record<string, string>) => ipcRenderer.send('ui:strings', strings),
   setTitleBarSymbols: (color: string) => ipcRenderer.send('window:theme-symbols', color),
   onCloseRequest(cb: () => void) {
     const listener = () => cb();

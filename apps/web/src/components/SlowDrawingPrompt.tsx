@@ -263,7 +263,7 @@ export function SlowDrawingPrompt({ viewer, doc, fileId }: { viewer: TileViewer;
       {state.kind === 'working' && (
         <>
           <p>
-            {state.label}… {state.total > 0 && `${state.done} of ${state.total}`}
+            {state.label}… {state.total > 0 && msg('{done} of {total}', { done: state.done, total: state.total })}
           </p>
           <progress max={Math.max(1, state.total)} value={state.done} />
           <div className="slow-drawing-actions">
