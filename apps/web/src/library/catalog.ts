@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { parseTradePack, type TradePack } from './pack';
 
 /**
@@ -43,7 +44,7 @@ export interface LibraryIndex {
 }
 
 function fail(message: string): never {
-  throw new Error(`The library's list could not be read: ${message}.`);
+  throw new Error(msg('The library\'s list could not be read: {message}.', { message }));
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
@@ -57,16 +58,16 @@ export function isPackPath(path: string): boolean {
 
 /** Reads `index.json`. Entries it cannot use are left out rather than failing the whole list. */
 export function parseIndex(content: string): LibraryIndex {
-  if (content.length > MAX_INDEX) fail('it is too large');
+  if (content.length > MAX_INDEX) fail(msg('it is too large'));
   let data: unknown;
   try {
     data = JSON.parse(content);
   } catch {
-    fail('it is not JSON');
+    fail(msg('it is not JSON'));
   }
-  if (!isObject(data) || data.format !== INDEX_FORMAT) fail('it is another kind of file');
-  if (typeof data.version !== 'number' || data.version > INDEX_VERSION) fail('it needs a newer version of redcolumn');
-  if (!Array.isArray(data.entries)) fail('it has no entries');
+  if (!isObject(data) || data.format !== INDEX_FORMAT) fail(msg('it is another kind of file'));
+  if (typeof data.version !== 'number' || data.version > INDEX_VERSION) fail(msg('it needs a newer version of redcolumn'));
+  if (!Array.isArray(data.entries)) fail(msg('it has no entries'));
   const seen = new Set<string>();
   const entries: LibraryEntry[] = [];
   for (const e of data.entries.slice(0, MAX_ENTRIES)) {
@@ -126,11 +127,11 @@ async function get(url: string, max: number, what: string, fetcher: typeof fetch
   try {
     res = await fetcher(url, REQUEST);
   } catch {
-    throw new Error(`Could not reach the community library to get ${what}. Check the connection and try again.`);
+    throw new Error(msg('Could not reach the community library to get {what}. Check the connection and try again.', { what }));
   }
-  if (!res.ok) throw new Error(`The community library did not send ${what} (${res.status}).`);
+  if (!res.ok) throw new Error(msg('The community library did not send {what} ({status}).', { what, status: res.status }));
   const body = await res.arrayBuffer();
-  if (body.byteLength > max) throw new Error(`The community library sent ${what} larger than redcolumn accepts.`);
+  if (body.byteLength > max) throw new Error(msg('The community library sent {what} larger than redcolumn accepts.', { what }));
   return body;
 }
 
@@ -142,8 +143,8 @@ export async function fetchIndex(fetcher: typeof fetch = fetch): Promise<Library
 
 /** Fetches one pack, checks it against the index's hash and reads it. */
 export async function fetchPack(entry: LibraryEntry, fetcher: typeof fetch = fetch): Promise<TradePack> {
-  if (!isPackPath(entry.path)) throw new Error(`"${entry.name}" is not in the library.`);
+  if (!isPackPath(entry.path)) throw new Error(msg('"{name}" is not in the library.', { name: entry.name }));
   const body = await get(LIBRARY_BASE + entry.path, MAX_PACK, `"${entry.name}"`, fetcher);
-  if ((await sha256Hex(body)) !== entry.sha256) throw new Error(`"${entry.name}" does not match the library's list, so it was not added. Try again later.`);
+  if ((await sha256Hex(body)) !== entry.sha256) throw new Error(msg('"{name}" does not match the library\'s list, so it was not added. Try again later.', { name: entry.name }));
   return parseTradePack(new TextDecoder().decode(body));
 }

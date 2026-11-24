@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
 import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
 import { currentLocale, localeInfo, msg, msgParts, numberLocale, supportedNumberLocale } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { THEMES } from '../theme/themes';
 import { browserLanguages, NUMBER_FORMATS, numberSample, offeredLanguages, resolveLanguage, resolveNumberFormat, systemNumberLocale } from '../i18n/language';
@@ -141,7 +142,7 @@ const RESOLUTION = () => [
   ['300', '300 dpi'],
   ['600', '600 dpi'],
 ] as const;
-const ASSIGN_BY = () => [msg('Drawing Number'), msg('Sheet Number'), msg('Sheet Name'), msg('File Name')];
+const ASSIGN_BY = lazy(() => [msg('Drawing Number'), msg('Sheet Number'), msg('Sheet Name'), msg('File Name')]);
 
 interface Props {
   author: string;

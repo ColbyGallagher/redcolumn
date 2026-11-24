@@ -1,4 +1,5 @@
 import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { searchText, type PageText, type SearchHit, type SheetInfo } from '@nb/sheets';
 import { CountToolDialog } from './CountToolDialog';
@@ -54,7 +55,7 @@ export interface SearchMemory {
 
 const DEFAULT_OPTIONS: SearchOptions = { includeSubfolders: false, pages: true, filenames: false, properties: false, fields: true, markups: false, caseSensitive: false, wholeWord: false, meaning: true };
 
-const OPTION_LABELS = (): [keyof SearchOptions, string][] => [
+const OPTION_LABELS = lazy((): [keyof SearchOptions, string][] => [
   ['includeSubfolders', msg('Include Subfolders')],
   ['pages', msg('Search Pages')],
   ['filenames', msg('Search Filenames')],
@@ -64,13 +65,13 @@ const OPTION_LABELS = (): [keyof SearchOptions, string][] => [
   ['caseSensitive', msg('Case Sensitive')],
   ['wholeWord', msg('Whole Words Only')],
   ['meaning', msg('Search by Meaning')],
-];
+]);
 
 /** Whether an option applies to a scope: subfolders only to a folder, file names only to several files. */
 const applies = (option: keyof SearchOptions, scope: SearchScope) =>
   option === 'includeSubfolders' ? scope === 'folder' : option === 'filenames' ? scope !== 'document' && scope !== 'page' : option === 'meaning' ? scope !== 'page' : true;
 
-const KIND_LABELS = (): Record<HitKind, string> => ({ text: msg('Page'), field: msg('Form field'), markup: msg('Markup'), filename: msg('File name'), property: msg('Property'), meaning: msg('Related') });
+const KIND_LABELS = lazy((): Record<HitKind, string> => ({ text: msg('Page'), field: msg('Form field'), markup: msg('Markup'), filename: msg('File name'), property: msg('Property'), meaning: msg('Related') }));
 
 /** Pages listed under Related at most, and the words of each one's passage shown. */
 const RELATED_LIMIT = 10;

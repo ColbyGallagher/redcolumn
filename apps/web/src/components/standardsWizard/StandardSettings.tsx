@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../../i18n/lazy';
 import { keyed } from '../../i18n/keyed';
 import { useState } from 'react';
 import { numberParts, type ChainageHints, type LinkHints } from '@nb/sheets';
@@ -40,22 +41,22 @@ const listOf = (text: string) =>
     .filter(Boolean);
 
 type LinkList = 'ids' | 'section' | 'elevation' | 'enlargedPlan' | 'matchLine';
-const LINK_LISTS = (): [LinkList, string, string][] => [
+const LINK_LISTS = lazy((): [LinkList, string, string][] => [
   ['ids', msg('Identifiers'), msg('Usual: 3, A, 3A, A-A, AA')],
   ['section', msg('Section titles'), 'SECTION'],
   ['elevation', msg('Elevation titles'), 'ELEVATION'],
   ['enlargedPlan', msg('Enlarged plan titles'), 'ENLARGED'],
   ['matchLine', msg('Match lines'), msg('MATCH LINE')],
-];
+]);
 const linkText = (l: LinkHints, k: LinkList) => (k === 'ids' ? (l.ids?.join(', ') ?? '') : k === 'matchLine' ? l.matchLine.join(', ') : l.titles[k].join(', '));
 
 type ChainList = 'alignments' | 'prefixes' | 'planTitles' | 'sectionTitles';
-const CHAIN_LISTS = (): [ChainList, string, string][] => [
+const CHAIN_LISTS = lazy((): [ChainList, string, string][] => [
   ['alignments', msg('Alignment names'), msg('MC01, RAMP A (empty: one alignment)')],
   ['prefixes', msg('Written before a chainage'), msg('STA, CH')],
   ['planTitles', msg('Plan sheet titles'), msg('PLAN AND LONGITUDINAL SECTION')],
   ['sectionTitles', msg('Cross-section sheet titles'), msg('CROSS SECTIONS')],
-];
+]);
 
 /** A comma-separated list typed into a field: kept as typed while focused, saved as a list. */
 function ListField({ label, value, placeholder, disabled, onList }: { label: string; value: string; placeholder: string; disabled: boolean; onList: (list: string[]) => void }) {

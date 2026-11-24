@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { ICON_FILES } from './icons.ts';
 
 /**
@@ -27,7 +28,7 @@ export function buildManifest(base: string, screenshots: ManifestScreenshot[] = 
     id: base,
     name: 'redcolumn',
     short_name: 'redcolumn',
-    description: 'AI-native PDF markup and takeoff for construction drawings',
+    description: msg('AI-native PDF markup and takeoff for construction drawings'),
     lang: 'en',
     start_url: base,
     scope: base,
@@ -41,8 +42,8 @@ export function buildManifest(base: string, screenshots: ManifestScreenshot[] = 
       ...pngs.map((f) => ({ src: at(f.name), sizes: `${f.size}x${f.size}`, type: 'image/png', purpose: f.maskable ? 'maskable' : 'any' })),
     ],
     shortcuts: [
-      { name: 'Open', short_name: 'Open', description: 'Open a PDF from this device', url: `${base}?action=open`, icons: [{ src: at('icon-192.png'), sizes: '192x192', type: 'image/png' }] },
-      { name: 'New PDF', short_name: 'New', description: 'Start a new blank PDF', url: `${base}?action=new`, icons: [{ src: at('icon-192.png'), sizes: '192x192', type: 'image/png' }] },
+      { name: 'Open', short_name: 'Open', description: msg('Open a PDF from this device'), url: `${base}?action=open`, icons: [{ src: at('icon-192.png'), sizes: '192x192', type: 'image/png' }] },
+      { name: 'New PDF', short_name: 'New', description: msg('Start a new blank PDF'), url: `${base}?action=new`, icons: [{ src: at('icon-192.png'), sizes: '192x192', type: 'image/png' }] },
     ],
     screenshots,
     // Installed on a desktop, redcolumn is offered for PDFs in the file manager (read with launchQueue).

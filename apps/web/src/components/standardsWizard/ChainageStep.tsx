@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../../i18n/lazy';
 import { keyed } from '../../i18n/keyed';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { alignmentsIn, readChainages, regionOfBox, sheetTitled, spotCheckSample, stepMeter, textInRegion, type ChainageAmbiguity, type PageText, type SheetInfo } from '@nb/sheets';
@@ -35,7 +36,7 @@ interface Props {
 type Box = keyof ChainBoxes;
 const ORDER: Box[] = ['planChainage', 'planAlignment', 'sectionAlignment', 'sectionChainage'];
 
-const ASK = (): Record<Box, { title: string; how: string; label: string; gif: string }> => ({
+const ASK = lazy((): Record<Box, { title: string; how: string; label: string; gif: string }> => ({
   planChainage: {
     title: msg('Box a chainage on a plan'),
     how: msg('Find a plan where chainages are marked along an alignment and drag a box around one: a tick label (100) or a written chainage (CH 100).'),
@@ -60,7 +61,7 @@ const ASK = (): Record<Box, { title: string; how: string; label: string; gif: st
     label: 'section chainage',
     gif: 'section-chainage',
   },
-});
+}));
 
 /**
  * The chainage step of the setup wizard: four boxes make the chain a chainage link follows (a
@@ -210,7 +211,7 @@ export function ChainageStep(p: Props) {
             </p>
             {isChainage && (
               <p className={`sw-verdict ${ch ? 'good' : 'some'}`}>
-                {ch ? msg('Chainage {value}{value2}.', { value: ch.value, value2: ch.prefix ? msg(', written after {prefix}', { prefix: ch.prefix }) : ch.plus ? '' : msg(', a bare number') }) : msg('No chainage read in this box.')}
+                {ch ? msg('Chainage {value}{value2}.', { value: String(ch.value), value2: ch.prefix ? msg(', written after {prefix}', { prefix: ch.prefix }) : ch.plus ? '' : msg(', a bare number') }) : msg('No chainage read in this box.')}
               </p>
             )}
             {phase === 'sectionAlignment' && planName && !` ${alignmentSays(box)} `.includes(` ${planName} `) && <p className="sw-warn">{msg('The plan’s alignment is {planName}, but this box reads {value}.', { planName, value: alignmentSays(box) || msg('nothing') })}</p>}

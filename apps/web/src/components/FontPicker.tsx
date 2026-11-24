@@ -1,4 +1,5 @@
 import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { FONT_FAMILIES, cssFontFamily } from '@nb/markup';
 import { desktop } from '../desktop/host';
@@ -12,7 +13,7 @@ const loadSys = () => (sysPromise ??= import('../fonts/systemFonts'));
 /** Installed family names, once listed in this window (shared by every picker). */
 let installedNames: string[] | null = null;
 
-const GROUP_LABEL = (): Record<FontEntry['group'], string> => ({ starred: msg('Starred'), standard: msg('Standard'), recent: msg('Recent'), installed: msg('Installed') });
+const GROUP_LABEL = lazy((): Record<FontEntry['group'], string> => ({ starred: msg('Starred'), standard: msg('Standard'), recent: msg('Recent'), installed: msg('Installed') }));
 
 /**
  * The font choice for text: starred fonts, standard fonts, recently used fonts, then the fonts

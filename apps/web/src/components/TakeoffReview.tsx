@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { LOW_CONFIDENCE, MARKUP_LABELS, type Assembly, type Markup, type MarkupStore, type SourceRef } from '@nb/markup';
@@ -40,8 +41,8 @@ type Show = 'pending' | 'low' | 'all';
 const n = (v: number | null | undefined) => (v === null || v === undefined ? '—' : formatNumber(v, 2));
 const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const pct = (c: number) => `${Math.round(c * 100)}%`;
-const KIND_LABEL = (): Record<ReviewItem['kind'], string> => ({ draft: msg('Drawn'), assembly: msg('Assembly'), count: msg('Count') });
-const STATE_LABEL = (): Record<ReviewState, string> => ({ pending: msg('Waiting'), approved: msg('Approved'), rejected: msg('Rejected') });
+const KIND_LABEL = lazy((): Record<ReviewItem['kind'], string> => ({ draft: msg('Drawn'), assembly: msg('Assembly'), count: msg('Count') }));
+const STATE_LABEL = lazy((): Record<ReviewState, string> => ({ pending: msg('Waiting'), approved: msg('Approved'), rejected: msg('Rejected') }));
 const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? '' : 's'}`;
 
 /**

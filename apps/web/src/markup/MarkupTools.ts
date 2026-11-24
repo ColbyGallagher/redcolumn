@@ -1,3 +1,5 @@
+import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import {
   align,
   hasVector,
@@ -1496,8 +1498,8 @@ export class MarkupTools implements ViewerOverlay {
    */
   place(type: MarkupType, pageIndex: number, points: Point[], extras?: { text?: string; comment?: string; subject?: string }): Markup {
     const store = this.store;
-    if (!store) throw new Error('No document is open.');
-    if (store.readOnly) throw new Error('This drawing is read-only.');
+    if (!store) throw new Error(msg('No document is open.'));
+    if (store.readOnly) throw new Error(msg('This drawing is read-only.'));
     const zoom = this.viewer.zoomFor(pageIndex) || 1;
     let placed = points;
     if (points.length === 1 && (type === 'note' || type === 'flag' || type === 'typewriter')) {
@@ -2283,13 +2285,13 @@ export class MarkupTools implements ViewerOverlay {
   private async fillAt(pageIndex: number, at: Point, extras?: { text?: string; comment?: string; subject?: string }): Promise<{ markup?: Markup; error?: string }> {
     const store = this.store;
     const size = this.viewer.pageSize(pageIndex);
-    if (!store || !size || !this.snapSource) return { error: 'Smart Fill is not ready on this page.' };
+    if (!store || !size || !this.snapSource) return { error: msg('Smart Fill is not ready on this page.') };
     let index: SnapIndex;
     try {
       const cached = this.snapIndexes.get(pageIndex);
       index = cached && cached !== 'loading' ? cached : await this.snapSource(pageIndex);
     } catch {
-      return { error: 'Could not read the drawing on this page.' };
+      return { error: msg('Could not read the drawing on this page.') };
     }
     const walls: number[] = [];
     for (const m of store.forPage(pageIndex)) if (m.type !== 'space' && !TYPE_INFO[m.type].content && TYPE_INFO[m.type].draw !== 'text') walls.push(...markupSegments(m));
@@ -2297,7 +2299,7 @@ export class MarkupTools implements ViewerOverlay {
     for (const pic of this.pictureIndexesFor(pageIndex)) walls.push(...pic.segments);
     const segments = walls.length ? Float32Array.from([...index.segments, ...walls]) : index.segments;
     const polygon = dynamicFill(segments, at, { width: size.width, height: size.height })?.map(([x, y]): Point => [x, y]);
-    if (!polygon) return { error: 'No enclosed area there: click inside a closed outline, or draw a line to close the gap.' };
+    if (!polygon) return { error: msg('No enclosed area there: click inside a closed outline, or draw a line to close the gap.') };
     const type = this.state.fillAs;
     const m = this.newMarkup(type, pageIndex, type === 'polylength' ? [...polygon, polygon[0]!] : polygon);
     if (extras?.text) m.text = extras.text;
@@ -2313,7 +2315,7 @@ export class MarkupTools implements ViewerOverlay {
   /** Smart Fill at a point, for the assistant: the markup the armed fill type makes, or the reason it could not. */
   async fill(pageIndex: number, at: Point, extras?: { text?: string; comment?: string; subject?: string }): Promise<Markup> {
     const { markup, error } = await this.fillAt(pageIndex, at, extras);
-    if (!markup) throw new Error(error ?? 'Smart Fill found nothing there.');
+    if (!markup) throw new Error(error ?? msg('Smart Fill found nothing there.'));
     return markup;
   }
 
@@ -2583,12 +2585,12 @@ export class MarkupTools implements ViewerOverlay {
       const scale = store.scaleAt(pageIndex, tracked.point);
       const one = tracked.paths.length === 1 ? tracked.paths[0]! : null;
       const distance = one ? `: ${formatLength(realLengthAlong(scale, tracked.point[0] - one.origin[0], tracked.point[1] - one.origin[1]), scale)}` : '';
-      const paths = tracked.paths.map((q) => `${PATH_NAMES[q.kind]}${one ? distance : ''} < ${+q.angle.toFixed(1)}°`).join(', ');
+      const paths = tracked.paths.map((q) => `${PATH_NAMES()[q.kind]}${one ? distance : ''} < ${+q.angle.toFixed(1)}°`).join(', ');
       drawSnapTip(ctx, tracked.onLine ? `Intersection, ${paths}` : paths, tracked.point, zoom);
     }
     if (this.snapHit && this.snapPage === pageIndex) {
       drawSnapIndicator(ctx, this.snapHit, zoom);
-      if (!this.snapIsGrid) drawSnapTip(ctx, SNAP_NAMES[this.snapHit.kind], this.snapHit.point, zoom);
+      if (!this.snapIsGrid) drawSnapTip(ctx, SNAP_NAMES()[this.snapHit.kind], this.snapHit.point, zoom);
     }
     if (g?.kind === 'handle' && g.calloutSnap && store.get(g.id)?.pageIndex === pageIndex) {
       const [sx, sy] = g.calloutSnap;
@@ -3113,7 +3115,7 @@ export class MarkupTools implements ViewerOverlay {
     if (tool === 'stitchMove') {
       if (e.button !== 0 || this.store.readOnly) return false;
       if (!this.viewer.isStitched) {
-        this.options.onNotice?.('Move Sheet works in the Stitched View: turn it on from the Stitching panel.');
+        this.options.onNotice?.(msg('Move Sheet works in the Stitched View: turn it on from the Stitching panel.'));
         return true;
       }
       this.setGesture({ kind: 'stitchMove', start: toPoint(this.viewer.pageToWorld(pageIndex, pt)) });
@@ -4767,8 +4769,8 @@ export class MarkupTools implements ViewerOverlay {
   /** Cloud+ for the assistant: a cloud over two corners with a callout from its top-right, as one undo step. `text` goes on the callout. */
   placeCloudPlus(pageIndex: number, points: Point[], extras?: { text?: string; comment?: string; subject?: string }): { cloud: Markup; callout: Markup } {
     const store = this.store;
-    if (!store) throw new Error('No document is open.');
-    if (store.readOnly) throw new Error('This drawing is read-only.');
+    if (!store) throw new Error(msg('No document is open.'));
+    if (store.readOnly) throw new Error(msg('This drawing is read-only.'));
     const cloud = this.newMarkup('cloud', pageIndex, points);
     if (extras?.comment) cloud.comment = extras.comment;
     if (extras?.subject) cloud.subject = extras.subject;
@@ -4946,7 +4948,7 @@ export class MarkupTools implements ViewerOverlay {
     // The tool was put down (Esc, another tool) while the pictures were turning over: the mirror is off.
     if (this.cad !== c) return;
     if (this.store !== store || [...stamps].some(([id, at]) => store.get(id)?.modifiedAt !== at)) {
-      this.setState({ cad: { picks: c.picks.length, error: 'The markups changed while mirroring; mirror again' } });
+      this.setState({ cad: { picks: c.picks.length, error: msg('The markups changed while mirroring; mirror again') } });
       return;
     }
     (done.mirrorPictures ?? []).forEach(([id], i) => {
@@ -5805,20 +5807,20 @@ function drawScaleLine(ctx: CanvasRenderingContext2D, points: readonly Point[], 
 }
 
 /** Names of the snaps, shown beside the marker as AutoCAD does. */
-const SNAP_NAMES: Record<SnapKind, string> = {
-  endpoint: 'Endpoint',
-  center: 'Centre',
-  geocenter: 'Geometric Centre',
-  intersection: 'Intersection',
-  apparent: 'Apparent Intersection',
-  midpoint: 'Midpoint',
-  quadrant: 'Quadrant',
-  perpendicular: 'Perpendicular',
-  tangent: 'Tangent',
-  nearest: 'Nearest',
-};
+const SNAP_NAMES = lazy((): Record<SnapKind, string> => ({
+  endpoint: msg('Endpoint'),
+  center: msg('Centre'),
+  geocenter: msg('Geometric Centre'),
+  intersection: msg('Intersection'),
+  apparent: msg('Apparent Intersection'),
+  midpoint: msg('Midpoint'),
+  quadrant: msg('Quadrant'),
+  perpendicular: msg('Perpendicular'),
+  tangent: msg('Tangent'),
+  nearest: msg('Nearest'),
+}));
 
-const PATH_NAMES: Record<TrackPathKind, string> = { tracking: 'Tracking', polar: 'Polar', extension: 'Extension', parallel: 'Parallel' };
+const PATH_NAMES = lazy((): Record<TrackPathKind, string> => ({ tracking: msg('Tracking'), polar: msg('Polar'), extension: msg('Extension'), parallel: msg('Parallel') }));
 
 /** A snap's or tracking path's name in a small tag above and to the right of `at`. */
 function drawSnapTip(ctx: CanvasRenderingContext2D, text: string, at: readonly number[], zoom: number) {

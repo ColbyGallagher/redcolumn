@@ -48,7 +48,7 @@ function keyFor(label: string, taken: Set<string>): string {
  */
 export function productListFromCsv(name: string, text: string): ProductList {
   const [head, ...body] = parseCsv(text);
-  if (!head?.length) throw new Error('The CSV file is empty.');
+  if (!head?.length) throw new Error(msg('The CSV file is empty.'));
   const taken = new Set<string>();
   const columns = head.map((label, i) => {
     const values = body.map((r) => (r[i] ?? '').trim()).filter((v) => v !== '');

@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useRef, useState } from 'react';
 import { SLOTS, TOKENS, type HeaderFooterSpec, type Slot } from '../documents/headerFooter';
@@ -18,14 +19,14 @@ interface Props {
   batch?: boolean;
 }
 
-const SLOT_LABELS = (): Record<Slot, string> => ({
+const SLOT_LABELS = lazy((): Record<Slot, string> => ({
   headerLeft: msg('Header left'),
   headerCenter: msg('Header centre'),
   headerRight: msg('Header right'),
   footerLeft: msg('Footer left'),
   footerCenter: msg('Footer centre'),
   footerRight: msg('Footer right'),
-});
+}));
 
 const KEY = 'nb.headerFooter';
 

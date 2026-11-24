@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 /**
  * Projects offline. Check-ins and notes made while OneDrive cannot be reached are queued here and
  * sent, in order, when it can be again. Plain module (storage is passed in) so the queue and its
@@ -168,13 +169,13 @@ export function copyState(link: { rev: number } | null, latest: number): CopySta
 
 /** How a queued change reads in the panel and the Record. */
 export function describeQueued(c: QueuedChange): string {
-  return c.kind === 'checkin' ? `Check in ${c.fileName}${c.comment ? `: ${c.comment}` : ''}` : `Note on ${c.fileName}: ${c.text}`;
+  return c.kind === 'checkin' ? msg('Check in {fileName}{value}', { fileName: c.fileName, value: c.comment ? `: ${c.comment}` : '' }) : msg('Note on {fileName}: {text}', { fileName: c.fileName, text: c.text });
 }
 
 /** The note as it is sent: when it was written offline, so the Record reads right. */
 export function noteText(c: QueuedNote, sentAt = Date.now()): string {
   const late = sentAt - c.at > 60_000;
-  return `noted on ${c.fileName}${late ? ` (written offline ${new Date(c.at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })})` : ''}: “${c.text}”`;
+  return msg('noted on {fileName}{date}: “{text}”', { fileName: c.fileName, date: late ? ' ' + msg('(written offline {date})', { date: new Date(c.at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) }) : '', text: c.text });
 }
 
 /** The queue for this browser (localStorage). */

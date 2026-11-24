@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import type { AccountInfo, IPublicClientApplication } from '@azure/msal-browser';
 import { DriveAuthError, DriveForbiddenError, DriveLockedError, type DriveApi, type DriveFile, type DrivePermission, type DriveProps, type LinkOptions } from './DriveApi';
 import { desktop } from '../../desktop/host';
@@ -105,7 +106,7 @@ function forgetDeviceSignIn() {
 }
 
 function app(): Promise<IPublicClientApplication> {
-  if (!CLIENT_ID) return Promise.reject(new Error('Microsoft sign-in is not configured for this site.'));
+  if (!CLIENT_ID) return Promise.reject(new Error(msg('Microsoft sign-in is not configured for this site.')));
   msal ??= import('@azure/msal-browser').then(async ({ PublicClientApplication }) => {
     const stay = staySignedInToMicrosoft();
     // A sign-in kept on the device by an earlier version, or before the person turned this off.
@@ -241,8 +242,8 @@ function nextLevel(kind: AccessKind, level: number, status: number): number | nu
 }
 
 function stepUpMessage(step: StepUp): string {
-  if (step.kind === 'share') return 'Allow access to your OneDrive to share the folder.';
-  return step.level === 1 ? 'Allow access to your OneDrive to open this folder.' : 'Allow access to files shared with you to open this folder.';
+  if (step.kind === 'share') return msg('Allow access to your OneDrive to share the folder.');
+  return step.level === 1 ? msg('Allow access to your OneDrive to open this folder.') : msg('Allow access to files shared with you to open this folder.');
 }
 
 const SINCE_KEY = 'nb.onedrive.since';
@@ -262,10 +263,10 @@ export function microsoftSignedInSince(): number | null {
 
 /** Where the Microsoft sign-in is kept, in words for the Access page. */
 export function microsoftTokenPlace(): string {
-  if (desktop()) return "In the desktop app's main process, encrypted by the system key store, until you sign out. The app's pages never see it: OneDrive calls go through the main process.";
+  if (desktop()) return msg('In the desktop app\'s main process, encrypted by the system key store, until you sign out. The app\'s pages never see it: OneDrive calls go through the main process.');
   return staySignedInToMicrosoft()
-    ? 'In this browser until you sign out (Stay signed in is on). Microsoft ends it after about a day without use.'
-    : 'In this tab only; closing the tab, or 30 minutes without cloud work, signs you out.';
+    ? msg('In this browser until you sign out (Stay signed in is on). Microsoft ends it after about a day without use.')
+    : msg('In this tab only; closing the tab, or 30 minutes without cloud work, signs you out.');
 }
 
 /** Shows the app's own explanation before Microsoft is asked for more; resolves false to cancel. */
@@ -283,16 +284,16 @@ export function setStepUpConfirm(confirm: StepUpConfirm | null) {
  */
 async function desktopGraphToken(scopes: string[], interactive: boolean): Promise<string> {
   const host = desktop();
-  if (!host || !CLIENT_ID) throw new DriveAuthError('Microsoft sign-in is not configured for this app.');
+  if (!host || !CLIENT_ID) throw new DriveAuthError(msg('Microsoft sign-in is not configured for this app.'));
   try {
     const result = await host.microsoftToken(CLIENT_ID, TENANT, scopes, interactive);
-    if (!result) throw new DriveAuthError(interactive ? 'Microsoft sign-in was closed.' : 'Sign in to Microsoft to open OneDrive sessions.');
+    if (!result) throw new DriveAuthError(interactive ? msg('Microsoft sign-in was closed.') : msg('Sign in to Microsoft to open OneDrive sessions.'));
     setUser({ email: result.email.toLowerCase(), name: result.name || result.email });
     return '';
   } catch (err) {
     if (err instanceof DriveAuthError) throw err;
-    const message = err instanceof Error ? err.message : 'Microsoft sign-in failed.';
-    throw new DriveAuthError(/closed/i.test(message) ? 'Microsoft sign-in was closed.' : message);
+    const message = err instanceof Error ? err.message : msg('Microsoft sign-in failed.');
+    throw new DriveAuthError(/closed/i.test(message) ? msg('Microsoft sign-in was closed.') : message);
   }
 }
 
@@ -302,11 +303,11 @@ async function silentToken(scopes: string[] = ACCESS_LEVELS[0]!): Promise<string
   if (desktop()) return desktopGraphToken(scopes, false);
   const pca = await app();
   const account = pca.getActiveAccount();
-  if (!account) throw new DriveAuthError('Sign in to Microsoft to open OneDrive sessions.');
+  if (!account) throw new DriveAuthError(msg('Sign in to Microsoft to open OneDrive sessions.'));
   try {
     return (await pca.acquireTokenSilent({ scopes, account })).accessToken;
   } catch {
-    throw new DriveAuthError('Microsoft sign-in has expired.');
+    throw new DriveAuthError(msg('Microsoft sign-in has expired.'));
   }
 }
 
@@ -316,12 +317,12 @@ async function silentToken(scopes: string[] = ACCESS_LEVELS[0]!): Promise<string
  * dialog first, then asks Microsoft for that access only.
  */
 export async function signInWithMicrosoft(): Promise<MicrosoftUser> {
-  requireOnline('Signing in with Microsoft');
+  requireOnline(msg('Signing in with Microsoft'));
   const step = pending;
   const scopes = ACCESS_LEVELS[step?.level ?? 0]!;
   const confirm = async () => {
     await firstUse('microsoft');
-    if (step && confirmStepUp && !(await confirmStepUp(step))) throw new DriveAuthError('Microsoft was not asked for more access.');
+    if (step && confirmStepUp && !(await confirmStepUp(step))) throw new DriveAuthError(msg('Microsoft was not asked for more access.'));
   };
   if (desktop()) {
     try {
@@ -342,7 +343,7 @@ export async function signInWithMicrosoft(): Promise<MicrosoftUser> {
         pca.setActiveAccount(result.account);
       } catch (err) {
         const code = (err as { errorCode?: string }).errorCode;
-        throw new DriveAuthError(code === 'user_cancelled' ? 'Microsoft sign-in was closed.' : `Microsoft sign-in failed${err instanceof Error ? `: ${err.message}` : '.'}`);
+        throw new DriveAuthError(code === 'user_cancelled' ? msg('Microsoft sign-in was closed.') : msg('Microsoft sign-in failed{value}', { value: err instanceof Error ? `: ${err.message}` : '.' }));
       }
     }
     setUser(toUser(pca.getActiveAccount()));
@@ -350,7 +351,7 @@ export async function signInWithMicrosoft(): Promise<MicrosoftUser> {
   if (step && pending === step) pending = null;
   accessChanged();
   const next = microsoftUser();
-  if (!next) throw new DriveAuthError('Microsoft sign-in failed.');
+  if (!next) throw new DriveAuthError(msg('Microsoft sign-in failed.'));
   if (!microsoftSignedInSince()) sinceStore()?.setItem(SINCE_KEY, String(Date.now()));
   return next;
 }
@@ -448,7 +449,7 @@ export function parseOneDriveInvite(text: string): string | null {
 function friendlyPrincipal(s: string | undefined): string | undefined {
   const m = s && /^i:0i\.t\|ms\.sp\.ext\|([0-9a-f-]+)@/i.exec(s);
   if (!m) return s;
-  return CLIENT_ID && m[1]?.toLowerCase() === CLIENT_ID.toLowerCase() ? 'Redcolumn (this app)' : 'An app with access';
+  return CLIENT_ID && m[1]?.toLowerCase() === CLIENT_ID.toLowerCase() ? msg('Redcolumn (this app)') : msg('An app with access');
 }
 
 interface GraphPermission {
@@ -490,11 +491,11 @@ function isJson(name: string) {
 async function failure(res: Response, what: string): Promise<Error> {
   const body = (await res.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
   const detail = body?.error?.message;
-  if (res.status === 401) return new DriveAuthError('Microsoft sign-in has expired.');
-  if (res.status === 403) return new DriveForbiddenError(detail ?? `Not allowed to ${what}.`);
-  if (res.status === 404) return new Error(`OneDrive could not find what was needed to ${what}. Is the session folder still shared?`);
-  if (res.status === 423) return new DriveLockedError(`OneDrive could not ${what}: the file is open in Excel, so it is locked. Close it and the update is saved.`);
-  return new Error(`OneDrive could not ${what}${detail ? `: ${detail}` : ` (${res.status})`}.`);
+  if (res.status === 401) return new DriveAuthError(msg('Microsoft sign-in has expired.'));
+  if (res.status === 403) return new DriveForbiddenError(detail ?? msg('Not allowed to {what}.', { what }));
+  if (res.status === 404) return new Error(msg('OneDrive could not find what was needed to {what}. Is the session folder still shared?', { what }));
+  if (res.status === 423) return new DriveLockedError(msg('OneDrive could not {what}: the file is open in Excel, so it is locked. Close it and the update is saved.', { what }));
+  return new Error(msg('OneDrive could not {what}{value}.', { what, value: detail ? `: ${detail}` : ` (${res.status})` }));
 }
 
 /**
@@ -544,9 +545,9 @@ export class OneDrive implements DriveApi {
     try {
       reply = await host.graphRequest(CLIENT_ID!, TENANT, { url, method: init.method ?? 'GET', headers, ...(body ? { body } : {}), level });
     } catch {
-      throw new TypeError(`Offline: could not ${what}.`);
+      throw new TypeError(msg('Offline: could not {what}.', { what }));
     }
-    if (reply.authNeeded) throw new DriveAuthError('Sign in to Microsoft to open OneDrive sessions.');
+    if (reply.authNeeded) throw new DriveAuthError(msg('Sign in to Microsoft to open OneDrive sessions.'));
     const nullBody = reply.status === 204 || reply.status === 304;
     return new Response(nullBody ? null : (reply.body as BodyInit), { status: reply.status, statusText: reply.statusText, headers: reply.headers });
   }
@@ -570,7 +571,7 @@ export class OneDrive implements DriveApi {
    */
   private async fetch(url: string, init: RequestInit, what: string): Promise<Response> {
     // Absolute URLs (such as `@odata.nextLink`) come back from Graph; anything elsewhere never gets the token.
-    if (/^[a-z][a-z\d+.-]*:/i.test(url) && !isGraphUrl(url)) throw new Error(`OneDrive gave an unexpected address, so redcolumn did not ${what}.`);
+    if (/^[a-z][a-z\d+.-]*:/i.test(url) && !isGraphUrl(url)) throw new Error(msg('OneDrive gave an unexpected address, so redcolumn did not {what}.', { what }));
     const kind = await this.kindOf(url);
     let level = levelFor(kind);
     for (;;) {
@@ -586,7 +587,7 @@ export class OneDrive implements DriveApi {
         try {
           res = await fetch(url.startsWith('/') ? `${GRAPH}${url}` : url, { cache: 'no-store', ...init, headers });
         } catch {
-          throw new TypeError(`Offline: could not ${what}.`);
+          throw new TypeError(msg('Offline: could not {what}.', { what }));
         }
       }
       if (res.ok) return res;
@@ -797,12 +798,12 @@ export class OneDrive implements DriveApi {
         // The upload URL is pre-authorised; it must not be sent the token.
         res = await fetch(session.uploadUrl, { method: 'PUT', headers: { 'content-range': `bytes ${start}-${end - 1}/${body.size}` }, body: body.slice(start, end) });
       } catch {
-        throw new TypeError(`Offline: could not ${what}.`);
+        throw new TypeError(msg('Offline: could not {what}.', { what }));
       }
       if (!res.ok) throw await failure(res, what);
       if (res.status === 200 || res.status === 201) item = (await res.json()) as GraphItem;
     }
-    if (!item) throw new Error(`OneDrive did not finish the upload (${what}).`);
+    if (!item) throw new Error(msg('OneDrive did not finish the upload ({what}).', { what }));
     return item;
   }
 
@@ -938,7 +939,7 @@ export class OneDrive implements DriveApi {
       // Someone invited by email shows up as a link limited to them ("users"); that is a person, not a shareable link.
       const named = !!person || !!p.invitation?.email;
       if (p.link && (!named || p.link.scope === 'anonymous' || p.link.scope === 'organization')) {
-        const scope = p.link.scope === 'anonymous' ? 'Anyone with the link' : p.link.scope === 'organization' ? 'Your organization, with the link' : 'People with the link';
+        const scope = p.link.scope === 'anonymous' ? msg('Anyone with the link') : p.link.scope === 'organization' ? msg('Your organization, with the link') : msg('People with the link');
         return { id: p.id, kind: 'link' as const, name: scope, role: p.link.type === 'edit' ? 'writer' : role, inherited: !!p.inheritedFrom };
       }
       const email = people.map((u) => u.email).find(Boolean) ?? p.invitation?.email;

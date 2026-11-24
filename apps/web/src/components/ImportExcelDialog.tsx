@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useMemo, useState } from 'react';
 import { replyIndex } from '../sheetsync/keyed';
@@ -21,12 +22,12 @@ interface Props {
   onClose: () => void;
 }
 
-const VIA = (): Record<MatchVia, string> => ({
+const VIA = lazy((): Record<MatchVia, string> => ({
   key: 'by row key',
   hidden: msg('by Item No (key column removed)'),
   itemNo: msg('by Item No'),
   text: 'by sheet and comment text',
-});
+}));
 
 const SKIPPED = () => ({
   added: msg('Added in Excel: not imported'),

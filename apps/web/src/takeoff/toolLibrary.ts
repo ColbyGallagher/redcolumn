@@ -129,11 +129,11 @@ export function useToolLibrary(): GroupingTool[] {
 /** `ai`: the AI client that ran it (over MCP), when not the person. */
 export function runToolOn(store: MarkupStore, tool: GroupingTool, by: string, documentName: string, ai?: string): GroupingProposal {
   if (!toolRuns(tool)) throw new Error(tool.status !== 'accepted' ? msg('“{name}” is not accepted yet: a person accepts it in Review AI Takeoff › Tools first.', { name: tool.name }) : msg('“{name}” is turned off.', { name: tool.name }));
-  if (store.readOnly) throw new Error(`${documentName} is read-only.`);
+  if (store.readOnly) throw new Error(msg('{documentName} is read-only.', { documentName }));
   const a = tool.action;
-  if (a.kind === 'zone' && a.document && a.document !== documentName) throw new Error(`“${tool.name}” groups by zones drawn on ${a.document}: they are that document's page positions, so it runs on that document only.`);
+  if (a.kind === 'zone' && a.document && a.document !== documentName) throw new Error(msg('“{name}” groups by zones drawn on {document}: they are that document\'s page positions, so it runs on that document only.', { name: tool.name, document: a.document }));
   const assignments = runTool(tool, store.all(), ruleContext(store));
-  if (!assignments.length) throw new Error(`“${tool.name}” matched nothing on ${documentName}.`);
+  if (!assignments.length) throw new Error(msg('“{name}” matched nothing on {documentName}.', { name: tool.name, documentName }));
   const at = Date.now();
   const proposal: GroupingProposal = {
     id: crypto.randomUUID(),

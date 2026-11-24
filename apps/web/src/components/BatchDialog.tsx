@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import type { StoredFile } from '../storage/fileStore';
@@ -97,7 +98,7 @@ export function batchLabel(kind: BatchKind): string {
   return labels[kind];
 }
 
-const HINTS = (): Record<BatchKind, string> => ({
+const HINTS = lazy((): Record<BatchKind, string> => ({
   flatten: msg('Burns each file’s markups into its pages. Links stay interactive.'),
   unflatten: msg('Brings back markups flattened with recovery on.'),
   reduce: msg('Drops unused objects and packs each file more tightly.'),
@@ -115,17 +116,17 @@ const HINTS = (): Record<BatchKind, string> => ({
   sign: msg('Signs each file with a Digital ID (certifying it if asked), with an optional seal or signature picture and a trusted time stamp.'),
   print: msg('Prints the files one after another, in the order listed, through one print dialog.'),
   link: msg('Finds sheet and detail references across the files and links them to the sheets in the other files. Links within a file are found when it is opened.'),
-});
+}));
 
 /** Commands that write the files (and so can keep revisions). */
 const WRITES: ReadonlySet<BatchKind> = new Set(['flatten', 'unflatten', 'reduce', 'repair', 'colour', 'ocr', 'removeHeaderFooter', 'headerFooter', 'crop', 'pageSetup', 'sign', 'pageLabels']);
 
-const CORNERS = (): [Corner, string][] => [
+const CORNERS = lazy((): [Corner, string][] => [
   ['topLeft', msg('Top left')],
   ['topRight', msg('Top right')],
   ['bottomLeft', msg('Bottom left')],
   ['bottomRight', msg('Bottom right')],
-];
+]);
 
 interface Props {
   initial: BatchKind;

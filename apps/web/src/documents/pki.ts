@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import forge from 'node-forge';
 import { binaryToBytes, bytesToBinary } from './digitalIds';
 
@@ -92,11 +93,11 @@ export async function verifySignature(spki: Uint8Array, hash: string, signed: Ui
   }
   if (keyOid === '1.2.840.10045.2.1') {
     const curve = EC_CURVES[oidOf(alg[1]!)];
-    if (!curve) throw new Error('This elliptic curve is not supported');
+    if (!curve) throw new Error(msg('This elliptic curve is not supported'));
     const key = await subtle.importKey('spki', spki as BufferSource, { name: 'ECDSA', namedCurve: curve[0] }, false, ['verify']);
     return subtle.verify({ name: 'ECDSA', hash }, key, ecdsaRaw(signature, curve[1]) as BufferSource, signed as BufferSource);
   }
-  throw new Error('This kind of key is not supported');
+  throw new Error(msg('This kind of key is not supported'));
 }
 
 /** Something signed with an X.509-style envelope: SEQUENCE { tbs, algorithm, BIT STRING }. */
@@ -268,17 +269,17 @@ export async function buildChain(signer: Uint8Array, pool: readonly Uint8Array[]
   const certs = [first];
   for (let cur = first; certs.length < 10; ) {
     if (selfIssued(cur)) {
-      if (certs.length > 1 && !withinPathLength(certs)) return { certs, complete: false, problem: `${cur.subjectName}’s certificate allows fewer certificate authorities below it than this chain has` };
+      if (certs.length > 1 && !withinPathLength(certs)) return { certs, complete: false, problem: msg('{subjectName}’s certificate allows fewer certificate authorities below it than this chain has', { subjectName: cur.subjectName }) };
       const ok = await verifySigned(cur.node, cur.spki);
-      return { certs, complete: ok, problem: ok ? null : `${cur.subjectName}’s certificate does not check out` };
+      return { certs, complete: ok, problem: ok ? null : msg('{subjectName}’s certificate does not check out', { subjectName: cur.subjectName }) };
     }
     let next: CertFacts | null = null;
     for (const c of all) if (c.fingerprint !== cur.fingerprint && !certs.some((x) => x.fingerprint === c.fingerprint) && canIssue(c) && (await issuedBy(cur, c))) next = c;
-    if (!next) return { certs, complete: false, problem: `The certificate of ${cur.subjectName}’s issuer is not in the signature` };
+    if (!next) return { certs, complete: false, problem: msg('The certificate of {subjectName}’s issuer is not in the signature', { subjectName: cur.subjectName }) };
     certs.push(next);
     cur = next;
   }
-  return { certs, complete: false, problem: 'The certificate chain is too long' };
+  return { certs, complete: false, problem: msg('The certificate chain is too long') };
 }
 
 /**
@@ -409,7 +410,7 @@ export function timestampToken(response: Uint8Array): Uint8Array {
   const code = asn1.derToInteger(status[0]!.value as string);
   if (code > 1 || !parts[1]) {
     const words = status[1] && Array.isArray(status[1].value) ? kids(status[1]).map((n) => n.value as string).join(' ') : '';
-    throw new Error(`The time stamp server refused${words ? `: ${words}` : ` (status ${code})`}`);
+    throw new Error(msg('The time stamp server refused{value}', { value: words ? `: ${words}` : ' ' + msg('(status {code})', { code }) }));
   }
   return der(parts[1]);
 }
@@ -417,7 +418,7 @@ export function timestampToken(response: Uint8Array): Uint8Array {
 /** SignedData's parts: [version, digestAlgorithms, encapContentInfo, (certs), (crls), signerInfos]. */
 function signedDataOf(contentInfo: Node): Node[] {
   const [type, content] = kids(contentInfo);
-  if (oidOf(type!) !== OID.signedData) throw new Error('Not a CMS SignedData');
+  if (oidOf(type!) !== OID.signedData) throw new Error(msg('Not a CMS SignedData'));
   return kids(kids(content!)[0]!);
 }
 
@@ -483,7 +484,7 @@ export async function buildSignedData(data: Uint8Array, chainDer: readonly Uint8
   let sigAlg: Node;
   if (keyOid === RSA_KEY) sigAlg = algId(RSA_KEY);
   else if (keyOid === EC_KEY && ECDSA_WITH[hash]) sigAlg = seq(oid(ECDSA_WITH[hash]!));
-  else throw new Error('The certificate’s key is neither RSA nor ECDSA');
+  else throw new Error(msg('The certificate’s key is neither RSA nor ECDSA'));
 
   const attr = (type: string, value: Node) => seq(oid(type), asn1.create(Class.UNIVERSAL, Type.SET, true, [value]));
   const attrs = derSorted([
@@ -541,7 +542,7 @@ export interface TimestampInfo {
 export async function readTimestamp(token: Uint8Array, signatureValue: Uint8Array): Promise<TimestampInfo> {
   const parts = signedDataOf(parse(token));
   const encap = kids(parts[2]!);
-  if (oidOf(encap[0]!) !== OID.tstInfo) throw new Error('Not a time stamp token');
+  if (oidOf(encap[0]!) !== OID.tstInfo) throw new Error(msg('Not a time stamp token'));
   const tstDer = bytesOf(kids(encap[1]!)[0]!);
   const tst = kids(parse(tstDer));
   const imprint = kids(tst[2]!);
@@ -557,11 +558,11 @@ export async function readTimestamp(token: Uint8Array, signatureValue: Uint8Arra
   info.tsa = tsaCert?.subjectName ?? '';
   if (tsaCert) info.certificates = [tsaCert.der, ...certs.filter((c) => c !== tsaCert).map((c) => c.der)];
   try {
-    if (!hashName) throw new Error('The time stamp uses a hash this app cannot check');
-    if (!same(bytesOf(imprint[1]!), await digest(hashName, signatureValue))) throw new Error('The time stamp is for another signature');
-    if (!tsaCert) throw new Error('The time stamp has no certificate');
+    if (!hashName) throw new Error(msg('The time stamp uses a hash this app cannot check'));
+    if (!same(bytesOf(imprint[1]!), await digest(hashName, signatureValue))) throw new Error(msg('The time stamp is for another signature'));
+    if (!tsaCert) throw new Error(msg('The time stamp has no certificate'));
     const signHash = HASH_OIDS[oidOf(kids(si[2]!)[0]!)];
-    if (!signHash) throw new Error('The time stamp is signed with a hash this app cannot check');
+    if (!signHash) throw new Error(msg('The time stamp is signed with a hash this app cannot check'));
     let k = 3;
     const signedAttrs = isContext(si[k], 0) ? si[k++]! : null;
     k++; // signature algorithm
@@ -569,13 +570,13 @@ export async function readTimestamp(token: Uint8Array, signatureValue: Uint8Arra
     let ok: boolean;
     if (signedAttrs) {
       const md = kids(signedAttrs).find((a) => oidOf(kids(a)[0]!) === OID.messageDigest);
-      if (!md || !same(bytesOf(kids(kids(md)[1]!)[0]!), await digest(signHash, tstDer))) throw new Error('The time stamp was altered');
+      if (!md || !same(bytesOf(kids(kids(md)[1]!)[0]!), await digest(signHash, tstDer))) throw new Error(msg('The time stamp was altered'));
       const attrsDer = der(signedAttrs);
       attrsDer[0] = 0x31;
       ok = await verifySignature(tsaCert.spki, signHash, attrsDer, signature);
     } else ok = await verifySignature(tsaCert.spki, signHash, tstDer, signature);
-    if (!ok) throw new Error('The time stamp server’s signature does not check out');
-    if (time < tsaCert.notBefore || time > tsaCert.notAfter) throw new Error('The time stamp server’s certificate was not valid then');
+    if (!ok) throw new Error(msg('The time stamp server’s signature does not check out'));
+    if (time < tsaCert.notBefore || time > tsaCert.notAfter) throw new Error(msg('The time stamp server’s certificate was not valid then'));
     info.verified = true;
   } catch (err) {
     info.problem = err instanceof Error ? err.message : String(err);
@@ -594,7 +595,7 @@ export async function fetchTimestamp(url: string, signatureValue: Uint8Array, fe
   // The nonce must come back, or the answer could be an old one replayed.
   const tst = kids(parse(bytesOf(kids(kids(signedDataOf(parse(token))[2]!)[1]!)[0]!)));
   const back = tst.find((n, i) => i > 4 && n.tagClass === Class.UNIVERSAL && n.type === Type.INTEGER);
-  if (back && serialHex(back) !== hex(nonce).replace(/^(00)+(?=.)/, '')) throw new Error('The time stamp server answered a different request');
+  if (back && serialHex(back) !== hex(nonce).replace(/^(00)+(?=.)/, '')) throw new Error(msg('The time stamp server answered a different request'));
   return token;
 }
 
@@ -626,9 +627,9 @@ export async function ocspRequest(cert: CertFacts, issuer: CertFacts): Promise<U
 export async function ocspStatus(response: Uint8Array, cert: CertFacts, issuer: CertFacts): Promise<Revocation> {
   const top = kids(parse(response));
   const code = asn1.derToInteger(top[0]!.value as string);
-  if (code !== 0) throw new Error(`The OCSP responder refused (status ${code})`);
+  if (code !== 0) throw new Error(msg('The OCSP responder refused (status {code})', { code }));
   const bytes = kids(kids(top[1]!)[0]!);
-  if (oidOf(bytes[0]!) !== OID.ocspBasic) throw new Error('An OCSP answer of a kind this app cannot read');
+  if (oidOf(bytes[0]!) !== OID.ocspBasic) throw new Error(msg('An OCSP answer of a kind this app cannot read'));
   const basicNode = parse(bytesOf(bytes[1]!));
   const basic = kids(basicNode);
   const data = kids(basic[0]!);
@@ -646,7 +647,7 @@ export async function ocspStatus(response: Uint8Array, cert: CertFacts, issuer: 
     const state = status!.type === 0 ? 'good' : status!.type === 1 ? 'revoked' : 'unknown';
     found = { status: state, via: 'OCSP', revokedAt: state === 'revoked' ? timeOf(kids(status!)[0]!) : null, at: producedAt, thisUpdate: statusAt ? timeOf(statusAt) : null, nextUpdate: after && isContext(after, 0) ? timeOf(kids(after)[0]!) : null, verified: false };
   }
-  if (!found) throw new Error('The OCSP answer is about another certificate');
+  if (!found) throw new Error(msg('The OCSP answer is about another certificate'));
   // Signed by the issuer, or by a responder certificate the issuer signed for OCSP (RFC 6960 4.2.2.2).
   let verified = await verifySigned(basicNode, issuer.spki);
   const certSet = basic.find((p) => isContext(p, 0));
@@ -688,7 +689,7 @@ export async function crlStatus(crl: Uint8Array, cert: CertFacts, issuer: CertFa
   let i = tbs[0]!.type === Type.INTEGER ? 1 : 0;
   i++; // signature algorithm
   const crlIssuer = der(tbs[i++]!);
-  if (!same(crlIssuer, cert.issuerDer)) throw new Error('The revocation list is from another issuer');
+  if (!same(crlIssuer, cert.issuerDer)) throw new Error(msg('The revocation list is from another issuer'));
   const thisUpdate = timeOf(tbs[i++]!);
   let nextUpdate: Date | null = null;
   if (tbs[i] && (tbs[i]!.type === Type.UTCTIME || tbs[i]!.type === Type.GENERALIZEDTIME)) nextUpdate = timeOf(tbs[i++]!);
@@ -696,26 +697,26 @@ export async function crlStatus(crl: Uint8Array, cert: CertFacts, issuer: CertFa
   if (tbs[i] && tbs[i]!.tagClass === Class.UNIVERSAL && tbs[i]!.type === Type.SEQUENCE) list = kids(tbs[i++]!);
   const extensions = isContext(tbs[i], 0) ? extensionsOf(kids(kids(tbs[i]!)[0]!)) : [];
   for (const ext of extensions) {
-    if (ext.id === DELTA_CRL) throw new Error('A delta revocation list says only what changed, not whether a certificate is revoked');
+    if (ext.id === DELTA_CRL) throw new Error(msg('A delta revocation list says only what changed, not whether a certificate is revoked'));
     if (ext.id === ISSUING_DISTRIBUTION_POINT) {
       // SEQUENCE { distributionPoint [0], onlyContainsUserCerts [1], onlyContainsCACerts [2],
       // onlySomeReasons [3], indirectCRL [4], onlyContainsAttributeCerts [5] }
       const scope = new Map(kids(ext.value).map((p) => [p.type, p]));
       const flag = (tag: number) => !!scope.get(tag) && (scope.get(tag)!.value as string) !== '\x00';
-      if (scope.has(3) || flag(4) || flag(5)) throw new Error('The revocation list covers only some reasons or certificates');
-      if ((flag(1) && cert.ca === true) || (flag(2) && cert.ca !== true)) throw new Error('The revocation list does not cover this certificate');
+      if (scope.has(3) || flag(4) || flag(5)) throw new Error(msg('The revocation list covers only some reasons or certificates'));
+      if ((flag(1) && cert.ca === true) || (flag(2) && cert.ca !== true)) throw new Error(msg('The revocation list does not cover this certificate'));
       if (scope.has(0)) {
         const urls = urisIn(scope.get(0)!);
-        if (!urls.some((u) => cert.crlUrls.includes(u))) throw new Error('The revocation list is for another part of the CA’s certificates');
+        if (!urls.some((u) => cert.crlUrls.includes(u))) throw new Error(msg('The revocation list is for another part of the CA’s certificates'));
       }
-    } else if (ext.critical && ![CRL_NUMBER, AUTHORITY_KEY_ID, FRESHEST_CRL].includes(ext.id)) throw new Error('The revocation list has a critical extension this app does not know');
+    } else if (ext.critical && ![CRL_NUMBER, AUTHORITY_KEY_ID, FRESHEST_CRL].includes(ext.id)) throw new Error(msg('The revocation list has a critical extension this app does not know'));
   }
   let revokedAt: Date | null = null;
   for (const entry of list) {
     const [serial, when, entryExts] = kids(entry);
     for (const ext of entryExts ? extensionsOf(kids(entryExts)) : []) {
       // Another CA's certificates listed here (an indirect list) is not something this app reads.
-      if (ext.id === CERTIFICATE_ISSUER || (ext.critical && ![REASON_CODE, INVALIDITY_DATE].includes(ext.id))) throw new Error('The revocation list lists certificates of other issuers, or says what this app cannot read');
+      if (ext.id === CERTIFICATE_ISSUER || (ext.critical && ![REASON_CODE, INVALIDITY_DATE].includes(ext.id))) throw new Error(msg('The revocation list lists certificates of other issuers, or says what this app cannot read'));
     }
     if (serialHex(serial!) === cert.serial) revokedAt = timeOf(when!);
   }
@@ -728,7 +729,7 @@ export async function crlStatus(crl: Uint8Array, cert: CertFacts, issuer: CertFa
  */
 export async function checkRevocation(chain: Chain, fetcher: PkiFetch): Promise<Revocation> {
   const cert = chain.certs[0]!;
-  if (selfIssued(cert)) throw new Error('A self-signed certificate cannot be revoked; trust it or not');
+  if (selfIssued(cert)) throw new Error(msg('A self-signed certificate cannot be revoked; trust it or not'));
   let issuer = chain.certs[1] ?? null;
   if (!issuer)
     for (const url of cert.caIssuerUrls) {
@@ -741,7 +742,7 @@ export async function checkRevocation(chain: Chain, fetcher: PkiFetch): Promise<
         // Try the next address.
       }
     }
-  if (!issuer) throw new Error('The issuer’s certificate is not available to check with');
+  if (!issuer) throw new Error(msg('The issuer’s certificate is not available to check with'));
   return (await revocationEvidence(cert, issuer, fetcher)).revocation;
 }
 
@@ -786,5 +787,5 @@ export async function revocationEvidence(cert: CertFacts, issuer: CertFacts, fet
     if (!why) return found;
     problems.push(why);
   }
-  throw new Error(problems.length ? problems.join('; ') : `${cert.subjectName}’s certificate names no OCSP responder or revocation list`);
+  throw new Error(problems.length ? problems.join('; ') : msg('{subjectName}’s certificate names no OCSP responder or revocation list', { subjectName: cert.subjectName }));
 }

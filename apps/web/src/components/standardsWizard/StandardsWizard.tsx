@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../../i18n/lazy';
 import { keyed } from '../../i18n/keyed';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { boxFromRegion, regionOfBox, templateRegex, type PageText, type SheetInfo, type TitleBox } from '@nb/sheets';
@@ -70,9 +71,9 @@ interface Props {
   onClose: () => void;
 }
 
-const QUESTIONS = TITLE_QUESTIONS.length;
-const LAST_TITLE = QUESTIONS + TITLE_EXTRAS.length - 1;
-const FIELD_NAME = (): Record<TitleBox['field'], string> => ({ number: msg('Number'), title: msg('Title'), revision: msg('Rev'), scale: msg('Scale'), sheetSize: msg('Size'), custom: '', ignore: msg('Ignore') });
+const questionCount = () => TITLE_QUESTIONS().length;
+const lastTitle = () => questionCount() + TITLE_EXTRAS.length - 1;
+const FIELD_NAME = lazy((): Record<TitleBox['field'], string> => ({ number: msg('Number'), title: msg('Title'), revision: msg('Rev'), scale: msg('Scale'), sheetSize: msg('Size'), custom: '', ignore: msg('Ignore') }));
 
 /**
  * The drawing standards setup wizard: instructions and what has been read on the left (a third of
@@ -107,7 +108,7 @@ export function StandardsWizard(props: Props) {
     const place = props.initialStep ? { step: props.initialStep, question: 0 } : loadPlace(standard.id);
     if (place) {
       setStep(place.step);
-      setQuestion(Math.min(place.question, LAST_TITLE));
+      setQuestion(Math.min(place.question, lastTitle()));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [standard]);
@@ -137,8 +138,8 @@ export function StandardsWizard(props: Props) {
 
   const boxes = standard?.sheets.boxes ?? [];
   const size = pages[page] ?? { width: 1, height: 1 };
-  const q = step === 'titleBlock' && question < QUESTIONS ? TITLE_QUESTIONS[question]! : null;
-  const extra = step === 'titleBlock' && question >= QUESTIONS ? TITLE_EXTRAS[question - QUESTIONS]!.id : null;
+  const q = step === 'titleBlock' && question < questionCount() ? TITLE_QUESTIONS()[question]! : null;
+  const extra = step === 'titleBlock' && question >= questionCount() ? TITLE_EXTRAS[question - questionCount()]!.id : null;
   const answer = q ? boxFor(boxes, q) : undefined;
   const numberBox = boxes.find((b) => b.field === 'number');
 
@@ -212,7 +213,7 @@ export function StandardsWizard(props: Props) {
     saveSplit(split);
   };
 
-  const next = () => setQuestion((n) => Math.min(LAST_TITLE, n + 1));
+  const next = () => setQuestion((n) => Math.min(lastTitle(), n + 1));
   const back = () => setQuestion((n) => Math.max(0, n - 1));
 
   if (!standard) return <StartScreen {...props} onStart={setStandard} />;
@@ -242,10 +243,10 @@ export function StandardsWizard(props: Props) {
         {step === 'titleBlock' && (
           <>
             <p className="sw-progress">
-              {msg('Title block · {number} of {number2}', { number: question + 1, number2: LAST_TITLE + 1 })}
+              {msg('Title block · {number} of {number2}', { number: question + 1, number2: lastTitle() + 1 })}
             </p>
             <ol className="sw-checklist">
-              {[...TITLE_QUESTIONS.map((x) => ({ key: x.key, label: x.label, done: !!boxFor(boxes, x) })), ...TITLE_EXTRAS.map((x) => ({ key: x.id, label: x.label, done: false }))].map((item, i) => (
+              {[...TITLE_QUESTIONS().map((x) => ({ key: x.key, label: x.label, done: !!boxFor(boxes, x) })), ...TITLE_EXTRAS.map((x) => ({ key: x.id, label: x.label, done: false }))].map((item, i) => (
                 <li key={item.key} className={`${i === question ? 'current' : ''}${item.done ? ' done' : ''}`}>
                   <button type="button" onClick={() => setQuestion(i)}>
                     {item.done ? '✓ ' : ''}
@@ -284,7 +285,7 @@ export function StandardsWizard(props: Props) {
                 </div>
                 {nameProblem && <p className="sw-warn">{nameProblem}</p>}
                 <BoxList
-                  boxes={boxes.filter((b) => b.field === 'custom' && !TITLE_QUESTIONS.some((x) => x.name === b.name))}
+                  boxes={boxes.filter((b) => b.field === 'custom' && !TITLE_QUESTIONS().some((x) => x.name === b.name))}
                   texts={texts}
                   page={page}
                   onRemove={(b) => change((s) => ({ ...s, sheets: { ...s.sheets, boxes: s.sheets.boxes.filter((x) => x !== b) } }))}
@@ -313,7 +314,7 @@ export function StandardsWizard(props: Props) {
                   {msg('Skip')}
                 </button>
               )}
-              {question < LAST_TITLE ? (
+              {question < lastTitle() ? (
                 <button type="button" className="btn primary" onClick={next} disabled={!!q && !q.optional && !answer}>
                   {msg('Next')}
                 </button>
@@ -347,7 +348,7 @@ export function StandardsWizard(props: Props) {
             fileName={props.fileName}
             onChecks={(c) => setChecks((all) => new Map([...all, ...c]))}
             onBack={() => {
-              if (stepIndex === 1) setQuestion(LAST_TITLE);
+              if (stepIndex === 1) setQuestion(lastTitle());
               stepTo(WIZARD_STEPS[stepIndex - 1]!.id);
             }}
             onNext={() => stepTo(WIZARD_STEPS[stepIndex + 1]!.id)}
@@ -688,7 +689,7 @@ function NumbersStep({ standard, numbers, boxed, reading, change }: { standard: 
   );
 }
 
-const STEP_LABEL = (): Record<SetupStep, string> => ({ sections: msg('Sections'), elevations: msg('Elevations'), details: msg('Details'), matchLines: msg('Match lines'), chainage: msg('Chainages') });
+const STEP_LABEL = lazy((): Record<SetupStep, string> => ({ sections: msg('Sections'), elevations: msg('Elevations'), details: msg('Details'), matchLines: msg('Match lines'), chainage: msg('Chainages') }));
 const BAND_LABEL = () => ({ good: msg('Good'), review: msg('Review'), ai: msg('Recommend AI') }) as const;
 
 /**

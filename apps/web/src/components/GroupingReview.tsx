@@ -1,4 +1,5 @@
 import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { useState } from 'react';
 import { LOW_CONFIDENCE, MARKUP_LABELS, type GroupingProposal, type GroupingStatus, type Markup, type MarkupStore, type ReviewFinding, type SourceRef } from '@nb/markup';
 import { ReviewFindings } from './ReviewFindings';
@@ -17,7 +18,7 @@ interface Props {
   onShowSource: (s: SourceRef) => void;
 }
 
-export const GROUPING_STATUS_LABEL = (): Record<GroupingStatus, string> => ({ proposed: msg('Proposed'), review: msg('In review'), accepted: msg('Accepted'), rejected: msg('Rejected') });
+export const GROUPING_STATUS_LABEL = lazy((): Record<GroupingStatus, string> => ({ proposed: msg('Proposed'), review: msg('In review'), accepted: msg('Accepted'), rejected: msg('Rejected') }));
 const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 /** Rows shown before "Show all", so a column over thousands of markups stays quick. */
 const FIRST_ROWS = 100;

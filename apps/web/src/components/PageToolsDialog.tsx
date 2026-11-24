@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useEffect, useState, type ReactNode } from 'react';
 import { PDFDocument } from 'pdf-lib';
@@ -32,13 +33,13 @@ interface Props {
   onCancel: () => void;
 }
 
-const TITLES = (): Record<PageToolKind, string> => ({
+const TITLES = lazy((): Record<PageToolKind, string> => ({
   extract: msg('Extract Pages'),
   split: msg('Split Document'),
   replace: msg('Replace Pages'),
   crop: msg('Crop Pages'),
   setup: msg('Page Setup'),
-});
+}));
 
 const UNITS = { in: 72, mm: 72 / 25.4 } as const;
 

@@ -1,4 +1,5 @@
 import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { isMeasureKind, ITEM_CATEGORIES, markupLabel, MARKUP_LABELS, measureProps, reviewedOnly, type Assembly, type Item, type Markup } from '@nb/markup';
 import type { ReportColumn, ReportRow, ReportTable } from '@nb/markup/report';
 import { areaUnitOf, DEFAULT_SCALE, formatSlope, measureDetails, measureValue, METERS_PER_UNIT, quantityOf, scaleEquation, slopeApplies, slopeIsFlat, toDisplayQuantity, type Scale } from '@nb/measure';
@@ -149,7 +150,7 @@ function bucketRow(b: Bucket): ReportRow & { cost: number | null } {
   return { itemNo: b.itemNo, description: b.description, category: b.category, unit: b.unit, net: b.net, waste, gross: b.gross, order, unitCost, cost };
 }
 
-const QUANTITY_COLUMNS = (): ReportColumn[] => [
+const QUANTITY_COLUMNS = lazy((): ReportColumn[] => [
   col('itemNo', msg('Item No')),
   col('description', msg('Description')),
   col('category', msg('Category')),
@@ -160,7 +161,7 @@ const QUANTITY_COLUMNS = (): ReportColumn[] => [
   col('order', msg('Order Qty'), 'qty'),
   col('unitCost', msg('Unit Cost'), 'money'),
   col('cost', msg('Extended Cost'), 'money'),
-];
+]);
 
 const sum = (rows: readonly { cost?: ReportRow[string] }[]): number | null => {
   const costs = rows.map((r) => r.cost).filter((c): c is number => typeof c === 'number');

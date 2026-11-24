@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { desktop, type DesktopFolderFile, type DesktopFolders } from '../../desktop/host';
 import type { DriveApi, DriveFile, DriveProps } from './DriveApi';
 
@@ -13,7 +14,7 @@ export class FolderDrive implements DriveApi {
   private parent: string;
 
   constructor(parent: string, host: DesktopFolders | undefined = desktop()?.folder) {
-    if (!host) throw new Error('Folders on this computer need the redcolumn desktop app.');
+    if (!host) throw new Error(msg('Folders on this computer need the redcolumn desktop app.'));
     this.host = host;
     this.parent = parent;
   }
@@ -55,7 +56,7 @@ export class FolderDrive implements DriveApi {
   async shareWithLink(): Promise<void> {}
 
   async shareWithUser(): Promise<void> {
-    throw new Error('This Project is a folder on your computer: share it from OneDrive, Dropbox or whichever app syncs it, then send the people you add its location.');
+    throw new Error(msg('This Project is a folder on your computer: share it from OneDrive, Dropbox or whichever app syncs it, then send the people you add its location.'));
   }
 
   ownedByMe(fileId: string): Promise<boolean> {
@@ -90,7 +91,7 @@ export class SessionFolderDrive implements DriveApi {
   private local = new Map<string, string>();
 
   constructor(parent: string | null = null, host: DesktopFolders | undefined = desktop()?.folder) {
-    if (!host) throw new Error('Sessions in a folder on this computer need the redcolumn desktop app.');
+    if (!host) throw new Error(msg('Sessions in a folder on this computer need the redcolumn desktop app.'));
     this.host = host;
     this.parent = parent;
   }
@@ -108,7 +109,7 @@ export class SessionFolderDrive implements DriveApi {
 
   private path(id: string): string {
     const local = this.local.get(id);
-    if (!local) throw new Error('That file is not in the session folder yet.');
+    if (!local) throw new Error(msg('That file is not in the session folder yet.'));
     return local;
   }
 
@@ -118,7 +119,7 @@ export class SessionFolderDrive implements DriveApi {
       files = await this.host.list(folderId);
     } catch (err) {
       // Removed (the host ended the session) or moved away: DriveSession stops syncing on "could not find".
-      if (err instanceof Error && /ENOENT|no longer chosen/.test(err.message)) throw new Error('This computer could not find the session folder.');
+      if (err instanceof Error && /ENOENT|no longer chosen/.test(err.message)) throw new Error(msg('This computer could not find the session folder.'));
       throw err;
     }
     return Promise.all(files.map((f) => this.adopt(f)));
@@ -129,7 +130,7 @@ export class SessionFolderDrive implements DriveApi {
   }
 
   createFolder(name: string): Promise<string> {
-    if (!this.parent) throw new Error('Choose a folder for the session first.');
+    if (!this.parent) throw new Error(msg('Choose a folder for the session first.'));
     return this.host.createFolder(this.parent, name);
   }
 
@@ -149,7 +150,7 @@ export class SessionFolderDrive implements DriveApi {
   async shareWithLink(): Promise<void> {}
 
   async shareWithUser(): Promise<void> {
-    throw new Error('This session is a folder on your computer: share the folder from OneDrive, Dropbox or wherever it lives, then tell people where to find it.');
+    throw new Error(msg('This session is a folder on your computer: share the folder from OneDrive, Dropbox or wherever it lives, then tell people where to find it.'));
   }
 
   ownedByMe(fileId: string): Promise<boolean> {

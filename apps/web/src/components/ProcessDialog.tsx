@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import type { ColourMode } from '../documents/process';
@@ -21,7 +22,7 @@ interface Props {
   onCancel: () => void;
 }
 
-export const PROCESS_TITLES = (): Record<ProcessKind, string> => ({ flatten: msg('Flatten'), reduce: msg('Reduce File Size'), colour: msg('Colour Processing') });
+export const PROCESS_TITLES = lazy((): Record<ProcessKind, string> => ({ flatten: msg('Flatten'), reduce: msg('Reduce File Size'), colour: msg('Colour Processing') }));
 
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(n < 1024 * 1024 ? 2 : 1)} MB`;
 

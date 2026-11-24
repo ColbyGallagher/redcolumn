@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 import type { Markup } from '@nb/markup';
 import type { RecordEntry, SessionMeta } from './protocol';
@@ -119,24 +120,24 @@ const when = (t: number | null | undefined) => (t ? new Date(t).toLocaleString()
  */
 export async function sessionReportPdf(meta: SessionMeta, record: readonly RecordEntry[], documents: readonly ReportDocument[]): Promise<Uint8Array> {
   const doc = await PDFDocument.create();
-  doc.setTitle(`${meta.name} — Session Report`);
+  doc.setTitle(msg('{name} — Session Report', { name: meta.name }));
   doc.setCreator('redcolumn');
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const w = new Writer(doc, font, bold, `${meta.name} · Session Report`);
+  const w = new Writer(doc, font, bold, msg('{name} · Session Report', { name: meta.name }));
 
-  w.heading(`${meta.name} — Session Report`, 18);
-  w.text(`Session ${meta.id} · hosted by ${meta.host}`);
+  w.heading(msg('{name} — Session Report', { name: meta.name }), 18);
+  w.text(msg('Session {id} · hosted by {host}', { id: meta.id, host: meta.host }));
   w.text(`Started ${when(meta.createdAt)}${meta.status === 'finished' ? ` · finished ${when(meta.endedAt)}` : meta.expiresAt ? ` · ends ${when(meta.expiresAt)}` : ' · still active'}`);
-  w.text(`Report made ${new Date().toLocaleString()}`, 9, rgb(0.4, 0.4, 0.4));
+  w.text(msg('Report made {date}', { date: new Date().toLocaleString() }), 9, rgb(0.4, 0.4, 0.4));
 
   w.heading('Attendees');
   w.table(
     [
-      { label: 'Name', width: 0.3 },
-      { label: 'Email', width: 0.3 },
-      { label: 'First joined', width: 0.2 },
-      { label: 'Last seen', width: 0.2 },
+      { label: msg('Name'), width: 0.3 },
+      { label: msg('Email'), width: 0.3 },
+      { label: msg('First joined'), width: 0.2 },
+      { label: msg('Last seen'), width: 0.2 },
     ],
     meta.attendees.map((a) => [a.name + (a.name === meta.host ? ' (host)' : ''), a.email ?? '', when(a.firstJoined), when(a.lastSeen)]),
   );
@@ -144,16 +145,16 @@ export async function sessionReportPdf(meta: SessionMeta, record: readonly Recor
   w.heading('Documents');
   w.table(
     [
-      { label: 'Document', width: 0.45 },
-      { label: 'Added by', width: 0.2 },
-      { label: 'Added', width: 0.23 },
-      { label: 'Markups', width: 0.12 },
+      { label: msg('Document'), width: 0.45 },
+      { label: msg('Added by'), width: 0.2 },
+      { label: msg('Added'), width: 0.23 },
+      { label: msg('Markups'), width: 0.12 },
     ],
     meta.documents.map((d) => [d.name + (d.version && d.version > 1 ? ` (revision ${d.version})` : ''), d.addedBy, when(d.addedAt), String(documents.find((x) => x.name === d.name)?.markups.length ?? '')]),
   );
 
   for (const d of documents) {
-    w.heading(`Markups in ${d.name}`, 12);
+    w.heading(msg('Markups in {name}', { name: d.name }), 12);
     if (!d.markups.length) {
       w.text('No markups.', 9, rgb(0.4, 0.4, 0.4));
       continue;
@@ -161,12 +162,12 @@ export async function sessionReportPdf(meta: SessionMeta, record: readonly Recor
     const sorted = [...d.markups].sort((a, b) => a.pageIndex - b.pageIndex || a.createdAt - b.createdAt);
     w.table(
       [
-        { label: 'Page', width: 0.1 },
-        { label: 'Markup', width: 0.2 },
-        { label: 'Author', width: 0.14 },
-        { label: 'Status', width: 0.1 },
-        { label: 'Comment', width: 0.3 },
-        { label: 'Date', width: 0.16 },
+        { label: msg('Page'), width: 0.1 },
+        { label: msg('Markup'), width: 0.2 },
+        { label: msg('Author'), width: 0.14 },
+        { label: msg('Status'), width: 0.1 },
+        { label: msg('Comment'), width: 0.3 },
+        { label: msg('Date'), width: 0.16 },
       ],
       sorted.map((m) => [
         d.pageLabel(m.pageIndex),
@@ -182,9 +183,9 @@ export async function sessionReportPdf(meta: SessionMeta, record: readonly Recor
   w.heading('Record');
   w.table(
     [
-      { label: 'Time', width: 0.2 },
-      { label: 'Who', width: 0.16 },
-      { label: 'What', width: 0.64 },
+      { label: msg('Time'), width: 0.2 },
+      { label: msg('Who'), width: 0.16 },
+      { label: msg('What'), width: 0.64 },
     ],
     record.map((e) => [when(e.at), e.author, `${e.kind === 'chat' ? 'said: ' : e.kind === 'alert' ? 'Markup Alert: ' : ''}${e.text}`]),
   );
