@@ -78,7 +78,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
         <div className="props-heading">
           {keyed(msgParts('{strong} tool defaults', { strong: <strong>{markupName(toolType)}</strong> }))}
         </div>
-        <p className="empty">{msg('Applies to new {kind} markups.', { kind: markupName(toolType).toLowerCase() })}</p>
+        <p className="empty">{msg('Applies to new {kind} markups.', { kind: markupName(toolType) })}</p>
         <StyleEditor
           style={toolsState.styles[toolType]}
           type={toolType}
@@ -233,7 +233,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           {(['Start', 'End'] as const).map((label, k) => {
             const angles = m.arcAngles ?? [0, 180];
             return (
-              <Row key={label} label={msg('{label} angle', { label })} title={msg('Degrees counter-clockwise from east, as on paper')}>
+              <Row key={label} label={label === 'Start' ? msg('Start angle') : msg('End angle')} title={msg('Degrees counter-clockwise from east, as on paper')}>
                 <NumberField
                   value={angles[k]}
                   min={-360}
@@ -279,7 +279,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           <p className="empty">
             {cellSel.range.rowSpan * cellSel.range.colSpan === 1
               ? msg('Row {row}, column {column}: font settings below apply to just these cells.', { row: cellSel.range.row + 1, column: cellSel.range.col + 1 })
-              : msg('{rows} rows by {columns} columns: font settings below apply to just these cells.', { rows: cellSel.range.rowSpan, columns: cellSel.range.colSpan })}
+              : msg('{rows, plural, one {# row} other {# rows}} by {columns, plural, one {# column} other {# columns}}: font settings below apply to just these cells.', { rows: cellSel.range.rowSpan, columns: cellSel.range.colSpan })}
           </p>
           <fieldset className="props-style" disabled={disabled}>
             <Row label={msg('Cell fill')}>
@@ -310,7 +310,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
       {tools && (
         <div className="props-actions">
           {types.length === 1 && (
-            <button className="btn" title={msg('Use this style for new {kind} markups', { kind: markupName(m.type).toLowerCase() })} onClick={() => tools.setDefaultStyle(m.type, { ...m.style })}>
+            <button className="btn" title={msg('Use this style for new {kind} markups', { kind: markupName(m.type) })} onClick={() => tools.setDefaultStyle(m.type, { ...m.style })}>
               {msg('Set as default')}
             </button>
           )}
@@ -612,7 +612,7 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange,
           </Row>
         )}
         {caps.arcRadius && (
-          <Row label={caps.arcRadius}>
+          <Row label={caps.arcRadius === 'Arc size' ? msg('Arc size') : msg('Marker size')}>
             <NumberField value={style.arcRadius} placeholder={msg('Auto')} min={0.5} max={200} step={0.5} unit="pt" onChange={(v) => set('arcRadius', v)} />
           </Row>
         )}
@@ -700,14 +700,14 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange,
               <Row label={msg('Align')}>
                 <span className="seg">
                   {(['left', 'center', 'right', 'justify'] as TextAlign[]).map((a) => (
-                    <Toggle key={a} on={(style.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={a === 'justify' ? msg('Justified') : msg('Align {a}', { a })} onChange={() => set('textAlign', a === 'left' ? undefined : a)} />
+                    <Toggle key={a} on={(style.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={a === 'justify' ? msg('Justified') : a === 'left' ? msg('Align left') : a === 'center' ? msg('Align center') : msg('Align right')} onChange={() => set('textAlign', a === 'left' ? undefined : a)} />
                   ))}
                 </span>
               </Row>
               <Row label={msg('Vertical')}>
                 <span className="seg">
                   {(['top', 'middle', 'bottom'] as VerticalAlign[]).map((a) => (
-                    <Toggle key={a} on={(style.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={msg('Align {a}', { a })} onChange={() => set('verticalAlign', a === 'top' ? undefined : a)} />
+                    <Toggle key={a} on={(style.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={a === 'top' ? msg('Align top') : a === 'middle' ? msg('Align middle') : msg('Align bottom')} onChange={() => set('verticalAlign', a === 'top' ? undefined : a)} />
                   ))}
                 </span>
               </Row>
@@ -854,7 +854,7 @@ function SlopeRows({ m, readOnly, update }: { m: Markup; readOnly: boolean; upda
       {(slope?.kind === 'hip' || slope?.kind === 'valley') && slopeApplies(kind, slope) && (
         <Row label={msg('Pitches')} title={msg('The two roof planes meeting at the line, as rise per 12 (square eaves corner)')}>
           {num(msg('First pitch'), asPitch(slope.a), (v) => set({ ...slope, a: { kind: 'pitch', value: v ?? 0 } }))}
-          {num(msg('Second pitch'), slope.b ? asPitch(slope.b) : undefined, (v) => set(v === undefined ? { kind: slope.kind, a: slope.a } : { ...slope, b: { kind: 'pitch', value: v } }), { optional: true, placeholder: 'same as first' })}
+          {num(msg('Second pitch'), slope.b ? asPitch(slope.b) : undefined, (v) => set(v === undefined ? { kind: slope.kind, a: slope.a } : { ...slope, b: { kind: 'pitch', value: v } }), { optional: true, placeholder: msg('same as first') })}
           <span className="unit">:12</span>
         </Row>
       )}
@@ -987,7 +987,7 @@ function MeasurementSection({ m, scale, store, tools, readOnly }: { m: Markup; s
         <input
           key={`${m.id}:${m.depth ?? ''}:${scale.unit}`}
           defaultValue={m.depth ? formatLength(m.depth, scale) : ''}
-          placeholder={`e.g. ${scale.unit === 'ft' ? `8'-0"` : `2.4`} (${scale.unit})`}
+          placeholder={msg('e.g. {sample} ({unit})', { sample: scale.unit === 'ft' ? `8'-0"` : '2.4', unit: scale.unit })}
           disabled={readOnly}
           aria-label={msg('Depth')}
           onBlur={(e) => {

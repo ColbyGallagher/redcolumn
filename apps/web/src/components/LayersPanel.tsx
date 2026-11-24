@@ -518,11 +518,11 @@ export function LayersPanel({
     DEFAULT_CONFIG,
     ...Object.keys(prefs.configs).filter((n) => n !== DEFAULT_CONFIG),
   ];
-  const check = (r: Row, flag: keyof LayerFlags, label: string) => (
+  const check = (r: Row, flag: keyof LayerFlags, label: (name: string) => string) => (
     <td className="layer-flag">
       <input
         type="checkbox"
-        aria-label={`${label} ${r.name}`}
+        aria-label={label(r.name)}
         checked={flagsOf(r)[flag]}
         onChange={(e) => setFlag(r, flag, e.target.checked)}
       />
@@ -726,7 +726,7 @@ export function LayersPanel({
                       <button
                         className="layer-eye"
                         aria-pressed={!hidden}
-                        aria-label={`${hidden ? "Show" : "Hide"} ${r.name}`}
+                        aria-label={hidden ? msg('Show {name}', { name: r.name }) : msg('Hide {name}', { name: r.name })}
                         title={
                           locked
                             ? msg('Locked: unlock to show or hide')
@@ -745,9 +745,9 @@ export function LayersPanel({
                       <span className="layer-label">{r.name}</span>
                     </div>
                   </td>
-                  {check(r, "lock", "Lock")}
-                  {check(r, "print", "Print")}
-                  {check(r, "export", "Export")}
+                  {check(r, "lock", (name) => msg('Lock {name}', { name }))}
+                  {check(r, "print", (name) => msg('Print {name}', { name }))}
+                  {check(r, "export", (name) => msg('Export {name}', { name }))}
                   <td className="layer-filler" />
                 </tr>
               );

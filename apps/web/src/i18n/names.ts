@@ -1,6 +1,6 @@
 import { currentLocale, msg, msgc } from '@nb/i18n';
-import type { FlowShapeKind, MarkupType } from '@nb/markup';
-import type { LengthUnit } from '@nb/measure';
+import type { CountShape, FlowShapeKind, LineDash, MarkupType } from '@nb/markup';
+import type { LengthUnit, ScalePreset } from '@nb/measure';
 import type { CadTool } from '../markup/cadTools';
 import type { OtherTool } from '../markup/MarkupTools';
 import type { CommandCategory } from '../commands/appCommands';
@@ -145,19 +145,6 @@ export const flowShapeName = cached<FlowShapeKind>(() => ({
   circle: msgc('flowchart shape', 'On-page Reference'),
 }));
 
-/** What a flowchart shape means, for its tooltip. */
-export const flowShapeHint = cached<FlowShapeKind>(() => ({
-  process: msg('A step in the process'),
-  decision: msg('A yes or no question; connectors leave it for each answer'),
-  terminator: msg('Where the process starts or ends'),
-  data: msg('Input or output'),
-  document: msg('A document or report'),
-  predefined: msg('A process described elsewhere'),
-  preparation: msg('Setting up for a later step'),
-  manualInput: msg('Information entered by hand'),
-  database: msg('Stored data'),
-  circle: msg('Joins flow lines across the page'),
-}));
 
 /** A length unit's name, with its symbol: 'Metres (m)'. */
 export const lengthUnitName = cached<LengthUnit>(() => ({
@@ -181,4 +168,31 @@ export const categoryName = cached<CommandCategory>(() => ({
   Tools: msgc('command category', 'Tools'),
   Window: msgc('command category', 'Window'),
   Help: msgc('command category', 'Help'),
+}));
+
+/** A group of preset drawing scales. */
+export const scaleGroupName = cached<ScalePreset['group']>(() => ({
+  Architectural: msgc('scale group', 'Architectural'),
+  Engineering: msgc('scale group', 'Engineering'),
+  Metric: msgc('scale group', 'Metric'),
+}));
+
+/** A built-in line dash style. */
+export const lineDashName = cached<LineDash>(() => ({
+  solid: msgc('line style', 'Solid'),
+  dashed: msgc('line style', 'Dashed'),
+  longDash: msgc('line style', 'Long dash'),
+  dotted: msgc('line style', 'Dotted'),
+  dashDot: msgc('line style', 'Dash dot'),
+  dashDotDot: msgc('line style', 'Dash dot dot'),
+}));
+
+/** A built-in count marker shape. */
+export const countShapeName = cached<CountShape>(() => ({
+  circle: msgc('count marker', 'Circle'),
+  square: msgc('count marker', 'Square'),
+  triangle: msgc('count marker', 'Triangle'),
+  diamond: msgc('count marker', 'Diamond'),
+  cross: msgc('count marker', 'Cross'),
+  check: msgc('count marker', 'Checkmark'),
 }));

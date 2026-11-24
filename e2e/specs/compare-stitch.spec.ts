@@ -152,7 +152,7 @@ test.describe('compare with too many differences', () => {
     await panel.getByLabel('New revision', { exact: true }).selectOption({ label: 'crowded-rev1.pdf' });
     await panel.getByRole('button', { name: 'Compare', exact: true }).click();
     // 750 tags gone and 750 new ones: 1,500 changes, listed a page at a time.
-    await expect(panel.locator('.sc-nav')).toContainText('1500 shown', { timeout: 60_000 });
+    await expect(panel.locator('.sc-nav')).toContainText('1,500 shown', { timeout: 60_000 });
     await expect(panel.locator('.sc-item')).toHaveCount(200);
     await panel.getByRole('button', { name: 'Show 200 more of 1,300' }).click();
     await expect(panel.locator('.sc-item')).toHaveCount(400);
@@ -160,7 +160,7 @@ test.describe('compare with too many differences', () => {
     await panel.getByRole('button', { name: '‹ Previous' }).click();
     await expect(panel.locator('.sc-item.active')).toHaveCount(1);
     await expect(panel.locator('.sc-item')).toHaveCount(100);
-    await expect(panel.locator('.sc-nav')).toContainText('1500 of 1500');
+    await expect(panel.locator('.sc-nav')).toContainText('1,500 of 1,500');
     await panel.getByRole('button', { name: 'Show 200 earlier of 1,400' }).click();
     await expect(panel.locator('.sc-item')).toHaveCount(300);
     expect(app.errors).toEqual([]);

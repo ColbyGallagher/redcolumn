@@ -199,7 +199,7 @@ export function PageNav(p: Props) {
             onClick={p.onToggleContinuous}
             title={p.continuous ? msg('Continuous: scroll moves through pages (Ctrl+4 for single page)') : msg('Single page: scroll zooms (Ctrl+5 for continuous)')}
           >
-            {p.continuous ? '▤ Continuous' : '▢ Single'}
+            {p.continuous ? msg('▤ Continuous') : msg('▢ Single')}
           </button>
         )}
         {show('layout') && p.onTool && (
@@ -301,21 +301,21 @@ export function PageNav(p: Props) {
                 )}
                 {hidden.has('fit') && (
                   <>
-                    {item('⤢  Fit page', p.onFit, disabled, 'Ctrl+9')}
-                    {item('↔  Fit width', p.onFitWidth, disabled, 'Ctrl+0')}
+                    {item(msg('⤢  Fit page'), p.onFit, disabled, 'Ctrl+9')}
+                    {item(msg('↔  Fit width'), p.onFitWidth, disabled, 'Ctrl+0')}
                   </>
                 )}
-                {hidden.has('layout') && p.onToggleContinuous && item(p.continuous ? '▢  Single page' : '▤  Continuous', p.onToggleContinuous, disabled, p.continuous ? 'Ctrl+4' : 'Ctrl+5')}
+                {hidden.has('layout') && p.onToggleContinuous && item(p.continuous ? msg('▢  Single page') : msg('▤  Continuous'), p.onToggleContinuous, disabled, p.continuous ? 'Ctrl+4' : 'Ctrl+5')}
                 {hidden.has('ends') && (
                   <>
-                    {item('|‹  First page', p.onFirst, disabled || pageIndex <= 0, 'Home')}
-                    {item('›|  Last page', p.onLast, disabled || pageIndex >= pageCount - 1, 'End')}
+                    {item(msg('|‹  First page'), p.onFirst, disabled || pageIndex <= 0, 'Home')}
+                    {item(msg('›|  Last page'), p.onLast, disabled || pageIndex >= pageCount - 1, 'End')}
                   </>
                 )}
                 {hidden.has('history') && (
                   <>
-                    {p.onBack && item('↶  Previous view', p.onBack, disabled || !p.canBack, 'Alt+←')}
-                    {p.onForward && item('↷  Next view', p.onForward, disabled || !p.canForward, 'Alt+→')}
+                    {p.onBack && item(msg('↶  Previous view'), p.onBack, disabled || !p.canBack, 'Alt+←')}
+                    {p.onForward && item(msg('↷  Next view'), p.onForward, disabled || !p.canForward, 'Alt+→')}
                   </>
                 )}
                 {hidden.has('scale') && <div className="pagenav-menu-row">{p.scaleControl}</div>}

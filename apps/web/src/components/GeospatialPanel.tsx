@@ -296,8 +296,11 @@ export function GeospatialPanel(props: Props) {
     }
     store.setPagesGeo(byPage);
     setMode('none');
-    const which = sheets.length === 1 ? pageLabel(sheets[0]!.pageIndex) : `${sheets.length} sheets (${sheets.map((s) => pageLabel(s.pageIndex)).join(', ')})`;
-    onNotice(msg('{count, plural, one {{which} is} other {{which} are}} registered in {name}. Save the PDF to write it into the file.', { count: sheets.length, which, name: crs.name }));
+    onNotice(
+      sheets.length === 1
+        ? msg('{page} is registered in {name}. Save the PDF to write it into the file.', { page: pageLabel(sheets[0]!.pageIndex), name: crs.name })
+        : msg('{count, plural, one {# sheet} other {# sheets}} ({pages}) are registered in {name}. Save the PDF to write it into the file.', { count: sheets.length, pages: sheets.map((s) => pageLabel(s.pageIndex)).join(', '), name: crs.name }),
+    );
   };
   const unregister = (p: number) => {
     store?.setPageGeo(p, []);
@@ -477,13 +480,20 @@ export function GeospatialPanel(props: Props) {
           {placement && !onSheets && (
             <p className="geo-warning">
               {inStitch ? msg('The model is on the stitch of {page}.', { page: pageLabel(anchor) }) : msg('The model is on {page}.', { page: pageLabel(anchor) })}{' '}
-              <button className="link-button" onClick={() => (inStitch ? props.onOpenStitched(anchor) : onGoTo(anchor))}>
-                {msg('Go there')}
-              </button>{' '}
-              {msg('or')}{' '}
-              <button className="link-button" disabled={!editable || !hereScaled} onClick={() => reset()}>
-                {msg('bring it here')}
-              </button>
+              {keyed(
+                msgParts('{goThere} or {bringItHere}', {
+                  goThere: (
+                    <button className="link-button" onClick={() => (inStitch ? props.onOpenStitched(anchor) : onGoTo(anchor))}>
+                      {msg('Go there')}
+                    </button>
+                  ),
+                  bringItHere: (
+                    <button className="link-button" disabled={!editable || !hereScaled} onClick={() => reset()}>
+                      {msg('bring it here')}
+                    </button>
+                  ),
+                }),
+              )}
               .
             </p>
           )}
@@ -547,7 +557,7 @@ export function GeospatialPanel(props: Props) {
           </p>
           <div className="panel-toolbar">
             <button className="btn small primary" disabled={!editable || !crs || !sheets.length} onClick={register}>
-              {inStitch ? msg('Georeference {count} Sheets', { count: sheets.length }) : msg('Georeference {pageLabel}', { pageLabel: pageLabel(anchor) })}
+              {inStitch ? msg('{count, plural, one {Georeference # Sheet} other {Georeference # Sheets}}', { count: sheets.length }) : msg('Georeference {pageLabel}', { pageLabel: pageLabel(anchor) })}
             </button>
           </div>
         </section>
