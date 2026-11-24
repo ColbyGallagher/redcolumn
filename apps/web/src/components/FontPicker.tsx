@@ -1,3 +1,5 @@
+import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { FONT_FAMILIES, cssFontFamily } from '@nb/markup';
 import { desktop } from '../desktop/host';
@@ -11,7 +13,7 @@ const loadSys = () => (sysPromise ??= import('../fonts/systemFonts'));
 /** Installed family names, once listed in this window (shared by every picker). */
 let installedNames: string[] | null = null;
 
-const GROUP_LABEL: Record<FontEntry['group'], string> = { starred: 'Starred', standard: 'Standard', recent: 'Recent', installed: 'Installed' };
+const GROUP_LABEL = lazy((): Record<FontEntry['group'], string> => ({ starred: msg('Starred'), standard: msg('Standard'), recent: msg('Recent'), installed: msg('Installed') }));
 
 /**
  * The font choice for text: starred fonts, standard fonts, recently used fonts, then the fonts
@@ -186,8 +188,8 @@ export function FontPicker({ value, onChange, onPreview, mixed = false, disabled
             aria-expanded="true"
             aria-controls={`${id}-list`}
             aria-activedescendant={entries[active] ? `${id}-${active}` : undefined}
-            aria-label="Filter fonts"
-            placeholder="Type to filter"
+            aria-label={msg('Filter fonts')}
+            placeholder={msg('Type to filter')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
@@ -196,7 +198,7 @@ export function FontPicker({ value, onChange, onPreview, mixed = false, disabled
               <div key={f.value}>
                 {(i === 0 || entries[i - 1]!.group !== f.group) && (
                   <div className="font-picker-group" role="presentation">
-                    {GROUP_LABEL[f.group]}
+                    {GROUP_LABEL()[f.group]}
                   </div>
                 )}
                 <div
@@ -212,14 +214,14 @@ export function FontPicker({ value, onChange, onPreview, mixed = false, disabled
                 >
                   <span className="font-picker-option-label">
                     {f.label}
-                    {f.missing && <span className="font-picker-missing"> (not installed)</span>}
+                    {f.missing && <span className="font-picker-missing"> {msg('(not installed)')}</span>}
                   </span>
                   <button
                     type="button"
                     tabIndex={-1}
                     className={`font-picker-star${f.starred ? ' starred' : ''}`}
-                    title={f.starred ? 'Unstar font' : 'Star font'}
-                    aria-label={f.starred ? `Unstar ${f.label}` : `Star ${f.label}`}
+                    title={f.starred ? msg('Unstar font') : msg('Star font')}
+                    aria-label={f.starred ? msg('Unstar {label}', { label: f.label }) : msg('Star {label}', { label: f.label })}
                     aria-pressed={!!f.starred}
                     onMouseDown={(e) => {
                       e.preventDefault();
@@ -243,14 +245,14 @@ export function FontPicker({ value, onChange, onPreview, mixed = false, disabled
                 </div>
               </div>
             ))}
-            {!entries.length && <div className="font-picker-empty">No font matches.</div>}
+            {!entries.length && <div className="font-picker-empty">{msg('No font matches.')}</div>}
           </div>
           {canAsk && (
             <button type="button" className="font-picker-show" disabled={asking} onClick={() => void show()}>
-              {asking ? 'Loading fonts…' : 'Show installed fonts…'}
+              {asking ? msg('Loading fonts…') : msg('Show installed fonts…')}
             </button>
           )}
-          {unavailable && <div className="font-picker-hint">This browser can’t list installed fonts. Chrome or Edge can, or use the desktop app.</div>}
+          {unavailable && <div className="font-picker-hint">{msg('This browser can’t list installed fonts. Chrome or Edge can, or use the desktop app.')}</div>}
         </div>
       )}
     </span>

@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import { ALL_ALLOWED, type Permissions, type PrintPermission, type SecuritySettings } from '../documents/security';
 
@@ -8,12 +10,12 @@ interface Props {
 }
 
 const PERMISSIONS: { key: Exclude<keyof Permissions, 'print'>; label: string }[] = [
-  { key: 'modify', label: 'Change the document' },
-  { key: 'assemble', label: 'Insert, delete and rotate pages' },
-  { key: 'annotate', label: 'Add markups and fill in forms' },
-  { key: 'fillForms', label: 'Fill in forms' },
-  { key: 'copy', label: 'Copy text and pictures' },
-  { key: 'accessibility', label: 'Text for screen readers' },
+  { key: 'modify', get label() { return msg('Change the document'); } },
+  { key: 'assemble', get label() { return msg('Insert, delete and rotate pages'); } },
+  { key: 'annotate', get label() { return msg('Add markups and fill in forms'); } },
+  { key: 'fillForms', get label() { return msg('Fill in forms'); } },
+  { key: 'copy', get label() { return msg('Copy text and pictures'); } },
+  { key: 'accessibility', get label() { return msg('Text for screen readers'); } },
 ];
 
 /**
@@ -30,9 +32,9 @@ export function SecurityDialog({ name, onSave, onCancel }: Props) {
   const [error, setError] = useState<string | null>(null);
 
   const problems = [
-    open !== openAgain ? 'The open passwords don’t match.' : '',
-    !open && !limit ? 'Set an open password, limit what can be done, or both.' : '',
-    limit && owner && owner === open ? 'The permissions password must differ from the open password.' : '',
+    open !== openAgain ? msg('The open passwords don’t match.') : '',
+    !open && !limit ? msg('Set an open password, limit what can be done, or both.') : '',
+    limit && owner && owner === open ? msg('The permissions password must differ from the open password.') : '',
   ].filter(Boolean);
 
   return (
@@ -55,38 +57,34 @@ export function SecurityDialog({ name, onSave, onCancel }: Props) {
           });
         }}
       >
-        <h3>Security</h3>
-        <p>Saves a protected copy of {name} (AES-256). The copy on this device is not changed.</p>
+        <h3>{msg('Security')}</h3>
+        <p>{msg('Saves a protected copy of {name} (AES-256). The copy on this device is not changed.', { name })}</p>
         <fieldset>
-          <legend>Password to open</legend>
+          <legend>{msg('Password to open')}</legend>
           <label className="row">
-            Password
-            <input type="password" autoComplete="new-password" value={open} onChange={(e) => setOpen(e.target.value)} />
+            {keyed(msgParts('Password{input}', { input: <input type="password" autoComplete="new-password" value={open} onChange={(e) => setOpen(e.target.value)} /> }))}
           </label>
           <label className="row">
-            Again
-            <input type="password" autoComplete="new-password" value={openAgain} onChange={(e) => setOpenAgain(e.target.value)} />
+            {keyed(msgParts('Again{input}', { input: <input type="password" autoComplete="new-password" value={openAgain} onChange={(e) => setOpenAgain(e.target.value)} /> }))}
           </label>
         </fieldset>
         <fieldset>
           <legend>
             <label className="check">
-              <input type="checkbox" checked={limit} onChange={(e) => setLimit(e.target.checked)} />
-              Limit what can be done
+              {keyed(msgParts('{input}Limit what can be done', { input: <input type="checkbox" checked={limit} onChange={(e) => setLimit(e.target.checked)} /> }))}
             </label>
           </legend>
           {limit && (
             <>
-              <label className="row" title="Needed to change these limits. Left empty, nobody can lift them.">
-                Permissions password
-                <input type="password" autoComplete="new-password" value={owner} placeholder="(none: the limits can’t be lifted)" onChange={(e) => setOwner(e.target.value)} />
+              <label className="row" title={msg('Needed to change these limits. Left empty, nobody can lift them.')}>
+                {keyed(msgParts('Permissions password{input}', { input: <input type="password" autoComplete="new-password" value={owner} placeholder={msg('(none: the limits can’t be lifted)')} onChange={(e) => setOwner(e.target.value)} /> }))}
               </label>
               <label className="row">
-                Printing
+                {msg('Printing')}
                 <select value={perms.print} onChange={(e) => setPerms((p) => ({ ...p, print: e.target.value as PrintPermission }))}>
-                  <option value="high">Allowed</option>
-                  <option value="low">Low resolution only</option>
-                  <option value="none">Not allowed</option>
+                  <option value="high">{msg('Allowed')}</option>
+                  <option value="low">{msg('Low resolution only')}</option>
+                  <option value="none">{msg('Not allowed')}</option>
                 </select>
               </label>
               {PERMISSIONS.map(({ key, label }) => (
@@ -107,10 +105,10 @@ export function SecurityDialog({ name, onSave, onCancel }: Props) {
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" disabled={busy} onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!!problems.length || busy}>
-            {busy ? 'Saving…' : 'Save Protected Copy…'}
+            {busy ? msg('Saving…') : msg('Save Protected Copy…')}
           </button>
         </div>
       </form>

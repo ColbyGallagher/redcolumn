@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Markup } from '@nb/markup';
 import { signatures, trimCanvas, useSignatures, type SavedSignature } from '../signatures/signatures';
@@ -90,19 +92,19 @@ function SignatureDialog({ author, onClose }: { author: string; onClose: () => v
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal signature-dialog" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label="Create signature">
-        <h3>Create Signature</h3>
+      <div className="modal signature-dialog" onMouseDown={(e) => e.stopPropagation()} role="dialog" aria-label={msg('Create signature')}>
+        <h3>{msg('Create Signature')}</h3>
         <div className="seg sig-kind">
           {(['signature', 'initials'] as const).map((k) => (
             <button key={k} className={`seg-btn${kind === k ? ' active' : ''}`} onClick={() => setKind(k)}>
-              {k === 'signature' ? 'Signature' : 'Initials'}
+              {k === 'signature' ? msg('Signature') : msg('Initials')}
             </button>
           ))}
         </div>
         <div className="tabs sig-tabs" role="tablist">
           {(['draw', 'type', 'image'] as const).map((m) => (
             <button key={m} role="tab" aria-selected={mode === m} className={mode === m ? 'active' : ''} onClick={() => setMode(m)}>
-              {m === 'draw' ? 'Draw' : m === 'type' ? 'Type' : 'Image'}
+              {m === 'draw' ? msg('Draw') : m === 'type' ? msg('Type') : msg('Image')}
             </button>
           ))}
         </div>
@@ -135,25 +137,25 @@ function SignatureDialog({ author, onClose }: { author: string; onClose: () => v
             }}
             onPointerUp={() => (drawing.current = null)}
           />
-          {mode === 'draw' && !inked && <span className="sig-pad-hint">Sign here with your mouse, pen or finger</span>}
+          {mode === 'draw' && !inked && <span className="sig-pad-hint">{msg('Sign here with your mouse, pen or finger')}</span>}
           <span className="sig-line" aria-hidden="true" />
         </div>
         <div className="sig-options">
           {mode !== 'image' && (
             <span className="sig-colors">
               {INK_COLORS.map((c) => (
-                <button key={c} className={`sig-color${color === c ? ' active' : ''}`} style={{ background: c }} title="Ink colour" onClick={() => setColor(c)} />
+                <button key={c} className={`sig-color${color === c ? ' active' : ''}`} style={{ background: c }} title={msg('Ink colour')} onClick={() => setColor(c)} />
               ))}
             </span>
           )}
           {mode === 'draw' && (
             <button className="btn small" onClick={() => setClears((n) => n + 1)} disabled={!inked}>
-              Clear
+              {msg('Clear')}
             </button>
           )}
           {mode === 'type' && (
             <>
-              <input className="sig-typed" value={typed} placeholder="Your name" onChange={(e) => setTyped(e.target.value)} autoFocus />
+              <input className="sig-typed" value={typed} placeholder={msg('Your name')} onChange={(e) => setTyped(e.target.value)} autoFocus />
               <select value={font} onChange={(e) => setFont(e.target.value)}>
                 {SCRIPT_FONTS.map((f) => (
                   <option key={f.label} value={f.css}>
@@ -166,7 +168,7 @@ function SignatureDialog({ author, onClose }: { author: string; onClose: () => v
           {mode === 'image' && (
             <>
               <label className="btn small">
-                Choose image…
+                {msg('Choose image…')}
                 <input
                   type="file"
                   accept="image/png,image/jpeg"
@@ -181,20 +183,20 @@ function SignatureDialog({ author, onClose }: { author: string; onClose: () => v
                 />
               </label>
               <label className="check">
-                <input type="checkbox" checked={knockout} onChange={(e) => setKnockout(e.target.checked)} /> Remove white background
+                {keyed(msgParts('{input} Remove white background', { input: <input type="checkbox" checked={knockout} onChange={(e) => setKnockout(e.target.checked)} /> }))}
               </label>
             </>
           )}
         </div>
         <div className="row sig-name">
-          <input value={name} placeholder={kind === 'initials' ? 'Name (e.g. Initials)' : 'Name (e.g. My signature)'} onChange={(e) => setName(e.target.value)} />
+          <input value={name} placeholder={kind === 'initials' ? msg('Name (e.g. Initials)') : msg('Name (e.g. My signature)')} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="actions">
           <button className="btn" onClick={onClose}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button className="btn primary" disabled={!inked} onClick={save}>
-            Save
+            {msg('Save')}
           </button>
         </div>
       </div>
@@ -231,14 +233,14 @@ export function SignaturesPanel({ author, placed, canSign, currentDigest, select
 
   return (
     <div className="signatures">
-      <h3>My Signatures</h3>
+      <h3>{msg('My Signatures')}</h3>
       <div className="sig-list">
         {saved.map((s) => (
           <button
             key={s.id}
             className="sig-card"
             disabled={!canSign}
-            title={canSign ? `Place "${s.name}": click on the page, or drag to size it` : 'Open a document you can mark up to sign it'}
+            title={canSign ? msg('Place "{name}": click on the page, or drag to size it', { name: s.name }) : msg('Open a document you can mark up to sign it')}
             onClick={() => onPlace(s, reason.trim())}
             onContextMenu={(e) => {
               e.preventDefault();
@@ -246,20 +248,20 @@ export function SignaturesPanel({ author, placed, canSign, currentDigest, select
                 x: e.clientX,
                 y: e.clientY,
                 items: [
-                  { label: 'Place on Page', disabled: !canSign, onClick: () => onPlace(s, reason.trim()) },
+                  { label: msg('Place on Page'), disabled: !canSign, onClick: () => onPlace(s, reason.trim()) },
                   {
-                    label: 'Rename…',
+                    label: msg('Rename…'),
                     onClick: () =>
-                      void askText('Rename Signature', s.name, { confirm: 'Rename' }).then((n) => {
+                      void askText(msg('Rename Signature'), s.name, { confirm: msg('Rename') }).then((n) => {
                         if (n) signatures.rename(s.id, n);
                       }),
                   },
                   { sep: true },
                   {
-                    label: 'Delete',
+                    label: msg('Delete'),
                     danger: true,
                     onClick: () => {
-                      if (confirm(`Delete "${s.name}" from this device? Signatures already placed stay on their documents.`)) signatures.remove(s.id);
+                      if (confirm(msg('Delete "{name}" from this device? Signatures already placed stay on their documents.', { name: s.name }))) signatures.remove(s.id);
                     },
                   },
                 ],
@@ -269,29 +271,28 @@ export function SignaturesPanel({ author, placed, canSign, currentDigest, select
             <img src={s.image} alt="" />
             <span className="sig-card-name">
               {s.name}
-              <small>{s.kind === 'initials' ? 'Initials' : 'Signature'}</small>
+              <small>{s.kind === 'initials' ? msg('Initials') : msg('Signature')}</small>
             </span>
           </button>
         ))}
         <button className="sig-card add" onClick={() => setCreating(true)}>
           <span className="plus">+</span>
-          <span className="sig-card-name">New signature…</span>
+          <span className="sig-card-name">{msg('New signature…')}</span>
         </button>
       </div>
       <label className="sig-reason">
-        Reason <span className="hint-text">(optional)</span>
-        <input value={reason} placeholder="e.g. Approved for construction" onChange={(e) => setReason(e.target.value)} />
+        {keyed(msgParts('Reason {span}{input}', { span: <span className="hint-text">{msg('(optional)')}</span>, input: <input value={reason} placeholder={msg('e.g. Approved for construction')} onChange={(e) => setReason(e.target.value)} /> }))}
       </label>
 
-      <h3>In This Document</h3>
-      {!placed.length && <p className="empty">No signatures yet. Choose one above, then click on the page.</p>}
+      <h3>{msg('In This Document')}</h3>
+      {!placed.length && <p className="empty">{msg('No signatures yet. Choose one above, then click on the page.')}</p>}
       <ul className="bookmark-list sig-placed">
         {placed.map((m) => {
           const v = validity(m);
           return (
             <li key={m.id}>
               <button className={`bookmark sig-row${selected.has(m.id) ? ' active' : ''}`} onClick={() => onSelect(m)}>
-                <span className={`sig-state ${v}`} title={v === 'valid' ? 'Valid: nothing changed since signing' : v === 'modified' ? 'The document changed after this signature was placed' : 'Checking…'}>
+                <span className={`sig-state ${v}`} title={v === 'valid' ? msg('Valid: nothing changed since signing') : v === 'modified' ? msg('The document changed after this signature was placed') : msg('Checking…')}>
                   {v === 'valid' ? '✔' : v === 'modified' ? '!' : '…'}
                 </span>
                 <span className="sig-row-text">
@@ -300,7 +301,7 @@ export function SignaturesPanel({ author, placed, canSign, currentDigest, select
                     {m.signature ? new Date(m.signature.signedAt).toLocaleString() : ''} · p. {m.pageIndex + 1}
                   </span>
                   {m.signature?.reason && <span className="sig-row-reason">{m.signature.reason}</span>}
-                  <span className={`sig-row-status ${v}`}>{v === 'valid' ? 'Document unchanged since signing' : v === 'modified' ? 'Document modified after signing' : 'Checking…'}</span>
+                  <span className={`sig-row-status ${v}`}>{v === 'valid' ? msg('Document unchanged since signing') : v === 'modified' ? msg('Document modified after signing') : msg('Checking…')}</span>
                 </span>
               </button>
             </li>

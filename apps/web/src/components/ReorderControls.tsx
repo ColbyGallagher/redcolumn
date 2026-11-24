@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useState, type DragEvent } from 'react';
 import { dropPositionFromPoint, nextSortDirection, type DropPosition, type SortDirection } from '../assemblies/ordering';
 
@@ -36,7 +37,7 @@ export function DragHandle({
       draggable={!disabled}
       role="img"
       aria-label={label}
-      title={disabled ? undefined : 'Drag to reorder'}
+      title={disabled ? undefined : msg('Drag to reorder')}
       onDragStart={(e) => {
         if (disabled) {
           e.preventDefault();
@@ -69,14 +70,15 @@ export function SortButton<T>({
   onSort: (direction: SortDirection) => void;
 }) {
   const next = nextSortDirection(items, getName);
-  const label = next === 'asc' ? 'Sort A–Z' : 'Sort Z–A';
+  const label = next === 'asc' ? msg('Sort A–Z') : msg('Sort Z–A');
+  const dir = next === 'asc' ? 'A–Z' : 'Z–A';
   return (
     <button
       type="button"
       className="btn small"
       disabled={disabled || items.length < 2}
-      aria-label={`Sort ${noun} ${next === 'asc' ? 'A–Z' : 'Z–A'}`}
-      title={`Sort ${noun} alphabetically (${next === 'asc' ? 'A–Z' : 'Z–A'})`}
+      aria-label={msg('Sort {noun} {dir}', { noun, dir })}
+      title={msg('Sort {noun} alphabetically ({dir})', { noun, dir })}
       onClick={() => onSort(next)}
     >
       {label}

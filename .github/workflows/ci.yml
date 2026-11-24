@@ -65,6 +65,9 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      - name: i18n checks
+        run: pnpm i18n:check
+
       - name: Typecheck
         run: pnpm typecheck
 

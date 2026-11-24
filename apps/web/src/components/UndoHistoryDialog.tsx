@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useSyncExternalStore } from 'react';
 import type { MarkupStore } from '@nb/markup';
 
@@ -27,14 +28,14 @@ export function UndoHistoryDialog({ store, onClose }: Props) {
           if (e.key === 'Escape') onClose();
         }}
       >
-        <h3>Undo History</h3>
+        <h3>{msg('Undo History')}</h3>
         {steps.length ? (
           <>
-            <p>Click a step to undo it and everything after it.</p>
+            <p>{msg('Click a step to undo it and everything after it.')}</p>
             <ol className="undo-steps">
               {steps.map((s, i) => (
                 <li key={i}>
-                  <button className="btn flat" onClick={() => store.undoSteps(i + 1)} title={`Undo ${i + 1} step${i ? 's' : ''}`}>
+                  <button className="btn flat" onClick={() => store.undoSteps(i + 1)} title={msg('Undo {count, plural, one {# step} other {# steps}}', { count: i + 1 })}>
                     <span>{s.label}</span>
                     <span className="when">{s.at ? new Date(s.at).toLocaleTimeString() : ''}</span>
                   </button>
@@ -43,11 +44,11 @@ export function UndoHistoryDialog({ store, onClose }: Props) {
             </ol>
           </>
         ) : (
-          <p className="empty">Nothing to undo in this document.</p>
+          <p className="empty">{msg('Nothing to undo in this document.')}</p>
         )}
         <div className="actions">
           <button className="btn primary" onClick={onClose} autoFocus>
-            Close
+            {msg('Close')}
           </button>
         </div>
       </div>

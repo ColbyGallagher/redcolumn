@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useRef, useState } from 'react';
 import { parseNumber, recordLabel, type ProductList, type ProductListColumn } from '@nb/markup';
 import { productListFromCsv } from '../assemblies/csv';
@@ -77,7 +78,7 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
     }));
   const remove = (l: ProductList) => {
     const used = usage[l.id] ?? 0;
-    if (used && !confirm(`${used} item${used === 1 ? ' prices' : 's price'} from “${l.name}”. Delete it anyway? They go back to their own costs.`)) return;
+    if (used && !confirm(msg('{used, plural, one {# item prices from “{name}”. Delete it anyway? It goes back to its own cost.} other {# items price from “{name}”. Delete it anyway? They go back to their own costs.}}', { used, name: l.name }))) return;
     const next = lists.filter((x) => x.id !== l.id);
     setLists(next);
     setSelectedId(next[0]?.id ?? null);
@@ -85,17 +86,17 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal columns-dialog estimating-dialog" role="dialog" aria-label="Product Lists" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="modal columns-dialog estimating-dialog" role="dialog" aria-label={msg('Product Lists')} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <div className="columns-head">
-          <h3>Product Lists</h3>
+          <h3>{msg('Product Lists')}</h3>
         </div>
         <p className="hint-text asm-intro">
-          Tables of products, such as a supplier’s price list. Items (Takeoff › Items) link to a record and take its cost from the column chosen below (else the one named Cost or Unit Cost) and its price likewise (Price or Unit Price). Import a CSV file to make a list from its header row and rows.
+          {msg('Tables of products, such as a supplier’s price list. Items (Takeoff › Items) link to a record and take its cost from the column chosen below (else the one named Cost or Unit Cost) and its price likewise (Price or Unit Price). Import a CSV file to make a list from its header row and rows.')}
         </p>
-        {readOnly && <p className="columns-readonly">This document is read-only; product lists can be viewed but not changed.</p>}
+        {readOnly && <p className="columns-readonly">{msg('This document is read-only; product lists can be viewed but not changed.')}</p>}
         <div className="columns-body">
           <div className="columns-list">
-            <ul aria-label="Product lists in this document">
+            <ul aria-label={msg('Product lists in this document')}>
               {lists.map((l) => (
                 <li
                   key={l.id}
@@ -114,12 +115,12 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                     <span className="col-type-icon" aria-hidden="true">
                       {l.records.length}
                     </span>
-                    <span className="col-name">{l.name || 'Untitled'}</span>
-                    {!!usage[l.id] && <span className="col-hidden">{usage[l.id]} used</span>}
+                    <span className="col-name">{l.name || msg('Untitled')}</span>
+                    {!!usage[l.id] && <span className="col-hidden">{msg('{usage} used', { usage: usage[l.id] })}</span>}
                   </button>
                 </li>
               ))}
-              {!lists.length && <li className="empty">No product lists yet.</li>}
+              {!lists.length && <li className="empty">{msg('No product lists yet.')}</li>}
             </ul>
             <div className="col-add asm-add">
               <button
@@ -132,18 +133,18 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                   setSelectedId(l.id);
                 }}
               >
-                + New
+                {msg('+ New')}
               </button>
               <button type="button" className="btn small" disabled={readOnly} onClick={() => csvRef.current?.click()}>
-                Import CSV…
+                {msg('Import CSV…')}
               </button>
               <button type="button" className="btn small" disabled={readOnly || !selected} onClick={() => selected && remove(selected)}>
-                Delete
+                {msg('Delete')}
               </button>
-              <SortButton items={lists} getName={(l) => l.name} disabled={readOnly} noun="product lists" onSort={(dir) => setLists((all) => sortAlphabetically(all, (l) => l.name, dir))} />
+              <SortButton items={lists} getName={(l) => l.name} disabled={readOnly} noun={msg('product lists')} onSort={(dir) => setLists((all) => sortAlphabetically(all, (l) => l.name, dir))} />
               {library.length > 0 && (
                 <select
-                  aria-label="Add list from library"
+                  aria-label={msg('Add list from library')}
                   value=""
                   disabled={readOnly}
                   onChange={(e) => {
@@ -153,7 +154,7 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                     setSelectedId(l.id);
                   }}
                 >
-                  <option value="">From library…</option>
+                  <option value="">{msg('From library…')}</option>
                   {library.map((l) => (
                     <option key={l.id} value={l.id}>
                       {l.name}
@@ -165,18 +166,18 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
           </div>
           <div className="columns-editor">
             {!selected ? (
-              <p className="empty">Select a list to edit it, add one, or import a CSV file.</p>
+              <p className="empty">{msg('Select a list to edit it, add one, or import a CSV file.')}</p>
             ) : (
               <fieldset disabled={readOnly}>
                 <label className="col-field">
-                  <span>Name</span>
-                  <input aria-label="List name" value={selected.name} aria-invalid={!selected.name.trim()} onChange={(e) => patch((l) => ({ ...l, name: e.target.value }))} />
+                  <span>{msg('Name')}</span>
+                  <input aria-label={msg('List name')} value={selected.name} aria-invalid={!selected.name.trim()} onChange={(e) => patch((l) => ({ ...l, name: e.target.value }))} />
                 </label>
                 <div className="row est-toolbar">
                   <label>
-                    Cost column{' '}
-                    <select aria-label="Cost column" value={selected.costColumn ?? ''} onChange={(e) => patch((l) => ({ ...l, costColumn: e.target.value || undefined }))}>
-                      <option value="">Named Cost / Unit Cost</option>
+                    {msg('Cost column')}{' '}
+                    <select aria-label={msg('Cost column')} value={selected.costColumn ?? ''} onChange={(e) => patch((l) => ({ ...l, costColumn: e.target.value || undefined }))}>
+                      <option value="">{msg('Named Cost / Unit Cost')}</option>
                       {selected.columns.map((c) => (
                         <option key={c.key} value={c.key}>
                           {c.label}
@@ -185,9 +186,9 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                     </select>
                   </label>
                   <label>
-                    Price column{' '}
-                    <select aria-label="Price column" value={selected.priceColumn ?? ''} onChange={(e) => patch((l) => ({ ...l, priceColumn: e.target.value || undefined }))}>
-                      <option value="">Named Price / Unit Price</option>
+                    {msg('Price column')}{' '}
+                    <select aria-label={msg('Price column')} value={selected.priceColumn ?? ''} onChange={(e) => patch((l) => ({ ...l, priceColumn: e.target.value || undefined }))}>
+                      <option value="">{msg('Named Price / Unit Price')}</option>
                       {selected.columns.map((c) => (
                         <option key={c.key} value={c.key}>
                           {c.label}
@@ -197,22 +198,22 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                   </label>
                 </div>
                 <div className="est-grid">
-                  <table className="asm-table est-table" aria-label="Records">
+                  <table className="asm-table est-table" aria-label={msg('Records')}>
                     <thead>
                       <tr>
                         <th className="drag-col" />
                         {selected.columns.map((c) => (
                           <th key={c.key}>
-                            <input aria-label="Column name" value={c.label} style={{ width: 100 }} onChange={(e) => setColumn(c.key, { label: e.target.value })} />
-                            <select aria-label={`Type of ${c.label}`} value={c.type} onChange={(e) => setColumn(c.key, { type: e.target.value as 'text' | 'number' })}>
-                              <option value="text">Text</option>
-                              <option value="number">Number</option>
+                            <input aria-label={msg('Column name')} value={c.label} style={{ width: 100 }} onChange={(e) => setColumn(c.key, { label: e.target.value })} />
+                            <select aria-label={msg('Type of {label}', { label: c.label })} value={c.type} onChange={(e) => setColumn(c.key, { type: e.target.value as 'text' | 'number' })}>
+                              <option value="text">{msg('Text')}</option>
+                              <option value="number">{msg('Number')}</option>
                             </select>
                             <button
                               type="button"
                               className="ms-glyph"
-                              aria-label={`Remove column ${c.label}`}
-                              title="Remove column"
+                              aria-label={msg('Remove column {label}', { label: c.label })}
+                              title={msg('Remove column')}
                               onClick={() => patch((l) => ({ ...l, columns: l.columns.filter((x) => x.key !== c.key), ...(l.costColumn === c.key ? { costColumn: undefined } : {}), ...(l.priceColumn === c.key ? { priceColumn: undefined } : {}) }))}
                             >
                               ×
@@ -221,7 +222,7 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                         ))}
                         <th>
                           <button type="button" className="btn small" onClick={addColumn}>
-                            + Column
+                            {msg('+ Column')}
                           </button>
                         </th>
                       </tr>
@@ -230,7 +231,7 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                       {selected.records.map((r) => (
                         <tr key={r.id} className={recDrag.rowClass(r.id)} {...recDrag.targetProps(r.id)}>
                           <td className="drag-handle-cell">
-                            <DragHandle disabled={readOnly} label={`Drag to reorder ${recordLabel(selected, r)}`} onDragStart={(e) => recDrag.start(r.id, e)} onDragEnd={recDrag.end} />
+                            <DragHandle disabled={readOnly} label={msg('Drag to reorder {name}', { name: recordLabel(selected, r) })} onDragStart={(e) => recDrag.start(r.id, e)} onDragEnd={recDrag.end} />
                           </td>
                           {selected.columns.map((c) => (
                             <td key={c.key}>
@@ -238,7 +239,7 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                             </td>
                           ))}
                           <td>
-                            <button type="button" className="ms-glyph" aria-label="Remove record" title="Remove record" onClick={() => patch((l) => ({ ...l, records: l.records.filter((x) => x.id !== r.id) }))}>
+                            <button type="button" className="ms-glyph" aria-label={msg('Remove record')} title={msg('Remove record')} onClick={() => patch((l) => ({ ...l, records: l.records.filter((x) => x.id !== r.id) }))}>
                               ×
                             </button>
                           </td>
@@ -249,13 +250,13 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                 </div>
                 <div className="asm-row-actions">
                   <button type="button" className="btn small" onClick={() => patch((l) => ({ ...l, records: [...l.records, { id: crypto.randomUUID(), values: {} }] }))}>
-                    + Record
+                    {msg('+ Record')}
                   </button>
                   <SortButton
                     items={selected.records}
                     getName={(r) => recordLabel(selected, r)}
                     disabled={readOnly}
-                    noun="records"
+                    noun={msg('records')}
                     onSort={(dir) => patch((l) => ({ ...l, records: sortAlphabetically(l.records, (r) => recordLabel(l, r), dir) }))}
                   />
                 </div>
@@ -269,18 +270,18 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
             type="button"
             className="btn small"
             disabled={!selected}
-            title="Keep a copy of this list in this browser, for any document"
-            onClick={() => selected && setMessage(addToLibrary({ productLists: [selected] }) ? `Saved “${selected.name}” to the library.` : 'This browser would not keep the library (private window or storage full).')}
+            title={msg('Keep a copy of this list in this browser, for any document')}
+            onClick={() => selected && setMessage(addToLibrary({ productLists: [selected] }) ? msg('Saved “{name}” to the library.', { name: selected.name }) : msg('This browser would not keep the library (private window or storage full).'))}
           >
-            Save to Library
+            {msg('Save to Library')}
           </button>
           <span className="grow" />
           <button type="button" className="btn" onClick={onClose}>
-            {readOnly ? 'Close' : 'Cancel'}
+            {readOnly ? msg('Close') : msg('Cancel')}
           </button>
           {!readOnly && (
             <button type="button" className="btn primary" disabled={!valid} onClick={() => onSave(lists.map((l) => ({ ...l, name: l.name.trim(), records: l.records.map((r) => ({ ...r, values: Object.fromEntries(Object.entries(r.values).map(([k, v]) => [k, l.columns.find((c) => c.key === k)?.type === 'number' && typeof v === 'string' && v.trim() !== '' && Number.isFinite(parseNumber(v)) ? parseNumber(v) : v])) })) })))}>
-              Save
+              {msg('Save')}
             </button>
           )}
         </div>
@@ -289,7 +290,7 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
           type="file"
           accept=".csv,text/csv"
           hidden
-          aria-label="Import CSV file"
+          aria-label={msg('Import CSV file')}
           onChange={async (e) => {
             const f = e.target.files?.[0];
             e.target.value = '';
@@ -298,7 +299,7 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
               const l = productListFromCsv(freeName(f.name.replace(/\.csv$/i, ''), lists), await f.text());
               setLists((all) => [...all, l]);
               setSelectedId(l.id);
-              setMessage(`Imported ${l.records.length} record${l.records.length === 1 ? '' : 's'} with ${l.columns.length} columns from ${f.name}. Save to apply.`);
+              setMessage(msg('Imported {count, plural, one {# record} other {# records}} with {count2} columns from {name}. Save to apply.', { count: l.records.length, count2: l.columns.length, name: f.name }));
             } catch (err) {
               setMessage(err instanceof Error ? err.message : String(err));
             }

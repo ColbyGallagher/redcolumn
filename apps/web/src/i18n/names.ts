@@ -3,6 +3,7 @@ import type { CountShape, FlowShapeKind, LineDash, MarkupType } from '@nb/markup
 import type { LengthUnit, ScalePreset } from '@nb/measure';
 import type { CadTool } from '../markup/cadTools';
 import type { OtherTool } from '../markup/MarkupTools';
+import type { CommandCategory } from '../commands/appCommands';
 
 /**
  * Translated names of tools, markup kinds and flowchart shapes, for the interface only.
@@ -155,6 +156,18 @@ export const lengthUnitName = cached<LengthUnit>(() => ({
   ft: msg('Feet (ft)'),
   yd: msg('Yards (yd)'),
   mi: msg('Miles (mi)'),
+}));
+
+/** A command category's name, as the command palette and Keyboard Shortcuts show it (the category itself stays English). */
+export const categoryName = cached<CommandCategory>(() => ({
+  File: msgc('command category', 'File'),
+  Edit: msgc('command category', 'Edit'),
+  View: msgc('command category', 'View'),
+  Document: msgc('command category', 'Document'),
+  Bulk: msgc('command category', 'Bulk'),
+  Tools: msgc('command category', 'Tools'),
+  Window: msgc('command category', 'Window'),
+  Help: msgc('command category', 'Help'),
 }));
 
 /** A group of preset drawing scales. */

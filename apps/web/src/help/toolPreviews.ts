@@ -1,4 +1,5 @@
 import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 // What the hover preview shows for a markup or Modify tool: a short animation (recorded by
 // scripts/help/gifs.cjs into public/help/gif) and one sentence on how to use it. Keys are a
 // toolbar tool id (data-toolbar-tool) or a ribbon command id (data-ribbon-command).
@@ -10,7 +11,7 @@ export interface ToolPreview {
   hint: string;
 }
 
-const TOOLS = (): Record<string, ToolPreview> => ({
+const TOOLS = lazy((): Record<string, ToolPreview> => ({
   // Markup tab.
   line: { gif: 'tool-line', hint: msg('Drag from where the line starts to where it ends.') },
   arrow: { gif: 'tool-arrow', hint: msg('Drag from the tail to the thing you are pointing at.') },
@@ -96,7 +97,7 @@ const TOOLS = (): Record<string, ToolPreview> => ({
   'diagram.connect': { hint: msg('Joins the selected shapes in order, top to bottom or left to right.') },
   'diagram.addBelow': { hint: msg('Adds the next step under the selected shape, joined to it, ready to type.') },
   'diagram.addRight': { hint: msg('Adds the next step right of the selected shape, joined to it.') },
-});
+}));
 
 /** The preview for a toolbar tool or ribbon command id, if it has one. */
 export function toolPreview(id: string): ToolPreview | undefined {
