@@ -1,4 +1,5 @@
 import { msg } from '@nb/i18n';
+import { lineDashName } from '../i18n/names';
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { documentLineStyles, LINE_DASHES, type CustomLine, type LineDash, type Markup, type MarkupStyle } from '@nb/markup';
@@ -67,7 +68,7 @@ export function LineStyleSelect({ style, markups, onChange, onPreview, mixed, di
         swatch: style.lineStyle ? { line: style.lineStyle } : { dashArray: style.dashArray },
       });
     }
-    LINE_DASHES.forEach((d) => out.push({ value: d.value, label: d.label, swatch: { dash: d.value } }));
+    LINE_DASHES.forEach((d) => out.push({ value: d.value, label: lineDashName(d.value), swatch: { dash: d.value } }));
     inDocument.forEach((l, i) => out.push({ value: `doc:${i}`, label: l.name || msg('Custom'), swatch: { line: l }, group: msg('In this document') }));
     sets.forEach((set, si) => set.styles.forEach((l, li) => out.push({ value: `line:${si}:${li}`, label: l.name, swatch: { line: l }, group: set.title })));
     out.push({ value: 'manage', label: msg('Manage line styles…'), group: msg('Actions') });
@@ -233,7 +234,7 @@ export function LineStyleSelect({ style, markups, onChange, onPreview, mixed, di
   };
 
   const shown = selected === '' ? undefined : items[selectedIndex];
-  const valueText = mixed ? 'Mixed' : (shown?.label ?? '');
+  const valueText = mixed ? msg('Mixed') : (shown?.label ?? '');
 
   // The option rows never change with the hovered or active row, only the two that do re-render.
   const latest = useRef({ pick, patchFor, items });

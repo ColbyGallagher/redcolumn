@@ -1,4 +1,5 @@
 import { msg } from '@nb/i18n';
+import { countShapeName } from '../i18n/names';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { COUNT_SHAPE_OPTIONS, documentCountSymbols, sameCountSymbol, type CountShape, type CountSymbol, type Markup, type MarkupStyle } from '@nb/markup';
@@ -53,7 +54,7 @@ export function CountSymbolSelect({ style, markups, onChange, onPreview, mixed, 
     if (value === 'custom' && currentSymbol && !mixed) {
       out.push({ value: 'custom', label: currentSymbol.name || msg('Custom'), symbol: currentSymbol });
     }
-    COUNT_SHAPE_OPTIONS.forEach((opt) => out.push({ value: `shape:${opt.value}`, label: opt.label, shape: opt.value }));
+    COUNT_SHAPE_OPTIONS.forEach((opt) => out.push({ value: `shape:${opt.value}`, label: countShapeName(opt.value), shape: opt.value }));
     inDocument.forEach((s, i) => out.push({ value: `doc:${i}`, label: s.name || msg('Custom'), symbol: s, group: msg('In this document') }));
     saved.forEach((s, i) => out.push({ value: `saved:${i}`, label: s.name, symbol: s, group: msg('Saved symbols') }));
     out.push({ value: 'manage', label: msg('Manage symbols…'), group: msg('Actions') });

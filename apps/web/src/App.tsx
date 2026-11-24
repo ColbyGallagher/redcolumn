@@ -143,7 +143,7 @@ import type { SignatureCheck } from './documents/pdfSign';
 import { FormsPanel, type NewFieldType } from './components/FormsPanel';
 import { FieldEditor } from './components/FieldEditor';
 import type { FieldChanges, FormField, FormModel } from './documents/forms';
-import { BatchDialog, batchLabel, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
+import { BatchDialog, BATCH_ENGLISH, batchLabel, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
 import { drawingSets, type SetSheet, type SheetIndex } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
@@ -3687,11 +3687,12 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const runBatch = useCallback(
     async (spec: BatchSpec, onResult: (r: BatchResult) => void) => {
       const label = batchLabel(spec.command.kind);
-      const note = spec.keepRevisions ? `Before Bulk ${label}` : undefined;
+      // Revision notes are kept in English: they are stored with the file, and stepLabel reads them back.
+      const note = spec.keepRevisions ? `Before Bulk ${BATCH_ENGLISH[spec.command.kind]}` : undefined;
       const nameOf = (id: string) => library.find((f) => f.id === id)?.name ?? id;
       const fail = (fileId: string, err: unknown) => onResult({ fileId, name: nameOf(fileId), ok: false, message: err instanceof Error ? err.message : String(err) });
       try {
-        await runJob(`Bulk ${label}`, async (ctx) => {
+        await runJob(msg('Bulk {operation}', { operation: label }), async (ctx) => {
           const { signal, progress } = ctx;
           const cancelled = () => {
             if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');

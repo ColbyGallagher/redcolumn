@@ -377,7 +377,7 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
 
   const where = (h: DocHit) => {
     if (h.pageIndex < 0) return KIND_LABELS()[h.kind];
-    const page = (h.docId === activeId ? sheets[h.pageIndex]?.number : null) ?? `Page ${h.pageIndex + 1}`;
+    const page = (h.docId === activeId ? sheets[h.pageIndex]?.number : null) ?? msg('Page {page}', { page: h.pageIndex + 1 });
     return h.kind === 'text' ? page : `${page} · ${KIND_LABELS()[h.kind]}`;
   };
 
@@ -503,7 +503,7 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
             if (!all.length) return;
             const pathOf = (f: File) => (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
             const files = all.filter((f) => /\.pdf$/i.test(f.name)).map((file) => ({ file, path: pathOf(file) }));
-            setFolder({ name: pathOf(all[0]!).split('/')[0] || 'Folder', files });
+            setFolder({ name: pathOf(all[0]!).split('/')[0] || msg('Folder'), files });
             reset();
           }}
         />

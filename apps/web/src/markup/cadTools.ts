@@ -46,7 +46,7 @@ import { parseRotationInput } from './rotationInput';
 export type CadTool = 'move' | 'copy' | 'scale' | 'trim' | 'extend' | 'break' | 'lengthen' | 'fillet' | 'chamfer' | 'mirror' | 'arrayPolar' | 'arrayPath' | 'divide' | 'rotateRef' | 'align' | 'stretch';
 
 /** The CAD Modify tools (their names: `cadToolName`). */
-export const CAD_TOOLS: readonly CadTool[] = ['move', 'copy', 'scale', 'trim', 'extend', 'break', 'lengthen', 'fillet', 'chamfer', 'mirror', 'arrayPolar', 'arrayPath', 'divide', 'rotateRef', 'align', 'stretch'];
+export const CAD_TOOLS = Object.keys({ move: true, copy: true, scale: true, trim: true, extend: true, break: true, lengthen: true, fillet: true, chamfer: true, mirror: true, arrayPolar: true, arrayPath: true, divide: true, rotateRef: true, align: true, stretch: true } satisfies Record<CadTool, true>) as CadTool[];
 
 export const isCadTool = (t: string): t is CadTool => (CAD_TOOLS as readonly string[]).includes(t);
 

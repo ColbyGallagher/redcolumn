@@ -1030,7 +1030,7 @@ export function MeasurementsPanel({
                     <button type="button" className={`bookmark${selected.has(m.id) ? ' active' : ''}`} onClick={() => onSelect(m)}>
                       <span className="num">{m.subject || markupName(m.type)}</span>
                       <span className="name">
-                        p. {m.pageIndex + 1}
+                        {msg('p. {page}', { page: m.pageIndex + 1 })}
                         {value !== null && isMeasureKind(m.type) ? ` · ${formatMeasure(m.type, value, rowScale, measureProps(m))}` : ''}
                       </span>
                     </button>
