@@ -152,7 +152,7 @@ const PDF_TYPES: PickerOptions['types'] = [
 ];
 
 /** Shows the system Open dialog; null if the browser has none (use the file input) or it was cancelled. */
-export async function pickFilesToOpen(): Promise<File[] | null> {
+export async function pickFilesToOpen(multiple = true): Promise<File[] | null> {
   const host = desktop();
   if (host?.nativeFiles) {
     try {
@@ -173,7 +173,7 @@ export async function pickFilesToOpen(): Promise<File[] | null> {
   const pick = win().showOpenFilePicker;
   if (!pick) return null;
   try {
-    const handles = await pick({ multiple: true, id: 'redcolumn-open', types: PDF_TYPES });
+    const handles = await pick({ multiple, id: 'redcolumn-open', types: PDF_TYPES });
     const files: File[] = [];
     for (const h of handles) {
       const f = await h.getFile();
