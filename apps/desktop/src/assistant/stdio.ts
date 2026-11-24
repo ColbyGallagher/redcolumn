@@ -1,9 +1,17 @@
 import type { Readable, Writable } from 'node:stream';
 import { StringDecoder } from 'node:string_decoder';
-import { handleMcpMessage, takeLines, type ToolCall } from './message';
+import { handleMcpMessage, takeLines, type McpOptions, type ToolCall } from './message';
 
 /** Reads MCP from `input` and writes replies to `output`. Nothing else is written there. */
-export function attachStdio(input: Readable, output: Writable, call: ToolCall, version?: string): { feed: (chunk: Buffer | string) => void; stop: () => void; closeWhenDrained: () => void } {
+export function attachStdio(
+  input: Readable,
+  output: Writable,
+  call: ToolCall,
+  versionOrOptions?: string | McpOptions,
+  maybeOptions?: McpOptions,
+): { feed: (chunk: Buffer | string) => void; stop: () => void; closeWhenDrained: () => void } {
+  const version = typeof versionOrOptions === 'string' ? versionOrOptions : undefined;
+  const options = typeof versionOrOptions === 'object' ? versionOrOptions : maybeOptions;
   const decoder = new StringDecoder('utf8');
   const state = { buf: '' };
   let pending = 0;
@@ -26,7 +34,7 @@ export function attachStdio(input: Readable, output: Writable, call: ToolCall, v
         pending -= 1;
         drained();
       };
-      void handleMcpMessage(line, call, version)
+      void handleMcpMessage(line, call, version, options)
         .then((reply) => {
           if (!reply) {
             settle();

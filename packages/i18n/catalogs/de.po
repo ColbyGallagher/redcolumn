@@ -657,7 +657,7 @@ msgstr "{panel} rechts andocken"
 msgid "Document"
 msgstr "Dokument"
 
-#: apps/web/src/App.tsx
+#: apps/web/src/App.tsx apps/web/src/components/CompareDialog.tsx
 msgid "Documents"
 msgstr "Dokumente"
 
@@ -1854,7 +1854,7 @@ msgstr "Maßstab auf {done, plural, one {# Seite} other {# Seiten}} festgelegt{v
 msgid "Set up drawing standard"
 msgstr "Zeichnungsstandard einrichten"
 
-#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/MenuBar.tsx apps/web/src/components/PreferencesDialog.tsx
+#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/CompareDialog.tsx apps/web/src/components/MenuBar.tsx apps/web/src/components/PreferencesDialog.tsx
 msgid "Sets"
 msgstr "Sätze"
 
@@ -3532,11 +3532,11 @@ msgstr "Vereinfachte Symbolleiste"
 msgid "Slip Sheet…"
 msgstr "Blattaustausch…"
 
-#: apps/web/src/commands/appCommands.ts apps/web/src/components/PreferencesDialog.tsx
+#: apps/web/src/commands/appCommands.ts apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/PreferencesDialog.tsx
 msgid "Snap to Content"
 msgstr "Am Inhalt fangen"
 
-#: apps/web/src/commands/appCommands.ts apps/web/src/components/PreferencesDialog.tsx
+#: apps/web/src/commands/appCommands.ts apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/PreferencesDialog.tsx
 msgid "Snap to Grid"
 msgstr "Am Raster fangen"
 
@@ -4204,6 +4204,14 @@ msgstr "Spalten"
 msgid "Custom column"
 msgstr "Eigene Spalte"
 
+#: apps/web/src/components/AssembliesDialog.tsx
+msgid "Drag to reorder variable {name}"
+msgstr ""
+
+#: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/ProductListsDialog.tsx apps/web/src/components/TemplatesDialog.tsx
+msgid "Drag to reorder {name}"
+msgstr ""
+
 #: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/ProfilesDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/ToolChest.tsx
 msgid "Duplicate"
 msgstr "Duplizieren"
@@ -4473,6 +4481,14 @@ msgid "and {count, plural, one {# item} other {# items}}, {count2} product {coun
 msgstr "und {count, plural, one {# Position} other {# Positionen}}, {count2} {count3, plural, one {Produktliste} other {Produktlisten}} und {count4, plural, one {# Vorlage} other {# Vorlagen}} (jetzt zum Dokument hinzugefügt)"
 
 #: apps/web/src/components/AssembliesDialog.tsx
+msgid "assemblies"
+msgstr ""
+
+#: apps/web/src/components/AssembliesDialog.tsx
+msgid "assembly items"
+msgstr ""
+
+#: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/ItemsDialog.tsx
 msgid "item"
 msgstr "Position"
 
@@ -4491,6 +4507,10 @@ msgstr "kleinster, größter Wert, Summe, Durchschnitt einer Liste; außerdem {f
 #: apps/web/src/components/AssembliesDialog.tsx
 msgid "unit"
 msgstr "Einheit"
+
+#: apps/web/src/components/AssembliesDialog.tsx
+msgid "variables"
+msgstr ""
 
 #: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/ProductListsDialog.tsx
 msgid "{usage} used"
@@ -6199,6 +6219,18 @@ msgid "Aligned by three points"
 msgstr "Über drei Punkte ausgerichtet"
 
 #: apps/web/src/components/CompareDialog.tsx
+msgid "Browse for new revision"
+msgstr ""
+
+#: apps/web/src/components/CompareDialog.tsx
+msgid "Browse for old revision"
+msgstr ""
+
+#: apps/web/src/components/CompareDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx
+msgid "Browse…"
+msgstr "Durchsuchen…"
+
+#: apps/web/src/components/CompareDialog.tsx
 msgid "Bulk: every sheet of one set against the same sheet in another"
 msgstr "Stapel: jedes Blatt eines Satzes gegen dasselbe Blatt eines anderen"
 
@@ -6262,6 +6294,10 @@ msgstr "Ausrichten"
 msgid "Lines that moved less than this are not a change"
 msgstr "Linien, die sich um weniger als diesen Wert bewegt haben, gelten nicht als Änderung"
 
+#: apps/web/src/components/CompareDialog.tsx apps/web/src/components/LinkPreview.tsx apps/web/src/components/McpPrefs.tsx apps/web/src/components/ProjectsPanel.tsx
+msgid "Loading…"
+msgstr "Wird geladen…"
+
 #: apps/web/src/components/CompareDialog.tsx
 msgid "Make Sets in the Sets panel first"
 msgstr "Erstellen Sie zuerst Sätze im Bereich Sätze"
@@ -6282,10 +6318,6 @@ msgstr "Neue Revision"
 msgid "New revision colour"
 msgstr "Farbe der neuen Revision"
 
-#: apps/web/src/components/CompareDialog.tsx
-msgid "New revision {picker}"
-msgstr "Neue Revision {picker}"
-
 #: apps/web/src/components/CompareDialog.tsx apps/web/src/components/LineStylesDialog.tsx
 msgid "New set"
 msgstr "Neuer Satz"
@@ -6301,10 +6333,6 @@ msgstr "Farbe der alten Revision"
 #: apps/web/src/components/CompareDialog.tsx
 msgid "Old revision in{input}New revision in{input2}"
 msgstr "Alte Revision in{input}Neue Revision in{input2}"
-
-#: apps/web/src/components/CompareDialog.tsx
-msgid "Old revision {picker}"
-msgstr "Alte Revision {picker}"
 
 #: apps/web/src/components/CompareDialog.tsx
 msgid "Old set"
@@ -6330,6 +6358,14 @@ msgstr "Rechtecke"
 msgid "Select Region…"
 msgstr "Bereich auswählen…"
 
+#: apps/web/src/components/CompareDialog.tsx
+msgid "Select a new revision document from your computer"
+msgstr ""
+
+#: apps/web/src/components/CompareDialog.tsx
+msgid "Select an old revision document from your computer"
+msgstr ""
+
 #: apps/web/src/components/CompareDialog.tsx apps/web/src/components/PreferencesDialog.tsx
 msgid "Sensitivity"
 msgstr "Empfindlichkeit"
@@ -6341,6 +6377,14 @@ msgstr "Blätter werden über alle Dateien beider Sätze zugeordnet; jedes Datei
 #: apps/web/src/components/CompareDialog.tsx
 msgid "Stacks the two revisions on one page in colour: what both have shows dark, what only one has shows in its colour. Makes a new PDF."
 msgstr "Legt die beiden Revisionen farbig auf eine Seite: Was beide haben, erscheint dunkel, was nur eine hat, in ihrer Farbe. Erstellt eine neue PDF."
+
+#: apps/web/src/components/CompareDialog.tsx
+msgid "Swap old and new revisions"
+msgstr ""
+
+#: apps/web/src/components/CompareDialog.tsx
+msgid "Swap old and new sets"
+msgstr ""
 
 #: apps/web/src/components/CompareDialog.tsx
 msgid "Three points, for drawings at another scale or turned"
@@ -6414,6 +6458,14 @@ msgstr "{input}Zwei Sätze (Stapel)"
 msgid "{name} ({count, plural, one {# file} other {# files}})"
 msgstr "{name} ({count, plural, one {# Datei} other {# Dateien}})"
 
+#: apps/web/src/components/CompareDialog.tsx
+msgid "⇄ Swap Old & New"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Adjust old page visibility"
+msgstr ""
+
 #: apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/Ribbon.tsx
 msgid "Align"
 msgstr "Ausrichten"
@@ -6423,48 +6475,172 @@ msgid "Align Pages"
 msgstr "Seiten ausrichten"
 
 #: apps/web/src/components/ComparePagePicker.tsx
-msgid "Click point {count} on the new page, at the same spot."
-msgstr "Klicken Sie auf der neuen Seite an derselben Stelle auf Punkt {count}."
+msgid "Alignment point progress"
+msgstr ""
 
 #: apps/web/src/components/ComparePagePicker.tsx
-msgid "Click point {count} on the old page."
-msgstr "Klicken Sie auf der alten Seite auf Punkt {count}."
+msgid "Alignment preview"
+msgstr ""
 
 #: apps/web/src/components/ComparePagePicker.tsx
-msgid "Click three points on the old page, then the same three on the new page (grid intersections or title block corners work well), alternating or in turn. The old revision is then scaled, turned and moved to match."
-msgstr "Klicken Sie auf drei Punkte der alten Seite und dann auf dieselben drei auf der neuen Seite (Rasterschnittpunkte oder Schriftfeldecken eignen sich gut), abwechselnd oder nacheinander. Die alte Revision wird dann passend skaliert, gedreht und verschoben."
+msgid "Alignment preview zoom controls"
+msgstr ""
 
 #: apps/web/src/components/ComparePagePicker.tsx
-msgid "Drag a rectangle over the part of the new page to compare. Only differences inside it are found."
-msgstr "Ziehen Sie ein Rechteck über den zu vergleichenden Teil der neuen Seite. Nur Unterschiede darin werden gefunden."
+msgid "All 3 point pairs selected — click Preview alignment to verify, or click Align to apply."
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Back to points"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Blend the transformed old page over the new page to verify alignment"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Click Point {point} here"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Click matching Point {point} here"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Drag a rectangle over the part of the page to use."
+msgstr ""
 
 #: apps/web/src/components/ComparePagePicker.tsx
 msgid "Drawing {label}…"
 msgstr "{label} wird gezeichnet…"
 
+#: apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/LinkPreview.tsx
+msgid "Fit"
+msgstr "Einpassen"
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Fit page in view"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Fit preview"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Fit {label}"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Inspect the overlaid pages (scroll to zoom, drag to pan), then click Align to apply or Back to points to adjust."
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Loading snap…"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/ProfilesDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/ScriptsDialog.tsx apps/web/src/components/SemanticComparePanel.tsx
+msgid "New"
+msgstr "Neu"
+
 #: apps/web/src/components/ComparePagePicker.tsx
 msgid "New page"
 msgstr "Neue Seite"
 
+#: apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/SemanticComparePanel.tsx
+msgid "Old"
+msgstr "Alt"
+
 #: apps/web/src/components/ComparePagePicker.tsx
 msgid "Old page"
 msgstr "Alte Seite"
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Preview alignment"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Remove the last placed point (Ctrl+Z)"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Scroll: zoom · Drag / Middle-drag / Space+drag: pan · Alt: bypass snap"
+msgstr ""
 
 #: apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/StitchPanel.tsx
 msgid "Select Region"
 msgstr "Bereich auswählen"
 
 #: apps/web/src/components/ComparePagePicker.tsx
+msgid "Snap cursor to drawing endpoints, intersections, midpoints and centres (hold Alt to temporarily bypass)"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Snap cursor to the page grid when no drawing geometry is nearer"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
 msgid "Start over"
 msgstr "Neu beginnen"
 
 #: apps/web/src/components/ComparePagePicker.tsx
-msgid "Those points are in a line: pick points spread over the page."
-msgstr "Diese Punkte liegen auf einer Linie: Wählen Sie über die Seite verteilte Punkte."
+msgid "Step {step} of 6 — Click Point {point} on the Old page ({hint})."
+msgstr ""
 
 #: apps/web/src/components/ComparePagePicker.tsx
-msgid "Three pairs picked."
-msgstr "Drei Paare ausgewählt."
+msgid "Step {step} of 6 — Now click the matching Point {point} on the New page."
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Those 3 points are nearly in a straight line. Undo or start over and pick points spread across the page."
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Undo point"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/LinkPreview.tsx
+msgid "Zoom in"
+msgstr "Vergrößern"
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Zoom in preview"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Zoom in {label}"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/LinkPreview.tsx
+msgid "Zoom out"
+msgstr "Verkleinern"
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Zoom out preview"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "Zoom out {label}"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "choose a crisp corner or grid intersection"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "far from Point 1"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "spread out to form a wide triangle"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "{label} zoom controls"
+msgstr ""
+
+#: apps/web/src/components/ComparePagePicker.tsx
+msgid "· Matching lines appear dark"
+msgstr ""
 
 #: apps/web/src/components/CompareResultsPanel.tsx
 msgid "(grouped from {found})"
@@ -7726,7 +7902,7 @@ msgstr "Beliebiger Wert"
 msgid "Background colour (untick for none)"
 msgstr "Hintergrundfarbe (abwählen für keine)"
 
-#: apps/web/src/components/FormsPanel.tsx apps/web/src/components/ToolBar.tsx
+#: apps/web/src/components/FormsPanel.tsx apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/ToolBar.tsx
 msgid "Border"
 msgstr "Rahmen"
 
@@ -8895,6 +9071,10 @@ msgid "Unit price"
 msgstr "Einheitspreis"
 
 #: apps/web/src/components/ItemsDialog.tsx
+msgid "items"
+msgstr ""
+
+#: apps/web/src/components/ItemsDialog.tsx
 msgid "the product list"
 msgstr "die Produktliste"
 
@@ -9663,20 +9843,12 @@ msgid "Close preview"
 msgstr "Vorschau schließen"
 
 #: apps/web/src/components/LinkPreview.tsx
-msgid "Fit"
-msgstr "Einpassen"
-
-#: apps/web/src/components/LinkPreview.tsx
 msgid "Fit the link's target again"
 msgstr "Ziel des Links erneut einpassen"
 
 #: apps/web/src/components/LinkPreview.tsx
 msgid "Go back to where this link was clicked"
 msgstr "Zurück zu der Stelle, an der dieser Link angeklickt wurde"
-
-#: apps/web/src/components/LinkPreview.tsx apps/web/src/components/McpPrefs.tsx apps/web/src/components/ProjectsPanel.tsx
-msgid "Loading…"
-msgstr "Wird geladen…"
 
 #: apps/web/src/components/LinkPreview.tsx
 msgid "Open the sheet"
@@ -9701,14 +9873,6 @@ msgstr "Dieses Blatt konnte nicht gezeichnet werden."
 #: apps/web/src/components/LinkPreview.tsx
 msgid "Unpin: the next link replaces this preview"
 msgstr "Lösen: Der nächste Link ersetzt diese Vorschau"
-
-#: apps/web/src/components/LinkPreview.tsx
-msgid "Zoom in"
-msgstr "Vergrößern"
-
-#: apps/web/src/components/LinkPreview.tsx
-msgid "Zoom out"
-msgstr "Verkleinern"
 
 #: apps/web/src/components/LinksPanel.tsx
 msgid "(not located)"
@@ -10138,6 +10302,10 @@ msgstr "⏷ Filter •"
 msgid "⚠ {missingCount} missing required"
 msgstr "⚠ {missingCount} Pflichtangaben fehlen"
 
+#: apps/web/src/components/McpPrefs.tsx
+msgid "Compact tool list (fewer tokens)"
+msgstr ""
+
 #: apps/web/src/components/McpPrefs.tsx apps/web/src/components/sessions/InviteDialog.tsx
 msgid "Copied"
 msgstr "Kopiert"
@@ -10153,6 +10321,10 @@ msgstr "Aus. Die Desktop-App wartet nicht auf Verbindungen."
 #: apps/web/src/components/McpPrefs.tsx
 msgid "On. Leave redcolumn open. This takes effect immediately, not when you press OK. Each client below starts this installation."
 msgstr "Ein. Lassen Sie redcolumn geöffnet. Dies wirkt sofort, nicht erst beim Klick auf OK. Jeder Client unten startet diese Installation."
+
+#: apps/web/src/components/McpPrefs.tsx
+msgid "Starts the MCP server with --compact, exposing 10 everyday tools plus tool_search and tool_call to reach the rest on demand."
+msgstr ""
 
 #: apps/web/src/components/McpPrefs.tsx
 msgid "The MCP server could not be changed."
@@ -11494,10 +11666,6 @@ msgstr "Änderungen automatisch im Hintergrund in die Datei speichern"
 msgid "Back Up…"
 msgstr "Sichern…"
 
-#: apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx
-msgid "Browse…"
-msgstr "Durchsuchen…"
-
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "CCITT G4"
 msgstr "CCITT G4"
@@ -11795,6 +11963,10 @@ msgid "Jumps to the sheet"
 msgstr "Springt zum Blatt"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "Keep File, Edit, View and the other menus across the top bar instead of under the redcolumn button"
+msgstr ""
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "Keep Snapshots Vector"
 msgstr "Schnappschüsse als Vektor behalten"
 
@@ -11869,10 +12041,6 @@ msgstr "Navigation"
 #: apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx
 msgid "Never"
 msgstr "Nie"
-
-#: apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/ProfilesDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/ScriptsDialog.tsx apps/web/src/components/SemanticComparePanel.tsx
-msgid "New"
-msgstr "Neu"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "New Category"
@@ -12201,6 +12369,10 @@ msgstr "Vollbild-Fadenkreuz anzeigen"
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Show Hyperlink Areas"
 msgstr "Hyperlink-Bereiche anzeigen"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Show Menu Bar"
+msgstr ""
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Show Rulers"
@@ -12713,6 +12885,14 @@ msgstr "Dieses Dokument ist schreibgeschützt; Produktlisten können angezeigt, 
 #: apps/web/src/components/ProductListsDialog.tsx
 msgid "Type of {label}"
 msgstr "Typ von {label}"
+
+#: apps/web/src/components/ProductListsDialog.tsx
+msgid "product lists"
+msgstr ""
+
+#: apps/web/src/components/ProductListsDialog.tsx
+msgid "records"
+msgstr ""
 
 #: apps/web/src/components/ProductListsDialog.tsx
 msgid "{used, plural, one {# item prices from “{name}”. Delete it anyway? It goes back to its own cost.} other {# items price from “{name}”. Delete it anyway? They go back to their own costs.}}"
@@ -13647,6 +13827,10 @@ msgid "Align top edges"
 msgstr "Oberkanten ausrichten"
 
 #: apps/web/src/components/PropertiesPanel.tsx
+msgid "Applies to new cloud+ markups."
+msgstr ""
+
+#: apps/web/src/components/PropertiesPanel.tsx
 msgid "Applies to new {kind} markups."
 msgstr "Gilt für neue Markierungen vom Typ {kind}."
 
@@ -13706,6 +13890,22 @@ msgstr "Abgehakt"
 msgid "Clear cell formatting"
 msgstr "Zellformatierung löschen"
 
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/ToolBar.tsx
+msgid "Cloud"
+msgstr "Wolke"
+
+#: apps/web/src/components/PropertiesPanel.tsx
+msgid "Cloud fill"
+msgstr ""
+
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/ToolBar.tsx
+msgid "Cloud fill opacity"
+msgstr ""
+
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/ToolBar.tsx
+msgid "Cloud line width"
+msgstr ""
+
 #: apps/web/src/components/PropertiesPanel.tsx
 msgid "Custom Columns"
 msgstr "Eigene Spalten"
@@ -13749,6 +13949,10 @@ msgstr "Verteilen"
 #: apps/web/src/components/PropertiesPanel.tsx
 msgid "Draw a polygon inside the area to subtract it"
 msgstr "Zeichnen Sie ein Polygon innerhalb der Fläche, um es abzuziehen"
+
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/ToolBar.tsx
+msgid "Draw an outline around the text box (its fill draws either way)"
+msgstr "Eine Umrisslinie um das Textfeld zeichnen (seine Füllung wird in jedem Fall gezeichnet)"
 
 #: apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/standardsWizard/CalloutStep.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx apps/web/src/sheets/standardsWizard.ts apps/web/src/sheets/teachLinks.ts
 msgid "Elevations"
@@ -14030,6 +14234,26 @@ msgstr "Stil"
 msgid "Take the font, colour and fill of these cells back to the table's"
 msgstr "Schriftart, Farbe und Füllung dieser Zellen auf die der Tabelle zurücksetzen"
 
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/ToolBar.tsx
+msgid "Text box"
+msgstr ""
+
+#: apps/web/src/components/PropertiesPanel.tsx
+msgid "Text box border"
+msgstr ""
+
+#: apps/web/src/components/PropertiesPanel.tsx
+msgid "Text box fill"
+msgstr ""
+
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/ToolBar.tsx
+msgid "Text box fill opacity"
+msgstr ""
+
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/ToolBar.tsx
+msgid "Text box line width"
+msgstr ""
+
 #: apps/web/src/components/PropertiesPanel.tsx
 msgid "Text slide"
 msgstr "Textverschiebung"
@@ -14039,8 +14263,16 @@ msgid "Text turn"
 msgstr "Textdrehung"
 
 #: apps/web/src/components/PropertiesPanel.tsx
+msgid "The background of the text box"
+msgstr ""
+
+#: apps/web/src/components/PropertiesPanel.tsx
 msgid "The horizontal distance the rise happens over, in meters"
 msgstr "Die horizontale Strecke, über die die Steigung verläuft, in Metern"
+
+#: apps/web/src/components/PropertiesPanel.tsx
+msgid "The inside of the cloud"
+msgstr ""
 
 #: apps/web/src/components/PropertiesPanel.tsx
 msgid "The inside of the shape"
@@ -14109,6 +14341,10 @@ msgstr "z. B. {sample} ({unit})"
 #: apps/web/src/components/PropertiesPanel.tsx
 msgid "same as first"
 msgstr "wie erste"
+
+#: apps/web/src/components/PropertiesPanel.tsx
+msgid "tool defaults"
+msgstr ""
 
 #: apps/web/src/components/PropertiesPanel.tsx
 msgid "{count} selected · changes apply to all ({kinds})."
@@ -14673,6 +14909,26 @@ msgstr "{value} (nicht gespeichert)"
 #: apps/web/src/components/RegisterDialogs.tsx
 msgid "{value} on or below the header row and will be left out: move the header row down, or the cell up."
 msgstr "{value} auf oder unter der Kopfzeile und wird ausgelassen: Verschieben Sie die Kopfzeile nach unten oder die Zelle nach oben."
+
+#: apps/web/src/components/ReorderControls.tsx
+msgid "Drag to reorder"
+msgstr ""
+
+#: apps/web/src/components/ReorderControls.tsx
+msgid "Sort A–Z"
+msgstr ""
+
+#: apps/web/src/components/ReorderControls.tsx
+msgid "Sort Z–A"
+msgstr ""
+
+#: apps/web/src/components/ReorderControls.tsx
+msgid "Sort {noun} alphabetically ({dir})"
+msgstr ""
+
+#: apps/web/src/components/ReorderControls.tsx
+msgid "Sort {noun} {dir}"
+msgstr ""
 
 #: apps/web/src/components/ReportsDialog.tsx
 msgid "A4 landscape"
@@ -15805,10 +16061,6 @@ msgstr "Nicht in der alten Revision"
 #: apps/web/src/components/SemanticComparePanel.tsx
 msgid "Nothing of the kinds ticked above."
 msgstr "Nichts von den oben ausgewählten Arten."
-
-#: apps/web/src/components/SemanticComparePanel.tsx
-msgid "Old"
-msgstr "Alt"
 
 #: apps/web/src/components/SemanticComparePanel.tsx
 msgid "Old · p.{page}"
@@ -18410,6 +18662,14 @@ msgstr "Vorlagen in diesem Dokument"
 msgid "Tool"
 msgstr "Werkzeug"
 
+#: apps/web/src/components/TemplatesDialog.tsx
+msgid "template"
+msgstr ""
+
+#: apps/web/src/components/TemplatesDialog.tsx
+msgid "templates"
+msgstr ""
+
 #: apps/web/src/components/TextEditor.tsx
 msgid "1."
 msgstr "1."
@@ -18611,8 +18871,12 @@ msgid "Closed arrow"
 msgstr "Geschlossener Pfeil"
 
 #: apps/web/src/components/ToolBar.tsx
-msgid "Cloud"
-msgstr "Wolke"
+msgid "Cloud fill color"
+msgstr ""
+
+#: apps/web/src/components/ToolBar.tsx
+msgid "Cloud fill color: the inside of the cloud"
+msgstr ""
 
 #: apps/web/src/components/ToolBar.tsx
 msgid "Counts"
@@ -18621,10 +18885,6 @@ msgstr "Zählungen"
 #: apps/web/src/components/ToolBar.tsx
 msgid "Delete (Del)"
 msgstr "Löschen (Entf)"
-
-#: apps/web/src/components/ToolBar.tsx
-msgid "Draw an outline around the text box (its fill draws either way)"
-msgstr "Eine Umrisslinie um das Textfeld zeichnen (seine Füllung wird in jedem Fall gezeichnet)"
 
 #: apps/web/src/components/ToolBar.tsx
 msgid "Fill as"
@@ -18691,12 +18951,20 @@ msgid "No layer"
 msgstr "Keine Ebene"
 
 #: apps/web/src/components/ToolBar.tsx
+msgid "Opacity of the cloud fill alone"
+msgstr ""
+
+#: apps/web/src/components/ToolBar.tsx
 msgid "Opacity of the fill alone"
 msgstr "Deckkraft nur der Füllung"
 
 #: apps/web/src/components/ToolBar.tsx
 msgid "Opacity of the outer line"
 msgstr "Deckkraft der äußeren Linie"
+
+#: apps/web/src/components/ToolBar.tsx
+msgid "Opacity of the text box fill alone"
+msgstr ""
 
 #: apps/web/src/components/ToolBar.tsx
 msgid "Open arrow"
@@ -18737,6 +19005,14 @@ msgstr "Tabellen und Flächen"
 #: apps/web/src/components/ToolBar.tsx
 msgid "Text alignment"
 msgstr "Textausrichtung"
+
+#: apps/web/src/components/ToolBar.tsx
+msgid "Text box fill color"
+msgstr ""
+
+#: apps/web/src/components/ToolBar.tsx
+msgid "Text box fill color: the background of the text box"
+msgstr ""
 
 #: apps/web/src/components/ToolBar.tsx
 msgid "Text style"

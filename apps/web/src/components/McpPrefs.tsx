@@ -21,6 +21,7 @@ export function McpPrefs() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [compact, setCompact] = useState(false);
 
   useEffect(() => {
     const host = desktop();
@@ -67,7 +68,7 @@ export function McpPrefs() {
     );
   if (!info) return <p className="pref-note">{msg('Loading…')}</p>;
   const launch: AssistantLaunch = { command: info.command, args: info.args, env: info.env };
-  const clients = clientSetups(launch, platform());
+  const clients = clientSetups(launch, platform(), { compact });
 
   return (
     <div className="mcp-prefs">
@@ -79,6 +80,11 @@ export function McpPrefs() {
         {info.enabled ? msg('On. Leave redcolumn open. This takes effect immediately, not when you press OK. Each client below starts this installation.') : msg('Off. The desktop app is not listening.')}
       </p>
       {error && <p className="print-error">{error}</p>}
+      <label className="pref-check">
+        <input type="checkbox" checked={compact} onChange={(e) => setCompact(e.target.checked)} />
+        <span>{msg('Compact tool list (fewer tokens)')}</span>
+      </label>
+      <p className="pref-note">{msg('Starts the MCP server with --compact, exposing 10 everyday tools plus tool_search and tool_call to reach the rest on demand.')}</p>
       <p className="pref-note">{msg('While this is on, an AI client on this computer can read the open drawing, run commands, and edit markups. Deletes and document changes wait for Allow. Drawings stay on this computer, and redcolumn does not receive them.')}</p>
       {clients.map((client) => (
         <section key={client.id} className="assistant-block">
