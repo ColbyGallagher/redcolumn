@@ -100,7 +100,11 @@ export function ImportExcelDialog({ fileName, result, rowLabel, blocked, replyAu
                         ? msg('{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not one of this column’s values.', { column: u.column.label, value: u.value, rows: u.rows.length })
                         : u.column.kind === 'check'
                           ? msg('{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not Yes or No.', { column: u.column.label, value: u.value, rows: u.rows.length })
-                          : msg('{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not a {kind}.', { column: u.column.label, value: u.value, rows: u.rows.length, kind: u.column.kind })}{' '}
+                          : u.column.kind === 'date'
+                            ? msg('{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not a date.', { column: u.column.label, value: u.value, rows: u.rows.length })
+                            : u.column.kind === 'number'
+                              ? msg('{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not a number.', { column: u.column.label, value: u.value, rows: u.rows.length })
+                              : msg('{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not a value this column takes.', { column: u.column.label, value: u.value, rows: u.rows.length })}{' '}
                       {options.length > 0 ? (
                         <label>
                           {msg('Map to')}{' '}
