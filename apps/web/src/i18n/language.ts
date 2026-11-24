@@ -33,5 +33,7 @@ export function resolveNumberFormat(choice: unknown, systemLocale: string): stri
 
 /** The system's formatting locale (the browser's, or on the desktop the operating system's). */
 export function systemNumberLocale(): string {
-  return Intl.DateTimeFormat().resolvedOptions().locale || 'en-US';
+  // The desktop app passes the system's regional format: Windows keeps it apart from the display language.
+  const desktopLocale = typeof window === 'undefined' ? undefined : window.redcolumn?.systemLocale;
+  return desktopLocale || Intl.DateTimeFormat().resolvedOptions().locale || 'en-US';
 }
