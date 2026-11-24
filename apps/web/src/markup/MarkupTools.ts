@@ -331,7 +331,7 @@ type Gesture =
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
   | { kind: 'calloutBox'; id: string; start: Point; dx: number; dy: number }
   /** Placing a callout: first click sets the arrow tip, second click places the text box. */
-  | { kind: 'calloutPlace'; markup: Markup; tip: Point; down: Point }
+  | { kind: 'calloutPlace'; markup: Markup; tip: Point; down: Point; placing?: boolean }
   /** Adding a leader to an existing callout: the new arrow tip follows the pointer until clicked. */
   | { kind: 'calloutLeader'; id: string; tip: Point | null }
   | { kind: 'handle'; id: string; index: number; point: Point; linkedIndices?: number[]; calloutSnap?: Point | null }
@@ -2075,12 +2075,12 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /**
-   * Starts adding another leader to a callout: the new arrow tip follows the pointer until clicked
-   * (Escape or right-click cancels).
+   * Starts adding a leader to a callout (or turning a text box into a callout with one): the new
+   * arrow tip follows the pointer until clicked (Escape or right-click cancels).
    */
   addCalloutLeader(id: string) {
     const m = this.store?.get(id);
-    if (!this.store || this.store.readOnly || !m || m.type !== 'callout' || this.frozen(m) || m.points.length < 4) return;
+    if (!this.store || this.store.readOnly || !m || !canAddLeader(m) || this.frozen(m)) return;
     const tip = this.lastPointer?.pageIndex === m.pageIndex ? this.lastPointer.at : null;
     this.setState({ tool: 'select', selected: new Set([id]) });
     this.setGesture({ kind: 'calloutLeader', id, tip });
@@ -3083,37 +3083,39 @@ export class MarkupTools implements ViewerOverlay {
     // Pressing anywhere else lets go of selected text (a drag over words picks new text).
     if (e.button === 0) this.clearTextSelection();
 
-    // Adding a leader to a callout: left-click places the arrow tip, right-click cancels.
+    // Adding a leader to a callout or text box: left-click places the arrow tip, right-click cancels.
     if (this.gesture?.kind === 'calloutLeader') {
       const g = this.gesture;
       this.setGesture(null);
       this.snapHit = null;
       if (e.button !== 0) return true;
       const m = this.store.get(g.id);
-      if (m && m.type === 'callout' && !this.frozen(m) && !this.store.readOnly && m.points.length >= 4 && pageIndex === m.pageIndex) {
+      if (m && canAddLeader(m) && !this.frozen(m) && !this.store.readOnly && pageIndex === m.pageIndex) {
         const tip = this.resolve(pt, e, null, m.id);
-        const box = contentBox(m);
-        const zoom = this.viewer.zoomFor(m.pageIndex);
-        const knee = calloutKneeForSide(calloutSideForPoint(tip, box), box, CALLOUT_LANDING_PX / zoom);
-        this.store.checkpoint();
-        this.store.update(m.id, { points: [...m.points, tip, knee] });
-        this.select([m.id]);
+        const patch = withCalloutLeader(m, tip, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex));
+        if (patch) {
+          this.store.checkpoint();
+          this.store.update(m.id, patch);
+          this.select([m.id]);
+        }
       }
       return true;
     }
 
-    // Placing a callout (second click): places the text box and finishes.
+    // Placing a callout (second click): arm on pointerDown and commit on pointerUp so the mouse click
+    // finishes before TextEditor mounts and takes focus (otherwise mousedown blurs and removes it).
     if (this.gesture?.kind === 'calloutPlace') {
       const g = this.gesture;
-      this.setGesture(null);
       this.snapHit = null;
-      if (e.button !== 0) return true;
+      if (e.button !== 0) {
+        this.setGesture(null);
+        return true;
+      }
       if (pageIndex === g.markup.pageIndex) {
         const zoom = this.viewer.zoomFor(pageIndex);
         g.markup.points = calloutPoints(g.tip, toPoint(pt), CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom);
       }
-      this.store.checkpoint();
-      this.commitDraft(g.markup);
+      g.placing = true;
       return true;
     }
 
@@ -3839,10 +3841,12 @@ export class MarkupTools implements ViewerOverlay {
     // Scale to Length and Add Leader go click by click.
     if (g.kind === 'scaleRef' || g.kind === 'calloutLeader') return;
     if (g.kind === 'calloutPlace') {
-      // A click stays in placement mode for the second click; a deliberate drag finishes immediately.
+      // Second click finishes on pointerUp; first click stays in placement mode unless dragged.
       const zoom = this.viewer.zoomFor(g.markup.pageIndex);
-      if (Math.hypot(pt[0] - g.down[0], pt[1] - g.down[1]) * zoom > this.dragPx * 2) {
-        g.markup.points = calloutPoints(g.tip, toPoint(pt), CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom);
+      if (g.placing || Math.hypot(pt[0] - g.down[0], pt[1] - g.down[1]) * zoom > this.dragPx * 2) {
+        if (this.page === g.markup.pageIndex) {
+          g.markup.points = calloutPoints(g.tip, toPoint(pt), CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom);
+        }
         this.setGesture(null);
         this.store.checkpoint();
         this.commitDraft(g.markup);
@@ -5235,10 +5239,9 @@ export class MarkupTools implements ViewerOverlay {
     const g = this.gesture;
     if (g?.kind === 'move' && !g.copy && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
     if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex)) };
-    if (g?.kind === 'calloutLeader' && g.id === m.id && g.tip && m.points.length >= 4) {
-      const box = contentBox(m);
-      const knee = calloutKneeForSide(calloutSideForPoint(g.tip, box), box, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex));
-      return { ...m, points: [...m.points, g.tip, knee] };
+    if (g?.kind === 'calloutLeader' && g.id === m.id && g.tip) {
+      const patch = withCalloutLeader(m, g.tip, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex));
+      if (patch) return { ...m, ...patch };
     }
     if (g?.kind === 'handle' && g.id === m.id) {
       return m.type === 'connector'
@@ -5267,6 +5270,30 @@ function groupSig(ms: readonly Markup[]): string {
 /** A Cloud+: a cloud grouped with the callout holding its comment. It keeps the handles of both rather than a group box. */
 function isCloudPlus(ms: readonly Markup[]): boolean {
   return ms.length === 2 && ms.some((m) => m.type === 'callout') && ms.some((m) => m.type === 'cloud' || m.type === 'polygonCloud');
+}
+
+/** Markups that can take a callout leader: an existing callout, or a text box (which becomes one). */
+function canAddLeader(m: Pick<Markup, 'type' | 'points'>): boolean {
+  return (m.type === 'callout' && m.points.length >= 4) || (m.type === 'text' && m.points.length >= 2);
+}
+
+/** Patch that adds a leader pointing at `tip` to a callout, or converts a text box into a callout with one. */
+function withCalloutLeader(m: Markup, tip: Point, landing: number): Partial<Markup> | null {
+  if (!canAddLeader(m)) return null;
+  const box = contentBox(m);
+  const knee = calloutKneeForSide(calloutSideForPoint(tip, box), box, landing);
+  if (m.type === 'callout') return { points: [...m.points, tip, knee] };
+  const style =
+    m.style.width <= 0 || m.style.noBox
+      ? { ...m.style, width: m.style.width > 0 ? m.style.width : DEFAULT_STYLES.callout.width, borderless: true }
+      : undefined;
+  return {
+    type: 'callout',
+    points: [tip, knee, [box.x, box.y], [box.x + box.w, box.y + box.h]],
+    ...(m.rotation ? { rotation: undefined } : {}),
+    ...(m.subject === TYPE_INFO.text.label ? { subject: TYPE_INFO.callout.label } : {}),
+    ...(style ? { style } : {}),
+  };
 }
 
 /**
