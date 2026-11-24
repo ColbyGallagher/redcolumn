@@ -109,7 +109,7 @@ export function CompareDialog({ mode, files, openIds, currentId, currentPage, pr
       {ordered.map((f) => (
         <option key={f.id} value={f.id}>
           {f.name}
-          {openIds.includes(f.id) ? ' (open)' : ''}
+          {openIds.includes(f.id) ? ' ' + msg('(open)') : ''}
         </option>
       ))}
     </select>

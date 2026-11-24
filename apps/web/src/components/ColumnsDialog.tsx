@@ -420,7 +420,7 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
                           <>⚠ {preview.error}</>
                         ) : (
                           <>
-                            {keyed(msgParts('✓ For {value} on page {page}: {b}', { value: sample.subject || MARKUP_LABELS[sample.type], page: sample.pageIndex + 1, b: <b>{preview?.text || '(empty)'}</b> }))}
+                            {keyed(msgParts('✓ For {value} on page {page}: {b}', { value: sample.subject || MARKUP_LABELS[sample.type], page: sample.pageIndex + 1, b: <b>{preview?.text || msg('(empty)')}</b> }))}
                           </>
                         )}
                       </div>

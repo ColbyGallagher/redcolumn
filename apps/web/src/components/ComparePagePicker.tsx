@@ -171,7 +171,7 @@ export function ComparePagePicker(props: Props) {
             {msg('Cancel')}
           </button>
           <button type="button" className="btn primary" disabled={props.mode === 'points' ? !transform : false} onClick={() => (props.mode === 'points' ? transform && props.onDone(transform) : props.onDone(region))}>
-            {props.mode === 'points' ? msg('Align') : 'OK'}
+            {props.mode === 'points' ? msg('Align') : msg('OK')}
           </button>
         </div>
       </div>

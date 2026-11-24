@@ -94,7 +94,7 @@ export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAva
                   {issues.map((i) => (
                     <li key={i.id}>
                       <span>
-                        {keyed(msgParts('ID {itemNo} · {label}: {iSSUE}. Here: {b}. Excel: {b2}.', { itemNo: i.itemNo, label: i.column.label, iSSUE: ISSUE()[i.kind], b: <b>{i.mine || '(blank)'}</b>, b2: <b>{i.theirs || '(blank)'}</b> }))}
+                        {keyed(msgParts('ID {itemNo} · {label}: {iSSUE}. Here: {b}. Excel: {b2}.', { itemNo: i.itemNo, label: i.column.label, iSSUE: ISSUE()[i.kind], b: <b>{i.mine || msg('(blank)')}</b>, b2: <b>{i.theirs || msg('(blank)')}</b> }))}
                       </span>{' '}
                       {i.change && (
                         <button className="btn small" aria-label={msg('Use Excel\'s value for ID {itemNo} {label}', { itemNo: i.itemNo, label: i.column.label })} onClick={() => onResolve?.(i, 'excel')}>

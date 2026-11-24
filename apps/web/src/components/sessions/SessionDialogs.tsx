@@ -232,7 +232,7 @@ export function StartSessionDialog({
                   <span className="name" title={d.name}>
                     {d.name}
                   </span>
-                  <span className="tag">{d.kind === 'upload' ? 'from disk' : openFiles.some((f) => f.id === d.fileId) ? 'open' : 'library'}</span>
+                  <span className="tag">{d.kind === 'upload' ? msg('from disk') : openFiles.some((f) => f.id === d.fileId) ? msg('open') : msg('library')}</span>
                   <button type="button" className="btn small flat" title={msg('Remove')} onClick={() => setDocs((all) => all.filter((_, j) => j !== i))}>
                     ×
                   </button>

@@ -97,7 +97,7 @@ export function CompareResultsPanel({ results, onGo, onSideBySide, onClose }: Pr
           <button className="btn small" onClick={() => go(at < 0 ? -1 : at - 1)}>
             {msg('‹ Previous')}
           </button>
-          <span>{at >= 0 ? `${at + 1} of ${stops.length}` : ''}</span>
+          <span>{at >= 0 ? msg('{current} of {total}', { current: at + 1, total: stops.length }) : ''}</span>
           <button className="btn small" onClick={() => go(at + 1)}>
             {msg('Next ›')}
           </button>
@@ -109,7 +109,7 @@ export function CompareResultsPanel({ results, onGo, onSideBySide, onClose }: Pr
             <button className={`compare-page${open.has(p) ? ' open' : ''}`} disabled={!p.differences.length} aria-expanded={p.differences.length ? open.has(p) : undefined} onClick={() => toggle(p)}>
               {results.newLabel(p.newPage)}
               {results.oldLabel(p.oldPage) !== results.newLabel(p.newPage) && <span className="muted"> {msg('(old {oldLabel})', { oldLabel: results.oldLabel(p.oldPage) })}</span>}
-              <span className="muted"> · {p.differences.length || 'no changes'}</span>
+              <span className="muted"> · {p.differences.length || msg('no changes')}</span>
               {p.found && <span className="muted" title={msg('Too many differences to mark one by one; nearby ones were grouped.')}> {msg('(grouped from {found})', { found: p.found.toLocaleString() })}</span>}
             </button>
             {open.has(p) &&

@@ -25,7 +25,7 @@ export function ScaleControl({ scale, disabled, onPreset, onCustom, onBulk, comp
   const isPreset = !!scale && SCALE_PRESETS.some((p) => p.label === scale.label && groups.includes(p.group));
   return (
     <label className="field scale" title={msg('Drawing scale for this page')}>
-      {!compact && 'Scale'}
+      {!compact && msg('Scale')}
       <select
         aria-label={msg('Scale')}
         disabled={disabled}

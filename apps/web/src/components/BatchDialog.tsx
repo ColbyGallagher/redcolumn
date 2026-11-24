@@ -434,7 +434,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                   </select>
                   {!card?.pinPad && (
                     <>
-                      {card ? 'PIN' : msg('Password')}
+                      {card ? msg('PIN') : msg('Password')}
                       <input type="password" autoComplete="off" value={sign.password} title={card ? msg('Sent to the card for each file’s signature while the batch runs; never stored') : undefined} onChange={(e) => setSign({ ...sign, password: e.target.value })} />
                     </>
                   )}

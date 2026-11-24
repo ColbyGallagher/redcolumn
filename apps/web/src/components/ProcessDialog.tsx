@@ -110,7 +110,7 @@ export function ProcessDialog({ kind, pageCount, currentPage, markupCount, fileS
             {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!spec || busy || (kind === 'flatten' && !markupCount)}>
-            {busy ? msg('Working…') : 'OK'}
+            {busy ? msg('Working…') : msg('OK')}
           </button>
         </div>
       </form>

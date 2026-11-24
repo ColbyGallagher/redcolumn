@@ -549,7 +549,7 @@ function BoxResult({ check, verdict, sheets, onGoTo }: { check: ReturnType<typeo
   return (
     <div className="sw-result">
       <p className="sw-read">
-        {keyed(msgParts('Reads: {strong}', { strong: <strong>{check.here ?? 'nothing'}</strong> }))}
+        {keyed(msgParts('Reads: {strong}', { strong: <strong>{check.here ?? msg('nothing')}</strong> }))}
       </p>
       <p className={`sw-verdict ${verdict}`}>
         {msg('Read on {read} of {total} sheets', { read: check.read, total: check.of })}
@@ -569,7 +569,7 @@ function BoxResult({ check, verdict, sheets, onGoTo }: { check: ReturnType<typeo
                   {msg('Sheet {page}', { page: s.page + 1 })}
                 </button>
               </td>
-              <td className={s.value ? '' : 'none'}>{s.value ?? 'nothing'}</td>
+              <td className={s.value ? '' : 'none'}>{s.value ?? msg('nothing')}</td>
             </tr>
           ))}
         </tbody>
@@ -587,7 +587,7 @@ function BoxList({ boxes, texts, page, onRemove }: { boxes: TitleBox[]; texts: r
         return (
           <li key={i}>
             <span>{b.field === 'custom' ? b.name : msg('Ignored')}</span>
-            <span className="sw-box-value">{c ? (c.here ?? 'nothing here') : '…'}</span>
+            <span className="sw-box-value">{c ? (c.here ?? msg('nothing here')) : '…'}</span>
             <button type="button" className="btn small flat" onClick={() => onRemove(b)} aria-label={b.field === 'custom' ? msg('Remove {name}', { name: b.name }) : msg('Remove ignored box')}>
               {msg('Remove')}
             </button>
@@ -721,7 +721,7 @@ function ReviewSteps({ standard, live, fileName, readOnly, change, onStep }: { s
                     {STEP_LABEL()[step]}
                   </button>
                 </td>
-                <td>{r ? `${r.linked} of ${r.references}` : '—'}</td>
+                <td>{r ? msg('{linked} of {total}', { linked: r.linked, total: r.references }) : '—'}</td>
                 <td className={r ? `band ${r.band}` : ''}>{r ? BAND_LABEL()[r.band] : msg('Not run')}</td>
               </tr>
             );

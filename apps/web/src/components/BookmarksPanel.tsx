@@ -240,14 +240,14 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
               ) : (
                 <button
                   className={`bookmark${b.id === selected ? ' active' : ''}${b.pageIndex === currentPage ? ' current' : ''}`}
-                  title={b.action ? (b.action.kind === 'url' ? b.action.url : b.action.kind === 'file' ? msg('{name}, page {page}', { name: b.action.name, page: b.action.pageIndex + 1 }) : msg('A Place')) : `${pageLabel(b.pageIndex)}${b.rect && b.rect.w > 0 ? ' (zoomed view)' : ''}`}
+                  title={b.action ? (b.action.kind === 'url' ? b.action.url : b.action.kind === 'file' ? msg('{name}, page {page}', { name: b.action.name, page: b.action.pageIndex + 1 }) : msg('A Place')) : b.rect && b.rect.w > 0 ? msg('{page} (zoomed view)', { page: pageLabel(b.pageIndex) }) : pageLabel(b.pageIndex)}
                   onClick={() => {
                     setSelected(b.id);
                     onGo(b);
                   }}
                   onDoubleClick={() => editable && setRenaming(b.id)}
                 >
-                  <span className="name">{b.title || '(untitled)'}</span>
+                  <span className="name">{b.title || msg('(untitled)')}</span>
                 </button>
               )}
             </li>

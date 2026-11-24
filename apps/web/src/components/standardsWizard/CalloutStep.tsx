@@ -168,12 +168,12 @@ export function CalloutStep(p: Props) {
         {box && says && (
           <div className="sw-result">
             <p className="sw-read">
-              {keyed(msgParts('Reads: {strong}', { strong: <strong>{says.text || 'no text'}</strong> }))}
+              {keyed(msgParts('Reads: {strong}', { strong: <strong>{says.text || msg('no text')}</strong> }))}
             </p>
             {phase === 'mark' && (
               <p className={`sw-verdict ${says.id && says.sheet !== null ? 'good' : 'some'}`}>
                 {says.id ? `${w.one[0]!.toUpperCase() + w.one.slice(1)} ${says.id}` : msg('No identifier read')}
-                {says.sheet !== null ? `, on ${numbers[says.sheet] ?? `sheet ${says.sheet + 1}`}.` : '. It names no sheet in this set: go to the sheet it points to yourself.'}
+                {says.sheet !== null ? msg(', on {sheet}.', { sheet: numbers[says.sheet] ?? msg('sheet {number}', { number: says.sheet + 1 }) }) : '. ' + msg('It names no sheet in this set: go to the sheet it points to yourself.')}
               </p>
             )}
             {phase === 'title' && markSays?.id && says.id && markSays.id !== says.id && <p className="sw-warn">{msg('The mark says {id} but this title says {id2}.', { id: markSays.id, id2: says.id })}</p>}

@@ -39,8 +39,8 @@ export function SplitOptions({ value, onChange, pageCount, bookmarkCount, exampl
             onFocus={() => value.by !== 'count' && by('count')}
             onChange={(e) => onChange({ ...value, by: 'count', count: Math.max(1, Math.floor(Number(e.target.value) || 1)) })}
           />
-          {msg('page')}{value.count === 1 ? '' : 's'}
-          {pageCount ? ` (${Math.ceil(pageCount / Math.max(1, value.count))} files)` : ''}
+          {msg('{count, plural, one {page} other {pages}}', { count: value.count })}
+          {pageCount ? ' ' + msg('({count, plural, one {# file} other {# files}})', { count: Math.ceil(pageCount / Math.max(1, value.count)) }) : ''}
         </label>
         <label className="row">
           <input type="radio" checked={value.by === 'size'} onChange={() => by('size')} />

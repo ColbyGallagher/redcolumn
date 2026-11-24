@@ -689,7 +689,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       case 'choice':
         return (
           <select className={cls} value={raw} disabled={fixed} onClick={stop} onChange={(e) => commit(e.target.value)}>
-            <option value="">{c.required ? '— required —' : '—'}</option>
+            <option value="">{c.required ? msg('— required —') : '—'}</option>
             {(c.options ?? []).map((o) => (
               <option key={o} value={o}>
                 {o}

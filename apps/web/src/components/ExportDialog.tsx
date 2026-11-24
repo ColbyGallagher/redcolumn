@@ -664,7 +664,7 @@ export function MarkupSummaryDialog(props: Props) {
         </div>
         <div className="actions">
           <button type="button" className="btn primary" disabled={!canOk} onClick={() => onExport({ config, files: exportable.map((f) => ({ id: f.id, name: f.name, scope: f.scope })), directory: folder.current })}>
-            {busy ? msg('Working…') : 'OK'}
+            {busy ? msg('Working…') : msg('OK')}
           </button>
           <button type="button" className="btn" onClick={onClose}>
             {msg('Cancel')}
@@ -743,7 +743,7 @@ function FilterMenu({ open, custom, selected, values, onOpen, onChange }: { open
   const options = [...values];
   for (const value of selected ?? []) if (!options.includes(value)) options.push(value);
   const all = selected == null && !custom;
-  const label = custom ? '[Custom]' : all ? '[All]' : selected!.length === 0 ? '(none)' : selected!.length === 1 ? selected![0] || '(blank)' : `${selected!.length} selected`;
+  const label = custom ? msg('[Custom]') : all ? msg('[All]') : selected!.length === 0 ? msg('(none)') : selected!.length === 1 ? selected![0] || msg('(blank)') : msg('{count} selected', { count: selected!.length });
   const checked = (value: string) => (selected == null ? !custom : selected.includes(value));
   const toggle = (value: string, on: boolean) => {
     const current = selected ?? options;
@@ -753,7 +753,7 @@ function FilterMenu({ open, custom, selected, values, onOpen, onChange }: { open
   return (
     <div className="ms-filter">
       <button type="button" className="ms-filter-btn" aria-expanded={open} onClick={onOpen}>
-        {label || '[All]'}
+        {label || msg('[All]')}
       </button>
       {open && (
         <div className="ms-filter-pop" role="group" aria-label={msg('Filter values')}>
@@ -768,7 +768,7 @@ function FilterMenu({ open, custom, selected, values, onOpen, onChange }: { open
           {options.map((value) => (
             <label key={value || '(blank)'}>
               <input type="checkbox" checked={checked(value)} onChange={(e) => toggle(value, e.target.checked)} />
-              {value || '(blank)'}
+              {value || msg('(blank)')}
             </label>
           ))}
         </div>

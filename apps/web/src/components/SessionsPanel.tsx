@@ -524,7 +524,7 @@ function InSession({
                           <PersonIcon />
                           <span className="rc-name">
                             {p.name}
-                            {p.here?.self ? ' (you)' : ''}
+                            {p.here?.self ? ' ' + msg('(you)') : ''}
                           </span>
                         </button>
                       </li>

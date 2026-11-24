@@ -726,7 +726,7 @@ export function LayersPanel({
                       <button
                         className="layer-eye"
                         aria-pressed={!hidden}
-                        aria-label={`${hidden ? "Show" : "Hide"} ${r.name}`}
+                        aria-label={hidden ? msg('Show {name}', { name: r.name }) : msg('Hide {name}', { name: r.name })}
                         title={
                           locked
                             ? msg('Locked: unlock to show or hide')

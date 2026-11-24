@@ -1,0 +1,10 @@
+{
+  "files": [
+    { "glob": "apps/web/src/desktop/assistant*.ts", "reason": "MCP assistant protocol descriptions and tool schemas stay in English" },
+    { "glob": "apps/desktop/src/assistant/**", "reason": "MCP assistant CLI, server and setup page stay in English" }
+  ],
+  "strings": [
+    { "text": "#rrggbb", "reason": "CSS hex colour input format syntax" },
+    { "text": "ft-in", "reason": "Feet-and-inches measurement unit symbol" }
+  ]
+}

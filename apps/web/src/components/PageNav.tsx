@@ -199,7 +199,7 @@ export function PageNav(p: Props) {
             onClick={p.onToggleContinuous}
             title={p.continuous ? msg('Continuous: scroll moves through pages (Ctrl+4 for single page)') : msg('Single page: scroll zooms (Ctrl+5 for continuous)')}
           >
-            {p.continuous ? '▤ Continuous' : '▢ Single'}
+            {p.continuous ? msg('▤ Continuous') : msg('▢ Single')}
           </button>
         )}
         {show('layout') && p.onTool && (
