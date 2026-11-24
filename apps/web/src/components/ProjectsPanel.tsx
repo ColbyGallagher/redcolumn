@@ -136,7 +136,6 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
     run(async () => {
       const name = await askText(msg('New Project'), '', { label: msg('Project name'), confirm: msg('Next') });
       if (!name?.trim()) return;
-      const where = local ? 'the sync service' : 'OneDrive';
       const kind = await askText(msg('New Project'), 'plain', {
         label: msg('Encrypt the Project end to end?'),
         confirm: local ? msg('Choose folder…') : msg('Create'),

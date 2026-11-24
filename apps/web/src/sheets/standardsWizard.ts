@@ -223,7 +223,8 @@ export function saveSplit(v: number) {
   }
 }
 
-const STEP_NAME = lazy((): Record<SetupStep, string> => ({ sections: msg('Sections'), elevations: msg('Elevations'), details: msg('Details'), matchLines: msg('Match lines'), chainage: msg('Chainages') }));
+/** Step names in the English MCP prompt (aiPrompt), which stays English whatever the interface language. */
+const STEP_ENGLISH: Record<SetupStep, string> = { sections: 'Sections', elevations: 'Elevations', details: 'Details', matchLines: 'Match lines', chainage: 'Chainages' };
 
 /** The steps worth handing to an AI assistant: those whose meter says AI, then those to review. */
 export function stepsForAi(results: DrawingStandard['results']): SetupStep[] {
@@ -241,9 +242,9 @@ export function aiPrompt(standard: DrawingStandard, fileName: string, steps: rea
   const r = standard.results ?? {};
   const lines = steps.map((s) => {
     const x = r[s];
-    if (!x) return `- ${STEP_NAME()[s]}`;
+    if (!x) return `- ${STEP_ENGLISH[s]}`;
     const why = [`${x.linked} of ${x.references} references linked`, x.wrong ? `${x.wrong} of ${x.checked} checked links wrong` : '', x.unreadable ? `${x.unreadable} marks found by shape but not read` : '', x.ambiguous ? `${x.ambiguous} chainages whose alignment is unclear` : ''].filter(Boolean);
-    return `- ${STEP_NAME()[s]}: ${why.join('; ')}.`;
+    return `- ${STEP_ENGLISH[s]}: ${why.join('; ')}.`;
   });
   return [
     `In redcolumn, ${fileName} is open with the drawing standard "${standard.name}". Text and shape search did not finish these setup steps:`,
