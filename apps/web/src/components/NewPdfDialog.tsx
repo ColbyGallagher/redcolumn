@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useRef, useState } from 'react';
 import { PAGE_SIZES, presetFor } from '../documents/pageSizes';
 import { BUILTIN_TEMPLATES } from '../documents/builtinTemplates';
@@ -71,7 +73,7 @@ export function NewPdfDialog({ mode, current, onApply, onCancel, templates = [],
   const countOk = count >= 1 && count <= 500;
   const valid = library ? true : builtin ? countOk : width >= 18 && height >= 18 && width <= 14400 && height <= 14400 && countOk;
   const at = !current ? 0 : where === 'before' ? current.index : where === 'after' ? current.index + 1 : current.count;
-  const sameLabel = current ? `Same as page ${current.index + 1} (${presetFor(current.width, current.height)?.label ?? `${(current.width / 72).toFixed(2)} × ${(current.height / 72).toFixed(2)} in`})` : '';
+  const sameLabel = current ? msg('Same as page {number} ({value2})', { number: current.index + 1, value2: presetFor(current.width, current.height)?.label ?? msg('{value} × {value2} in', { value: (current.width / 72).toFixed(2), value2: (current.height / 72).toFixed(2) }) }) : '';
   const withTemplates = mode === 'new' && !!onTemplate;
 
   return (
@@ -91,14 +93,14 @@ export function NewPdfDialog({ mode, current, onApply, onCancel, templates = [],
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>{mode === 'new' ? 'New PDF' : 'Insert Blank Pages'}</h3>
+        <h3>{mode === 'new' ? msg('New PDF') : msg('Insert Blank Pages')}</h3>
         <div className="form-grid">
           {withTemplates && (
             <>
-              <label htmlFor="np-source">Start from</label>
+              <label htmlFor="np-source">{msg('Start from')}</label>
               <select id="np-source" value={blank ? BLANK : source} onChange={(e) => setSource(e.target.value)} autoFocus>
-                <option value={BLANK}>Blank pages</option>
-                <optgroup label="Built-in templates">
+                <option value={BLANK}>{msg('Blank pages')}</option>
+                <optgroup label={msg('Built-in templates')}>
                   {BUILTIN_TEMPLATES.map((t) => (
                     <option key={t.id} value={`builtin:${t.id}`}>
                       {t.name}
@@ -106,7 +108,7 @@ export function NewPdfDialog({ mode, current, onApply, onCancel, templates = [],
                   ))}
                 </optgroup>
                 {templates.length > 0 && (
-                  <optgroup label="My templates">
+                  <optgroup label={msg('My templates')}>
                     {templates.map((t) => (
                       <option key={t.id} value={`lib:${t.id}`}>
                         {t.name.replace(/\.pdf$/i, '')}
@@ -118,18 +120,18 @@ export function NewPdfDialog({ mode, current, onApply, onCancel, templates = [],
               <span />
               <div className="row wrap template-actions">
                 {onKeepOpenDoc && openDoc && !openDoc.template && (
-                  <button type="button" className="btn small" title={`Keep "${openDoc.name}" as a template, to start new documents from`} onClick={() => void onKeepOpenDoc().then(pick)}>
-                    Save Open PDF as Template
+                  <button type="button" className="btn small" title={msg('Keep "{name}" as a template, to start new documents from', { name: openDoc.name })} onClick={() => void onKeepOpenDoc().then(pick)}>
+                    {msg('Save Open PDF as Template')}
                   </button>
                 )}
                 {onImport && (
-                  <button type="button" className="btn small" title="Add a PDF from this computer as a template" onClick={() => importRef.current?.click()}>
-                    Import Template…
+                  <button type="button" className="btn small" title={msg('Add a PDF from this computer as a template')} onClick={() => importRef.current?.click()}>
+                    {msg('Import Template…')}
                   </button>
                 )}
                 {library && onRemoveTemplate && (
-                  <button type="button" className="btn small" title="Stop offering this document as a template (the document stays in the library)" onClick={() => onRemoveTemplate(library.id)}>
-                    Remove Template
+                  <button type="button" className="btn small" title={msg('Stop offering this document as a template (the document stays in the library)')} onClick={() => onRemoveTemplate(library.id)}>
+                    {msg('Remove Template')}
                   </button>
                 )}
                 <input
@@ -149,12 +151,12 @@ export function NewPdfDialog({ mode, current, onApply, onCancel, templates = [],
           {(builtin || library) && (
             <>
               <span />
-              <p className="np-note">{builtin ? builtin.description : 'A copy of this template, with its markups and form fields, as a new document.'}</p>
+              <p className="np-note">{builtin ? builtin.description : msg('A copy of this template, with its markups and form fields, as a new document.')}</p>
             </>
           )}
           {blank && (
             <>
-              <label htmlFor="np-size">Page size</label>
+              <label htmlFor="np-size">{msg('Page size')}</label>
               <select id="np-size" value={size} onChange={(e) => setSize(e.target.value)} autoFocus={!withTemplates}>
                 {current && <option value={SAME}>{sameLabel}</option>}
                 {PAGE_SIZES.map((p) => (
@@ -162,31 +164,31 @@ export function NewPdfDialog({ mode, current, onApply, onCancel, templates = [],
                     {p.label}
                   </option>
                 ))}
-                <option value={CUSTOM}>Custom…</option>
+                <option value={CUSTOM}>{msg('Custom…')}</option>
               </select>
               {size === CUSTOM && (
                 <>
-                  <label htmlFor="np-w">Size</label>
+                  <label htmlFor="np-w">{msg('Size')}</label>
                   <div className="row size-row">
-                    <input id="np-w" aria-label="Width" inputMode="decimal" value={custom.w} onChange={(e) => setCustom({ ...custom, w: e.target.value })} aria-invalid={!(Number(custom.w) > 0)} />
+                    <input id="np-w" aria-label={msg('Width')} inputMode="decimal" value={custom.w} onChange={(e) => setCustom({ ...custom, w: e.target.value })} aria-invalid={!(Number(custom.w) > 0)} />
                     <span className="times">×</span>
-                    <input aria-label="Height" inputMode="decimal" value={custom.h} onChange={(e) => setCustom({ ...custom, h: e.target.value })} aria-invalid={!(Number(custom.h) > 0)} />
-                    <select aria-label="Unit" value={custom.unit} onChange={(e) => setCustom({ ...custom, unit: e.target.value as 'in' | 'mm' })}>
-                      <option value="in">in</option>
-                      <option value="mm">mm</option>
+                    <input aria-label={msg('Height')} inputMode="decimal" value={custom.h} onChange={(e) => setCustom({ ...custom, h: e.target.value })} aria-invalid={!(Number(custom.h) > 0)} />
+                    <select aria-label={msg('Unit')} value={custom.unit} onChange={(e) => setCustom({ ...custom, unit: e.target.value as 'in' | 'mm' })}>
+                      <option value="in">{msg('in')}</option>
+                      <option value="mm">{msg('mm')}</option>
                     </select>
                   </div>
                 </>
               )}
               {size !== SAME && (
                 <>
-                  <span>Orientation</span>
+                  <span>{msg('Orientation')}</span>
                   <div className="row">
                     <label className="check">
-                      <input type="radio" name="np-orient" checked={!landscape} onChange={() => setLandscape(false)} /> Portrait
+                      {keyed(msgParts('{input} Portrait', { input: <input type="radio" name="np-orient" checked={!landscape} onChange={() => setLandscape(false)} /> }))}
                     </label>
                     <label className="check">
-                      <input type="radio" name="np-orient" checked={landscape} onChange={() => setLandscape(true)} /> Landscape
+                      {keyed(msgParts('{input} Landscape', { input: <input type="radio" name="np-orient" checked={landscape} onChange={() => setLandscape(true)} /> }))}
                     </label>
                   </div>
                 </>
@@ -195,27 +197,27 @@ export function NewPdfDialog({ mode, current, onApply, onCancel, templates = [],
           )}
           {!library && (
             <>
-              <label htmlFor="np-count">Pages</label>
+              <label htmlFor="np-count">{msg('Pages')}</label>
               <input id="np-count" type="number" min={1} max={500} value={count} onChange={(e) => setCount(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />
             </>
           )}
           {mode === 'blank' && current && (
             <>
-              <label htmlFor="np-where">Insert</label>
+              <label htmlFor="np-where">{msg('Insert')}</label>
               <select id="np-where" value={where} onChange={(e) => setWhere(e.target.value as typeof where)}>
-                <option value="after">After page {current.index + 1}</option>
-                <option value="before">Before page {current.index + 1}</option>
-                <option value="end">At the end</option>
+                <option value="after">{msg('After page {number}', { number: current.index + 1 })}</option>
+                <option value="before">{msg('Before page {number}', { number: current.index + 1 })}</option>
+                <option value="end">{msg('At the end')}</option>
               </select>
             </>
           )}
         </div>
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!valid}>
-            {mode === 'new' ? 'Create' : 'Insert'}
+            {mode === 'new' ? msg('Create') : msg('Insert')}
           </button>
         </div>
       </form>

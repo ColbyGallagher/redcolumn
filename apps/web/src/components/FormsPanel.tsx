@@ -1,3 +1,6 @@
+import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState } from 'react';
 import type { FieldChanges, FieldType, FieldVisibility, FormField, FormModel } from '../documents/forms';
 import { CALC_LABELS, type CalcOp, type FieldFormat } from '../documents/formScripts';
@@ -5,15 +8,15 @@ import { useSettings } from '../settings/settings';
 
 export type NewFieldType = Exclude<FieldType, 'button'> | 'button';
 
-const TYPE_LABELS: Record<FieldType, string> = {
-  text: 'Text',
-  checkbox: 'Check Box',
-  radio: 'Radio Button',
-  dropdown: 'Drop-down',
-  list: 'List Box',
-  button: 'Button',
-  signature: 'Signature',
-};
+const TYPE_LABELS = lazy((): Record<FieldType, string> => ({
+  text: msg('Text'),
+  checkbox: msg('Check Box'),
+  radio: msg('Radio Button'),
+  dropdown: msg('Drop-down'),
+  list: msg('List Box'),
+  button: msg('Button'),
+  signature: msg('Signature'),
+}));
 
 /** Preferences › Forms › Enable Single Key Shortcuts: a letter picks a field type to draw. */
 const SINGLE_KEYS: Record<string, FieldType> = { t: 'text', c: 'checkbox', r: 'radio', d: 'dropdown', l: 'list', b: 'button', s: 'signature' };
@@ -73,7 +76,7 @@ function ValueEditor({ f, disabled, onFill }: { f: FormField; disabled: boolean;
         value={draft}
         disabled={off}
         maxLength={f.maxLength ?? undefined}
-        title={f.calculation ? 'Calculated' : undefined}
+        title={f.calculation ? msg('Calculated') : undefined}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => draft !== f.value && onFill(draft)}
         onKeyDown={(e) => {
@@ -83,7 +86,7 @@ function ValueEditor({ f, disabled, onFill }: { f: FormField; disabled: boolean;
         }}
       />
     );
-  return <span className="muted">{f.type === 'signature' ? (f.value ? 'Signed' : 'Not signed') : ''}</span>;
+  return <span className="muted">{f.type === 'signature' ? (f.value ? msg('Signed') : msg('Not signed')) : ''}</span>;
 }
 
 /** Name, tooltip, flags, options, calculation and format of one field. */
@@ -99,75 +102,61 @@ function Properties({ f, all, onUpdate, onDelete }: { f: FormField; all: readonl
   return (
     <div className="field-props" onKeyDown={(e) => e.stopPropagation()}>
       <label className="row">
-        Name
-        <input key={`n${f.name}`} defaultValue={f.name} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== f.name && run({ name: e.target.value.trim() })} />
+        {keyed(msgParts('Name{input}', { input: <input key={`n${f.name}`} defaultValue={f.name} onBlur={(e) => e.target.value.trim() && e.target.value.trim() !== f.name && run({ name: e.target.value.trim() })} /> }))}
       </label>
       <label className="row">
-        Tooltip
-        <input key={`t${f.name}`} defaultValue={f.tooltip} onBlur={(e) => e.target.value !== f.tooltip && run({ tooltip: e.target.value })} />
+        {keyed(msgParts('Tooltip{input}', { input: <input key={`t${f.name}`} defaultValue={f.tooltip} onBlur={(e) => e.target.value !== f.tooltip && run({ tooltip: e.target.value })} /> }))}
       </label>
       <div className="row wrap">
         <label className="check">
-          <input type="checkbox" checked={f.required} onChange={(e) => run({ required: e.target.checked })} />
-          Required
+          {keyed(msgParts('{input}Required', { input: <input type="checkbox" checked={f.required} onChange={(e) => run({ required: e.target.checked })} /> }))}
         </label>
         <label className="check">
-          <input type="checkbox" checked={f.readOnly} onChange={(e) => run({ readOnly: e.target.checked })} />
-          Read-only
+          {keyed(msgParts('{input}Read-only', { input: <input type="checkbox" checked={f.readOnly} onChange={(e) => run({ readOnly: e.target.checked })} /> }))}
         </label>
         {f.type === 'text' && (
           <label className="check">
-            <input type="checkbox" checked={f.multiline} onChange={(e) => run({ multiline: e.target.checked })} />
-            Multi-line
+            {keyed(msgParts('{input}Multi-line', { input: <input type="checkbox" checked={f.multiline} onChange={(e) => run({ multiline: e.target.checked })} /> }))}
           </label>
         )}
       </div>
       {f.type === 'text' && (
         <label className="row">
-          Max length
-          <input key={`m${f.name}`} type="number" min={0} style={{ width: 70 }} defaultValue={f.maxLength ?? ''} onBlur={(e) => run({ maxLength: Number(e.target.value) > 0 ? Math.round(Number(e.target.value)) : null })} />
+          {keyed(msgParts('Max length{input}', { input: <input key={`m${f.name}`} type="number" min={0} style={{ width: 70 }} defaultValue={f.maxLength ?? ''} onBlur={(e) => run({ maxLength: Number(e.target.value) > 0 ? Math.round(Number(e.target.value)) : null })} /> }))}
         </label>
       )}
       <fieldset>
-        <legend>Appearance</legend>
+        <legend>{msg('Appearance')}</legend>
         <div className="row wrap">
           {f.type !== 'checkbox' && f.type !== 'radio' && f.type !== 'signature' && (
-            <label className="row" title="Text size (0 fits the text to the box)">
-              Size
-              <input key={`fs${f.name}`} type="number" min={0} max={72} style={{ width: 52 }} defaultValue={f.fontSize} onBlur={(e) => Number(e.target.value) !== f.fontSize && run({ fontSize: Math.max(0, Number(e.target.value) || 0) })} />
+            <label className="row" title={msg('Text size (0 fits the text to the box)')}>
+              {keyed(msgParts('Size{input}', { input: <input key={`fs${f.name}`} type="number" min={0} max={72} style={{ width: 52 }} defaultValue={f.fontSize} onBlur={(e) => Number(e.target.value) !== f.fontSize && run({ fontSize: Math.max(0, Number(e.target.value) || 0) })} /> }))}
             </label>
           )}
-          <label className="row" title="Text colour">
-            Text
-            <input type="color" value={f.textColor} onChange={(e) => run({ textColor: e.target.value })} />
+          <label className="row" title={msg('Text colour')}>
+            {keyed(msgParts('Text{input}', { input: <input type="color" value={f.textColor} onChange={(e) => run({ textColor: e.target.value })} /> }))}
           </label>
-          <label className="row" title="Border colour (untick for none)">
+          <label className="row" title={msg('Border colour (untick for none)')}>
             <input type="checkbox" checked={!!f.borderColor} onChange={(e) => run({ borderColor: e.target.checked ? '#000000' : null })} />
-            Border
+            {msg('Border')}
             {f.borderColor && <input type="color" value={f.borderColor} onChange={(e) => run({ borderColor: e.target.value })} />}
           </label>
-          <label className="row" title="Background colour (untick for none)">
+          <label className="row" title={msg('Background colour (untick for none)')}>
             <input type="checkbox" checked={!!f.backgroundColor} onChange={(e) => run({ backgroundColor: e.target.checked ? '#ffffff' : null })} />
-            Fill
+            {msg('Fill')}
             {f.backgroundColor && <input type="color" value={f.backgroundColor} onChange={(e) => run({ backgroundColor: e.target.value })} />}
           </label>
         </div>
         <label className="row">
-          Shown
-          <select value={f.visibility} onChange={(e) => run({ visibility: e.target.value as FieldVisibility })}>
-            <option value="visible">Visible and printed</option>
-            <option value="noPrint">Visible, not printed</option>
-            <option value="printOnly">Printed only</option>
-            <option value="hidden">Hidden</option>
-          </select>
+          {keyed(msgParts('Shown{select}', { select: <select value={f.visibility} onChange={(e) => run({ visibility: e.target.value as FieldVisibility })}> <option value="visible">{msg('Visible and printed')}</option> <option value="noPrint">{msg('Visible, not printed')}</option> <option value="printOnly">{msg('Printed only')}</option> <option value="hidden">{msg('Hidden')}</option> </select> }))}
         </label>
       </fieldset>
       {f.type !== 'signature' && f.type !== 'button' && (
-        <label className="row" title="The value Reset Form puts back">
-          Default
+        <label className="row" title={msg('The value Reset Form puts back')}>
+          {msg('Default')}
           {f.type === 'dropdown' || f.type === 'radio' ? (
             <select value={f.defaultValue} onChange={(e) => run({ defaultValue: e.target.value })}>
-              <option value="">(none)</option>
+              <option value="">{msg('(none)')}</option>
               {f.options.map((o) => (
                 <option key={o}>{o}</option>
               ))}
@@ -181,38 +170,34 @@ function Properties({ f, all, onUpdate, onDelete }: { f: FormField; all: readonl
       )}
       {f.type === 'text' && (
         <fieldset>
-          <legend>Validate</legend>
+          <legend>{msg('Validate')}</legend>
           <label className="row">
             <select
               value={f.validation?.kind ?? ''}
               onChange={(e) => run({ validation: e.target.value === 'range' ? { kind: 'range', min: null, max: null } : e.target.value === 'pattern' ? { kind: 'pattern', pattern: '.*', message: 'That value is not accepted.' } : null })}
             >
-              <option value="">Any value</option>
-              <option value="range">A number in a range</option>
-              <option value="pattern">Text matching a pattern</option>
+              <option value="">{msg('Any value')}</option>
+              <option value="range">{msg('A number in a range')}</option>
+              <option value="pattern">{msg('Text matching a pattern')}</option>
             </select>
           </label>
           {f.validation?.kind === 'range' && (
             <div className="row wrap">
               <label className="row">
-                From
-                <input key={`vmin${f.name}`} type="number" style={{ width: 70 }} defaultValue={f.validation.min ?? ''} onBlur={(e) => run({ validation: { ...(f.validation as { kind: 'range'; min: number | null; max: number | null }), min: e.target.value === '' ? null : Number(e.target.value) } })} />
+                {keyed(msgParts('From{input}', { input: <input key={`vmin${f.name}`} type="number" style={{ width: 70 }} defaultValue={f.validation.min ?? ''} onBlur={(e) => run({ validation: { ...(f.validation as { kind: 'range'; min: number | null; max: number | null }), min: e.target.value === '' ? null : Number(e.target.value) } })} /> }))}
               </label>
               <label className="row">
-                to
-                <input key={`vmax${f.name}`} type="number" style={{ width: 70 }} defaultValue={f.validation.max ?? ''} onBlur={(e) => run({ validation: { ...(f.validation as { kind: 'range'; min: number | null; max: number | null }), max: e.target.value === '' ? null : Number(e.target.value) } })} />
+                {keyed(msgParts('to{input}', { input: <input key={`vmax${f.name}`} type="number" style={{ width: 70 }} defaultValue={f.validation.max ?? ''} onBlur={(e) => run({ validation: { ...(f.validation as { kind: 'range'; min: number | null; max: number | null }), max: e.target.value === '' ? null : Number(e.target.value) } })} /> }))}
               </label>
             </div>
           )}
           {f.validation?.kind === 'pattern' && (
             <>
-              <label className="row" title="A regular expression, e.g. ^[A-Z]-\d{3}$">
-                Pattern
-                <input key={`vp${f.name}`} defaultValue={f.validation.pattern} onBlur={(e) => run({ validation: { kind: 'pattern', pattern: e.target.value, message: (f.validation as { message: string }).message } })} />
+              <label className="row" title={msg('A regular expression, e.g. ^[A-Z]-\\d\'{\'3\'}\'$')}>
+                {keyed(msgParts('Pattern{input}', { input: <input key={`vp${f.name}`} defaultValue={f.validation.pattern} onBlur={(e) => run({ validation: { kind: 'pattern', pattern: e.target.value, message: (f.validation as { message: string }).message } })} /> }))}
               </label>
               <label className="row">
-                Message
-                <input key={`vm${f.name}`} defaultValue={f.validation.message} onBlur={(e) => run({ validation: { kind: 'pattern', pattern: (f.validation as { pattern: string }).pattern, message: e.target.value } })} />
+                {keyed(msgParts('Message{input}', { input: <input key={`vm${f.name}`} defaultValue={f.validation.message} onBlur={(e) => run({ validation: { kind: 'pattern', pattern: (f.validation as { pattern: string }).pattern, message: e.target.value } })} /> }))}
               </label>
             </>
           )}
@@ -220,11 +205,11 @@ function Properties({ f, all, onUpdate, onDelete }: { f: FormField; all: readonl
       )}
       {f.type === 'button' && (
         <fieldset>
-          <legend>When clicked</legend>
+          <legend>{msg('When clicked')}</legend>
           <label className="row">
             <select
               value={f.action?.kind ?? ''}
-              aria-label="Button action"
+              aria-label={msg('Button action')}
               onChange={(e) => {
                 const k = e.target.value;
                 run({
@@ -233,52 +218,38 @@ function Properties({ f, all, onUpdate, onDelete }: { f: FormField; all: readonl
                 });
               }}
             >
-              <option value="">Nothing</option>
-              <option value="url">Open a web page</option>
-              <option value="page">Go to a page</option>
-              <option value="reset">Reset the form</option>
-              <option value="print">Print</option>
-              <option value="submit">Submit the form data</option>
+              <option value="">{msg('Nothing')}</option>
+              <option value="url">{msg('Open a web page')}</option>
+              <option value="page">{msg('Go to a page')}</option>
+              <option value="reset">{msg('Reset the form')}</option>
+              <option value="print">{msg('Print')}</option>
+              <option value="submit">{msg('Submit the form data')}</option>
             </select>
           </label>
           {(f.action?.kind === 'url' || f.action?.kind === 'submit') && (
-            <label className="row" title={f.action.kind === 'submit' ? 'A mailto: address, or a web address that accepts XFDF' : undefined}>
-              Address
-              <input
-                key={`act${f.name}${f.action.kind}`}
-                defaultValue={f.action.url}
-                aria-label="Action address"
-                onBlur={(e) => {
-                  const url = e.target.value.trim();
-                  if (url !== (f.action as { url: string }).url) run({ action: { kind: (f.action as { kind: 'url' | 'submit' }).kind, url } });
-                }}
-              />
+            <label className="row" title={f.action.kind === 'submit' ? msg('A mailto: address, or a web address that accepts XFDF') : undefined}>
+              {keyed(msgParts('Address{input}', { input: <input key={`act${f.name}${f.action.kind}`} defaultValue={f.action.url} aria-label={msg('Action address')} onBlur={(e) => { const url = e.target.value.trim(); if (url !== (f.action as { url: string }).url) run({ action: { kind: (f.action as { kind: 'url' | 'submit' }).kind, url } }); }} /> }))}
             </label>
           )}
           {f.action?.kind === 'page' && (
             <label className="row">
-              Page
-              <input key={`actp${f.name}`} type="number" min={1} style={{ width: 70 }} defaultValue={f.action.pageIndex + 1} onBlur={(e) => run({ action: { kind: 'page', pageIndex: Math.max(0, Math.round(Number(e.target.value)) - 1 || 0) } })} />
+              {keyed(msgParts('Page{input}', { input: <input key={`actp${f.name}`} type="number" min={1} style={{ width: 70 }} defaultValue={f.action.pageIndex + 1} onBlur={(e) => run({ action: { kind: 'page', pageIndex: Math.max(0, Math.round(Number(e.target.value)) - 1 || 0) } })} /> }))}
             </label>
           )}
         </fieldset>
       )}
       {(f.type === 'dropdown' || f.type === 'list') && (
         <label className="col">
-          Options (one per line)
-          <textarea key={`o${f.name}`} rows={4} defaultValue={f.options.join('\n')} onBlur={(e) => {
-            const options = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean);
-            if (options.join('\n') !== f.options.join('\n')) run({ options });
-          }} />
+          {keyed(msgParts('Options (one per line){textarea}', { textarea: <textarea key={`o${f.name}`} rows={4} defaultValue={f.options.join('\n')} onBlur={(e) => { const options = e.target.value.split('\n').map((s) => s.trim()).filter(Boolean); if (options.join('\n') !== f.options.join('\n')) run({ options }); }} /> }))}
         </label>
       )}
       {f.type === 'text' && (
         <>
           <fieldset>
-            <legend>Calculate</legend>
+            <legend>{msg('Calculate')}</legend>
             <label className="row">
               <select value={f.calculation?.op ?? ''} onChange={(e) => run({ calculation: e.target.value ? { op: e.target.value as CalcOp, fields: f.calculation?.fields ?? [] } : null })}>
-                <option value="">Not calculated</option>
+                <option value="">{msg('Not calculated')}</option>
                 {(Object.keys(CALC_LABELS) as CalcOp[]).map((op) => (
                   <option key={op} value={op}>
                     {CALC_LABELS[op]}
@@ -298,12 +269,12 @@ function Properties({ f, all, onUpdate, onDelete }: { f: FormField; all: readonl
                     {x.name}
                   </label>
                 ))}
-                {!numeric.length && <span className="muted">Add other text fields to calculate from.</span>}
+                {!numeric.length && <span className="muted">{msg('Add other text fields to calculate from.')}</span>}
               </div>
             )}
           </fieldset>
           <fieldset>
-            <legend>Format</legend>
+            <legend>{msg('Format')}</legend>
             <label className="row">
               <select
                 value={fmt?.kind ?? ''}
@@ -312,44 +283,35 @@ function Properties({ f, all, onUpdate, onDelete }: { f: FormField; all: readonl
                   setFormat(k === 'number' ? { kind: 'number', decimals: 2, separator: true, currency: '', currencyFirst: true, negativeParens: false } : k === 'percent' ? { kind: 'percent', decimals: 0 } : k === 'date' ? { kind: 'date', pattern: 'dd/mm/yyyy' } : null);
                 }}
               >
-                <option value="">None</option>
-                <option value="number">Number</option>
-                <option value="percent">Percent</option>
-                <option value="date">Date</option>
+                <option value="">{msg('None')}</option>
+                <option value="number">{msg('Number')}</option>
+                <option value="percent">{msg('Percent')}</option>
+                <option value="date">{msg('Date')}</option>
               </select>
               {fmt && fmt.kind !== 'date' && (
                 <>
-                  <input type="number" min={0} max={6} style={{ width: 48 }} value={fmt.decimals} title="Decimal places" onChange={(e) => setFormat({ ...fmt, decimals: Math.max(0, Math.min(6, Math.round(Number(e.target.value)) || 0)) })} />
-                  dp
+                  {keyed(msgParts('{input}dp', { input: <input type="number" min={0} max={6} style={{ width: 48 }} value={fmt.decimals} title={msg('Decimal places')} onChange={(e) => setFormat({ ...fmt, decimals: Math.max(0, Math.min(6, Math.round(Number(e.target.value)) || 0)) })} /> }))}
                 </>
               )}
             </label>
             {fmt?.kind === 'number' && (
               <div className="row wrap">
                 <label className="row">
-                  Currency
-                  <input style={{ width: 40 }} value={fmt.currency} onChange={(e) => setFormat({ ...fmt, currency: e.target.value.slice(0, 4) })} />
+                  {keyed(msgParts('Currency{input}', { input: <input style={{ width: 40 }} value={fmt.currency} onChange={(e) => setFormat({ ...fmt, currency: e.target.value.slice(0, 4) })} /> }))}
                 </label>
                 <label className="check">
                   <input type="checkbox" checked={fmt.separator} onChange={(e) => setFormat({ ...fmt, separator: e.target.checked })} />
-                  1,000s
+                  {/* translators: a tick box: show a thousands separator, as in 1,000 */}
+                  {msg('1,000s')}
                 </label>
                 <label className="check">
-                  <input type="checkbox" checked={fmt.negativeParens} onChange={(e) => setFormat({ ...fmt, negativeParens: e.target.checked })} />
-                  (negative)
+                  {keyed(msgParts('{input}(negative)', { input: <input type="checkbox" checked={fmt.negativeParens} onChange={(e) => setFormat({ ...fmt, negativeParens: e.target.checked })} /> }))}
                 </label>
               </div>
             )}
             {fmt?.kind === 'date' && (
               <label className="row">
-                Pattern
-                <select value={fmt.pattern} onChange={(e) => setFormat({ kind: 'date', pattern: e.target.value })}>
-                  {['dd/mm/yyyy', 'mm/dd/yyyy', 'yyyy-mm-dd', 'd mmm yyyy', 'mmm d, yyyy', 'dd-mmm-yy'].concat(fmt.pattern).filter((p, i, a) => a.indexOf(p) === i).map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
+                {keyed(msgParts('Pattern{select}', { select: <select value={fmt.pattern} onChange={(e) => setFormat({ kind: 'date', pattern: e.target.value })}> {['dd/mm/yyyy', 'mm/dd/yyyy', 'yyyy-mm-dd', 'd mmm yyyy', 'mmm d, yyyy', 'dd-mmm-yy'].concat(fmt.pattern).filter((p, i, a) => a.indexOf(p) === i).map((p) => ( <option key={p} value={p}> {p} </option> ))} </select> }))}
               </label>
             )}
           </fieldset>
@@ -357,7 +319,7 @@ function Properties({ f, all, onUpdate, onDelete }: { f: FormField; all: readonl
       )}
       {error && <p className="print-error">{error}</p>}
       <button className="btn small flat" onClick={onDelete}>
-        Delete field
+        {msg('Delete field')}
       </button>
     </div>
   );
@@ -401,29 +363,29 @@ export function FormsPanel(p: Props) {
   return (
     <div className="forms-panel">
       <div className="sheet-actions wrap">
-        <select value={p.newType} disabled={!p.editable} aria-label="New field type" onChange={(e) => p.onNewType(e.target.value as NewFieldType)}>
-          {(Object.keys(TYPE_LABELS) as FieldType[]).map((t) => (
+        <select value={p.newType} disabled={!p.editable} aria-label={msg('New field type')} onChange={(e) => p.onNewType(e.target.value as NewFieldType)}>
+          {(Object.keys(TYPE_LABELS()) as FieldType[]).map((t) => (
             <option key={t} value={t}>
-              {TYPE_LABELS[t]}
+              {TYPE_LABELS()[t]}
             </option>
           ))}
         </select>
-        <button className={`btn small${p.drawing ? ' primary' : ''}`} disabled={!p.editable} onClick={p.onDraw} title="Draw the new field's box on the page">
-          {p.drawing ? 'Drawing…' : 'Draw field'}
+        <button className={`btn small${p.drawing ? ' primary' : ''}`} disabled={!p.editable} onClick={p.onDraw} title={msg('Draw the new field\'s box on the page')}>
+          {p.drawing ? msg('Drawing…') : msg('Draw field')}
         </button>
       </div>
       <div className="sheet-actions wrap">
         <button className="btn small" disabled={!p.editable || !fields.length} onClick={p.onReset}>
-          Reset
+          {msg('Reset')}
         </button>
-        <button className="btn small" disabled={!fields.length} onClick={() => p.onExport('xfdf')} title="Save the values as XFDF, which most PDF apps import">
-          Export XFDF
+        <button className="btn small" disabled={!fields.length} onClick={() => p.onExport('xfdf')} title={msg('Save the values as XFDF, which most PDF apps import')}>
+          {msg('Export XFDF')}
         </button>
         <button className="btn small" disabled={!fields.length} onClick={() => p.onExport('csv')}>
-          Export CSV
+          {msg('Export CSV')}
         </button>
-        <button className="btn small" disabled={!p.editable || !fields.length} onClick={() => importRef.current?.click()} title="Fill the form from XFDF, CSV or JSON data">
-          Import…
+        <button className="btn small" disabled={!p.editable || !fields.length} onClick={() => importRef.current?.click()} title={msg('Fill the form from XFDF, CSV or JSON data')}>
+          {msg('Import…')}
         </button>
         <input
           ref={importRef}
@@ -437,10 +399,10 @@ export function FormsPanel(p: Props) {
           }}
         />
       </div>
-      {!fields.length && <p className="empty">{p.model ? 'This document has no form fields. Choose a type and draw a field on the page.' : 'Reading the form…'}</p>}
+      {!fields.length && <p className="empty">{p.model ? msg('This document has no form fields. Choose a type and draw a field on the page.') : msg('Reading the form…')}</p>}
       {required.length > 0 && (
         <p className="print-hint">
-          {required.length} required field{required.length === 1 ? '' : 's'} still empty: {required.slice(0, 4).map((f) => f.name).join(', ')}
+          {msg('{count, plural, one {# required field} other {# required fields}} still empty: {names}', { count: required.length, names: required.slice(0, 4).map((f) => f.name).join(', ') })}
           {required.length > 4 ? '…' : ''}
         </p>
       )}
@@ -451,17 +413,17 @@ export function FormsPanel(p: Props) {
               <button className="field-name" onClick={() => {
                 p.onSelect(f.name === p.selected ? null : f.name);
                 p.onGo(f);
-              }} title={`${TYPE_LABELS[f.type]}${f.tooltip ? ` — ${f.tooltip}` : ''}`}>
-                <span className="field-type">{TYPE_LABELS[f.type]}</span> {f.name}
+              }} title={`${TYPE_LABELS()[f.type]}${f.tooltip ? ` — ${f.tooltip}` : ''}`}>
+                <span className="field-type">{TYPE_LABELS()[f.type]}</span> {f.name}
                 {f.required && <span className="required">*</span>}
               </button>
               <ValueEditor f={f} disabled={!p.editable} onFill={(v) => p.onFill(f.name, v)} />
               {p.editable && (
                 <span className="field-order">
-                  <button className="btn small flat" disabled={i === 0} title="Earlier in the tab order" onClick={() => move(f.name, -1)}>
+                  <button className="btn small flat" disabled={i === 0} title={msg('Earlier in the tab order')} onClick={() => move(f.name, -1)}>
                     ↑
                   </button>
-                  <button className="btn small flat" disabled={i === fields.length - 1} title="Later in the tab order" onClick={() => move(f.name, 1)}>
+                  <button className="btn small flat" disabled={i === fields.length - 1} title={msg('Later in the tab order')} onClick={() => move(f.name, 1)}>
                     ↓
                   </button>
                 </span>

@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useMemo, useState } from 'react';
 import type { StoredManualStitch, StoredMatchLine } from '@nb/markup';
 import { autoPair, lineProblem, pairLines } from '../documents/stitching';
@@ -66,33 +68,32 @@ export function StitchPanel({ stitch, editable, pageIndex, pageLabel, hasViewpor
     <div className="stitch-panel">
       {editable && (
         <div className="panel-toolbar">
-          <button className={`btn small${tool === 'stitchRegion' ? ' active' : ''}`} title="Drag a box around the drawing on each sheet, leaving out the title block and legend" onClick={() => toggle('stitchRegion')}>
-            Select Region
+          <button className={`btn small${tool === 'stitchRegion' ? ' active' : ''}`} title={msg('Drag a box around the drawing on each sheet, leaving out the title block and legend')} onClick={() => toggle('stitchRegion')}>
+            {msg('Select Region')}
           </button>
-          <button className={`btn small${tool === 'stitchPolygon' ? ' active' : ''}`} title="Click the corners of the drawing area; click the first corner again to close it" onClick={() => toggle('stitchPolygon')}>
-            Polygon
+          <button className={`btn small${tool === 'stitchPolygon' ? ' active' : ''}`} title={msg('Click the corners of the drawing area; click the first corner again to close it')} onClick={() => toggle('stitchPolygon')}>
+            {msg('Polygon')}
           </button>
-          <button className={`btn small${tool === 'matchLine' ? ' active' : ''}`} title="Click both ends of a match line; the tool stays on for the next sheet" onClick={() => toggle('matchLine')}>
-            + Match Line
+          <button className={`btn small${tool === 'matchLine' ? ' active' : ''}`} title={msg('Click both ends of a match line; the tool stays on for the next sheet')} onClick={() => toggle('matchLine')}>
+            {msg('+ Match Line')}
           </button>
           <button
             className={`btn small${tool === 'stitchMove' ? ' active' : ''}`}
             disabled={!sel}
-            title={sel ? 'Drag in the Stitched View to move the sheet joined at the selected line' : 'Select a matched line first'}
+            title={sel ? msg('Drag in the Stitched View to move the sheet joined at the selected line') : msg('Select a matched line first')}
             onClick={() => toggle('stitchMove')}
           >
-            Move Sheet
+            {msg('Move Sheet')}
           </button>
-          <label className="field" title="Move Sheet slides the sheet only along the match line">
-            <input type="checkbox" checked={lockAlong} onChange={(e) => onLockAlong(e.target.checked)} />
-            Lock along line
+          <label className="field" title={msg('Move Sheet slides the sheet only along the match line')}>
+            {keyed(msgParts('{input}Lock along line', { input: <input type="checkbox" checked={lockAlong} onChange={(e) => onLockAlong(e.target.checked)} /> }))}
           </label>
         </div>
       )}
       {editable && onAdoptDetected && (
         <div className="panel-toolbar">
-          <button className="btn small" title="Turn the match lines found on this sheet's drawings into lines you can move and adjust" onClick={onAdoptDetected}>
-            Edit Detected Lines
+          <button className="btn small" title={msg('Turn the match lines found on this sheet\'s drawings into lines you can move and adjust')} onClick={onAdoptDetected}>
+            {msg('Edit Detected Lines')}
           </button>
         </div>
       )}
@@ -102,23 +103,23 @@ export function StitchPanel({ stitch, editable, pageIndex, pageLabel, hasViewpor
           const region = stitch.regions[p];
           return [
             <li key={`page-${p}`} className="stitch-page">
-              <button className="stitch-page-name" title="Go to this sheet" onClick={() => onGoTo(p)}>
+              <button className="stitch-page-name" title={msg('Go to this sheet')} onClick={() => onGoTo(p)}>
                 {pageLabel(p)}
               </button>
-              <span className="stitch-region" title="The part of the sheet that goes into the stitch">
-                {region ? 'Custom region' : hasViewport(p) ? 'Viewport region' : <span className="warn">Whole sheet — title block included</span>}
+              <span className="stitch-region" title={msg('The part of the sheet that goes into the stitch')}>
+                {region ? msg('Custom region') : hasViewport(p) ? msg('Viewport region') : <span className="warn">{msg('Whole sheet — title block included')}</span>}
               </span>
               {region && editable && (
                 <button
                   className="btn small"
-                  title="Use the whole sheet again"
+                  title={msg('Use the whole sheet again')}
                   onClick={() => {
                     const regions = { ...stitch.regions };
                     delete regions[p];
                     onChange({ ...stitch, regions });
                   }}
                 >
-                  Clear
+                  {msg('Clear')}
                 </button>
               )}
             </li>,
@@ -128,9 +129,9 @@ export function StitchPanel({ stitch, editable, pageIndex, pageLabel, hasViewpor
               return (
                 <li key={l.id} tabIndex={0} className={`stitch-line${selected === l.id ? ' active' : ''}`} onClick={() => onSelectLine(l.id)} onKeyDown={(e) => onKey(e, l)}>
                   <span className={`swatch${l.matchTo && !problem ? ' ok' : ' bad'}`} />
-                  <input className="name" value={l.name} disabled={!editable} aria-label="Match line name" onChange={(e) => update(l.id, { name: e.target.value })} />
-                  <select aria-label="Match to" value={l.matchTo ?? ''} disabled={!editable} onChange={(e) => setLines(pairLines(stitch.lines, l.id, e.target.value || null))}>
-                    <option value="">Match to…</option>
+                  <input className="name" value={l.name} disabled={!editable} aria-label={msg('Match line name')} onChange={(e) => update(l.id, { name: e.target.value })} />
+                  <select aria-label={msg('Match to')} value={l.matchTo ?? ''} disabled={!editable} onChange={(e) => setLines(pairLines(stitch.lines, l.id, e.target.value || null))}>
+                    <option value="">{msg('Match to…')}</option>
                     {others.map((o) => (
                       <option key={o.id} value={o.id}>
                         {o.name} ({pageLabel(o.pageIndex)})
@@ -139,12 +140,12 @@ export function StitchPanel({ stitch, editable, pageIndex, pageLabel, hasViewpor
                   </select>
                   {editable && (
                     <>
-                      <button className="btn small" title="Keep the other side of the line" onClick={() => update(l.id, { contentSide: l.contentSide === 1 ? -1 : 1 })}>
+                      <button className="btn small" title={msg('Keep the other side of the line')} onClick={() => update(l.id, { contentSide: l.contentSide === 1 ? -1 : 1 })}>
                         ⇄
                       </button>
                       <button
                         className="btn small"
-                        title="Delete the match line"
+                        title={msg('Delete the match line')}
                         onClick={() => {
                           setLines(pairLines(stitch.lines, l.id, null).filter((x) => x.id !== l.id));
                           if (selected === l.id) onSelectLine(null);
@@ -157,29 +158,29 @@ export function StitchPanel({ stitch, editable, pageIndex, pageLabel, hasViewpor
                   {problem && <span className="stitch-problem">{problem}</span>}
                   {editable && sel?.id === l.id && moving !== null && (
                     <div className="stitch-nudge" onClick={(e) => e.stopPropagation()}>
-                      <span className="stitch-nudge-label">Move {pageLabel(moving)}</span>
-                      <button className="btn small" title="Slide back along the match line (←)" onClick={() => onNudge(l.id, -step, 0)}>
+                      <span className="stitch-nudge-label">{msg('Move {pageLabel}', { pageLabel: pageLabel(moving) })}</span>
+                      <button className="btn small" title={msg('Slide back along the match line (←)')} onClick={() => onNudge(l.id, -step, 0)}>
                         ◀
                       </button>
-                      <button className="btn small" title="Slide forward along the match line (→)" onClick={() => onNudge(l.id, step, 0)}>
+                      <button className="btn small" title={msg('Slide forward along the match line (→)')} onClick={() => onNudge(l.id, step, 0)}>
                         ▶
                       </button>
-                      <button className="btn small" title="Move closer to the other sheet (↑)" onClick={() => onNudge(l.id, 0, -step)}>
+                      <button className="btn small" title={msg('Move closer to the other sheet (↑)')} onClick={() => onNudge(l.id, 0, -step)}>
                         ▲
                       </button>
-                      <button className="btn small" title="Move apart from the other sheet (↓)" onClick={() => onNudge(l.id, 0, step)}>
+                      <button className="btn small" title={msg('Move apart from the other sheet (↓)')} onClick={() => onNudge(l.id, 0, step)}>
                         ▼
                       </button>
-                      <select aria-label="Nudge step" value={step} onChange={(e) => setStep(Number(e.target.value))}>
+                      <select aria-label={msg('Nudge step')} value={step} onChange={(e) => setStep(Number(e.target.value))}>
                         {STEPS.map((s) => (
                           <option key={s} value={s}>
-                            {s} pt
+                            {msg('{s} pt', { s })}
                           </option>
                         ))}
                       </select>
                       {stitch.lines.some((x) => (x.id === l.id || x.id === l.matchTo) && x.offset) && (
-                        <button className="btn small" title="Put the sheet back where the line ends place it" onClick={() => onReset(l.id)}>
-                          Reset
+                        <button className="btn small" title={msg('Put the sheet back where the line ends place it')} onClick={() => onReset(l.id)}>
+                          {msg('Reset')}
                         </button>
                       )}
                     </div>
@@ -190,44 +191,43 @@ export function StitchPanel({ stitch, editable, pageIndex, pageLabel, hasViewpor
           ];
         })}
       </ul>
-      {!stitch.lines.length && <p className="empty">No match lines. Outline the drawing on each sheet, then click both ends of the match line where it continues on the next sheet.</p>}
+      {!stitch.lines.length && <p className="empty">{msg('No match lines. Outline the drawing on each sheet, then click both ends of the match line where it continues on the next sheet.')}</p>}
       <div className="panel-toolbar stitch-actions">
         {editable && (
           <button
             className="btn small"
-            title="Match lines on different sheets that have the same name"
+            title={msg('Match lines on different sheets that have the same name')}
             disabled={unmatched < 2}
             onClick={() => {
               const { lines, paired } = autoPair(stitch.lines);
               setLines(lines);
-              setNotice(paired ? `Matched ${paired} pair${paired === 1 ? '' : 's'} by name.` : 'No two unmatched lines share a name.');
+              setNotice(paired ? msg('Matched {count, plural, one {# pair} other {# pairs}} by name.', { count: paired }) : msg('No two unmatched lines share a name.'));
             }}
           >
-            Match by Name
+            {msg('Match by Name')}
           </button>
         )}
-        <button className={`btn small${previewing ? ' active' : ''}`} disabled={!onPreview} title="Show the joined sheets in the Stitched View" onClick={() => onPreview?.()}>
-          Stitched View
+        <button className={`btn small${previewing ? ' active' : ''}`} disabled={!onPreview} title={msg('Show the joined sheets in the Stitched View')} onClick={() => onPreview?.()}>
+          {msg('Stitched View')}
         </button>
         {editable && (
           <>
             <label className="field">
-              <input type="checkbox" checked={includeMarkups} onChange={(e) => setIncludeMarkups(e.target.checked)} />
-              Include markups
+              {keyed(msgParts('{input}Include markups', { input: <input type="checkbox" checked={includeMarkups} onChange={(e) => setIncludeMarkups(e.target.checked)} /> }))}
             </label>
-            <button className="btn small primary" disabled={!onStitchToPage} title="Add the joined sheets to the document as one new page" onClick={() => onStitchToPage?.(includeMarkups)}>
-              Stitch to New Page
+            <button className="btn small primary" disabled={!onStitchToPage} title={msg('Add the joined sheets to the document as one new page')} onClick={() => onStitchToPage?.(includeMarkups)}>
+              {msg('Stitch to New Page')}
             </button>
             <button
               className="btn small"
               disabled={!stitch.lines.length && !Object.keys(stitch.regions).length}
-              title="Remove every match line and region"
+              title={msg('Remove every match line and region')}
               onClick={() => {
                 onChange({ lines: [], regions: {} });
                 onSelectLine(null);
               }}
             >
-              Erase All
+              {msg('Erase All')}
             </button>
           </>
         )}

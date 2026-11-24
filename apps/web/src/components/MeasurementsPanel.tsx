@@ -1,8 +1,10 @@
+import { msg, msgParts, msgc } from '@nb/i18n';
+import { markupName } from '../i18n/names';
+import { keyed } from '../i18n/keyed';
 import { AssemblyInputFields, useAssemblyChoice } from './AssemblyInputs';
 import { takesAssembly } from '../assemblies/assemblyChoice';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  MARKUP_LABELS,
   isAiDraft,
   isMeasureKind,
   measureKindOf,
@@ -185,11 +187,11 @@ function Chevron() {
 
 const TOOLS: { tool: Tool; icon: ReactNode; menu?: { tool: Tool; label: string }[] }[] = [
   { tool: 'length', icon: <LengthIcon /> },
-  { tool: 'area', icon: <AreaIcon />, menu: [{ tool: 'area', label: 'Area' }, { tool: 'cutout', label: 'Polygon Cutout' }] },
-  { tool: 'perimeter', icon: <PerimeterIcon />, menu: [{ tool: 'perimeter', label: 'Perimeter' }, { tool: 'polylength', label: 'Polylength' }] },
+  { tool: 'area', icon: <AreaIcon />, menu: [{ tool: 'area', get label() { return msgc('tool', 'Area'); } }, { tool: 'cutout', get label() { return msgc('tool', 'Polygon Cutout'); } }] },
+  { tool: 'perimeter', icon: <PerimeterIcon />, menu: [{ tool: 'perimeter', get label() { return msgc('tool', 'Perimeter'); } }, { tool: 'polylength', get label() { return msgc('tool', 'Polylength'); } }] },
   { tool: 'diameter', icon: <DiameterIcon /> },
   { tool: 'angle', icon: <AngleIcon /> },
-  { tool: 'radius', icon: <RadiusIcon />, menu: [{ tool: 'radius', label: 'Radius' }, { tool: 'arcLength', label: 'Arc Length' }] },
+  { tool: 'radius', icon: <RadiusIcon />, menu: [{ tool: 'radius', get label() { return msgc('tool', 'Radius'); } }, { tool: 'arcLength', get label() { return msgc('tool', 'Arc Length'); } }] },
   { tool: 'volume', icon: <VolumeIcon /> },
   { tool: 'count', icon: <CountIcon /> },
 ];
@@ -225,7 +227,7 @@ function ToolStrip({ tool, onTool }: { tool: Tool; onTool: ((tool: Tool) => void
       </button>
       {extra && (
         <>
-          <button type="button" className="ms-drop" title={`${toolLabel(id)} tools`} disabled={!onTool} aria-expanded={menu === id} aria-label={`${toolLabel(id)} tools`} onClick={() => setMenu(menu === id ? null : id)}>
+          <button type="button" className="ms-drop" title={msg('{toolLabel} tools', { toolLabel: toolLabel(id) })} disabled={!onTool} aria-expanded={menu === id} aria-label={msg('{toolLabel} tools', { toolLabel: toolLabel(id) })} onClick={() => setMenu(menu === id ? null : id)}>
             <Chevron />
           </button>
           {menu === id && (
@@ -303,14 +305,14 @@ function PageScale({
       return;
     }
     const parts = scaleParts(next);
-    setPaper(formatScaleNumber(parts.paper));
+    setPaper(formatScaleNumber(parts.paper, true));
     setPaperUnit(parts.paperUnit);
-    setReal(formatScaleNumber(parts.real));
+    setReal(formatScaleNumber(parts.real, true));
     setRealUnit(parts.realUnit);
     const yScale = next.yMetersPerPoint != null ? scaleParts({ ...next, metersPerPoint: next.yMetersPerPoint }) : parts;
-    setYPaper(formatScaleNumber(yScale.paper));
+    setYPaper(formatScaleNumber(yScale.paper, true));
     setYPaperUnit(yScale.paperUnit);
-    setYReal(formatScaleNumber(yScale.real));
+    setYReal(formatScaleNumber(yScale.real, true));
     setYRealUnit(yScale.realUnit);
   };
 
@@ -411,13 +413,13 @@ function PageScale({
     // A scale from the other measurement system (a metric ratio while working in imperial) still has to appear.
     const outside = current && !groups.includes(current.group);
     return (
-    <select aria-label={axis === 'y' ? 'Y scale preset' : 'Scale preset'} value={value} disabled={!onScale || (axis === 'y' && !scale)} onChange={(e) => choosePreset(e.target.value, axis)}>
+    <select aria-label={axis === 'y' ? msg('Y scale preset') : msg('Scale preset')} value={value} disabled={!onScale || (axis === 'y' && !scale)} onChange={(e) => choosePreset(e.target.value, axis)}>
       <option value="" disabled>
-        {scale && !value ? scale.label : 'Preset'}
+        {scale && !value ? scale.label : msg('Preset')}
       </option>
       {outside && <option value={current.label}>{current.label}</option>}
       {saved.length > 0 && (
-        <optgroup label="Saved">
+        <optgroup label={msg('Saved')}>
           {saved.map((s) => (
             <option key={s.label} value={`saved:${s.label}`}>
               {s.label}
@@ -452,8 +454,8 @@ function PageScale({
     onCommit: () => void,
   ) => (
     <div className="ms-eq">
-      <input aria-label={`${axis} paper length`} value={paperValue} disabled={!onScale} onChange={(e) => setPaperValue(e.target.value)} onBlur={onCommit} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
-      <select aria-label={`${axis} paper unit`} value={pu} disabled={!onScale} onChange={(e) => { setPu(e.target.value as PaperUnit); }}>
+      <input aria-label={msg('{axis} paper length', { axis })} value={paperValue} disabled={!onScale} onChange={(e) => setPaperValue(e.target.value)} onBlur={onCommit} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
+      <select aria-label={msg('{axis} paper unit', { axis })} value={pu} disabled={!onScale} onChange={(e) => { setPu(e.target.value as PaperUnit); }}>
         <option value="" disabled hidden />
         {PAPER_UNITS.map((u) => (
           <option key={u} value={u}>
@@ -462,8 +464,8 @@ function PageScale({
         ))}
       </select>
       <span className="ms-eq-sign">=</span>
-      <input aria-label={`${axis} real length`} value={realValue} disabled={!onScale} onChange={(e) => setRealValue(e.target.value)} onBlur={onCommit} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
-      <select aria-label={`${axis} real unit`} value={ru} disabled={!onScale} onChange={(e) => setRu(e.target.value as LengthUnit)}>
+      <input aria-label={msg('{axis} real length', { axis })} value={realValue} disabled={!onScale} onChange={(e) => setRealValue(e.target.value)} onBlur={onCommit} onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()} />
+      <select aria-label={msg('{axis} real unit', { axis })} value={ru} disabled={!onScale} onChange={(e) => setRu(e.target.value as LengthUnit)}>
         <option value="" disabled hidden />
         {units.map((u) => (
           <option key={u} value={u}>
@@ -488,25 +490,25 @@ function PageScale({
   return (
     <div className="ms-block">
       <div className="ms-line">
-        <span className="ms-k">Page:</span>
+        <span className="ms-k">{msg('Page:')}</span>
         <div className="ms-v ms-page">
           <span className="ms-name" title={pageName}>{pageName || '—'}</span>
           <div className="ms-pop-wrap" data-ms-pop>
-            <button type="button" className="ms-btn" disabled={!onApplyScale} title={onApplyScale ? 'Use this page’s scale on other pages' : 'Set a scale on this page first'} onClick={() => { setApplyError(false); setApplyOpen((v) => !v); }}>
-              <CopyIcon /> Add Scale to More Pages
+            <button type="button" className="ms-btn" disabled={!onApplyScale} title={onApplyScale ? msg('Use this page’s scale on other pages') : msg('Set a scale on this page first')} onClick={() => { setApplyError(false); setApplyOpen((v) => !v); }}>
+              {keyed(msgParts('{copyicon} Add Scale to More Pages', { copyicon: <CopyIcon /> }))}
             </button>
             {applyOpen && (
-              <div className="ms-menu ms-apply" role="dialog" aria-label="Add scale to more pages">
+              <div className="ms-menu ms-apply" role="dialog" aria-label={msg('Add scale to more pages')}>
                 <label className="ms-check">
-                  <input type="radio" name="ms-apply" checked={applyMode === 'all'} onChange={() => setApplyMode('all')} /> All pages
+                  {keyed(msgParts('{input} All pages', { input: <input type="radio" name="ms-apply" checked={applyMode === 'all'} onChange={() => setApplyMode('all')} /> }))}
                 </label>
                 <label className="ms-check">
-                  <input type="radio" name="ms-apply" checked={applyMode === 'range'} onChange={() => setApplyMode('range')} /> Pages
+                  {keyed(msgParts('{input} Pages', { input: <input type="radio" name="ms-apply" checked={applyMode === 'range'} onChange={() => setApplyMode('range')} /> }))}
                 </label>
-                <input aria-label="Page range" placeholder="1-3, 5" value={applyText} disabled={applyMode !== 'range'} aria-invalid={applyError} onChange={(e) => { setApplyText(e.target.value); setApplyError(false); }} onKeyDown={(e) => e.key === 'Enter' && applyPages()} />
+                <input aria-label={msg('Page range')} placeholder="1-3, 5" value={applyText} disabled={applyMode !== 'range'} aria-invalid={applyError} onChange={(e) => { setApplyText(e.target.value); setApplyError(false); }} onKeyDown={(e) => e.key === 'Enter' && applyPages()} />
                 <div className="ms-apply-actions">
-                  <button type="button" className="ms-btn" onClick={closeApply}>Cancel</button>
-                  <button type="button" className="ms-btn" onClick={applyPages}>Apply</button>
+                  <button type="button" className="ms-btn" onClick={closeApply}>{msg('Cancel')}</button>
+                  <button type="button" className="ms-btn" onClick={applyPages}>{msg('Apply')}</button>
                 </div>
               </div>
             )}
@@ -514,19 +516,19 @@ function PageScale({
         </div>
       </div>
       <div className="ms-line">
-        <span className="ms-k">Scale:</span>
+        <span className="ms-k">{msg('Scale:')}</span>
         <button type="button" className="ms-btn" disabled={!onCalibrate} title={tip('calibrate')} onClick={() => onCalibrate?.()}>
-          Calibrate
+          {msg('Calibrate')}
         </button>
       </div>
       <div className="ms-line">
         <span className="ms-k" />
         <div className="ms-radios">
           <label className="ms-check">
-            <input type="radio" name="ms-scale-mode" checked={mode === 'preset'} disabled={!onScale} onChange={() => setMode('preset')} /> Preset
+            {keyed(msgParts('{input} Preset', { input: <input type="radio" name="ms-scale-mode" checked={mode === 'preset'} disabled={!onScale} onChange={() => setMode('preset')} /> }))}
           </label>
           <label className="ms-check">
-            <input type="radio" name="ms-scale-mode" checked={mode === 'custom'} disabled={!onScale} onChange={() => setMode('custom')} /> Custom
+            {keyed(msgParts('{input} Custom', { input: <input type="radio" name="ms-scale-mode" checked={mode === 'custom'} disabled={!onScale} onChange={() => setMode('custom')} /> }))}
           </label>
         </div>
       </div>
@@ -573,7 +575,7 @@ function PageScale({
             type="button"
             className="ms-btn"
             disabled={!canSave}
-            title={canSave ? 'Save this scale in the preset list' : 'Set a custom scale first'}
+            title={canSave ? msg('Save this scale in the preset list') : msg('Set a custom scale first')}
             onClick={() => {
               if (!scale) return;
               const label = scale.label === 'Calibrated' || scale.label === '1:1 (not set)' ? scaleEquation(scale) : scale.label;
@@ -582,7 +584,7 @@ function PageScale({
               setSaved(next);
             }}
           >
-            + Add Preset
+            {msg('+ Add Preset')}
           </button>
           {matched?.kind === 'saved' && (
             <button
@@ -594,7 +596,7 @@ function PageScale({
                 setSaved(next);
               }}
             >
-              Remove
+              {msg('Remove')}
             </button>
           )}
         </div>
@@ -602,29 +604,12 @@ function PageScale({
       <div className="ms-line">
         <span className="ms-k" />
         <label className="ms-check">
-          <input
-            type="checkbox"
-            checked={separateY}
-            disabled={!onScale}
-            onChange={(e) => {
-              const on = e.target.checked;
-              setSeparateY(on);
-              if (!scale || !onScale) return;
-              skip.current = true;
-              if (on) onScale({ ...scale, yMetersPerPoint: scale.yMetersPerPoint ?? scale.metersPerPoint });
-              else {
-                const next = { ...scale };
-                delete next.yMetersPerPoint;
-                onScale(next);
-              }
-            }}
-          />
-          Separate Y Scale
+          {keyed(msgParts('{input}Separate Y Scale', { input: <input type="checkbox" checked={separateY} disabled={!onScale} onChange={(e) => { const on = e.target.checked; setSeparateY(on); if (!scale || !onScale) return; skip.current = true; if (on) onScale({ ...scale, yMetersPerPoint: scale.yMetersPerPoint ?? scale.metersPerPoint }); else { const next = { ...scale }; delete next.yMetersPerPoint; onScale(next); } }} /> }))}
         </label>
       </div>
       <div className="ms-line">
-        <span className="ms-k">Precision:</span>
-        <select className="ms-precision" aria-label="Precision" value={prec} disabled={!onScale} onChange={(e) => onPrecision(e.target.value)}>
+        <span className="ms-k">{msg('Precision:')}</span>
+        <select className="ms-precision" aria-label={msg('Precision')} value={prec} disabled={!onScale} onChange={(e) => onPrecision(e.target.value)}>
           {DECIMAL_PRECISIONS.map((p) => (
             <option key={`d${p}`} value={`d${p}`}>
               {precisionText(`d${p}`)}
@@ -701,7 +686,7 @@ function Properties({
   return (
     <div className="ms-block">
       <label className="ms-line">
-        <span className="ms-k">Subject:</span>
+        <span className="ms-k">{msg('Subject:')}</span>
         <input
           value={subject}
           disabled={!canEdit}
@@ -713,7 +698,7 @@ function Properties({
         />
       </label>
       <label className="ms-line">
-        <span className="ms-k">Label:</span>
+        <span className="ms-k">{msg('Label:')}</span>
         <input
           value={label}
           disabled={!canEdit}
@@ -761,40 +746,40 @@ function AssemblyPicker({
   return (
     <>
       <label className="ms-line">
-        <span className="ms-k">Assembly:</span>
-        <select aria-label="Assembly" value={value} disabled={!canEdit || choice.target === 'none'} title={choice.target === 'none' ? 'No measurements selected' : undefined} onChange={(e) => pick(e.target.value)}>
-          {value === '*' && <option value="*">(several)</option>}
-          <option value="">None</option>
+        <span className="ms-k">{msg('Assembly:')}</span>
+        <select aria-label={msg('Assembly')} value={value} disabled={!canEdit || choice.target === 'none'} title={choice.target === 'none' ? msg('No measurements selected') : undefined} onChange={(e) => pick(e.target.value)}>
+          {value === '*' && <option value="*">{msg('(several)')}</option>}
+          <option value="">{msg('None')}</option>
           {assemblies.map((a) => (
             <option key={a.id} value={a.id}>
               {a.name}
             </option>
           ))}
-          {value && value !== '*' && !assemblies.some((a) => a.id === value) && <option value={value}>(deleted assembly)</option>}
-          <option value="__manage">Manage assemblies…</option>
+          {value && value !== '*' && !assemblies.some((a) => a.id === value) && <option value={value}>{msg('(deleted assembly)')}</option>}
+          <option value="__manage">{msg('Manage assemblies…')}</option>
         </select>
       </label>
       {shared && shared.variables.length > 0 && choice.varies.size === 0 && (
-        <div className="ms-asm-inputs" role="group" aria-label="Assembly inputs">
-          <span className="ms-k">Inputs:</span>
+        <div className="ms-asm-inputs" role="group" aria-label={msg('Assembly inputs')}>
+          <span className="ms-k">{msg('Inputs:')}</span>
           <AssemblyInputFields key={`${chosen.map((m) => m.id).join(',')}:${shared.id}`} assembly={shared} values={choice.values} disabled={!canEdit} commitOnBlur onChange={setInput} />
         </div>
       )}
       {dialog}
       {rows.length > 0 && (
-        <ul className="ms-asm-items" aria-label="Assembly quantities">
+        <ul className="ms-asm-items" aria-label={msg('Assembly quantities')}>
           {rows.map((r) => (
             <li key={r.key}>
               <span>
                 {r.item}
                 {r.setByHand > 0 && (
-                  <span className="set-by-hand" title="Set by hand when the takeoff was approved: it does not follow changes to the measurement">
+                  <span className="set-by-hand" title={msg('Set by hand when the takeoff was approved: it does not follow changes to the measurement')}>
                     {' '}
                     ✎
                   </span>
                 )}
               </span>
-              <span className={r.errors ? 'qty err' : 'qty'} title={r.errors ? 'The formula could not be worked out' : r.setByHand ? 'Set by hand' : undefined}>
+              <span className={r.errors ? 'qty err' : 'qty'} title={r.errors ? msg('The formula could not be worked out') : r.setByHand ? msg('Set by hand') : undefined}>
                 {r.errors ? '⚠' : `${formatNumber(r.total, r.total % 1 ? 2 : 0)} ${r.unit}`}
               </span>
             </li>
@@ -878,13 +863,13 @@ function Viewports({
 
   return (
     <div className="viewports">
-      <div className="ms-vp-box" role="listbox" aria-label="Viewports">
+      <div className="ms-vp-box" role="listbox" aria-label={msg('Viewports')}>
         {viewports.map((v) => (
           <div key={v.id} className={`ms-vp-row${picked === v.id ? ' on' : ''}`} role="option" aria-selected={picked === v.id} onMouseDown={() => setPicked(v.id)}>
             <input
               key={`${v.id}:${v.name}`}
               defaultValue={v.name}
-              aria-label="Viewport name"
+              aria-label={msg('Viewport name')}
               disabled={!actions}
               onBlur={(e) => {
                 const name = e.target.value.trim();
@@ -894,29 +879,20 @@ function Viewports({
             />
             <ScaleSelect
               label={v.scale.label}
-              ariaLabel={v.scale.yMetersPerPoint != null ? 'Viewport X scale' : 'Viewport scale'}
+              ariaLabel={v.scale.yMetersPerPoint != null ? msg('Viewport X scale') : msg('Viewport scale')}
               disabled={!actions}
               saved={saved}
               system={system}
               // A separate Y scale stays when X is changed.
               onPick={(next) => actions?.update({ ...v, scale: v.scale.yMetersPerPoint != null ? { ...next, yMetersPerPoint: v.scale.yMetersPerPoint } : next })}
             />
-            <label className="ms-vp-sepy" title="Scale the viewport differently up and down than across">
-              <input
-                type="checkbox"
-                checked={v.scale.yMetersPerPoint != null}
-                disabled={!actions}
-                onChange={(e) => {
-                  const { yMetersPerPoint: _y, ...x } = v.scale;
-                  actions?.update({ ...v, scale: e.target.checked ? { ...x, yMetersPerPoint: x.metersPerPoint } : x });
-                }}
-              />
-              Separate Y scale
+            <label className="ms-vp-sepy" title={msg('Scale the viewport differently up and down than across')}>
+              {keyed(msgParts('{input}Separate Y scale', { input: <input type="checkbox" checked={v.scale.yMetersPerPoint != null} disabled={!actions} onChange={(e) => { const { yMetersPerPoint: _y, ...x } = v.scale; actions?.update({ ...v, scale: e.target.checked ? { ...x, yMetersPerPoint: x.metersPerPoint } : x }); }} /> }))}
             </label>
             {v.scale.yMetersPerPoint != null && (
               <ScaleSelect
                 label={yScaleLabel(v.scale) ?? v.scale.label}
-                ariaLabel="Viewport Y scale"
+                ariaLabel={msg('Viewport Y scale')}
                 disabled={!actions}
                 saved={saved}
                 system={system}
@@ -927,25 +903,25 @@ function Viewports({
         ))}
       </div>
       <div className="viewports-head">
-        <button type="button" className={`ms-glyph${adding ? ' on' : ''}`} title="Drag a box around a detail drawn at another scale" disabled={!actions} onClick={() => actions?.add()}>
+        <button type="button" className={`ms-glyph${adding ? ' on' : ''}`} title={msg('Drag a box around a detail drawn at another scale')} disabled={!actions} onClick={() => actions?.add()}>
           +
         </button>
-        <button type="button" className="ms-glyph" title="Delete the selected viewport" disabled={!actions || !picked} onClick={() => picked && actions?.remove(picked)}>
+        <button type="button" className="ms-glyph" title={msg('Delete the selected viewport')} disabled={!actions || !picked} onClick={() => picked && actions?.remove(picked)}>
           ×
         </button>
         <span className="ms-grow" />
         <div className="ms-pop-wrap" data-ms-pop>
-          <button type="button" className="ms-glyph" title="Delete viewports" disabled={!actions || !allViewports.length} aria-expanded={menu} aria-label="Delete viewports" onClick={() => setMenu((v) => !v)}>
+          <button type="button" className="ms-glyph" title={msg('Delete viewports')} disabled={!actions || !allViewports.length} aria-expanded={menu} aria-label={msg('Delete viewports')} onClick={() => setMenu((v) => !v)}>
             <TrashIcon />
             <Chevron />
           </button>
           {menu && (
             <div className="ms-menu up" role="menu">
-              <button type="button" role="menuitem" disabled={!viewports.length} onClick={() => removeMany(viewports, 'Delete the viewports on this page?')}>
-                Delete on this page
+              <button type="button" role="menuitem" disabled={!viewports.length} onClick={() => removeMany(viewports, msg('Delete the viewports on this page?'))}>
+                {msg('Delete on this page')}
               </button>
-              <button type="button" role="menuitem" onClick={() => removeMany(allViewports, 'Delete every viewport in this document?')}>
-                Delete in the document
+              <button type="button" role="menuitem" onClick={() => removeMany(allViewports, msg('Delete every viewport in this document?'))}>
+                {msg('Delete in the document')}
               </button>
             </div>
           )}
@@ -1034,16 +1010,16 @@ export function MeasurementsPanel({
       <ToolStrip tool={tool} onTool={onTool} />
       {section(
         'scale',
-        'Page Scale',
+        msg('Page Scale'),
         <PageScale scale={scale} pageIndex={pageIndex} pageCount={pageCount} pageName={pageName} onScale={onScale} onApplyScale={onApplyScale} onCalibrate={onTool ? () => onTool('calibrate') : null} />,
         'scale-settings',
       )}
-      {section('props', 'Measurement Properties', <Properties markups={markups} selected={selected} store={store} defaults={defaults} onDefaults={onDefaults} editable={!!onTool || !!store} takeoff={takeoff} />)}
-      {section('view', 'Viewports', <Viewports viewports={viewports} allViewports={allViewports} actions={onViewports} adding={tool === 'viewport'} />)}
+      {section('props', msg('Measurement Properties'), <Properties markups={markups} selected={selected} store={store} defaults={defaults} onDefaults={onDefaults} editable={!!onTool || !!store} takeoff={takeoff} />)}
+      {section('view', msg('Viewports'), <Viewports viewports={viewports} allViewports={allViewports} actions={onViewports} adding={tool === 'viewport'} />)}
       {rows.length > 0 &&
         section(
           'list',
-          'On the drawing',
+          msg('On the drawing'),
           <>
             <ul className="bookmark-list">
               {rows.map((m) => {
@@ -1052,9 +1028,9 @@ export function MeasurementsPanel({
                 return (
                   <li key={m.id}>
                     <button type="button" className={`bookmark${selected.has(m.id) ? ' active' : ''}`} onClick={() => onSelect(m)}>
-                      <span className="num">{m.subject || MARKUP_LABELS[m.type]}</span>
+                      <span className="num">{m.subject || markupName(m.type)}</span>
                       <span className="name">
-                        p. {m.pageIndex + 1}
+                        {msg('p. {page}', { page: m.pageIndex + 1 })}
                         {value !== null && isMeasureKind(m.type) ? ` · ${formatMeasure(m.type, value, rowScale, measureProps(m))}` : ''}
                       </span>
                     </button>
@@ -1066,7 +1042,7 @@ export function MeasurementsPanel({
               <ul className="measure-totals">
                 {[...totals].map(([kind, t]) => (
                   <li key={kind}>
-                    Total {MARKUP_LABELS[kind]} ({t.n}): {formatMeasure(kind, t.value, t.scale)}
+                    {msg('Total {kind} ({count}): {measure}', { kind: markupName(kind), count: t.n, measure: formatMeasure(kind, t.value, t.scale) })}
                   </li>
                 ))}
               </ul>

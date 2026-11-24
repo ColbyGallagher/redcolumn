@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useState } from 'react';
 import { scaleMismatches, type Point, type Portal } from '@nb/markup';
 
@@ -58,7 +59,7 @@ export function PortalDialog({ pageCount, pageLabel, scaleKey, scaleText, portal
       <form
         className="modal portal-dialog"
         role="dialog"
-        aria-label={draft ? 'Define Portal' : 'Portals'}
+        aria-label={draft ? msg('Define Portal') : msg('Portals')}
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
@@ -69,14 +70,14 @@ export function PortalDialog({ pageCount, pageLabel, scaleKey, scaleText, portal
           if (e.key === 'Escape') onClose();
         }}
       >
-        <h3>{draft ? 'Define Portal' : 'Portals'} (Experimental)</h3>
+        <h3>{msg('{value} (Experimental)', { value: draft ? msg('Define Portal') : msg('Portals') })}</h3>
         <p className="pref-hint">
-          Markups drawn wholly inside the portal on any linked page are copied to the other linked pages, at the same place on each, and kept in step. Markups that cross its edge stay on their own page.
+          {msg('Markups drawn wholly inside the portal on any linked page are copied to the other linked pages, at the same place on each, and kept in step. Markups that cross its edge stay on their own page.')}
         </p>
-        {!draft && !portals.length && <p>This document has no portals. Use Define Portal to outline one.</p>}
+        {!draft && !portals.length && <p>{msg('This document has no portals. Use Define Portal to outline one.')}</p>}
         {!draft && portals.length > 0 && (
           <div className="form-grid">
-            <label htmlFor="portal-pick">Portal</label>
+            <label htmlFor="portal-pick">{msg('Portal')}</label>
             <select id="portal-pick" value={editing} onChange={(e) => pick(e.target.value)}>
               {portals.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -89,41 +90,41 @@ export function PortalDialog({ pageCount, pageLabel, scaleKey, scaleText, portal
         {(draft || current) && (
           <>
             <div className="form-grid">
-              <label htmlFor="portal-name">Name</label>
+              <label htmlFor="portal-name">{msg('Name')}</label>
               <input id="portal-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
             </div>
             <fieldset className="portal-pages">
-              <legend>Linked pages</legend>
+              <legend>{msg('Linked pages')}</legend>
               <div style={{ maxHeight: 240, overflow: 'auto' }}>
                 {Array.from({ length: pageCount }, (_, i) => (
                   <label key={i} style={{ display: 'block' }}>
                     <input type="checkbox" checked={pages.has(i)} disabled={i === sourcePage} onChange={() => toggle(i)} /> {pageLabel(i)}
-                    {i === sourcePage ? ' (outlined here)' : ''}
+                    {i === sourcePage ? ' ' + msg('(outlined here)') : ''}
                   </label>
                 ))}
               </div>
             </fieldset>
             {mismatched.length > 0 && (
               <p className="pref-hint portal-scale-warning" role="alert">
-                Warning: {mismatched.map(pageLabel).join(', ')} {mismatched.length === 1 ? 'has' : 'have'} a different scale from {pageLabel(sourcePage)} ({scaleText(sourcePage)}). Mirrored measurements will not match on {mismatched.length === 1 ? 'it' : 'them'}.
+                {msg('{count, plural, one {Warning: {list} has a different scale from {pageLabel} ({scaleText}). Mirrored measurements will not match on it.} other {Warning: {list} have a different scale from {pageLabel} ({scaleText}). Mirrored measurements will not match on them.}}', { count: mismatched.length, list: mismatched.map(pageLabel).join(', '), pageLabel: pageLabel(sourcePage), scaleText: scaleText(sourcePage) })}
               </p>
             )}
-            {current && <p className="pref-hint">A page you link gets a copy of every markup already mirrored. A page you unlink keeps its copies, as ordinary markups.</p>}
-            {chosen.length < 2 && <p className="pref-hint">Pick at least one other page.</p>}
+            {current && <p className="pref-hint">{msg('A page you link gets a copy of every markup already mirrored. A page you unlink keeps its copies, as ordinary markups.')}</p>}
+            {chosen.length < 2 && <p className="pref-hint">{msg('Pick at least one other page.')}</p>}
           </>
         )}
         <div className="actions">
           {current && (
             <button type="button" className="btn danger" onClick={() => onRemove(current.id)}>
-              Remove Portal
+              {msg('Remove Portal')}
             </button>
           )}
           <button type="button" className="btn" onClick={onClose}>
-            {draft || current ? 'Cancel' : 'Close'}
+            {draft || current ? msg('Cancel') : msg('Close')}
           </button>
           {(draft || current) && (
             <button type="submit" className="btn primary" disabled={!valid}>
-              {draft ? 'Create Portal' : 'Save'}
+              {draft ? msg('Create Portal') : msg('Save')}
             </button>
           )}
         </div>

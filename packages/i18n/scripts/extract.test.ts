@@ -66,8 +66,11 @@ test('check flags placeholder mismatches and syntax errors', () => {
     { id: 'Open {name}', str: 'Öffnen {file}' },
     { id: '{n} pages', str: '{n Seiten' },
     { id: 'Untranslated', str: '' },
+    { id: 'Open…', str: 'Öffnen' },
+    { id: 'Save As…', str: 'Speichern unter…' },
   ]);
-  assert.equal(errors.length, 2);
+  assert.equal(errors.length, 3);
   assert.match(errors[0]!, /placeholders \{file\} should be \{name\}/);
   assert.match(errors[1]!, /Expected/);
+  assert.match(errors[2]!, /"Open…": should end with "…"/);
 });

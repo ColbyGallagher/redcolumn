@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import { PAPER_SIZES, parsePageRange, type PrintContent, type PrintOptions } from '../documents/printPdf';
 
@@ -50,14 +52,14 @@ export function PrintDialog({ pageCount, currentPage, onPrint, onCancel, filteri
           });
         }}
       >
-        <h3>Print</h3>
+        <h3>{msg('Print')}</h3>
         <fieldset>
-          <legend>Print</legend>
+          <legend>{msg('Print')}</legend>
           {(
             [
-              ['all', 'Document and markups'],
-              ['document', 'Document only'],
-              ['markups', 'Markups only'],
+              ['all', msg('Document and markups')],
+              ['document', msg('Document only')],
+              ['markups', msg('Markups only')],
             ] as const
           ).map(([value, label]) => (
             <label key={value} className="row">
@@ -67,54 +69,48 @@ export function PrintDialog({ pageCount, currentPage, onPrint, onCancel, filteri
           ))}
         </fieldset>
         <fieldset>
-          <legend>Pages</legend>
+          <legend>{msg('Pages')}</legend>
           <label className="row">
-            <input type="radio" name="which" checked={which === 'all'} onChange={() => setWhich('all')} />
-            All {pageCount} pages
+            {keyed(msgParts('{input}All {pageCount} pages', { input: <input type="radio" name="which" checked={which === 'all'} onChange={() => setWhich('all')} />, pageCount }))}
           </label>
           <label className="row">
-            <input type="radio" name="which" checked={which === 'current'} onChange={() => setWhich('current')} />
-            Current page ({currentPage + 1})
+            {keyed(msgParts('{input}Current page ({page})', { input: <input type="radio" name="which" checked={which === 'current'} onChange={() => setWhich('current')} />, page: currentPage + 1 }))}
           </label>
           <label className="row">
-            <input type="radio" name="which" checked={which === 'range'} onChange={() => setWhich('range')} />
-            Pages
-            <input type="text" value={range} aria-label="Page range" placeholder="e.g. 1-3, 5" onFocus={() => setWhich('range')} onChange={(e) => setRange(e.target.value)} />
+            {keyed(msgParts('{input}Pages{input2}', { input: <input type="radio" name="which" checked={which === 'range'} onChange={() => setWhich('range')} />, input2: <input type="text" value={range} aria-label={msg('Page range')} placeholder="e.g. 1-3, 5" onFocus={() => setWhich('range')} onChange={(e) => setRange(e.target.value)} /> }))}
           </label>
-          {which === 'range' && !pages && <p className="print-error">Enter pages between 1 and {pageCount}, e.g. 1-3, 5.</p>}
+          {which === 'range' && !pages && <p className="print-error">{msg('Enter pages between 1 and {pageCount}, e.g. 1-3, 5.', { pageCount })}</p>}
         </fieldset>
         <fieldset>
-          <legend>Options</legend>
+          <legend>{msg('Options')}</legend>
           <label className="row">
-            <input type="checkbox" checked={reverse} onChange={(e) => setReverse(e.target.checked)} />
-            Reverse order
+            {keyed(msgParts('{input}Reverse order', { input: <input type="checkbox" checked={reverse} onChange={(e) => setReverse(e.target.checked)} /> }))}
           </label>
           <label className="row">
             <input type="checkbox" checked={tile} onChange={(e) => setTile(e.target.checked)} />
-            Tile large pages onto
+            {msg('Tile large pages onto')}
             <select value={paper} onChange={(e) => setPaper(e.target.value)} disabled={!tile}>
               {Object.keys(PAPER_SIZES).map((p) => (
                 <option key={p}>{p}</option>
               ))}
             </select>
-            paper
+            {msg('paper')}
           </label>
           {filtering && content !== 'document' && (
             <label className="row">
-              <input type="checkbox" checked={dimFiltered} onChange={(e) => setDimFiltered(e.target.checked)} />
-              Dim markups the Markups list's filter leaves out
+              {keyed(msgParts('{input}Dim markups the Markups list\'s filter leaves out', { input: <input type="checkbox" checked={dimFiltered} onChange={(e) => setDimFiltered(e.target.checked)} /> }))}
             </label>
           )}
         </fieldset>
-        <p className="print-hint">Paper size, copies, scaling and orientation are set in the print dialog that opens next.</p>
+        <p className="print-hint">{msg('Paper size, copies, scaling and orientation are set in the print dialog that opens next.')}</p>
         {error && <p className="print-error">{error}</p>}
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!pages?.length || busy}>
-            {busy ? 'Preparing…' : 'Print…'}
+            {busy ? msg('Preparing…') : msg('Print…')}
           </button>
         </div>
       </form>

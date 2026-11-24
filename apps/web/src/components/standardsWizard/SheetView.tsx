@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type Ref } from 'react';
 import type { PreviewDrawing, PreviewView } from '../LinkPreview';
 
@@ -252,8 +253,8 @@ export function SheetView({ ref, onZoom, pageIndex, page, render, boxes, drawing
             </div>
           ))}
         {v && sketch && <div className="sheet-view-box active sketch" style={toScreen(sketch, v)} />}
-        {state === 'loading' && <div className="sheet-view-note">Drawing the sheet…</div>}
-        {state === 'failed' && <div className="sheet-view-note">This sheet could not be drawn.</div>}
+        {state === 'loading' && <div className="sheet-view-note">{msg('Drawing the sheet…')}</div>}
+        {state === 'failed' && <div className="sheet-view-note">{msg('This sheet could not be drawn.')}</div>}
       </div>
     </div>
   );
