@@ -1,4 +1,4 @@
-import { SCALE_PRESETS, type PaperUnit, type Scale } from '@nb/measure';
+import { SCALE_PRESETS, lengthDecimals, type LengthUnit, type PaperUnit, type Scale } from '@nb/measure';
 import { systemOf } from '../settings/settings';
 
 const PRESETS_KEY = 'nb.scalePresets';
@@ -86,9 +86,26 @@ export function rangeText(pages: readonly number[]): string {
 /** Precision as a select value: `d2` for two decimal places, `f16` for sixteenths of an inch. */
 export function precisionValue(scale: Scale | null, pending: string): string {
   if (!scale) return pending;
-  const frac = scale.feetInches && (scale.unit === 'ft' || scale.unit === 'in');
-  return `${frac ? 'f' : 'd'}${scale.precision}`;
+  const frac = usesInchFractions(scale);
+  // A scale kept in fractions for a return to ft or in shows its unit's default decimals in other units (formatLength).
+  return frac ? `f${scale.precision}` : `d${lengthDecimals(scale)}`;
 }
+
+/**
+ * The format a scale committed from a form gets: the precision select's `value`, for lengths in `unit`,
+ * replacing `previous`. A previous scale that keeps inch fractions while its unit is not ft or in has the
+ * select showing decimals it never had; unless the user chose another precision those fractions are
+ * carried over, so changing the ratio or switching the unit back to ft or in finds them again.
+ */
+export function committedFormat(value: string, unit: LengthUnit, previous: Scale | null): { feetInches: boolean; precision: number } {
+  if (previous?.feetInches && !usesInchFractions(previous) && value === precisionValue(previous, value)) {
+    return { feetInches: true, precision: previous.precision };
+  }
+  const feetInches = value[0] === 'f' && (unit === 'ft' || unit === 'in');
+  return { feetInches, precision: feetInches || value[0] === 'd' ? Number(value.slice(1)) : 2 };
+}
+
+const usesInchFractions = (scale: Scale): boolean => scale.feetInches && (scale.unit === 'ft' || scale.unit === 'in');
 
 export function precisionText(value: string): string {
   const p = Number(value.slice(1));

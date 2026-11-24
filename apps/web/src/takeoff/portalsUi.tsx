@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useSyncExternalStore } from 'react';
 import type { MarkupStore, Point, Portal } from '@nb/markup';
 import type { MarkupTools } from '../markup/MarkupTools';
@@ -38,16 +39,15 @@ export interface PortalDialogState {
   draft?: { pageIndex: number; points: Point[] };
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** What saving a portal's linked pages did, in a sentence. */
 export function relinkNotice(name: string, r: { copied: number; adopted: number; unlinked: number }): string {
   const parts = [
-    r.copied ? `${plural(r.copied, 'markup', 'markups')} copied to the newly linked pages` : '',
-    r.adopted ? `${plural(r.adopted, 'matching markup', 'matching markups')} already there linked instead of copied` : '',
-    r.unlinked ? `${plural(r.unlinked, 'copy', 'copies')} on unlinked pages kept as ordinary markups` : '',
+    r.copied ? msg('{count, plural, one {# markup} other {# markups}} copied to the newly linked pages', { count: r.copied }) : '',
+    r.adopted ? msg('{count, plural, one {# matching markup} other {# matching markups}} already there linked instead of copied', { count: r.adopted }) : '',
+    r.unlinked ? msg('{count, plural, one {# copy} other {# copies}} on unlinked pages kept as ordinary markups', { count: r.unlinked }) : '',
   ].filter(Boolean);
-  return parts.length ? `Portal "${name}" saved: ${parts.join('; ')}.` : `Portal "${name}" saved.`;
+  return parts.length ? msg('Portal "{name}" saved: {changes}.', { name, changes: parts.join('; ') }) : msg('Portal "{name}" saved.', { name });
 }
 
 /** Whether a selection holds a mirrored markup (Break Portal Link). */
@@ -80,12 +80,12 @@ export function PortalDialogHost({ state, store, pageCount, pageLabel, onClose, 
       draft={state.draft ?? null}
       onSave={(p) => {
         const r = store.setPortal(p);
-        onNotice(state.draft ? `Portal "${p.name}" links ${p.pages.length} pages. Markups drawn inside it are mirrored to each of them.` : relinkNotice(p.name, r));
+        onNotice(state.draft ? msg('Portal "{name}" links {count} pages. Markups drawn inside it are mirrored to each of them.', { name: p.name, count: p.pages.length }) : relinkNotice(p.name, r));
         onClose();
       }}
       onRemove={(id) => {
         store.removePortal(id);
-        onNotice('Portal removed. Its mirrored markups stay, as ordinary markups on each page.');
+        onNotice(msg('Portal removed. Its mirrored markups stay, as ordinary markups on each page.'));
         onClose();
       }}
       onClose={onClose}

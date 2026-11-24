@@ -1,3 +1,6 @@
+import { msg, msgParts } from '@nb/i18n';
+import { markupName } from '../i18n/names';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BLEND_MODES,
@@ -38,12 +41,15 @@ import { isMarkupTool, type MarkupTools, type ToolsState } from '../markup/Marku
 import { cellsFor, customKey, type CellContext } from '../columns/listColumns';
 import { useWorkspace } from '../workspace/profiles';
 import { LineStyleSelect } from './LineStyleSelect';
+import { CountSymbolSelect } from './CountSymbolSelect';
 import { ColorMenu } from './ColorMenu';
+import { ComboField, FONT_SIZES } from './ComboField';
 import { STYLE_ICONS } from './toolIcons';
 import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch';
 import { StampFieldsForm } from './StampsDialog';
 import { FontPicker } from './FontPicker';
 import { canHaveCutout } from '../markup/cutoutTarget';
+import { isCloudPlusSelection } from '../markup/selectionFormat';
 
 interface Props {
   markups: Markup[];
@@ -67,13 +73,51 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
   const toolType = isMarkupTool(toolsState.tool) ? toolsState.tool : null;
 
   if (!chosen.length) {
-    if (!toolType || !tools) return <p className="empty">Select a markup on the drawing, or pick a markup tool, to see its properties.</p>;
+    if (toolsState.tool === 'cloudPlus' && tools) {
+      const cloudStyle = toolsState.styles.cloud;
+      const calloutStyle = toolsState.styles.callout;
+      return (
+        <div className="props-panel">
+          <div className="props-heading">
+            <strong>Cloud+</strong> {msg('tool defaults')}
+          </div>
+          <p className="empty">{msg('Applies to new cloud+ markups.')}</p>
+          <StyleEditor
+            style={cloudStyle}
+            type="cloud"
+            caps={styleCapabilities('cloud')}
+            disabled={false}
+            markups={markups}
+            segments={false}
+            onChange={(patch) => tools.setDefaultStyle('cloud', patch)}
+            cloudPlus={{
+              cloudStyle,
+              calloutStyle,
+              onCloudChange: (patch) => tools.setDefaultStyle('cloud', patch),
+              onCalloutChange: (patch) => tools.setDefaultStyle('callout', patch),
+            }}
+          />
+          <div className="props-actions">
+            <button
+              className="btn"
+              onClick={() => {
+                tools.setDefaultStyle('cloud', resetPatch(cloudStyle, 'cloud'));
+                tools.setDefaultStyle('callout', resetPatch(calloutStyle, 'callout'));
+              }}
+            >
+              {msg('Reset to defaults')}
+            </button>
+          </div>
+        </div>
+      );
+    }
+    if (!toolType || !tools) return <p className="empty">{msg('Select a markup on the drawing, or pick a markup tool, to see its properties.')}</p>;
     return (
       <div className="props-panel">
         <div className="props-heading">
-          <strong>{MARKUP_LABELS[toolType]}</strong> tool defaults
+          {keyed(msgParts('{strong} tool defaults', { strong: <strong>{markupName(toolType)}</strong> }))}
         </div>
-        <p className="empty">Applies to new {MARKUP_LABELS[toolType].toLowerCase()} markups.</p>
+        <p className="empty">{msg('Applies to new {kind} markups.', { kind: markupName(toolType) })}</p>
         <StyleEditor
           style={toolsState.styles[toolType]}
           type={toolType}
@@ -85,7 +129,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
         />
         <div className="props-actions">
           <button className="btn" onClick={() => tools.setDefaultStyle(toolType, resetPatch(toolsState.styles[toolType], toolType))}>
-            Reset to defaults
+            {msg('Reset to defaults')}
           </button>
         </div>
       </div>
@@ -99,6 +143,11 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
   const scale = cellContext.scaleOf(m);
   const value = isMeasureKind(m.type) ? measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint) : null;
   const types = [...new Set(chosen.map((c) => c.type))];
+  const cloudPlusSel = isCloudPlusSelection(chosen);
+  const clouds = cloudPlusSel ? chosen.filter((c) => c.type === 'cloud') : [];
+  const callouts = cloudPlusSel ? chosen.filter((c) => c.type === 'callout') : [];
+  const cloudIds = clouds.map((c) => c.id);
+  const calloutIds = callouts.map((c) => c.id);
   const caps = intersectCaps(types.map(styleCapabilities));
   const ids = chosen.map((c) => c.id);
   const disabled = readOnly || !tools;
@@ -117,27 +166,29 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
     <div className="props-panel">
       {chosen.length > 1 && (
         <p className="empty">
-          {chosen.length} selected · changes apply to all{types.length > 1 ? ` (${types.map((t) => MARKUP_LABELS[t]).join(', ')})` : ''}.
+          {types.length > 1
+            ? msg('{count} selected · changes apply to all ({kinds}).', { count: chosen.length, kinds: types.map((t) => markupName(t)).join(', ') })
+            : msg('{count} selected · changes apply to all.', { count: chosen.length })}
         </p>
       )}
-      <Section title="General">
+      <Section title={msg('General')}>
         <dl>
-          <dt>Type</dt>
-          <dd>{MARKUP_LABELS[m.type]}</dd>
-          <dt>Page</dt>
+          <dt>{msg('Type')}</dt>
+          <dd>{markupName(m.type)}</dd>
+          <dt>{msg('Page')}</dt>
           <dd>{m.pageIndex + 1}</dd>
-          <dt>Author</dt>
+          <dt>{msg('Author')}</dt>
           <dd>{m.author}</dd>
-          <dt>Modified</dt>
+          <dt>{msg('Modified')}</dt>
           <dd>{new Date(m.modifiedAt).toLocaleString()}</dd>
           {value !== null && isMeasureKind(m.type) && (
             <>
-              <dt>Measurement</dt>
+              <dt>{msg('Measurement')}</dt>
               <dd>{formatMeasure(m.type, value, scale, measureProps(m))}</dd>
             </>
           )}
         </dl>
-        <Row label="Subject">
+        <Row label={msg('Subject')}>
           <input
             key={`${m.id}:${m.subject ?? ''}`}
             defaultValue={m.subject ?? ''}
@@ -152,11 +203,11 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
             }}
           />
         </Row>
-        <Row label="Label">
+        <Row label={msg('Label')}>
           <input
             key={`${m.id}:${markupLabel(m)}`}
             defaultValue={markupLabel(m)}
-            placeholder="Category, e.g. Tile 1"
+            placeholder={msg('Category, e.g. Tile 1')}
             disabled={readOnly}
             onBlur={(e) => {
               const v = e.target.value.trim();
@@ -167,7 +218,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
             }}
           />
         </Row>
-        <Row label="Status">
+        <Row label={msg('Status')}>
           <select
             value={m.status}
             disabled={statusReadOnly}
@@ -183,7 +234,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
             ))}
           </select>
         </Row>
-        <Row label="Checked" title="A review mark, separate from the status (Bluebeam's checkmark)">
+        <Row label={msg('Checked')} title={msg('A review mark, separate from the status (Bluebeam\'s checkmark)')}>
           <input
             type="checkbox"
             checked={!!m.checked}
@@ -194,7 +245,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
             }}
           />
         </Row>
-        <Row label="Comment">
+        <Row label={msg('Comment')}>
           <input
             key={`${m.id}:${m.comment ?? ''}`}
             defaultValue={m.comment ?? ''}
@@ -207,7 +258,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
       </Section>
       {tools && !readOnly && !chosen.some((c) => c.locked) && <ArrangeSection chosen={chosen} tools={tools} />}
       {chosen.length === 1 && m.stamp?.form && (
-        <Section title="Stamp Fields">
+        <Section title={msg('Stamp Fields')}>
           <StampFieldsForm
             fields={m.stamp.form.fields}
             values={m.stamp.form.values}
@@ -222,11 +273,11 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
         </Section>
       )}
       {chosen.length === 1 && m.type === 'ellipticalArc' && (
-        <Section title="Arc">
+        <Section title={msg('Arc')}>
           {(['Start', 'End'] as const).map((label, k) => {
             const angles = m.arcAngles ?? [0, 180];
             return (
-              <Row key={label} label={`${label} angle`} title="Degrees counter-clockwise from east, as on paper">
+              <Row key={label} label={label === 'Start' ? msg('Start angle') : msg('End angle')} title={msg('Degrees counter-clockwise from east, as on paper')}>
                 <NumberField
                   value={angles[k]}
                   min={-360}
@@ -251,15 +302,15 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
         <MeasurementSection m={m} scale={scale} store={store} tools={tools} readOnly={readOnly} />
       )}
       {m.signature && (
-        <Section title="Signature">
+        <Section title={msg('Signature')}>
           <dl>
-            <dt>Signed by</dt>
+            <dt>{msg('Signed by')}</dt>
             <dd>{m.signature.signer}</dd>
-            <dt>Signed</dt>
+            <dt>{msg('Signed')}</dt>
             <dd>{new Date(m.signature.signedAt).toLocaleString()}</dd>
             {m.signature.reason && (
               <>
-                <dt>Reason</dt>
+                <dt>{msg('Reason')}</dt>
                 <dd>{m.signature.reason}</dd>
               </>
             )}
@@ -268,44 +319,67 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
       )}
       {cellContext.columns.length > 0 && <CustomFields markup={m} ids={ids} store={store} readOnly={readOnly} cellContext={cellContext} />}
       {cellSel && tools && (
-        <Section title="Cells">
+        <Section title={msg('Cells')}>
           <p className="empty">
-            {cellSel.range.rowSpan * cellSel.range.colSpan === 1 ? `Row ${cellSel.range.row + 1}, column ${cellSel.range.col + 1}` : `${cellSel.range.rowSpan} rows by ${cellSel.range.colSpan} columns`}: font settings below apply to just these cells.
+            {cellSel.range.rowSpan * cellSel.range.colSpan === 1
+              ? msg('Row {row}, column {column}: font settings below apply to just these cells.', { row: cellSel.range.row + 1, column: cellSel.range.col + 1 })
+              : msg('{rows, plural, one {# row} other {# rows}} by {columns, plural, one {# column} other {# columns}}: font settings below apply to just these cells.', { rows: cellSel.range.rowSpan, columns: cellSel.range.colSpan })}
           </p>
           <fieldset className="props-style" disabled={disabled}>
-            <Row label="Cell fill">
+            <Row label={msg('Cell fill')}>
               <label className="inline">
                 <input type="checkbox" checked={!!cellFill} onChange={(e) => tools.applyCellStyle({ fill: e.target.checked ? '#fef9c3' : undefined })} />
-                {cellFill ? '' : 'None'}
+                {cellFill ? '' : msg('None')}
               </label>
               {cellFill && <input type="color" value={cellFill} onChange={(e) => tools.applyCellStyle({ fill: e.target.value })} />}
             </Row>
             <div className="props-actions">
-              <button className="btn" title="Take the font, colour and fill of these cells back to the table's" onClick={() => tools.clearCellFormatting()}>
-                Clear cell formatting
+              <button className="btn" title={msg('Take the font, colour and fill of these cells back to the table\'s')} onClick={() => tools.clearCellFormatting()}>
+                {msg('Clear cell formatting')}
               </button>
             </div>
           </fieldset>
         </Section>
       )}
-      <StyleEditor style={shownStyle} type={m.type} caps={caps} disabled={disabled} markups={markups} segments={types.every((t) => t === 'polylength')} onChange={changeStyle} />
+      <StyleEditor
+        style={shownStyle}
+        type={m.type}
+        caps={caps}
+        disabled={disabled}
+        markups={markups}
+        segments={types.every((t) => t === 'polylength')}
+        onChange={changeStyle}
+        onPreview={disabled ? undefined : (patch) => tools?.previewStyle(patch, cellSel ? 'table' : undefined)}
+        cloudPlus={
+          cloudPlusSel
+            ? {
+                cloudStyle: clouds[0]!.style,
+                calloutStyle: callouts[0]!.style,
+                onCloudChange: (patch) => tools?.applyStyle(cloudIds, patch),
+                onCalloutChange: (patch) => tools?.applyStyle(calloutIds, patch),
+                onCloudPreview: disabled ? undefined : (patch) => tools?.previewStyle(patch, 'cloud'),
+                onCalloutPreview: disabled ? undefined : (patch) => tools?.previewStyle(patch, 'callout'),
+              }
+            : undefined
+        }
+      />
       {tools && (
         <div className="props-actions">
           {types.length === 1 && (
-            <button className="btn" title={`Use this style for new ${MARKUP_LABELS[m.type].toLowerCase()} markups`} onClick={() => tools.setDefaultStyle(m.type, { ...m.style })}>
-              Set as default
+            <button className="btn" title={msg('Use this style for new {kind} markups', { kind: markupName(m.type) })} onClick={() => tools.setDefaultStyle(m.type, { ...m.style })}>
+              {msg('Set as default')}
             </button>
           )}
           <button
             className="btn"
             disabled={disabled}
-            title="Restore each markup's default appearance"
+            title={msg('Restore each markup\'s default appearance')}
             onClick={() => {
               store?.checkpoint();
               for (const c of chosen) tools.applyStyle([c.id], resetPatch(c.style, c.type));
             }}
           >
-            Reset style
+            {msg('Reset style')}
           </button>
         </div>
       )}
@@ -319,37 +393,37 @@ function ArrangeSection({ chosen, tools }: { chosen: Markup[]; tools: MarkupTool
   const angle = chosen[0]!.rotation ?? 0;
   const sameAngle = chosen.every((c) => (c.rotation ?? 0) === angle);
   const aligns: { how: Alignment; label: string; icon: string }[] = [
-    { how: 'left', label: 'Align left edges', icon: '⇤' },
-    { how: 'center', label: 'Align centres horizontally', icon: '↔' },
-    { how: 'right', label: 'Align right edges', icon: '⇥' },
-    { how: 'top', label: 'Align top edges', icon: '⤒' },
-    { how: 'middle', label: 'Align centres vertically', icon: '↕' },
-    { how: 'bottom', label: 'Align bottom edges', icon: '⤓' },
+    { how: 'left', label: msg('Align left edges'), icon: '⇤' },
+    { how: 'center', label: msg('Align centres horizontally'), icon: '↔' },
+    { how: 'right', label: msg('Align right edges'), icon: '⇥' },
+    { how: 'top', label: msg('Align top edges'), icon: '⤒' },
+    { how: 'middle', label: msg('Align centres vertically'), icon: '↕' },
+    { how: 'bottom', label: msg('Align bottom edges'), icon: '⤓' },
   ];
   return (
-    <Section title="Arrange">
+    <Section title={msg('Arrange')}>
       {rotatable && (
-        <Row label="Rotation" title="Degrees clockwise about the centre of the markup. You can also type a road grade: 2% or 1:50 (a positive grade rises to the right, a negative grade such as -2% or -1:50 falls to the right).">
+        <Row label={msg('Rotation')} title={msg('Degrees clockwise about the centre of the markup. You can also type a road grade: 2% or 1:50 (a positive grade rises to the right, a negative grade such as -2% or -1:50 falls to the right).')}>
           <RotationField value={sameAngle ? angle : undefined} onApply={(v) => tools.setRotation(v)} />
-          <button className="btn" title="Turn 90° anticlockwise" onClick={() => tools.setRotation(angle - 90)}>
+          <button className="btn" title={msg('Turn 90° anticlockwise')} onClick={() => tools.setRotation(angle - 90)}>
             ↺
           </button>
-          <button className="btn" title="Turn 90° clockwise" onClick={() => tools.setRotation(angle + 90)}>
+          <button className="btn" title={msg('Turn 90° clockwise')} onClick={() => tools.setRotation(angle + 90)}>
             ↻
           </button>
         </Row>
       )}
-      <Row label="Flip" title="Mirror across the centre of the selection">
-        <button className="btn" title="Flip horizontal (left to right)" onClick={() => tools.flipSelected('horizontal')}>
-          ⇋ Horizontal
+      <Row label={msg('Flip')} title={msg('Mirror across the centre of the selection')}>
+        <button className="btn" title={msg('Flip horizontal (left to right)')} onClick={() => tools.flipSelected('horizontal')}>
+          {msg('⇋ Horizontal')}
         </button>
-        <button className="btn" title="Flip vertical (top to bottom)" onClick={() => tools.flipSelected('vertical')}>
-          ⥮ Vertical
+        <button className="btn" title={msg('Flip vertical (top to bottom)')} onClick={() => tools.flipSelected('vertical')}>
+          {msg('⥮ Vertical')}
         </button>
       </Row>
       {chosen.length > 1 && (
         <>
-          <Row label="Align" title="Line the selection up along its combined bounds">
+          <Row label={msg('Align')} title={msg('Line the selection up along its combined bounds')}>
             <span className="seg">
               {aligns.map((a) => (
                 <button key={a.how} className="btn" title={a.label} aria-label={a.label} onClick={() => tools.alignSelected(a.how)}>
@@ -359,12 +433,12 @@ function ArrangeSection({ chosen, tools }: { chosen: Markup[]; tools: MarkupTool
             </span>
           </Row>
           {chosen.length > 2 && (
-            <Row label="Distribute" title="Space the selection evenly between its outermost markups">
-              <button className="btn" title="Even gaps left to right" onClick={() => tools.distributeSelected('horizontal')}>
-                ⇹ Horizontal
+            <Row label={msg('Distribute')} title={msg('Space the selection evenly between its outermost markups')}>
+              <button className="btn" title={msg('Even gaps left to right')} onClick={() => tools.distributeSelected('horizontal')}>
+                {msg('⇹ Horizontal')}
               </button>
-              <button className="btn" title="Even gaps top to bottom" onClick={() => tools.distributeSelected('vertical')}>
-                ⇳ Vertical
+              <button className="btn" title={msg('Even gaps top to bottom')} onClick={() => tools.distributeSelected('vertical')}>
+                {msg('⇳ Vertical')}
               </button>
             </Row>
           )}
@@ -378,7 +452,7 @@ function ArrangeSection({ chosen, tools }: { chosen: Markup[]; tools: MarkupTool
 function CustomFields({ markup: m, ids, store, readOnly, cellContext }: { markup: Markup; ids: string[]; store: MarkupStore | null; readOnly: boolean; cellContext: CellContext }) {
   const cells = cellsFor(m, cellContext);
   return (
-    <Section title="Custom Columns">
+    <Section title={msg('Custom Columns')}>
       {cellContext.columns.map((c) => {
         const raw = m.fields?.[c.id] ?? '';
         const commit = (v: string) => {
@@ -456,6 +530,15 @@ function intersectCaps(list: StyleCapabilities[]): StyleCapabilities {
   return out;
 }
 
+interface CloudPlusEditor {
+  cloudStyle: MarkupStyle;
+  calloutStyle: MarkupStyle;
+  onCloudChange: (patch: Partial<MarkupStyle>) => void;
+  onCalloutChange: (patch: Partial<MarkupStyle>) => void;
+  onCloudPreview?: (patch: Partial<MarkupStyle> | null) => void;
+  onCalloutPreview?: (patch: Partial<MarkupStyle> | null) => void;
+}
+
 interface EditorProps {
   style: MarkupStyle;
   type: MarkupType;
@@ -465,36 +548,92 @@ interface EditorProps {
   /** Offer the segment-lengths toggle: every markup edited is a polylength. */
   segments: boolean;
   onChange: (patch: Partial<MarkupStyle>) => void;
+  onPreview?: (patch: Partial<MarkupStyle> | null) => void;
+  /** Cloud+ pair (cloud + callout): cloud and text box widths, border, arcs and font edit their own part. */
+  cloudPlus?: CloudPlusEditor;
 }
 
-function StyleEditor({ style, type, caps, disabled, markups, segments, onChange }: EditorProps) {
+const WHOLE_OPACITY_TYPES = new Set<MarkupType>(['highlighter', 'textHighlight', 'image', 'signature', 'stamp']);
+
+function StyleEditor({ style, type, caps, disabled, markups, segments, onChange, onPreview, cloudPlus }: EditorProps) {
   const [startCap, endCap] = lineEnds({ type, style });
   const set = <K extends keyof MarkupStyle>(key: K, value: MarkupStyle[K] | undefined) => onChange({ [key]: value } as Partial<MarkupStyle>);
+  const previewColor = <K extends keyof MarkupStyle>(key: K, clearUndefined = false) =>
+    onPreview ? (c: string | null | undefined) => onPreview(c === undefined ? null : ({ [key]: clearUndefined ? (c ?? undefined) : c } as Partial<MarkupStyle>)) : undefined;
   const measure = isMeasureKind(type);
   const hatchOn = !!resolveHatch(style.hatch, style.hatchSpec);
   const hatchValue = style.hatch ?? 'none';
   const { hatchSets } = useWorkspace();
+  const fontStyle = cloudPlus ? cloudPlus.calloutStyle : style;
+  const fontCaps = cloudPlus ? styleCapabilities('callout') : caps;
+  const fontSet = <K extends keyof MarkupStyle>(key: K, value: MarkupStyle[K] | undefined) =>
+    cloudPlus ? cloudPlus.onCalloutChange({ [key]: value } as Partial<MarkupStyle>) : set(key, value);
+  const fontPreview = cloudPlus ? cloudPlus.onCalloutPreview : onPreview;
+  const fontPreviewColor = <K extends keyof MarkupStyle>(key: K, clearUndefined = false) =>
+    fontPreview ? (c: string | null | undefined) => fontPreview(c === undefined ? null : ({ [key]: clearUndefined ? (c ?? undefined) : c } as Partial<MarkupStyle>)) : undefined;
   return (
     <fieldset className="props-style" disabled={disabled}>
-      <Section title="Appearance">
-        <Row label="Line color" title="The outline of the shape, or the line itself">
-          <ColorMenu wide label="Line color" short="Line" icon={STYLE_ICONS.line} value={style.stroke} onChange={(c) => c && set('stroke', c)} />
+      <Section title={msg('Appearance')}>
+        <Row label={msg('Line color')} title={msg('The outline of the shape, or the line itself')}>
+          <ColorMenu
+            wide
+            label={msg('Line color')}
+            short={msg('Line')}
+            icon={STYLE_ICONS.line}
+            value={style.stroke}
+            onChange={(c) => c && set('stroke', c)}
+            onPreview={onPreview ? (c) => onPreview(c === undefined ? null : c ? { stroke: c } : null) : undefined}
+          />
         </Row>
-        {!(type === 'text' && (style.noBox || style.borderless)) && (
-          <Row label="Line width">
-            <NumberField value={style.width} min={0} max={200} step={0.25} unit="pt" onChange={(v) => set('width', v)} />
-          </Row>
+        {cloudPlus ? (
+          <>
+            <Row label={msg('Cloud line width')}>
+              <NumberField value={cloudPlus.cloudStyle.width} min={0} max={200} step={0.25} unit="pt" onChange={(v) => cloudPlus.onCloudChange({ width: v })} />
+            </Row>
+            <Row label={msg('Text box line width')}>
+              <NumberField value={cloudPlus.calloutStyle.width} min={0} max={200} step={0.25} unit="pt" onChange={(v) => cloudPlus.onCalloutChange({ width: v })} />
+            </Row>
+            <Row label={msg('Text box border')} title={msg('Draw an outline around the text box (its fill draws either way)')}>
+              <input
+                type="checkbox"
+                checked={!cloudPlus.calloutStyle.noBox && !cloudPlus.calloutStyle.borderless}
+                onChange={(e) => cloudPlus.onCalloutChange(e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
+              />
+            </Row>
+          </>
+        ) : (
+          <>
+            {!(type === 'text' && (style.noBox || style.borderless)) && (
+              <Row label={msg('Line width')}>
+                <NumberField value={style.width} min={0} max={200} step={0.25} unit="pt" onChange={(v) => set('width', v)} />
+              </Row>
+            )}
+            {(type === 'text' || type === 'callout') && (
+              <Row label={msg('Border')} title={msg('Draw an outline around the text box (its fill draws either way)')}>
+                <input
+                  type="checkbox"
+                  checked={!style.noBox && !style.borderless}
+                  onChange={(e) => onChange(e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
+                />
+              </Row>
+            )}
+          </>
         )}
         {caps.dash && (
-          <Row label="Line style">
-            <LineStyleSelect style={style} markups={markups} onChange={onChange} />
+          <Row label={msg('Line style')}>
+            <LineStyleSelect style={style} markups={markups} disabled={disabled} onChange={onChange} onPreview={onPreview} />
           </Row>
         )}
-        <Row label="Opacity">
+        {!WHOLE_OPACITY_TYPES.has(type) && (
+          <Row label={msg('Line opacity')} title={msg('Opacity of the outer line alone')}>
+            <Percent value={style.strokeOpacity ?? 1} onChange={(v) => set('strokeOpacity', v >= 1 ? undefined : v)} />
+          </Row>
+        )}
+        <Row label={msg('Opacity')}>
           <Percent value={style.opacity} onChange={(v) => set('opacity', v)} />
         </Row>
         {caps.blend && (
-          <Row label="Blend mode" title="How the markup mixes with what is underneath it">
+          <Row label={msg('Blend mode')} title={msg('How the markup mixes with what is underneath it')}>
             <select value={effectiveBlendMode({ type, style })} onChange={(e) => set('blendMode', e.target.value as BlendMode)}>
               {BLEND_MODES.map((b) => (
                 <option key={b.value} value={b.value}>
@@ -505,20 +644,59 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
           </Row>
         )}
         {caps.fill && (
-          <>
-            <Row label="Fill color" title="The inside of the shape">
-              <ColorMenu wide label="Fill color" short="Fill" icon={STYLE_ICONS.fill} value={style.fill ?? null} noneLabel="No fill" onChange={(c) => set('fill', c)} />
-            </Row>
-            {(style.fill || hatchOn) && (
-              <Row label="Fill opacity">
-                <Percent value={style.fillOpacity ?? 1} onChange={(v) => set('fillOpacity', v)} />
+          cloudPlus ? (
+            <>
+              <Row label={msg('Cloud fill')} title={msg('The inside of the cloud')}>
+                <ColorMenu
+                  wide
+                  label={msg('Cloud fill')}
+                  short={msg('Cloud')}
+                  icon={STYLE_ICONS.fill}
+                  value={cloudPlus.cloudStyle.fill ?? null}
+                  noneLabel={msg('No fill')}
+                  onChange={(c) => cloudPlus.onCloudChange({ fill: c })}
+                  onPreview={cloudPlus.onCloudPreview ? (c) => cloudPlus.onCloudPreview!(c === undefined ? null : { fill: c }) : undefined}
+                />
               </Row>
-            )}
-          </>
+              {(cloudPlus.cloudStyle.fill || hatchOn) && (
+                <Row label="Cloud fill opacity">
+                  <Percent value={cloudPlus.cloudStyle.fillOpacity ?? 1} onChange={(v) => cloudPlus.onCloudChange({ fillOpacity: v })} />
+                </Row>
+              )}
+              <Row label="Text box fill" title="The background of the text box">
+                <ColorMenu
+                  wide
+                  label="Text box fill"
+                  short="Text box"
+                  icon={STYLE_ICONS.fill}
+                  value={cloudPlus.calloutStyle.fill ?? null}
+                  noneLabel="No fill"
+                  onChange={(c) => cloudPlus.onCalloutChange({ fill: c })}
+                  onPreview={cloudPlus.onCalloutPreview ? (c) => cloudPlus.onCalloutPreview!(c === undefined ? null : { fill: c }) : undefined}
+                />
+              </Row>
+              {cloudPlus.calloutStyle.fill && (
+                <Row label="Text box fill opacity">
+                  <Percent value={cloudPlus.calloutStyle.fillOpacity ?? 1} onChange={(v) => cloudPlus.onCalloutChange({ fillOpacity: v })} />
+                </Row>
+              )}
+            </>
+          ) : (
+            <>
+              <Row label="Fill color" title="The inside of the shape">
+                <ColorMenu wide label="Fill color" short="Fill" icon={STYLE_ICONS.fill} value={style.fill ?? null} noneLabel="No fill" onChange={(c) => set('fill', c)} onPreview={previewColor('fill')} />
+              </Row>
+              {(style.fill || hatchOn) && (
+                <Row label="Fill opacity">
+                  <Percent value={style.fillOpacity ?? 1} onChange={(v) => set('fillOpacity', v)} />
+                </Row>
+              )}
+            </>
+          )
         )}
         {caps.hatch && (
           <>
-            <Row label="Hatch">
+            <Row label={msg('Hatch')}>
               <select
                 value={hatchValue}
                 onChange={(e) => {
@@ -545,49 +723,69 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
                   </optgroup>
                 ))}
                 {hatchValue !== 'none' && !HATCH_PATTERNS.some((h) => h.value === hatchValue) && !hatchSets.some((s) => s.hatches.some((h) => h.id === hatchValue)) && (
-                  <option value={hatchValue}>{hatchValue.startsWith('set:') ? customHatchName(hatchValue) : (LEGACY_HATCH_LABELS[hatchValue] ?? hatchValue)}</option>
+                  <option value={hatchValue}>{hatchValue.startsWith('set:') ? customHatchName(hatchValue) : (LEGACY_HATCH_LABELS()[hatchValue] ?? hatchValue)}</option>
                 )}
               </select>
               {hatchOn && style.hatch && <HatchSwatch pattern={style.hatch} spec={style.hatchSpec} color={style.hatchColor ?? style.stroke} />}
             </Row>
             {hatchOn && (
               <>
-                <Row label="Hatch color">
-                  <ColorMenu wide label="Hatch color" short="Hatch" icon={STYLE_ICONS.hatch} value={style.hatchColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('hatchColor', c ?? undefined)} />
+                <Row label={msg('Hatch color')}>
+                  <ColorMenu wide label={msg('Hatch color')} short={msg('Hatch')} icon={STYLE_ICONS.hatch} value={style.hatchColor ?? null} fallback={style.stroke} noneLabel={msg('Same as line')} onChange={(c) => set('hatchColor', c ?? undefined)} onPreview={previewColor('hatchColor', true)} />
                 </Row>
-                <Row label="Scale" title="50 is half the pattern, 200 is twice. 100 is a quarter inch.">
+                <Row label={msg('Scale')} title={msg('50 is half the pattern, 200 is twice. 100 is a quarter inch.')}>
                   <NumberField value={style.hatchScale ?? 100} min={50} max={200} step={1} unit="%" onChange={(v) => set('hatchScale', v ?? 100)} />
                 </Row>
               </>
             )}
           </>
         )}
-        {caps.arcRadius === 'Arc size' && (
-          <Row label="Arcs">
-            <select value={style.cloudInside ? 'inside' : 'outside'} onChange={(e) => set('cloudInside', e.target.value === 'inside' || undefined)}>
-              <option value="outside">Bulge outward</option>
-              <option value="inside">Bulge inward</option>
+        {(caps.arcRadius === 'Arc size' || cloudPlus) && (
+          <Row label={msg('Arcs')}>
+            <select
+              value={(cloudPlus ? cloudPlus.cloudStyle : style).cloudInside ? 'inside' : 'outside'}
+              onChange={(e) => {
+                const v = e.target.value === 'inside' || undefined;
+                if (cloudPlus) cloudPlus.onCloudChange({ cloudInside: v });
+                else set('cloudInside', v);
+              }}
+            >
+              <option value="outside">{msg('Bulge outward')}</option>
+              <option value="inside">{msg('Bulge inward')}</option>
             </select>
           </Row>
         )}
-        {caps.arcRadius && (
-          <Row label={caps.arcRadius}>
-            <NumberField value={style.arcRadius} placeholder="Auto" min={0.5} max={200} step={0.5} unit="pt" onChange={(v) => set('arcRadius', v)} />
+        {caps.arcRadius === 'Marker size' && (
+          <Row label={msg('Marker shape')} title={msg('The shape or custom symbol placed at each counted item')}>
+            <CountSymbolSelect style={style} markups={markups} disabled={disabled} onChange={onChange} onPreview={onPreview} />
+          </Row>
+        )}
+        {(caps.arcRadius || cloudPlus) && (
+          <Row label={caps.arcRadius === 'Marker size' ? msg('Marker size') : msg('Arc size')}>
+            <NumberField
+              value={(cloudPlus ? cloudPlus.cloudStyle : style).arcRadius}
+              placeholder={msg('Auto')}
+              min={0.5}
+              max={200}
+              step={0.5}
+              unit="pt"
+              onChange={(v) => (cloudPlus ? cloudPlus.onCloudChange({ arcRadius: v }) : set('arcRadius', v))}
+            />
           </Row>
         )}
       </Section>
 
       {(caps.lineEnds || caps.leader) && (
-        <Section title={type === 'length' ? 'Dimension' : 'Line endings'}>
+        <Section title={type === 'length' ? msg('Dimension') : msg('Line endings')}>
           {caps.lineEnds && (
             <>
-              <Row label="Start">
+              <Row label={msg('Start')}>
                 <EndingSelect value={startCap} onChange={(v) => set('startCap', v)} />
               </Row>
-              <Row label="End">
+              <Row label={msg('End')}>
                 <EndingSelect value={endCap} onChange={(v) => set('endCap', v)} />
               </Row>
-              <Row label="Ending size">
+              <Row label={msg('Ending size')}>
                 <input
                   type="range"
                   min={25}
@@ -601,78 +799,95 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange 
             </>
           )}
           {caps.leader && (
-            <Row label="Offset" title="Distance from the measured points to the dimension line, with extension lines (negative flips the side)">
+            <Row label={msg('Offset')} title={msg('Distance from the measured points to the dimension line, with extension lines (negative flips the side)')}>
               <NumberField value={style.leader ?? 0} min={-500} max={500} step={1} unit="pt" onChange={(v) => set('leader', v || undefined)} />
             </Row>
           )}
           {caps.leader && (
-            <Row label="Text slide" title="How far the text sits along the dimension line from its middle (drag the text's yellow knob); past an end the line runs out to it">
+            <Row label={msg('Text slide')} title={msg('How far the text sits along the dimension line from its middle (drag the text\'s yellow knob); past an end the line runs out to it')}>
               <NumberField value={style.labelOffset ?? 0} min={-2000} max={2000} step={1} unit="pt" onChange={(v) => set('labelOffset', v || undefined)} />
             </Row>
           )}
           {caps.leader && (
-            <Row label="Text turn" title="Turns the text, clockwise (or drag the knob above the text)">
+            <Row label={msg('Text turn')} title={msg('Turns the text, clockwise (or drag the knob above the text)')}>
               <NumberField value={style.labelRotation ?? 0} min={-180} max={180} step={1} unit="°" onChange={(v) => set('labelRotation', v || undefined)} />
             </Row>
           )}
         </Section>
       )}
 
-      {caps.font && (
-        <Section title={measure || caps.label ? 'Label text' : 'Font'}>
-          <Row label="Font">
-            <FontPicker value={style.fontFamily} onChange={(family) => set('fontFamily', family === 'sans' ? undefined : (family as FontFamily))} />
+      {(caps.font || cloudPlus) && (
+        <Section title={measure || fontCaps.label ? msg('Label text') : msg('Font')}>
+          <Row label={msg('Font')}>
+            <FontPicker
+              value={fontStyle.fontFamily}
+              disabled={disabled}
+              onChange={(family) => fontSet('fontFamily', family === 'sans' ? undefined : (family as FontFamily))}
+              onPreview={fontPreview ? (family) => fontPreview(family === null ? null : { fontFamily: family === 'sans' ? undefined : (family as FontFamily) }) : undefined}
+            />
           </Row>
-          <Row label="Size">
-            <NumberField value={style.fontSize} placeholder="Auto" min={1} max={288} step={0.5} unit="pt" onChange={(v) => set('fontSize', v)} />
+          <Row label={msg('Size')}>
+            <ComboField
+              title={msg('Font size')}
+              integer
+              value={fontStyle.fontSize !== undefined ? Math.round(fontStyle.fontSize) : undefined}
+              placeholder={msg('Auto')}
+              options={FONT_SIZES}
+              min={2}
+              max={288}
+              unit="pt"
+              disabled={disabled}
+              onChange={(v) => fontSet('fontSize', Math.round(v))}
+              onPreview={fontPreview ? (v) => fontPreview(v === null ? null : { fontSize: Math.round(v) }) : undefined}
+            />
           </Row>
-          <Row label="Style">
+          <Row label={msg('Style')}>
             <span className="seg">
-              <Toggle on={style.bold ?? measure} label="B" title="Bold" className="b" onChange={(v) => set('bold', v)} />
-              <Toggle on={!!style.italic} label="I" title="Italic" className="i" onChange={(v) => set('italic', v || undefined)} />
-              <Toggle on={!!style.underline} label="U" title="Underline" className="u" onChange={(v) => set('underline', v || undefined)} />
-              <Toggle on={!!style.strikethrough} label="S" title="Strikethrough" className="s" onChange={(v) => set('strikethrough', v || undefined)} />
+              <Toggle on={fontStyle.bold ?? measure} label="B" title={msg('Bold')} className="b" onChange={(v) => fontSet('bold', v)} />
+              <Toggle on={!!fontStyle.italic} label="I" title={msg('Italic')} className="i" onChange={(v) => fontSet('italic', v || undefined)} />
+              <Toggle on={!!fontStyle.underline} label="U" title={msg('Underline')} className="u" onChange={(v) => fontSet('underline', v || undefined)} />
+              <Toggle on={!!fontStyle.strikethrough} label="S" title={msg('Strikethrough')} className="s" onChange={(v) => fontSet('strikethrough', v || undefined)} />
             </span>
           </Row>
-          <Row label="Text color">
-            <ColorMenu wide label="Text color" short="Text" icon={STYLE_ICONS.line} value={style.textColor ?? null} fallback={style.stroke} noneLabel="Same as line" onChange={(c) => set('textColor', c ?? undefined)} />
+          <Row label={msg('Text color')}>
+            <ColorMenu wide label={msg('Text color')} short={msg('Text')} icon={STYLE_ICONS.line} value={fontStyle.textColor ?? null} fallback={fontStyle.stroke} noneLabel={msg('Same as line')} onChange={(c) => fontSet('textColor', c ?? undefined)} onPreview={fontPreviewColor('textColor', true)} />
           </Row>
-          {caps.textLayout && (
+          {fontCaps.textLayout && (
             <>
-              <Row label="Align">
+              <Row label={msg('Align')}>
                 <span className="seg">
                   {(['left', 'center', 'right', 'justify'] as TextAlign[]).map((a) => (
-                    <Toggle key={a} on={(style.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={a === 'justify' ? 'Justified' : `Align ${a}`} onChange={() => set('textAlign', a === 'left' ? undefined : a)} />
+                    <Toggle key={a} on={(fontStyle.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={a === 'justify' ? msg('Justified') : a === 'left' ? msg('Align left') : a === 'center' ? msg('Align center') : msg('Align right')} onChange={() => fontSet('textAlign', a === 'left' ? undefined : a)} />
                   ))}
                 </span>
               </Row>
-              <Row label="Vertical">
+              <Row label={msg('Vertical')}>
                 <span className="seg">
                   {(['top', 'middle', 'bottom'] as VerticalAlign[]).map((a) => (
-                    <Toggle key={a} on={(style.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={`Align ${a}`} onChange={() => set('verticalAlign', a === 'top' ? undefined : a)} />
+                    <Toggle key={a} on={(fontStyle.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={a === 'top' ? msg('Align top') : a === 'middle' ? msg('Align middle') : msg('Align bottom')} onChange={() => fontSet('verticalAlign', a === 'top' ? undefined : a)} />
                   ))}
                 </span>
               </Row>
-              <Row label="Line spacing">
-                <LineSpacing key={markups?.map((x) => x.id).join(',')} value={style.lineHeight} onChange={(v) => set('lineHeight', v)} />
+              <Row label={msg('Line spacing')}>
+                <LineSpacing key={markups?.map((x) => x.id).join(',')} value={fontStyle.lineHeight} onChange={(v) => fontSet('lineHeight', v)} />
               </Row>
-              <Row label="Padding">
-                <NumberField value={style.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" onChange={(v) => set('textMargin', v)} />
+              <Row label={msg('Padding')}>
+                <NumberField value={fontStyle.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" onChange={(v) => fontSet('textMargin', v)} />
               </Row>
             </>
           )}
           {caps.label && (
             <>
-              <Row label="Show label">
+              <Row label={msg('Show label')}>
                 <input type="checkbox" checked={style.showLabel ?? true} onChange={(e) => set('showLabel', e.target.checked ? undefined : false)} />
               </Row>
               {segments && (
-                <Row label="Segment lengths">
+                <Row label={msg('Segment lengths')}>
                   <input type="checkbox" checked={style.showSegmentLabels ?? true} disabled={style.showLabel === false} onChange={(e) => set('showSegmentLabels', e.target.checked ? undefined : false)} />
                 </Row>
               )}
-              <Row label="Background">
-                <ColorMenu wide label="Label background" short="Background" icon={STYLE_ICONS.fill} value={style.labelBackground === undefined ? '#ffffff' : style.labelBackground} noneLabel="No background" onChange={(c) => set('labelBackground', c)} />
+              <Row label={msg('Background')}>
+                <ColorMenu wide label={msg('Label background')} short={msg('Background')} icon={STYLE_ICONS.fill} value={style.labelBackground === undefined ? '#ffffff' : style.labelBackground} noneLabel={msg('No background')} onChange={(c) => set('labelBackground', c)} onPreview={previewColor('labelBackground')} />
               </Row>
             </>
           )}
@@ -686,13 +901,13 @@ export const ALIGN_ICONS: Record<TextAlign, string> = { left: '⇤', center: '�
 export const VALIGN_ICONS: Record<VerticalAlign, string> = { top: '⤒', middle: '↕', bottom: '⤓' };
 
 const SLOPE_KINDS: { value: Slope['kind']; label: string; unit: string }[] = [
-  { value: 'pitch', label: 'Pitch', unit: ':12' },
-  { value: 'degrees', label: 'Degrees', unit: '°' },
-  { value: 'percent', label: 'Grade %', unit: '%' },
-  { value: 'ratio', label: 'Rise:Run', unit: '' },
-  { value: 'elevation', label: 'Elevations', unit: 'm' },
-  { value: 'hip', label: 'Hip', unit: ':12' },
-  { value: 'valley', label: 'Valley', unit: ':12' },
+  { value: 'pitch', get label() { return msg('Pitch'); }, unit: ':12' },
+  { value: 'degrees', get label() { return msg('Degrees'); }, unit: '°' },
+  { value: 'percent', get label() { return msg('Grade %'); }, unit: '%' },
+  { value: 'ratio', get label() { return msg('Rise:Run'); }, unit: '' },
+  { value: 'elevation', get label() { return msg('Elevations'); }, unit: 'm' },
+  { value: 'hip', get label() { return msg('Hip'); }, unit: ':12' },
+  { value: 'valley', get label() { return msg('Valley'); }, unit: ':12' },
 ];
 
 /** A plane's slope as pitch (rise per 12), whatever it was entered as. */
@@ -753,9 +968,9 @@ function SlopeRows({ m, readOnly, update }: { m: Markup; readOnly: boolean; upda
   );
   return (
     <>
-      <Row label="Slope" title="Measured on plan; the slope gives the true length or area">
-        <select value={slope && slopeApplies(kind, slope) ? slope.kind : ''} disabled={readOnly} aria-label="Slope kind" onChange={(e) => set(e.target.value ? slopeOfKind(e.target.value as Slope['kind'], slope) : undefined)}>
-          <option value="">None</option>
+      <Row label={msg('Slope')} title={msg('Measured on plan; the slope gives the true length or area')}>
+        <select value={slope && slopeApplies(kind, slope) ? slope.kind : ''} disabled={readOnly} aria-label={msg('Slope kind')} onChange={(e) => set(e.target.value ? slopeOfKind(e.target.value as Slope['kind'], slope) : undefined)}>
+          <option value="">{msg('None')}</option>
           {kinds.map((k) => (
             <option key={k.value} value={k.value}>
               {k.label}
@@ -764,39 +979,39 @@ function SlopeRows({ m, readOnly, update }: { m: Markup; readOnly: boolean; upda
         </select>
         {slope && (slope.kind === 'pitch' || slope.kind === 'degrees' || slope.kind === 'percent') && (
           <>
-            {num('Slope', slope.value, (v) => set({ kind: slope.kind, value: v ?? 0 }))}
+            {num(msg('Slope'), slope.value, (v) => set({ kind: slope.kind, value: v ?? 0 }))}
             <span className="unit">{SLOPE_KINDS.find((k) => k.value === slope.kind)!.unit}</span>
           </>
         )}
         {slope?.kind === 'ratio' && (
           <>
-            {num('Rise', slope.rise, (v) => set({ ...slope, rise: v ?? 0 }))}:{num('Run', slope.run, (v) => set({ ...slope, run: v ?? 0 }))}
+            {num(msg('Rise'), slope.rise, (v) => set({ ...slope, rise: v ?? 0 }))}:{num(msg('Run'), slope.run, (v) => set({ ...slope, run: v ?? 0 }))}
           </>
         )}
       </Row>
       {slope?.kind === 'elevation' && (
         <>
-          <Row label="From" title="Level at the start, in meters">
-            {num('From level', slope.from, (v) => set({ ...slope, from: v ?? 0 }), { signed: true })}
+          <Row label={msg('From')} title={msg('Level at the start, in meters')}>
+            {num(msg('From level'), slope.from, (v) => set({ ...slope, from: v ?? 0 }), { signed: true })}
             <span className="unit">m</span>
           </Row>
-          <Row label="To" title="Level at the end, in meters">
-            {num('To level', slope.to, (v) => set({ ...slope, to: v ?? 0 }), { signed: true })}
+          <Row label={msg('To')} title={msg('Level at the end, in meters')}>
+            {num(msg('To level'), slope.to, (v) => set({ ...slope, to: v ?? 0 }), { signed: true })}
             <span className="unit">m</span>
           </Row>
           {QUANTITY[kind] === 'area' && (
-            <Row label="Run" title="The horizontal distance the rise happens over, in meters">
-              {num('Run', slope.run, (v) => set(v ? { ...slope, run: v } : { kind: 'elevation', from: slope.from, to: slope.to }), { optional: true })}
+            <Row label={msg('Run')} title={msg('The horizontal distance the rise happens over, in meters')}>
+              {num(msg('Run'), slope.run, (v) => set(v ? { ...slope, run: v } : { kind: 'elevation', from: slope.from, to: slope.to }), { optional: true })}
               <span className="unit">m</span>
             </Row>
           )}
-          {slopeNeedsRun(kind, slope) && <div className="prop-note">Add the run the rise is over: until then the area stays flat.</div>}
+          {slopeNeedsRun(kind, slope) && <div className="prop-note">{msg('Add the run the rise is over: until then the area stays flat.')}</div>}
         </>
       )}
       {(slope?.kind === 'hip' || slope?.kind === 'valley') && slopeApplies(kind, slope) && (
-        <Row label="Pitches" title="The two roof planes meeting at the line, as rise per 12 (square eaves corner)">
-          {num('First pitch', asPitch(slope.a), (v) => set({ ...slope, a: { kind: 'pitch', value: v ?? 0 } }))}
-          {num('Second pitch', slope.b ? asPitch(slope.b) : undefined, (v) => set(v === undefined ? { kind: slope.kind, a: slope.a } : { ...slope, b: { kind: 'pitch', value: v } }), { optional: true, placeholder: 'same as first' })}
+        <Row label={msg('Pitches')} title={msg('The two roof planes meeting at the line, as rise per 12 (square eaves corner)')}>
+          {num(msg('First pitch'), asPitch(slope.a), (v) => set({ ...slope, a: { kind: 'pitch', value: v ?? 0 } }))}
+          {num(msg('Second pitch'), slope.b ? asPitch(slope.b) : undefined, (v) => set(v === undefined ? { kind: slope.kind, a: slope.a } : { ...slope, b: { kind: 'pitch', value: v } }), { optional: true, placeholder: msg('same as first') })}
           <span className="unit">:12</span>
         </Row>
       )}
@@ -814,12 +1029,12 @@ function ManualSection({ m, scale, store, readOnly }: { m: Markup; scale: Scale;
   };
   const note = q.note ?? '';
   return (
-    <Section title="Manual Quantity">
-      <Row label="Kind">
+    <Section title={msg('Manual Quantity')}>
+      <Row label={msg('Kind')}>
         <select
           value={q.kind}
           disabled={readOnly}
-          aria-label="Kind"
+          aria-label={msg('Kind')}
           onChange={(e) => {
             // The number as typed carries over to the new kind's usual unit.
             const kind = e.target.value as ManualKind;
@@ -834,7 +1049,7 @@ function ManualSection({ m, scale, store, readOnly }: { m: Markup; scale: Scale;
           ))}
         </select>
       </Row>
-      <Row label="Value">
+      <Row label={msg('Value')}>
         <input
           key={`${m.id}:${q.kind}:${q.value}:${q.unit ?? ''}`}
           type="number"
@@ -842,7 +1057,7 @@ function ManualSection({ m, scale, store, readOnly }: { m: Markup; scale: Scale;
           min={0}
           defaultValue={manualEditValue(q)}
           disabled={readOnly}
-          aria-label="Value"
+          aria-label={msg('Value')}
           onBlur={(e) => {
             const v = e.target.value.trim() === '' ? NaN : Number(e.target.value);
             const next = makeManual(q.kind, v, q.unit, note);
@@ -853,7 +1068,7 @@ function ManualSection({ m, scale, store, readOnly }: { m: Markup; scale: Scale;
         <select
           value={MANUAL_UNITS[q.kind].some((u) => u.id === q.unit) ? q.unit : MANUAL_UNITS[q.kind][0]!.id}
           disabled={readOnly || q.kind === 'count'}
-          aria-label="Unit"
+          aria-label={msg('Unit')}
           onChange={(e) => set({ ...q, unit: e.target.value })}
         >
           {MANUAL_UNITS[q.kind].map((u) => (
@@ -863,12 +1078,12 @@ function ManualSection({ m, scale, store, readOnly }: { m: Markup; scale: Scale;
           ))}
         </select>
       </Row>
-      <Row label="Note">
+      <Row label={msg('Note')}>
         <input
           key={`${m.id}:${note}`}
           defaultValue={note}
           disabled={readOnly}
-          aria-label="Note"
+          aria-label={msg('Note')}
           onBlur={(e) => {
             const text = e.target.value.trim();
             if (text !== note) {
@@ -898,40 +1113,40 @@ function MeasurementSection({ m, scale, store, tools, readOnly }: { m: Markup; s
   };
   const holes = m.holes?.length ?? 0;
   return (
-    <Section title="Measurement">
+    <Section title={msg('Measurement')}>
       <dl>
         {d.length !== undefined && (
           <>
-            <dt>{q === 'length' ? 'Length' : 'Perimeter'}</dt>
+            <dt>{q === 'length' ? msg('Length') : msg('Perimeter')}</dt>
             <dd>{formatLength(d.length, scale)}</dd>
           </>
         )}
         {d.area !== undefined && (
           <>
-            <dt>Area</dt>
+            <dt>{msg('Area')}</dt>
             <dd>{formatArea(d.area, scale)}</dd>
           </>
         )}
         {d.volume !== undefined && (
           <>
-            <dt>Volume</dt>
+            <dt>{msg('Volume')}</dt>
             <dd>{formatVolume(d.volume, scale)}</dd>
           </>
         )}
         {d.wallArea !== undefined && (
           <>
-            <dt>Wall area</dt>
+            <dt>{msg('Wall area')}</dt>
             <dd>{formatArea(d.wallArea, scale)}</dd>
           </>
         )}
       </dl>
-      <Row label={q === 'length' ? 'Height' : 'Depth'} title={q === 'length' ? 'Wall height: gives the wall area' : 'Depth: gives the volume'}>
+      <Row label={q === 'length' ? msg('Height') : msg('Depth')} title={q === 'length' ? msg('Wall height: gives the wall area') : msg('Depth: gives the volume')}>
         <input
           key={`${m.id}:${m.depth ?? ''}:${scale.unit}`}
           defaultValue={m.depth ? formatLength(m.depth, scale) : ''}
-          placeholder={`e.g. ${scale.unit === 'ft' ? `8'-0"` : `2.4`} (${scale.unit})`}
+          placeholder={msg('e.g. {sample} ({unit})', { sample: scale.unit === 'ft' ? `8'-0"` : '2.4', unit: scale.unit })}
           disabled={readOnly}
-          aria-label="Depth"
+          aria-label={msg('Depth')}
           onBlur={(e) => {
             const text = e.target.value.trim();
             if (!text) {
@@ -947,12 +1162,12 @@ function MeasurementSection({ m, scale, store, tools, readOnly }: { m: Markup; s
       {m.type !== 'volume' && <SlopeRows m={m} readOnly={readOnly} update={update} />}
       {canHaveCutout(m) && (
         <div className="props-actions">
-          <button className="btn" disabled={readOnly || !tools || m.locked} onClick={() => tools?.startCutout(m.id)} title="Draw a polygon inside the area to subtract it">
-            Add cutout
+          <button className="btn" disabled={readOnly || !tools || m.locked} onClick={() => tools?.startCutout(m.id)} title={msg('Draw a polygon inside the area to subtract it')}>
+            {msg('Add cutout')}
           </button>
           {holes > 0 && (
             <button className="btn" disabled={readOnly || m.locked} onClick={() => update({ holes: undefined, holeBulges: undefined })}>
-              Remove {holes} cutout{holes > 1 ? 's' : ''}
+              {msg('Remove {count, plural, one {# cutout} other {# cutouts}}', { count: holes })}
             </button>
           )}
         </div>
@@ -1016,21 +1231,23 @@ interface NumberFieldProps {
   step: number;
   unit: string;
   placeholder?: string;
+  disabled?: boolean;
   onChange: (v: number | undefined) => void;
 }
 
 const LINE_SPACINGS = [1, 1.15, 1.5, 2];
 
 /** Line spacing as a multiple of the font size: a preset, or a custom value. Unset is the default (1.2). Keyed by the selection, so each starts from its own value rather than the last one's Custom. */
-export function LineSpacing({ value, onChange }: { value: number | undefined; onChange: (v: number | undefined) => void }) {
+export function LineSpacing({ value, disabled, onChange }: { value: number | undefined; disabled?: boolean; onChange: (v: number | undefined) => void }) {
   const preset = value !== undefined && LINE_SPACINGS.includes(value);
   const [custom, setCustom] = useState(value !== undefined && !preset);
   const choice = value === undefined ? 'default' : preset && !custom ? String(value) : 'custom';
   return (
     <>
       <select
-        aria-label="Line spacing"
+        aria-label={msg('Line spacing')}
         value={choice}
+        disabled={disabled}
         onChange={(e) => {
           const v = e.target.value;
           setCustom(v === 'custom');
@@ -1039,15 +1256,15 @@ export function LineSpacing({ value, onChange }: { value: number | undefined; on
           else onChange(Number(v));
         }}
       >
-        <option value="default">Default</option>
+        <option value="default">{msg('Default')}</option>
         {LINE_SPACINGS.map((n) => (
           <option key={n} value={String(n)}>
             {n.toFixed(n === 1.15 ? 2 : 1)}
           </option>
         ))}
-        <option value="custom">Custom</option>
+        <option value="custom">{msg('Custom')}</option>
       </select>
-      {choice === 'custom' && <NumberField value={value} min={0.5} max={5} step={0.05} unit="×" onChange={(v) => onChange(v)} />}
+      {choice === 'custom' && <NumberField value={value} min={0.5} max={5} step={0.05} unit="×" disabled={disabled} onChange={(v) => onChange(v)} />}
     </>
   );
 }
@@ -1079,10 +1296,10 @@ function RotationField({ value, onApply }: { value: number | undefined; onApply:
         type="text"
         className="num"
         value={text}
-        placeholder={value === undefined ? 'Mixed' : undefined}
-        aria-label="Rotation"
+        placeholder={value === undefined ? msg('Mixed') : undefined}
+        aria-label={msg('Rotation')}
         aria-invalid={bad ? true : undefined}
-        title="Degrees clockwise, or a grade such as 2% or 1:50. Positive rises to the right, negative (-2%) falls to the right."
+        title={msg('Degrees clockwise, or a grade such as 2% or 1:50. Positive rises to the right, negative (-2%) falls to the right.')}
         onFocus={() => (focused.current = true)}
         onChange={(e) => setText(e.target.value)}
         onBlur={() => {
@@ -1105,7 +1322,7 @@ function RotationField({ value, onApply }: { value: number | undefined; onApply:
 }
 
 /** Number input that lets partial entries ("1.") be typed; commits whenever the text is a valid number. */
-export function NumberField({ value, min, max, step, unit, placeholder, onChange }: NumberFieldProps) {
+export function NumberField({ value, min, max, step, unit, placeholder, disabled, onChange }: NumberFieldProps) {
   const shown = value === undefined ? '' : String(Math.round(value * 100) / 100);
   const [text, setText] = useState(shown);
   useEffect(() => setText(shown), [shown]);
@@ -1119,6 +1336,7 @@ export function NumberField({ value, min, max, step, unit, placeholder, onChange
         max={max}
         step={step}
         placeholder={placeholder}
+        disabled={disabled}
         onChange={(e) => {
           setText(e.target.value);
           if (e.target.value === '' && placeholder) return onChange(undefined);

@@ -76,3 +76,130 @@ export function calloutLeaders(points: readonly Point[]): [Point, Point][] {
 export function isCalloutTip(index: number): boolean {
   return index === 0 || (index >= 4 && index % 2 === 0);
 }
+
+/** True for the points of a callout that are a leader's knee (bend between arrow and landing stub). */
+export function isCalloutKnee(index: number): boolean {
+  return index === 1 || (index >= 5 && index % 2 === 1);
+}
+
+/** Indices of all leader knees in a callout's points array. */
+export function calloutKneeIndices(points: readonly Point[]): number[] {
+  const out: number[] = points.length >= 2 ? [1] : [];
+  for (let i = 5; i < points.length; i += 2) out.push(i);
+  return out;
+}
+
+/** All knee indices stacked at the same position as `kneeIndex` (within `tol`), always including `kneeIndex`. */
+export function calloutStackedKnees(points: readonly Point[], kneeIndex: number, tol: number): number[] {
+  const origin = points[kneeIndex];
+  if (!origin || !isCalloutKnee(kneeIndex)) return [];
+  const out: number[] = [];
+  for (const k of calloutKneeIndices(points)) {
+    const q = points[k]!;
+    if (k === kneeIndex || Math.hypot(q[0] - origin[0], q[1] - origin[1]) <= tol) out.push(k);
+  }
+  return out;
+}
+
+/** Which side of `box` faces `pt` (used to route a leader so it does not cross over the text box). */
+export function calloutSideForPoint(pt: Point, box: Rect): CalloutSide {
+  const right = box.x + box.w;
+  const bottom = box.y + box.h;
+  const dx = Math.max(box.x - pt[0], pt[0] - right, 0);
+  const dy = Math.max(box.y - pt[1], pt[1] - bottom, 0);
+  if (dx > 0 && dx >= dy) return pt[0] < box.x ? 'left' : 'right';
+  if (dy > 0) return pt[1] < box.y ? 'top' : 'bottom';
+  const nx = box.w > 0 ? (pt[0] - (box.x + box.w / 2)) / (box.w / 2) : 0;
+  const ny = box.h > 0 ? (pt[1] - (box.y + box.h / 2)) / (box.h / 2) : 0;
+  if (Math.abs(nx) >= Math.abs(ny)) return nx < 0 ? 'left' : 'right';
+  return ny < 0 ? 'top' : 'bottom';
+}
+
+/** A knee placed on `side` of `box`, offset outward by `landing`, optionally at `along` (default: side midpoint). */
+export function calloutKneeForSide(side: CalloutSide, box: Rect, landing: number, along?: number): Point {
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  switch (side) {
+    case 'left': return [box.x - landing, along ?? cy];
+    case 'right': return [box.x + box.w + landing, along ?? cy];
+    case 'top': return [along ?? cx, box.y - landing];
+    case 'bottom': return [along ?? cx, box.y + box.h + landing];
+  }
+}
+
+/** The current landing stub length of `knee` on `box`, or `fallback` when the knee sits on the box edge. */
+export function calloutLandingLength(knee: Point, box: Rect, fallback: number): number {
+  const land = calloutLanding(knee, box);
+  const len = Math.hypot(land.knee[0] - land.attach[0], land.knee[1] - land.attach[1]);
+  return len > 0.5 ? len : fallback;
+}
+
+/**
+ * Relocates a leader's knee when its arrow tip moves to a different side of the text box, so the
+ * leader never overlaps the text. While the tip stays on the same side as the knee, the knee stays
+ * put (preserving custom positions and stacked leaders).
+ */
+export function calloutRelocateKneeForTip(tip: Point, currentKnee: Point, box: Rect, defaultLanding: number): Point {
+  const currentSide = calloutLanding(currentKnee, box).side;
+  const targetSide = calloutSideForPoint(tip, box);
+  if (targetSide === currentSide) return currentKnee;
+  return calloutKneeForSide(targetSide, box, calloutLandingLength(currentKnee, box, defaultLanding));
+}
+
+/**
+ * Snaps a dragged callout knee to:
+ * 1. Another leader's knee (stacking their landing stubs into one shared line), or
+ * 2. One of the text box's corner or edge-midpoint node alignments on the active side,
+ * while still allowing free placement anywhere else along the side.
+ */
+export function snapCalloutKnee(
+  point: Point,
+  box: Rect,
+  otherKnees: readonly Point[],
+  tol: number,
+): { point: Point; snappedTo: Point | null; stacked: boolean } {
+  let bestKnee: Point | null = null;
+  let bestDist = tol;
+  for (const k of otherKnees) {
+    const d = Math.hypot(point[0] - k[0], point[1] - k[1]);
+    if (d <= bestDist) {
+      bestDist = d;
+      bestKnee = k;
+    }
+  }
+  if (bestKnee) return { point: [bestKnee[0], bestKnee[1]], snappedTo: [bestKnee[0], bestKnee[1]], stacked: true };
+
+  const land = calloutLanding(point, box);
+  if (land.side === 'left' || land.side === 'right') {
+    const attachX = land.side === 'left' ? box.x : box.x + box.w;
+    const targets = [box.y, box.y + box.h / 2, box.y + box.h];
+    let bestY: number | null = null;
+    let dMin = tol;
+    for (const ty of targets) {
+      const d = Math.abs(point[1] - ty);
+      if (d <= dMin) {
+        dMin = d;
+        bestY = ty;
+      }
+    }
+    if (bestY !== null) {
+      return { point: [point[0], bestY], snappedTo: [attachX, bestY], stacked: false };
+    }
+  } else {
+    const attachY = land.side === 'top' ? box.y : box.y + box.h;
+    const targets = [box.x, box.x + box.w / 2, box.x + box.w];
+    let bestX: number | null = null;
+    let dMin = tol;
+    for (const tx of targets) {
+      const d = Math.abs(point[0] - tx);
+      if (d <= dMin) {
+        dMin = d;
+        bestX = tx;
+      }
+    }
+    if (bestX !== null) {
+      return { point: [bestX, point[1]], snappedTo: [bestX, attachY], stacked: false };
+    }
+  }
+  return { point, snappedTo: null, stacked: false };
+}

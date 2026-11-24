@@ -11,6 +11,24 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: '0.1.22',
+    date: '2026-11-22',
+    items: [
+      'Search by meaning in the desktop app, backed by a fast page-level index with typo correction',
+      'Review AI Takeoff: AI drafts with evidence in one review list, grouping columns, and an optional AI review pass',
+      'Managed policy: organisations can enforce and hide settings, with Group Policy templates and a deploy guide',
+      'Text editor: style selected words, with Ctrl+B, Ctrl+I and Ctrl+U; text markups keep alignment from Revu PDFs',
+      'Stamps: fields on picture stamps, pick-from lists, and fields from stamp PDFs',
+      "Sheet graph: the set's links rolled up sheet to sheet, and a get_sheet_graph MCP tool",
+      'CAD import: arc angles, hatch island styles, and a model-fit disclosure',
+      'Top bar is one row, with menus under the redcolumn mark',
+      "Ctrl+C copies selected PDF text; box snapshots keep the page's vector content",
+      'Recent files can be capped and cleared; Split View uses open files',
+      'Preference to import AutoCAD SHX text comments',
+      'Fixes: wheel while middle-button panning, font notice replacement, moved recent files',
+    ],
+  },
+  {
     version: '0.1.21',
     date: '2026-11-18',
     items: [

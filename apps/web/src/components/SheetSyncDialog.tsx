@@ -1,3 +1,6 @@
+import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import { INSTALLER_URL } from '../offline/install';
 import type { SyncLink } from '../sheetsync/targets';
@@ -35,18 +38,18 @@ interface Props {
 
 function statusText(s: SyncStatus): string {
   if (s.kind === 'syncing') return 'Updating…';
-  if (s.kind === 'synced') return `Up to date · ${new Date(s.at).toLocaleTimeString()}`;
-  if (s.kind === 'error') return `${s.message}${s.retryAt ? ` Trying again at ${new Date(s.retryAt).toLocaleTimeString()}.` : ''}`;
-  return 'Waiting for the next change';
+  if (s.kind === 'synced') return msg('Up to date · {toLocaleTimeString}', { toLocaleTimeString: new Date(s.at).toLocaleTimeString() });
+  if (s.kind === 'error') return `${s.message}${s.retryAt ? ' ' + msg('Trying again at {toLocaleTimeString}.', { toLocaleTimeString: new Date(s.retryAt).toLocaleTimeString() }) : ''}`;
+  return msg('Waiting for the next change');
 }
 
 /** Keep the Markups list in an Excel workbook on this computer, updated as markups change (Windows desktop app). */
-const ISSUE: Record<SyncIssue['kind'], string> = {
-  conflict: 'Changed here and in Excel',
-  replyEdit: 'An earlier reply was rewritten in Excel',
-  unknown: 'Excel has a value this column does not take',
-  blocked: 'Changed in Excel, but this markup cannot be changed here',
-};
+const ISSUE = lazy((): Record<SyncIssue['kind'], string> => ({
+  conflict: msg('Changed here and in Excel'),
+  replyEdit: msg('An earlier reply was rewritten in Excel'),
+  unknown: msg('Excel has a value this column does not take'),
+  blocked: msg('Changed in Excel, but this markup cannot be changed here'),
+}));
 
 export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAvailable, inDesktopApp, onConnectLocal, onSetQuantities, onOpenLocal, onShowLocal, twoWay = false, canTwoWay = false, issues = [], onResolve, onUseListColumns, onSyncNow, onStop, onClose }: Props) {
   const [title, setTitle] = useState(`${docName.replace(/\.pdf$/i, '')} markups`);
@@ -54,16 +57,27 @@ export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAva
   const busy = status.kind === 'syncing';
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal sheet-sync-dialog" role="dialog" aria-label="Sync markups to Excel" onMouseDown={(e) => e.stopPropagation()}>
-        <h3>Sync Markups to Excel</h3>
+      <div className="modal sheet-sync-dialog" role="dialog" aria-label={msg('Sync markups to Excel')} onMouseDown={(e) => e.stopPropagation()}>
+        <h3>{msg('Sync Markups to Excel')}</h3>
         {link ? (
           <>
             <p>
-              The Markups list for <b>{docName}</b> ({rowCount} row{rowCount === 1 ? '' : 's'}, {twoWay ? 'every markup, with the columns chosen for this workbook' : 'with the columns and filters it shows now'}) is kept in{' '}
-              <button className="link-button" onClick={onOpenLocal} title="Open it in Excel">
-                {link.title}
-              </button>{' '}
-              on this computer. It updates a moment after each change while this document is open.
+              {(() => {
+                const values = {
+                  document: <b>{docName}</b>,
+                  rows: rowCount,
+                  workbook: (
+                    <button className="link-button" onClick={onOpenLocal} title={msg('Open it in Excel')}>
+                      {link.title}
+                    </button>
+                  ),
+                };
+                return keyed(
+                  twoWay
+                    ? msgParts('The Markups list for {document} ({rows, plural, one {# row} other {# rows}}, every markup, with the columns chosen for this workbook) is kept in {workbook} on this computer. It updates a moment after each change while this document is open.', values)
+                    : msgParts('The Markups list for {document} ({rows, plural, one {# row} other {# rows}}, with the columns and filters it shows now) is kept in {workbook} on this computer. It updates a moment after each change while this document is open.', values),
+                );
+              })()}
             </p>
             <p className={status.kind === 'error' ? 'form-error' : 'hint-text'} role="status">
               {statusText(status)}
@@ -72,23 +86,23 @@ export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAva
               <div className="sheet-sync-issues" role="alert">
                 <p className="form-error">
                   <b>
-                    {issues.length} cell{issues.length === 1 ? ' is' : 's are'} paused.
+                    {msg('{count, plural, one {# cell is} other {# cells are}} paused.', { count: issues.length })}
                   </b>{' '}
-                  {issues.length === 1 ? 'It is' : 'They are'} left as {issues.length === 1 ? 'it is' : 'they are'} in Excel until you choose. Everything else keeps syncing.
+                  {msg('{count, plural, one {It is left as it is} other {They are left as they are}} in Excel until you choose. Everything else keeps syncing.', { count: issues.length })}
                 </p>
                 <ul>
                   {issues.map((i) => (
                     <li key={i.id}>
                       <span>
-                        ID {i.itemNo} · {i.column.label}: {ISSUE[i.kind]}. Here: <b>{i.mine || '(blank)'}</b>. Excel: <b>{i.theirs || '(blank)'}</b>.
+                        {keyed(msgParts('ID {itemNo} · {label}: {iSSUE}. Here: {b}. Excel: {b2}.', { itemNo: i.itemNo, label: i.column.label, iSSUE: ISSUE()[i.kind], b: <b>{i.mine || '(blank)'}</b>, b2: <b>{i.theirs || '(blank)'}</b> }))}
                       </span>{' '}
                       {i.change && (
-                        <button className="btn small" aria-label={`Use Excel's value for ID ${i.itemNo} ${i.column.label}`} onClick={() => onResolve?.(i, 'excel')}>
-                          Use Excel's
+                        <button className="btn small" aria-label={msg('Use Excel\'s value for ID {itemNo} {label}', { itemNo: i.itemNo, label: i.column.label })} onClick={() => onResolve?.(i, 'excel')}>
+                          {msg('Use Excel\'s')}
                         </button>
                       )}{' '}
-                      <button className="btn small" aria-label={`Use this document's value for ID ${i.itemNo} ${i.column.label}`} onClick={() => onResolve?.(i, 'mine')}>
-                        Use this document's
+                      <button className="btn small" aria-label={msg('Use this document\'s value for ID {itemNo} {label}', { itemNo: i.itemNo, label: i.column.label })} onClick={() => onResolve?.(i, 'mine')}>
+                        {msg('Use this document\'s')}
                       </button>
                     </li>
                   ))}
@@ -96,50 +110,54 @@ export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAva
               </div>
             )}
             <p className="sheet-sync-note" role="note">
-              <b>The workbook can stay open in Excel.</b> Updates go straight into it and Excel saves it. While you are typing in a cell, Excel holds the update until you finish.
+              {keyed(msgParts('{b} Updates go straight into it and Excel saves it. While you are typing in a cell, Excel holds the update until you finish.', { b: <b>{msg('The workbook can stay open in Excel.')}</b> }))}
             </p>
             <label className="col-field">
-              <input type="checkbox" aria-label="Include Quantities sheet" checked={!!link.quantities} disabled={busy} onChange={(e) => onSetQuantities(e.target.checked)} /> Include a Quantities sheet
+              {keyed(msgParts('{input} Include a Quantities sheet', { input: <input type="checkbox" aria-label={msg('Include Quantities sheet')} checked={!!link.quantities} disabled={busy} onChange={(e) => onSetQuantities(e.target.checked)} /> }))}
             </label>
-            {link.quantities && <p className="hint-text">The Quantities sheet holds the Quantity Summary by Item and is replaced by each update, like the Markups sheet. Turning it off leaves the last one in the workbook.</p>}
+            {link.quantities && <p className="hint-text">{msg('The Quantities sheet holds the Quantity Summary by Item and is replaced by each update, like the Markups sheet. Turning it off leaves the last one in the workbook.')}</p>}
             {twoWay ? (
               <>
                 <p className="hint-text">
-                  <b>Two-way.</b> Type in Excel to change Status, Checkmark, Comments, Subject, Label, Layer and your own columns, or to answer in the New reply column: the change is applied here within about 15 seconds. Other columns are written from here and typing in them is replaced. Rows keep the order they have in Excel. Deleting a row in Excel does not delete its markup: the row comes back.
+                  {keyed(msgParts('{b} Type in Excel to change Status, Checkmark, Comments, Subject, Label, Layer and your own columns, or to answer in the New reply column: the change is applied here within about 15 seconds. Other columns are written from here and typing in them is replaced. Rows keep the order they have in Excel. Deleting a row in Excel does not delete its markup: the row comes back.', { b: <b>{msg('Two-way.')}</b> }))}
                 </p>
                 <p className="hint-text">
-                  The sheet keeps the columns it was made with, whatever the list shows.{' '}
+                  {msg('The sheet keeps the columns it was made with, whatever the list shows.')}{' '}
                   <button className="link-button" onClick={onUseListColumns}>
-                    Use the list's columns as they are now
+                    {msg('Use the list\'s columns as they are now')}
                   </button>
                 </p>
               </>
             ) : (
               <>
-                <p className="hint-text">Edits you make on the Markups sheet are replaced by the next update, so put your own formulas in another sheet: other sheets are kept.</p>
+                <p className="hint-text">{msg('Edits you make on the Markups sheet are replaced by the next update, so put your own formulas in another sheet: other sheets are kept.')}</p>
                 {canTwoWay && (
                   <p className="hint-text">
-                    This workbook was linked before two-way sync.{' '}
-                    <button className="link-button" onClick={onUseListColumns}>
-                      Make it two-way
-                    </button>{' '}
-                    to bring edits typed in Excel back here. The sheet is rewritten once with the list's visible columns and every markup.
+                    {keyed(
+                      msgParts("This workbook was linked before two-way sync. {button} to bring edits typed in Excel back here. The sheet is rewritten once with the list's visible columns and every markup.", {
+                        button: (
+                          <button className="link-button" onClick={onUseListColumns}>
+                            {msg('Make it two-way')}
+                          </button>
+                        ),
+                      }),
+                    )}
                   </p>
                 )}
               </>
             )}
             <div className="actions">
               <button className="btn" onClick={onStop}>
-                Stop syncing
+                {msg('Stop syncing')}
               </button>
               <button className="btn" onClick={onShowLocal}>
-                Show in Folder
+                {msg('Show in Folder')}
               </button>
               <button className="btn" onClick={onClose}>
-                Close
+                {msg('Close')}
               </button>
               <button className="btn primary" disabled={busy} onClick={onSyncNow}>
-                {status.kind === 'error' ? 'Retry now' : 'Sync now'}
+                {status.kind === 'error' ? msg('Retry now') : msg('Sync now')}
               </button>
             </div>
           </>
@@ -147,13 +165,13 @@ export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAva
           <>
             {canTwoWay ? (
               <p>
-                Writes every markup, with the columns the list shows now, to an Excel workbook on this computer, and keeps the two in step: changes here go to the workbook, and what you type in the workbook's Status, Comments and other editable columns comes back here. Measurements go in as numbers, so the sheet can total them.
+                {msg('Writes every markup, with the columns the list shows now, to an Excel workbook on this computer, and keeps the two in step: changes here go to the workbook, and what you type in the workbook\'s Status, Comments and other editable columns comes back here. Measurements go in as numbers, so the sheet can total them.')}
               </p>
             ) : (
-              <p>Writes the Markups list (its visible columns, filter and sort) to an Excel workbook on this computer, then updates it as markups are added, edited or removed. Measurements go in as numbers, so the sheet can total them.</p>
+              <p>{msg('Writes the Markups list (its visible columns, filter and sort) to an Excel workbook on this computer, then updates it as markups are added, edited or removed. Measurements go in as numbers, so the sheet can total them.')}</p>
             )}
             <label className="col-field">
-              <span>Name</span>
+              <span>{msg('Name')}</span>
               <input value={title} onChange={(e) => setTitle(e.target.value)} />
             </label>
             {status.kind === 'error' && (
@@ -162,16 +180,16 @@ export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAva
               </p>
             )}
             <label className="col-field">
-              <input type="checkbox" aria-label="Include Quantities sheet" checked={quantities} onChange={(e) => setQuantities(e.target.checked)} /> Include a Quantities sheet
+              {keyed(msgParts('{input} Include a Quantities sheet', { input: <input type="checkbox" aria-label={msg('Include Quantities sheet')} checked={quantities} onChange={(e) => setQuantities(e.target.checked)} /> }))}
             </label>
-            <p className="hint-text">The Quantities sheet is the Quantity Summary by Item: net, waste, order quantity and cost for every measurement with an assembly. It updates with the markups, even while the workbook is open.</p>
-            <p className="hint-text">You choose the folder and file name next. The workbook updates even while it is open in Excel.</p>
+            <p className="hint-text">{msg('The Quantities sheet is the Quantity Summary by Item: net, waste, order quantity and cost for every measurement with an assembly. It updates with the markups, even while the workbook is open.')}</p>
+            <p className="hint-text">{msg('You choose the folder and file name next. The workbook updates even while it is open in Excel.')}</p>
             <div className="actions">
               <button className="btn" onClick={onClose}>
-                Cancel
+                {msg('Cancel')}
               </button>
               <button className="btn primary" disabled={busy || !title.trim()} onClick={() => onConnectLocal(title.trim(), quantities)}>
-                Choose Workbook…
+                {msg('Choose Workbook…')}
               </button>
             </div>
           </>
@@ -179,20 +197,20 @@ export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAva
           <>
             <p className="sheet-sync-note" role="note">
               {inDesktopApp ? (
-                <b>Sync to Excel works in the redcolumn desktop app on Windows, with Excel installed on the same computer.</b>
+                <b>{msg('Sync to Excel works in the redcolumn desktop app on Windows, with Excel installed on the same computer.')}</b>
               ) : (
-                <b>Sync to Excel only works in the redcolumn desktop app for Windows. To use this feature, download the desktop app.</b>
+                <b>{msg('Sync to Excel only works in the redcolumn desktop app for Windows. To use this feature, download the desktop app.')}</b>
               )}
             </p>
-            <p className="hint-text">It keeps the Markups list in an Excel workbook on your computer, updated as markups are added, edited or removed, even while the workbook is open in Excel.</p>
+            <p className="hint-text">{msg('It keeps the Markups list in an Excel workbook on your computer, updated as markups are added, edited or removed, even while the workbook is open in Excel.')}</p>
             <div className="actions">
               <button className="btn" onClick={onClose}>
-                Close
+                {msg('Close')}
               </button>
               {!inDesktopApp && (
                 // Straight to the Windows installer: Excel sync needs that build, whatever this computer is.
                 <a className="btn primary" href={INSTALLER_URL} onClick={onClose}>
-                  Download for Windows
+                  {msg('Download for Windows')}
                 </a>
               )}
             </div>

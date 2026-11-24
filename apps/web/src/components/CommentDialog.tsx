@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { useSettings } from '../settings/settings';
 
@@ -34,14 +35,14 @@ export function CommentDialog({ title, initial, onSave, onClose }: { title: stri
             if (e.key === 'Escape') onClose();
             else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) onSave(text);
           }}
-          placeholder="Comment"
+          placeholder={msg('Comment')}
         />
         <div className="actions">
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary">
-            OK
+            {msg('OK')}
           </button>
         </div>
       </form>

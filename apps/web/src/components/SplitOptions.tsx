@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { splitPartName, type SplitSpec } from '../documents/pageTools';
 
 export const DEFAULT_SPLIT: SplitSpec = { by: 'count', count: 1, maxMb: 10, naming: { mode: 'suffix', pattern: 'Part-#' } };
@@ -23,64 +25,59 @@ export function SplitOptions({ value, onChange, pageCount, bookmarkCount, exampl
   return (
     <>
       <fieldset>
-        <legend>Split into</legend>
+        <legend>{msg('Split into')}</legend>
         <label className="row">
           <input type="radio" checked={value.by === 'count'} onChange={() => by('count')} />
-          Files of
+          {msg('Files of')}
           <input
             type="number"
             min={1}
             max={pageCount}
             value={value.count}
             style={{ width: 64 }}
-            aria-label="Pages per file"
+            aria-label={msg('Pages per file')}
             onFocus={() => value.by !== 'count' && by('count')}
             onChange={(e) => onChange({ ...value, by: 'count', count: Math.max(1, Math.floor(Number(e.target.value) || 1)) })}
           />
-          page{value.count === 1 ? '' : 's'}
-          {pageCount ? ` (${Math.ceil(pageCount / Math.max(1, value.count))} files)` : ''}
+          {msg('{count, plural, one {page} other {pages}}', { count: value.count })}
+          {pageCount ? ' ' + msg('({files, plural, one {# file} other {# files}})', { files: Math.ceil(pageCount / Math.max(1, value.count)) }) : ''}
         </label>
         <label className="row">
           <input type="radio" checked={value.by === 'size'} onChange={() => by('size')} />
-          Files of up to
+          {msg('Files of up to')}
           <input
             type="number"
             min={0.1}
             step={0.1}
             value={value.maxMb}
             style={{ width: 72 }}
-            aria-label="Largest file size in MB"
+            aria-label={msg('Largest file size in MB')}
             onFocus={() => value.by !== 'size' && by('size')}
             onChange={(e) => onChange({ ...value, by: 'size', maxMb: Math.max(0.1, Number(e.target.value) || 0.1) })}
           />
-          MB
+          {msg('MB')}
         </label>
         <label className="row">
-          <input type="radio" checked={value.by === 'bookmarks'} disabled={bookmarkCount !== undefined && bookmarkCount < 2} onChange={() => by('bookmarks')} />
-          One file per top-level bookmark{bookmarkCount !== undefined ? ` (${bookmarkCount})` : ''}
+          {keyed(msgParts('{input}One file per top-level bookmark{value}', { input: <input type="radio" checked={value.by === 'bookmarks'} disabled={bookmarkCount !== undefined && bookmarkCount < 2} onChange={() => by('bookmarks')} />, value: bookmarkCount !== undefined ? ` (${bookmarkCount})` : '' }))}
         </label>
-        {value.by === 'size' && <p className="print-hint">Pages are never cut, so a page bigger than the limit gets a file of its own.</p>}
+        {value.by === 'size' && <p className="print-hint">{msg('Pages are never cut, so a page bigger than the limit gets a file of its own.')}</p>}
       </fieldset>
       <fieldset>
-        <legend>File names</legend>
+        <legend>{msg('File names')}</legend>
         <label className="row">
-          Number
-          <input type="text" value={value.naming.pattern} aria-label="Part number pattern" placeholder="Part-#" style={{ width: 120 }} onChange={(e) => naming({ pattern: e.target.value })} />
+          {keyed(msgParts('Number{input}', { input: <input type="text" value={value.naming.pattern} aria-label={msg('Part number pattern')} placeholder={msg('Part-#')} style={{ width: 120 }} onChange={(e) => naming({ pattern: e.target.value })} /> }))}
         </label>
         <label className="row">
-          <input type="radio" checked={value.naming.mode === 'suffix'} onChange={() => naming({ mode: 'suffix' })} />
-          After the file name
+          {keyed(msgParts('{input}After the file name', { input: <input type="radio" checked={value.naming.mode === 'suffix'} onChange={() => naming({ mode: 'suffix' })} /> }))}
         </label>
         <label className="row">
-          <input type="radio" checked={value.naming.mode === 'prefix'} onChange={() => naming({ mode: 'prefix' })} />
-          Before the file name
+          {keyed(msgParts('{input}Before the file name', { input: <input type="radio" checked={value.naming.mode === 'prefix'} onChange={() => naming({ mode: 'prefix' })} /> }))}
         </label>
         <label className="row">
-          <input type="radio" checked={value.naming.mode === 'bookmarks'} disabled={value.by !== 'bookmarks'} onChange={() => naming({ mode: 'bookmarks' })} />
-          Bookmark titles
+          {keyed(msgParts('{input}Bookmark titles', { input: <input type="radio" checked={value.naming.mode === 'bookmarks'} disabled={value.by !== 'bookmarks'} onChange={() => naming({ mode: 'bookmarks' })} /> }))}
         </label>
         <p className="print-hint">
-          # is the part number. For example: <b>{example}</b>
+          {keyed(msgParts('# is the part number. For example: {b}', { b: <b>{example}</b> }))}
         </p>
       </fieldset>
     </>

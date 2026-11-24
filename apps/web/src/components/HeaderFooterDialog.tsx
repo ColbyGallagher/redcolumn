@@ -1,3 +1,6 @@
+import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
+import { keyed } from '../i18n/keyed';
 import { useRef, useState } from 'react';
 import { SLOTS, TOKENS, type HeaderFooterSpec, type Slot } from '../documents/headerFooter';
 import { usePageChoice } from './PageToolsDialog';
@@ -16,14 +19,14 @@ interface Props {
   batch?: boolean;
 }
 
-const SLOT_LABELS: Record<Slot, string> = {
-  headerLeft: 'Header left',
-  headerCenter: 'Header centre',
-  headerRight: 'Header right',
-  footerLeft: 'Footer left',
-  footerCenter: 'Footer centre',
-  footerRight: 'Footer right',
-};
+const SLOT_LABELS = lazy((): Record<Slot, string> => ({
+  headerLeft: msg('Header left'),
+  headerCenter: msg('Header centre'),
+  headerRight: msg('Header right'),
+  footerLeft: msg('Footer left'),
+  footerCenter: msg('Footer centre'),
+  footerRight: msg('Footer right'),
+}));
 
 const KEY = 'nb.headerFooter';
 
@@ -100,11 +103,11 @@ export function HeaderFooterDialog({ mode, pageCount, currentPage, hasExisting, 
           run(() => onApply(spec, pages ?? []));
         }}
       >
-        <h3>{mode === 'number' ? 'Number Pages' : 'Headers & Footers'}</h3>
+        <h3>{mode === 'number' ? msg('Number Pages') : msg('Headers & Footers')}</h3>
         <div className="hf-grid">
           {SLOTS.map((slot) => (
             <label key={slot}>
-              {SLOT_LABELS[slot]}
+              {SLOT_LABELS()[slot]}
               <input value={text[slot] ?? ''} onFocus={() => (focused.current = slot)} onChange={(e) => setText({ ...text, [slot]: e.target.value })} />
             </label>
           ))}
@@ -118,65 +121,57 @@ export function HeaderFooterDialog({ mode, pageCount, currentPage, hasExisting, 
         </div>
         <div className="hf-row">
           <label>
-            Font
+            {msg('Font')}
             <select value={font} onChange={(e) => setFont(e.target.value as HeaderFooterSpec['font'])}>
-              <option>Helvetica</option>
-              <option>Times</option>
-              <option>Courier</option>
+              <option value="Helvetica">Helvetica</option>
+              <option value="Times">Times</option>
+              <option value="Courier">Courier</option>
             </select>
           </label>
           <label>
-            Size
-            <input type="number" min={4} max={72} value={fontSize} onChange={(e) => setFontSize(Math.max(4, Number(e.target.value) || 10))} style={{ width: 56 }} />
+            {keyed(msgParts('Size{input}', { input: <input type="number" min={4} max={72} value={fontSize} onChange={(e) => setFontSize(Math.max(4, Number(e.target.value) || 10))} style={{ width: 56 }} /> }))}
           </label>
           <label>
-            Colour
-            <input type="color" value={color} onChange={(e) => setColor(e.target.value)} />
+            {keyed(msgParts('Colour{input}', { input: <input type="color" value={color} onChange={(e) => setColor(e.target.value)} /> }))}
           </label>
           <label>
-            Margin (in)
-            <input type="number" min={0} step={0.125} value={marginIn} onChange={(e) => setMarginIn(Math.max(0, Number(e.target.value) || 0))} style={{ width: 64 }} />
+            {keyed(msgParts('Margin (in){input}', { input: <input type="number" min={0} step={0.125} value={marginIn} onChange={(e) => setMarginIn(Math.max(0, Number(e.target.value) || 0))} style={{ width: 64 }} /> }))}
           </label>
           <label>
-            First page no.
-            <input type="number" value={startPage} onChange={(e) => setStartPage(Math.floor(Number(e.target.value) || 1))} style={{ width: 56 }} />
+            {keyed(msgParts('First page no.{input}', { input: <input type="number" value={startPage} onChange={(e) => setStartPage(Math.floor(Number(e.target.value) || 1))} style={{ width: 56 }} /> }))}
           </label>
         </div>
         <fieldset>
-          <legend>Bates numbers</legend>
+          <legend>{msg('Bates numbers')}</legend>
           <div className="hf-row">
             <label>
-              Prefix
-              <input value={bates.prefix} onChange={(e) => setBates({ ...bates, prefix: e.target.value })} style={{ width: 80 }} />
+              {keyed(msgParts('Prefix{input}', { input: <input value={bates.prefix} onChange={(e) => setBates({ ...bates, prefix: e.target.value })} style={{ width: 80 }} /> }))}
             </label>
             <label>
-              Start
-              <input type="number" min={0} value={bates.start} onChange={(e) => setBates({ ...bates, start: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: 80 }} />
+              {keyed(msgParts('Start{input}', { input: <input type="number" min={0} value={bates.start} onChange={(e) => setBates({ ...bates, start: Math.max(0, Math.floor(Number(e.target.value) || 0)) })} style={{ width: 80 }} /> }))}
             </label>
             <label>
-              Digits
-              <input type="number" min={1} max={12} value={bates.digits} onChange={(e) => setBates({ ...bates, digits: Math.min(12, Math.max(1, Math.floor(Number(e.target.value) || 1))) })} style={{ width: 56 }} />
+              {keyed(msgParts('Digits{input}', { input: <input type="number" min={1} max={12} value={bates.digits} onChange={(e) => setBates({ ...bates, digits: Math.min(12, Math.max(1, Math.floor(Number(e.target.value) || 1))) })} style={{ width: 56 }} /> }))}
             </label>
             <label>
-              Suffix
-              <input value={bates.suffix} onChange={(e) => setBates({ ...bates, suffix: e.target.value })} style={{ width: 80 }} />
+              {keyed(msgParts('Suffix{input}', { input: <input value={bates.suffix} onChange={(e) => setBates({ ...bates, suffix: e.target.value })} style={{ width: 80 }} /> }))}
             </label>
           </div>
         </fieldset>
-        {batch ? <p className="print-hint">Every page of each file. Page numbers start again in each file; Bates numbers carry on from one file to the next, in the order listed.</p> : choice.ui}
-        {(error || (!batch && !pages?.length && `Enter pages between 1 and ${pageCount}.`)) && <p className="print-error">{error ?? `Enter pages between 1 and ${pageCount}.`}</p>}
+        {batch ? <p className="print-hint">{msg('Every page of each file. Page numbers start again in each file; Bates numbers carry on from one file to the next, in the order listed.')}</p> : choice.ui}
+        {(error || (!batch && !pages?.length && msg('Enter pages between 1 and {pageCount}.', { pageCount }))) && <p className="print-error">{error ?? msg('Enter pages between 1 and {pageCount}.', { pageCount })}</p>}
         <div className="actions">
           {hasExisting && (
             <button type="button" className="btn" disabled={busy} onClick={() => run(onRemove)}>
-              Remove existing
+              {msg('Remove existing')}
             </button>
           )}
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={(!batch && !pages?.length) || empty || busy}>
-            {busy ? 'Working…' : batch ? 'OK' : 'Apply'}
+            {busy ? msg('Working…') : batch ? 'OK' : msg('Apply')}
           </button>
         </div>
       </form>

@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 
 /** Nine-digit ids read as NNN-NNN-NNN. Anything else is the real id, unchanged. */
@@ -80,7 +81,7 @@ export function StudioHeader({ title, onRefresh, plus, filter }: { title: string
       <span className="rc-head-actions">
         {plus}
         {filter}
-        <button type="button" className="rc-icon-btn" onClick={onRefresh} title="Refresh" aria-label="Refresh">
+        <button type="button" className="rc-icon-btn" onClick={onRefresh} title={msg('Refresh')} aria-label={msg('Refresh')}>
           <RefreshIcon />
         </button>
       </span>
@@ -208,12 +209,12 @@ export function FilterButton({ sort, desc, onChange }: { sort: StudioSort; desc:
   );
   return (
     <span className="rc-pop" ref={ref}>
-      <button type="button" className={open ? 'rc-icon-btn on' : 'rc-icon-btn'} aria-label="Sort" title="Sort" aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((v) => !v)}>
+      <button type="button" className={open ? 'rc-icon-btn on' : 'rc-icon-btn'} aria-label={msg('Sort')} title={msg('Sort')} aria-expanded={open} aria-haspopup="menu" onClick={() => setOpen((v) => !v)}>
         <FilterIcon />
       </button>
       {open && (
-        <div className="rc-menu" role="menu" aria-label="Sort">
-          <div className="rc-menu-label">Sort By</div>
+        <div className="rc-menu" role="menu" aria-label={msg('Sort')}>
+          <div className="rc-menu-label">{msg('Sort By')}</div>
           {item('recent', 'Recently Accessed')}
           {item('name', 'Name')}
           {item('id', 'ID')}

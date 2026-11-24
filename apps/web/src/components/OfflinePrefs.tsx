@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useCallback, useEffect, useState } from 'react';
 import { desktop } from '../desktop/host';
 import { OCR_LANGUAGES } from '../documents/ocr';
@@ -30,17 +31,17 @@ export function OfflinePrefs() {
   const appCached = isDesktop || (typeof navigator !== 'undefined' && !!navigator.serviceWorker?.controller);
   return (
     <>
-      <h4>This device</h4>
+      <h4>{msg('This device')}</h4>
       <p className="pref-hint">
-        {online ? 'Online.' : 'Offline: documents, markups, measurements and everything else on this device keep working; Live Sessions, signatures’ time stamps and cloud storage wait for the network.'}{' '}
-        {isDesktop ? 'The app is installed on this computer and opens without a network.' : appCached ? 'The app is saved on this device and opens without a network.' : 'The app is not saved for offline use yet (it is once it has loaded from the web, not from a development server).'}
+        {online ? msg('Online.') : msg('Offline: documents, markups, measurements and everything else on this device keep working; Live Sessions, signatures’ time stamps and cloud storage wait for the network.')}{' '}
+        {isDesktop ? msg('The app is installed on this computer and opens without a network.') : appCached ? msg('The app is saved on this device and opens without a network.') : msg('The app is not saved for offline use yet (it is once it has loaded from the web, not from a development server).')}
       </p>
-      <h4>Storage</h4>
+      <h4>{msg('Storage')}</h4>
       {d && (
         <div className="storage-use">
           <span className="pref-label">{d.summary}</span>
           {d.percent !== null && (
-            <div className="storage-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(d.percent)} aria-label="Storage used">
+            <div className="storage-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(d.percent)} aria-label={msg('Storage used')}>
               <span style={{ width: `${Math.max(1, d.percent)}%` }} />
             </div>
           )}
@@ -56,39 +57,39 @@ export function OfflinePrefs() {
         </div>
       )}
       <div className="pref-field">
-        <span className="pref-label">{storage?.persisted ? `Kept: ${isDesktop ? 'redcolumn’s documents are not cleared to free space.' : 'the browser will not clear redcolumn’s documents to free space.'}` : isDesktop ? 'Not protected: documents and markups could be cleared if the computer runs short of space.' : 'Not protected: the browser may clear documents and markups if the device runs short of space.'}</span>
+        <span className="pref-label">{storage?.persisted ? isDesktop ? msg('Kept: redcolumn’s documents are not cleared to free space.') : msg('Kept: the browser will not clear redcolumn’s documents to free space.') : isDesktop ? msg('Not protected: documents and markups could be cleared if the computer runs short of space.') : msg('Not protected: the browser may clear documents and markups if the device runs short of space.')}</span>
         {storage && !storage.persisted && (
           <button
             className="btn small"
             onClick={() =>
               void requestPersistence().then(async (ok) => {
                 await refresh();
-                setError(ok ? null : isDesktop ? 'redcolumn could not mark its storage as kept.' : 'The browser declined. Installing the app (Help › Install App) or bookmarking it usually lets it keep the data.');
+                setError(ok ? null : isDesktop ? msg('redcolumn could not mark its storage as kept.') : msg('The browser declined. Installing the app (Help › Install App) or bookmarking it usually lets it keep the data.'));
               })
             }
           >
-            Keep on This Device
+            {msg('Keep on This Device')}
           </button>
         )}
       </div>
-      <h4>OCR languages</h4>
-      <p className="pref-hint">OCR data downloads the first time a language is used. Download languages here to use OCR offline from the start (1–3 MB each, plus the 4 MB engine once).</p>
+      <h4>{msg('OCR languages')}</h4>
+      <p className="pref-hint">{msg('OCR data downloads the first time a language is used. Download languages here to use OCR offline from the start (1–3 MB each, plus the 4 MB engine once).')}</p>
       <ul className="ocr-offline">
         {langs.map((l) => {
           const have = ocr?.langs[l] && ocr.engine;
           return (
             <li key={l} className="row">
               <span style={{ flex: 1 }}>{OCR_LANGUAGES[l]}</span>
-              <span className="pref-hint">{busy === l ? 'Downloading…' : have ? 'On this device' : ocr?.langs[l] ? 'Needs the engine' : 'Not downloaded'}</span>
+              <span className="pref-hint">{busy === l ? msg('Downloading…') : have ? msg('On this device') : ocr?.langs[l] ? msg('Needs the engine') : msg('Not downloaded')}</span>
               {have ? (
                 <button className="btn small flat" disabled={!!busy} onClick={() => void removeOcr(l).then(refresh)}>
-                  Remove
+                  {msg('Remove')}
                 </button>
               ) : (
                 <button
                   className="btn small"
                   disabled={!!busy || !online}
-                  title={online ? undefined : 'Downloading needs a network connection.'}
+                  title={online ? undefined : msg('Downloading needs a network connection.')}
                   onClick={() => {
                     setBusy(l);
                     setError(null);
@@ -100,7 +101,7 @@ export function OfflinePrefs() {
                       });
                   }}
                 >
-                  Download
+                  {msg('Download')}
                 </button>
               )}
             </li>

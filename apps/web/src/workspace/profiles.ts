@@ -1,6 +1,7 @@
+import { msg } from '@nb/i18n';
 import type { RegisterTemplate } from '../sheetsync/register';
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
+import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type CountSymbol, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
 import type { AdvancedFilter, ColumnLayout, SortState } from '../columns/listColumns';
 import type { Tool } from '../markup/MarkupTools';
 import type { TaughtMark } from '../sheets/marks';
@@ -141,6 +142,8 @@ export interface WorkspaceState {
   registerTemplates?: RegisterTemplate[];
   /** Colors saved from the color pickers' "More colors…" (#rrggbb, newest first). */
   customColors?: string[];
+  /** Custom Count tool symbols saved by the user (vector markups or pictures). */
+  countSymbols?: CountSymbol[];
 }
 
 export type ToolbarStyle = 'simplified' | 'ribbon';
@@ -183,6 +186,7 @@ export function defaultWorkspace(): WorkspaceState {
     bookmarkTemplates: [],
     taughtMarks: [],
     drawingStandards: [],
+    countSymbols: [],
   };
 }
 
@@ -276,7 +280,7 @@ export const profiles = {
   /** Brings in a cloud backup: its profiles replace ones with the same ID and the rest are kept. Returns how many came in. */
   importAll(text: string): number {
     const data = JSON.parse(text) as { format?: string; activeId?: string; profiles?: Profile[] };
-    if (data.format !== 'nb-profiles' || !Array.isArray(data.profiles) || !data.profiles.length) throw new Error('This is not a profile backup.');
+    if (data.format !== 'nb-profiles' || !Array.isArray(data.profiles) || !data.profiles.length) throw new Error(msg('This is not a profile backup.'));
     const incoming = data.profiles.map((p) => ({ id: p.id, name: p.name, state: upgrade(p.state) }));
     const ids = new Set(incoming.map((p) => p.id));
     const kept = saved.profiles.filter((p) => !ids.has(p.id));
@@ -291,7 +295,7 @@ export const profiles = {
   },
   importJson(text: string): Profile {
     const data = JSON.parse(text) as { format?: string; name?: string; state?: Partial<WorkspaceState> };
-    if (data.format !== 'nb-profile' || !data.state) throw new Error('This is not a profile file.');
+    if (data.format !== 'nb-profile' || !data.state) throw new Error(msg('This is not a profile file.'));
     const p: Profile = { id: crypto.randomUUID(), name: data.name || 'Imported profile', state: upgrade(data.state) };
     commit({ profiles: [...saved.profiles, p], activeId: p.id });
     return p;
@@ -347,4 +351,43 @@ export function stampLibrary(state: WorkspaceState): StampDef[] {
 /** Every line style set this profile offers: the built-in ones, then the imported ones. */
 export function lineSetLibrary(state: WorkspaceState): LineSet[] {
   return [...DEFAULT_LINE_SETS, ...state.lineSets];
+}
+
+// --- count symbols --------------------------------------------------------------------------
+
+/** Saved custom count symbols in this profile. */
+export function countSymbolLibrary(state: WorkspaceState): CountSymbol[] {
+  return state.countSymbols ?? [];
+}
+
+/** Saves a custom count symbol into the active profile. Rolls back and returns false if storage is full. */
+export function addCountSymbol(symbol: CountSymbol): boolean {
+  let previous: CountSymbol[] | undefined;
+  const kept = updateWorkspace((w) => {
+    previous = w.countSymbols;
+    const list = w.countSymbols ?? [];
+    const taken = new Set(list.map((s) => s.name));
+    let name = symbol.name.trim() || 'Custom Symbol';
+    for (let n = 2; taken.has(name); n++) name = `${symbol.name.trim() || 'Custom Symbol'} (${n})`;
+    const next = name === symbol.name ? symbol : { ...symbol, name };
+    return { ...w, countSymbols: [...list, next] };
+  });
+  if (!kept && previous !== undefined) updateWorkspace((w) => ({ ...w, countSymbols: previous }));
+  return kept;
+}
+
+/** Renames or updates a saved custom count symbol in the active profile. */
+export function updateCountSymbol(id: string, patch: Partial<Pick<CountSymbol, 'name'>>) {
+  updateWorkspace((w) => ({
+    ...w,
+    countSymbols: (w.countSymbols ?? []).map((s) => (s.id === id ? { ...s, ...patch } : s)),
+  }));
+}
+
+/** Removes a saved custom count symbol from the active profile. */
+export function removeCountSymbol(id: string) {
+  updateWorkspace((w) => ({
+    ...w,
+    countSymbols: (w.countSymbols ?? []).filter((s) => s.id !== id),
+  }));
 }

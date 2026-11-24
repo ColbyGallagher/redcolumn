@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { settings } from '../settings/settings';
 
 const BYTE_RANGE = new TextEncoder().encode('/ByteRange');
@@ -28,7 +29,7 @@ export function assertKeepsSignatures(before: ArrayBuffer | Uint8Array, after: A
   const a = before instanceof Uint8Array ? before : new Uint8Array(before);
   const b = after instanceof Uint8Array ? after : new Uint8Array(after);
   if (!hasSignature(a) || appends(a, b)) return;
-  throw new Error('This document is digitally signed, and this change would invalidate its signatures. To allow it, turn off Preferences › Signature › Restrict changes that invalidate digital signatures.');
+  throw new Error(msg('This document is digitally signed, and this change would invalidate its signatures. To allow it, turn off Preferences › Signature › Restrict changes that invalidate digital signatures.'));
 }
 
 /**
@@ -39,5 +40,5 @@ export async function assertCertificationAllowsMarkups(before: Uint8Array, after
   if (!settings.get().restrictSignedChanges || after.length <= before.length || !hasSignature(before)) return;
   const { checkSignatures } = await import('./pdfSign');
   if (!(await checkSignatures(before)).some((c) => c.certify === 1 || c.certify === 2)) return;
-  throw new Error('This document is certified, and its certification does not allow markups to be added. To allow it, turn off Preferences › Signature › Restrict changes that invalidate digital signatures.');
+  throw new Error(msg('This document is certified, and its certification does not allow markups to be added. To allow it, turn off Preferences › Signature › Restrict changes that invalidate digital signatures.'));
 }

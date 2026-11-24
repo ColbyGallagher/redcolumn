@@ -1054,7 +1054,8 @@ export class MarkupStore {
         if (t && t.scale !== 1) {
           const k = t.scale;
           next.style = { ...m.style, width: m.style.width * k };
-          for (const key of ['fontSize', 'arcRadius', 'leader'] as const) if (m.style[key] !== undefined) next.style[key] = m.style[key]! * k;
+          if (m.style.fontSize !== undefined) next.style.fontSize = Math.max(1, Math.round(m.style.fontSize * k));
+          for (const key of ['arcRadius', 'leader'] as const) if (m.style[key] !== undefined) next.style[key] = m.style[key]! * k;
         }
         this.map.set(id, next);
       }

@@ -61,6 +61,14 @@ const BUNDLED = [
     file: 'liberation-fonts.txt',
   },
   {
+    name: 'Liberation Sans Narrow',
+    version: '1.07.5',
+    licence: 'GPL-2.0-only WITH Font-exception-2.0',
+    homepage: 'https://github.com/liberationfonts/liberation-sans-narrow',
+    note: 'Liberation Sans Narrow (public/fonts), metric-compatible with Arial Narrow; used for on-screen rendering and PDF embedding when Arial Narrow is not installed on the computer.',
+    file: 'liberation-sans-narrow.txt',
+  },
+  {
     name: 'Node.js',
     version: '24.21.0',
     licence: 'MIT',
@@ -75,6 +83,22 @@ const BUNDLED = [
     homepage: 'https://github.com/DomCR/ACadSharp',
     note: 'The DWG reader in apps/web/src/cad/dwg is ported from ACadSharp: its file container, bit-stream, LZ77 and object reading follow ACadSharp’s, rewritten in TypeScript.',
     file: 'acadsharp.txt',
+  },
+  {
+    name: 'ONNX Runtime Web',
+    version: '1.31.1',
+    licence: 'MIT',
+    homepage: 'https://github.com/microsoft/onnxruntime',
+    note: "Search by meaning in the desktop app runs its embedding model with ONNX Runtime Web\'s CPU (WebAssembly) build, shipped as resources/semantic/ort (apps/desktop/scripts/fetch-search-models.mjs).",
+    file: 'onnxruntime-web.txt',
+  },
+  {
+    name: 'mdbr-leaf-ir (MongoDB)',
+    version: '4262131b',
+    licence: 'Apache-2.0',
+    homepage: 'https://huggingface.co/MongoDB/mdbr-leaf-ir',
+    note: "Search by meaning in the desktop app embeds page text with this model: the publisher\'s 8-bit quantised ONNX export and its tokenizer, unmodified, shipped as resources/semantic (revision 4262131b, apps/desktop/scripts/fetch-search-models.mjs).",
+    file: 'mdbr-leaf-ir.txt',
   },
 ];
 
