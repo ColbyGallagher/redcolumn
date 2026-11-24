@@ -11,6 +11,22 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: '0.1.23',
+    date: '2026-11-24',
+    items: [
+      'German interface translation, language picker, regional number formatting (decimal-comma measurements), and installer languages',
+      'Callouts: two-click placement, stackable leaders, box-node snapping, auto-reattaching connectors, and adding a leader to turn a text box into a callout',
+      'Cloud+: independent line width, border, and fill controls',
+      'Count tool: choose marker shapes and save custom symbols',
+      'Markup Format: assembly, hatch and font dropdowns, line opacity, live preview, collapsible Modify tools, and Units & Scale while measuring',
+      'Modify tab: compact Picture group and combined Flip, Array, and Arrange dropdowns',
+      'Estimating lists: alphabetical sorting and drag-and-drop reordering',
+      'Compare and Overlay: improved document picker and Align Pages UI; Stitching and Compare graduated from Experimental',
+      'Fonts: Arial Narrow added, subfamily font scanning fixed, and font starring',
+      'Desktop: option in Preferences to show the top menu bar, and remembered window size and state between sessions',
+    ],
+  },
+  {
     version: '0.1.22',
     date: '2026-11-22',
     items: [
