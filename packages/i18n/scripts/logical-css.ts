@@ -51,7 +51,8 @@ const PHYSICAL_VALUE_PROPERTIES: Record<string, Record<string, string>> = {
   'clear': { left: 'clear: inline-start', right: 'clear: inline-end' },
 };
 
-const IGNORE_COMMENT = /\blogical-css-ignore\s*:\s*\S+/;
+// A reason is required: the comment's closing */ does not count as one.
+const IGNORE_COMMENT = /\blogical-css-ignore\s*:\s*(?!\*\/)\S/;
 
 function isIgnored(lines: readonly string[], lineIndex: number): boolean {
   const cur = lines[lineIndex] ?? '';

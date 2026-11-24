@@ -111,10 +111,13 @@ export function globToRegExp(glob: string): RegExp {
   const escaped = glob
     .replace(/\\/g, '/')
     .replace(/[.+^${}()|[\]\\]/g, '\\$&')
-    .replace(/\*\*\//g, '(?:.*/)?')
-    .replace(/\*\*/g, '.*')
+    // Placeholders first, so the * in .* is not turned into [^/]* afterwards.
+    .replace(/\*\*\//g, '\u0001')
+    .replace(/\*\*/g, '\u0002')
     .replace(/\*/g, '[^/]*')
-    .replace(/\?/g, '[^/]');
+    .replace(/\?/g, '[^/]')
+    .replace(/\u0001/g, '(?:.*/)?')
+    .replace(/\u0002/g, '.*');
   return new RegExp(`^${escaped}$`);
 }
 
