@@ -49,6 +49,7 @@ import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch
 import { StampFieldsForm } from './StampsDialog';
 import { FontPicker } from './FontPicker';
 import { canHaveCutout } from '../markup/cutoutTarget';
+import { isCloudPlusSelection } from '../markup/selectionFormat';
 
 interface Props {
   markups: Markup[];
@@ -72,6 +73,44 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
   const toolType = isMarkupTool(toolsState.tool) ? toolsState.tool : null;
 
   if (!chosen.length) {
+    if (toolsState.tool === 'cloudPlus' && tools) {
+      const cloudStyle = toolsState.styles.cloud;
+      const calloutStyle = toolsState.styles.callout;
+      return (
+        <div className="props-panel">
+          <div className="props-heading">
+            <strong>Cloud+</strong> {msg('tool defaults')}
+          </div>
+          <p className="empty">{msg('Applies to new cloud+ markups.')}</p>
+          <StyleEditor
+            style={cloudStyle}
+            type="cloud"
+            caps={styleCapabilities('cloud')}
+            disabled={false}
+            markups={markups}
+            segments={false}
+            onChange={(patch) => tools.setDefaultStyle('cloud', patch)}
+            cloudPlus={{
+              cloudStyle,
+              calloutStyle,
+              onCloudChange: (patch) => tools.setDefaultStyle('cloud', patch),
+              onCalloutChange: (patch) => tools.setDefaultStyle('callout', patch),
+            }}
+          />
+          <div className="props-actions">
+            <button
+              className="btn"
+              onClick={() => {
+                tools.setDefaultStyle('cloud', resetPatch(cloudStyle, 'cloud'));
+                tools.setDefaultStyle('callout', resetPatch(calloutStyle, 'callout'));
+              }}
+            >
+              {msg('Reset to defaults')}
+            </button>
+          </div>
+        </div>
+      );
+    }
     if (!toolType || !tools) return <p className="empty">{msg('Select a markup on the drawing, or pick a markup tool, to see its properties.')}</p>;
     return (
       <div className="props-panel">
@@ -104,6 +143,11 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
   const scale = cellContext.scaleOf(m);
   const value = isMeasureKind(m.type) ? measureValue(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint) : null;
   const types = [...new Set(chosen.map((c) => c.type))];
+  const cloudPlusSel = isCloudPlusSelection(chosen);
+  const clouds = cloudPlusSel ? chosen.filter((c) => c.type === 'cloud') : [];
+  const callouts = cloudPlusSel ? chosen.filter((c) => c.type === 'callout') : [];
+  const cloudIds = clouds.map((c) => c.id);
+  const calloutIds = callouts.map((c) => c.id);
   const caps = intersectCaps(types.map(styleCapabilities));
   const ids = chosen.map((c) => c.id);
   const disabled = readOnly || !tools;
@@ -306,6 +350,18 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
         segments={types.every((t) => t === 'polylength')}
         onChange={changeStyle}
         onPreview={disabled ? undefined : (patch) => tools?.previewStyle(patch, cellSel ? 'table' : undefined)}
+        cloudPlus={
+          cloudPlusSel
+            ? {
+                cloudStyle: clouds[0]!.style,
+                calloutStyle: callouts[0]!.style,
+                onCloudChange: (patch) => tools?.applyStyle(cloudIds, patch),
+                onCalloutChange: (patch) => tools?.applyStyle(calloutIds, patch),
+                onCloudPreview: disabled ? undefined : (patch) => tools?.previewStyle(patch, 'cloud'),
+                onCalloutPreview: disabled ? undefined : (patch) => tools?.previewStyle(patch, 'callout'),
+              }
+            : undefined
+        }
       />
       {tools && (
         <div className="props-actions">
@@ -474,6 +530,15 @@ function intersectCaps(list: StyleCapabilities[]): StyleCapabilities {
   return out;
 }
 
+interface CloudPlusEditor {
+  cloudStyle: MarkupStyle;
+  calloutStyle: MarkupStyle;
+  onCloudChange: (patch: Partial<MarkupStyle>) => void;
+  onCalloutChange: (patch: Partial<MarkupStyle>) => void;
+  onCloudPreview?: (patch: Partial<MarkupStyle> | null) => void;
+  onCalloutPreview?: (patch: Partial<MarkupStyle> | null) => void;
+}
+
 interface EditorProps {
   style: MarkupStyle;
   type: MarkupType;
@@ -484,11 +549,13 @@ interface EditorProps {
   segments: boolean;
   onChange: (patch: Partial<MarkupStyle>) => void;
   onPreview?: (patch: Partial<MarkupStyle> | null) => void;
+  /** Cloud+ pair (cloud + callout): cloud and text box widths, border, arcs and font edit their own part. */
+  cloudPlus?: CloudPlusEditor;
 }
 
 const WHOLE_OPACITY_TYPES = new Set<MarkupType>(['highlighter', 'textHighlight', 'image', 'signature', 'stamp']);
 
-function StyleEditor({ style, type, caps, disabled, markups, segments, onChange, onPreview }: EditorProps) {
+function StyleEditor({ style, type, caps, disabled, markups, segments, onChange, onPreview, cloudPlus }: EditorProps) {
   const [startCap, endCap] = lineEnds({ type, style });
   const set = <K extends keyof MarkupStyle>(key: K, value: MarkupStyle[K] | undefined) => onChange({ [key]: value } as Partial<MarkupStyle>);
   const previewColor = <K extends keyof MarkupStyle>(key: K, clearUndefined = false) =>
@@ -497,6 +564,13 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange,
   const hatchOn = !!resolveHatch(style.hatch, style.hatchSpec);
   const hatchValue = style.hatch ?? 'none';
   const { hatchSets } = useWorkspace();
+  const fontStyle = cloudPlus ? cloudPlus.calloutStyle : style;
+  const fontCaps = cloudPlus ? styleCapabilities('callout') : caps;
+  const fontSet = <K extends keyof MarkupStyle>(key: K, value: MarkupStyle[K] | undefined) =>
+    cloudPlus ? cloudPlus.onCalloutChange({ [key]: value } as Partial<MarkupStyle>) : set(key, value);
+  const fontPreview = cloudPlus ? cloudPlus.onCalloutPreview : onPreview;
+  const fontPreviewColor = <K extends keyof MarkupStyle>(key: K, clearUndefined = false) =>
+    fontPreview ? (c: string | null | undefined) => fontPreview(c === undefined ? null : ({ [key]: clearUndefined ? (c ?? undefined) : c } as Partial<MarkupStyle>)) : undefined;
   return (
     <fieldset className="props-style" disabled={disabled}>
       <Section title={msg('Appearance')}>
@@ -511,10 +585,39 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange,
             onPreview={onPreview ? (c) => onPreview(c === undefined ? null : c ? { stroke: c } : null) : undefined}
           />
         </Row>
-        {!(type === 'text' && (style.noBox || style.borderless)) && (
-          <Row label={msg('Line width')}>
-            <NumberField value={style.width} min={0} max={200} step={0.25} unit="pt" onChange={(v) => set('width', v)} />
-          </Row>
+        {cloudPlus ? (
+          <>
+            <Row label={msg('Cloud line width')}>
+              <NumberField value={cloudPlus.cloudStyle.width} min={0} max={200} step={0.25} unit="pt" onChange={(v) => cloudPlus.onCloudChange({ width: v })} />
+            </Row>
+            <Row label={msg('Text box line width')}>
+              <NumberField value={cloudPlus.calloutStyle.width} min={0} max={200} step={0.25} unit="pt" onChange={(v) => cloudPlus.onCalloutChange({ width: v })} />
+            </Row>
+            <Row label={msg('Text box border')} title={msg('Draw an outline around the text box (its fill draws either way)')}>
+              <input
+                type="checkbox"
+                checked={!cloudPlus.calloutStyle.noBox && !cloudPlus.calloutStyle.borderless}
+                onChange={(e) => cloudPlus.onCalloutChange(e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
+              />
+            </Row>
+          </>
+        ) : (
+          <>
+            {!(type === 'text' && (style.noBox || style.borderless)) && (
+              <Row label={msg('Line width')}>
+                <NumberField value={style.width} min={0} max={200} step={0.25} unit="pt" onChange={(v) => set('width', v)} />
+              </Row>
+            )}
+            {(type === 'text' || type === 'callout') && (
+              <Row label={msg('Border')} title={msg('Draw an outline around the text box (its fill draws either way)')}>
+                <input
+                  type="checkbox"
+                  checked={!style.noBox && !style.borderless}
+                  onChange={(e) => onChange(e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
+                />
+              </Row>
+            )}
+          </>
         )}
         {caps.dash && (
           <Row label={msg('Line style')}>
@@ -541,16 +644,55 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange,
           </Row>
         )}
         {caps.fill && (
-          <>
-            <Row label={msg('Fill color')} title={msg('The inside of the shape')}>
-              <ColorMenu wide label={msg('Fill color')} short={msg('Fill')} icon={STYLE_ICONS.fill} value={style.fill ?? null} noneLabel={msg('No fill')} onChange={(c) => set('fill', c)} onPreview={previewColor('fill')} />
-            </Row>
-            {(style.fill || hatchOn) && (
-              <Row label={msg('Fill opacity')}>
-                <Percent value={style.fillOpacity ?? 1} onChange={(v) => set('fillOpacity', v)} />
+          cloudPlus ? (
+            <>
+              <Row label={msg('Cloud fill')} title={msg('The inside of the cloud')}>
+                <ColorMenu
+                  wide
+                  label={msg('Cloud fill')}
+                  short={msg('Cloud')}
+                  icon={STYLE_ICONS.fill}
+                  value={cloudPlus.cloudStyle.fill ?? null}
+                  noneLabel={msg('No fill')}
+                  onChange={(c) => cloudPlus.onCloudChange({ fill: c })}
+                  onPreview={cloudPlus.onCloudPreview ? (c) => cloudPlus.onCloudPreview!(c === undefined ? null : { fill: c }) : undefined}
+                />
               </Row>
-            )}
-          </>
+              {(cloudPlus.cloudStyle.fill || hatchOn) && (
+                <Row label="Cloud fill opacity">
+                  <Percent value={cloudPlus.cloudStyle.fillOpacity ?? 1} onChange={(v) => cloudPlus.onCloudChange({ fillOpacity: v })} />
+                </Row>
+              )}
+              <Row label="Text box fill" title="The background of the text box">
+                <ColorMenu
+                  wide
+                  label="Text box fill"
+                  short="Text box"
+                  icon={STYLE_ICONS.fill}
+                  value={cloudPlus.calloutStyle.fill ?? null}
+                  noneLabel="No fill"
+                  onChange={(c) => cloudPlus.onCalloutChange({ fill: c })}
+                  onPreview={cloudPlus.onCalloutPreview ? (c) => cloudPlus.onCalloutPreview!(c === undefined ? null : { fill: c }) : undefined}
+                />
+              </Row>
+              {cloudPlus.calloutStyle.fill && (
+                <Row label="Text box fill opacity">
+                  <Percent value={cloudPlus.calloutStyle.fillOpacity ?? 1} onChange={(v) => cloudPlus.onCalloutChange({ fillOpacity: v })} />
+                </Row>
+              )}
+            </>
+          ) : (
+            <>
+              <Row label="Fill color" title="The inside of the shape">
+                <ColorMenu wide label="Fill color" short="Fill" icon={STYLE_ICONS.fill} value={style.fill ?? null} noneLabel="No fill" onChange={(c) => set('fill', c)} onPreview={previewColor('fill')} />
+              </Row>
+              {(style.fill || hatchOn) && (
+                <Row label="Fill opacity">
+                  <Percent value={style.fillOpacity ?? 1} onChange={(v) => set('fillOpacity', v)} />
+                </Row>
+              )}
+            </>
+          )
         )}
         {caps.hatch && (
           <>
@@ -598,9 +740,16 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange,
             )}
           </>
         )}
-        {caps.arcRadius === 'Arc size' && (
+        {(caps.arcRadius === 'Arc size' || cloudPlus) && (
           <Row label={msg('Arcs')}>
-            <select value={style.cloudInside ? 'inside' : 'outside'} onChange={(e) => set('cloudInside', e.target.value === 'inside' || undefined)}>
+            <select
+              value={(cloudPlus ? cloudPlus.cloudStyle : style).cloudInside ? 'inside' : 'outside'}
+              onChange={(e) => {
+                const v = e.target.value === 'inside' || undefined;
+                if (cloudPlus) cloudPlus.onCloudChange({ cloudInside: v });
+                else set('cloudInside', v);
+              }}
+            >
               <option value="outside">{msg('Bulge outward')}</option>
               <option value="inside">{msg('Bulge inward')}</option>
             </select>
@@ -611,9 +760,17 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange,
             <CountSymbolSelect style={style} markups={markups} disabled={disabled} onChange={onChange} onPreview={onPreview} />
           </Row>
         )}
-        {caps.arcRadius && (
-          <Row label={caps.arcRadius === 'Arc size' ? msg('Arc size') : msg('Marker size')}>
-            <NumberField value={style.arcRadius} placeholder={msg('Auto')} min={0.5} max={200} step={0.5} unit="pt" onChange={(v) => set('arcRadius', v)} />
+        {(caps.arcRadius || cloudPlus) && (
+          <Row label={caps.arcRadius === 'Marker size' ? msg('Marker size') : msg('Arc size')}>
+            <NumberField
+              value={(cloudPlus ? cloudPlus.cloudStyle : style).arcRadius}
+              placeholder={msg('Auto')}
+              min={0.5}
+              max={200}
+              step={0.5}
+              unit="pt"
+              onChange={(v) => (cloudPlus ? cloudPlus.onCloudChange({ arcRadius: v }) : set('arcRadius', v))}
+            />
           </Row>
         )}
       </Section>
@@ -659,63 +816,63 @@ function StyleEditor({ style, type, caps, disabled, markups, segments, onChange,
         </Section>
       )}
 
-      {caps.font && (
-        <Section title={measure || caps.label ? msg('Label text') : msg('Font')}>
+      {(caps.font || cloudPlus) && (
+        <Section title={measure || fontCaps.label ? msg('Label text') : msg('Font')}>
           <Row label={msg('Font')}>
             <FontPicker
-              value={style.fontFamily}
+              value={fontStyle.fontFamily}
               disabled={disabled}
-              onChange={(family) => set('fontFamily', family === 'sans' ? undefined : (family as FontFamily))}
-              onPreview={onPreview ? (family) => onPreview(family === null ? null : { fontFamily: family === 'sans' ? undefined : (family as FontFamily) }) : undefined}
+              onChange={(family) => fontSet('fontFamily', family === 'sans' ? undefined : (family as FontFamily))}
+              onPreview={fontPreview ? (family) => fontPreview(family === null ? null : { fontFamily: family === 'sans' ? undefined : (family as FontFamily) }) : undefined}
             />
           </Row>
           <Row label={msg('Size')}>
             <ComboField
               title={msg('Font size')}
               integer
-              value={style.fontSize !== undefined ? Math.round(style.fontSize) : undefined}
+              value={fontStyle.fontSize !== undefined ? Math.round(fontStyle.fontSize) : undefined}
               placeholder={msg('Auto')}
               options={FONT_SIZES}
               min={2}
               max={288}
               unit="pt"
               disabled={disabled}
-              onChange={(v) => set('fontSize', Math.round(v))}
-              onPreview={onPreview ? (v) => onPreview(v === null ? null : { fontSize: Math.round(v) }) : undefined}
+              onChange={(v) => fontSet('fontSize', Math.round(v))}
+              onPreview={fontPreview ? (v) => fontPreview(v === null ? null : { fontSize: Math.round(v) }) : undefined}
             />
           </Row>
           <Row label={msg('Style')}>
             <span className="seg">
-              <Toggle on={style.bold ?? measure} label="B" title={msg('Bold')} className="b" onChange={(v) => set('bold', v)} />
-              <Toggle on={!!style.italic} label="I" title={msg('Italic')} className="i" onChange={(v) => set('italic', v || undefined)} />
-              <Toggle on={!!style.underline} label="U" title={msg('Underline')} className="u" onChange={(v) => set('underline', v || undefined)} />
-              <Toggle on={!!style.strikethrough} label="S" title={msg('Strikethrough')} className="s" onChange={(v) => set('strikethrough', v || undefined)} />
+              <Toggle on={fontStyle.bold ?? measure} label="B" title={msg('Bold')} className="b" onChange={(v) => fontSet('bold', v)} />
+              <Toggle on={!!fontStyle.italic} label="I" title={msg('Italic')} className="i" onChange={(v) => fontSet('italic', v || undefined)} />
+              <Toggle on={!!fontStyle.underline} label="U" title={msg('Underline')} className="u" onChange={(v) => fontSet('underline', v || undefined)} />
+              <Toggle on={!!fontStyle.strikethrough} label="S" title={msg('Strikethrough')} className="s" onChange={(v) => fontSet('strikethrough', v || undefined)} />
             </span>
           </Row>
           <Row label={msg('Text color')}>
-            <ColorMenu wide label={msg('Text color')} short={msg('Text')} icon={STYLE_ICONS.line} value={style.textColor ?? null} fallback={style.stroke} noneLabel={msg('Same as line')} onChange={(c) => set('textColor', c ?? undefined)} onPreview={previewColor('textColor', true)} />
+            <ColorMenu wide label={msg('Text color')} short={msg('Text')} icon={STYLE_ICONS.line} value={fontStyle.textColor ?? null} fallback={fontStyle.stroke} noneLabel={msg('Same as line')} onChange={(c) => fontSet('textColor', c ?? undefined)} onPreview={fontPreviewColor('textColor', true)} />
           </Row>
-          {caps.textLayout && (
+          {fontCaps.textLayout && (
             <>
               <Row label={msg('Align')}>
                 <span className="seg">
                   {(['left', 'center', 'right', 'justify'] as TextAlign[]).map((a) => (
-                    <Toggle key={a} on={(style.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={a === 'justify' ? msg('Justified') : a === 'left' ? msg('Align left') : a === 'center' ? msg('Align center') : msg('Align right')} onChange={() => set('textAlign', a === 'left' ? undefined : a)} />
+                    <Toggle key={a} on={(fontStyle.textAlign ?? 'left') === a} label={ALIGN_ICONS[a]} title={a === 'justify' ? msg('Justified') : a === 'left' ? msg('Align left') : a === 'center' ? msg('Align center') : msg('Align right')} onChange={() => fontSet('textAlign', a === 'left' ? undefined : a)} />
                   ))}
                 </span>
               </Row>
               <Row label={msg('Vertical')}>
                 <span className="seg">
                   {(['top', 'middle', 'bottom'] as VerticalAlign[]).map((a) => (
-                    <Toggle key={a} on={(style.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={a === 'top' ? msg('Align top') : a === 'middle' ? msg('Align middle') : msg('Align bottom')} onChange={() => set('verticalAlign', a === 'top' ? undefined : a)} />
+                    <Toggle key={a} on={(fontStyle.verticalAlign ?? 'top') === a} label={VALIGN_ICONS[a]} title={a === 'top' ? msg('Align top') : a === 'middle' ? msg('Align middle') : msg('Align bottom')} onChange={() => fontSet('verticalAlign', a === 'top' ? undefined : a)} />
                   ))}
                 </span>
               </Row>
               <Row label={msg('Line spacing')}>
-                <LineSpacing key={markups?.map((x) => x.id).join(',')} value={style.lineHeight} onChange={(v) => set('lineHeight', v)} />
+                <LineSpacing key={markups?.map((x) => x.id).join(',')} value={fontStyle.lineHeight} onChange={(v) => fontSet('lineHeight', v)} />
               </Row>
               <Row label={msg('Padding')}>
-                <NumberField value={style.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" onChange={(v) => set('textMargin', v)} />
+                <NumberField value={fontStyle.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" onChange={(v) => fontSet('textMargin', v)} />
               </Row>
             </>
           )}

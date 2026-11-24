@@ -57,3 +57,46 @@ test('search, Feedback and Autosave stay in the top bar', async ({ app }) => {
   await expect(autosave).toHaveAttribute('aria-checked', before === 'true' ? 'false' : 'true');
   expect(app.errors).toEqual([]);
 });
+
+test('Preferences › Show Menu Bar toggles between the classic menu bar and the redcolumn menu', async ({ app }) => {
+  // Default: menus live under the redcolumn button, not across the top bar.
+  await expect(app.page.locator('.menubar .menu-title')).toHaveCount(0);
+  await expect(app.page.locator('.menubar button.brand-mark')).toBeVisible();
+
+  // Enable Show Menu Bar in Preferences › Interface › Display.
+  await app.cmd('file.preferences');
+  await app.page.getByRole('tab', { name: 'Interface' }).click();
+  await app.page.getByRole('tab', { name: 'Display' }).click();
+  const toggle = app.page.getByLabel('Show Menu Bar');
+  await expect(toggle).not.toBeChecked();
+  await toggle.check();
+  await app.page.getByRole('button', { name: 'Save' }).click();
+
+  // Menus now sit across the top bar and the ribbon's tabs sit below it.
+  await expect(app.page.locator('.menubar button.brand-mark')).toHaveCount(0);
+  const titles = app.page.locator('.menubar .menu-title');
+  await expect(titles).toHaveText(['File', 'Edit', 'View', 'Document', 'Bulk', 'Tools', 'Window', 'Help']);
+  await expect(app.page.locator('.menubar .menubar-slot')).toHaveCount(0);
+  await expect(app.page.locator('.ribbon > .rb-tabs, .app > .toolbar.tools')).toBeVisible();
+  await expect(app.page.locator('.menubar .menu-search input')).toBeVisible();
+
+  // Clicking a top menu opens it, hovering switches to the next, Escape closes it.
+  await titles.filter({ hasText: /^File$/ }).click();
+  await expect(app.page.locator('.menubar .menu-drop')).toBeVisible();
+  await titles.filter({ hasText: /^Edit$/ }).hover();
+  await expect(app.page.locator('.menubar .menu.open .menu-title')).toHaveText('Edit');
+  await app.page.keyboard.press('Escape');
+  await expect(app.page.locator('.menubar .menu-drop')).toHaveCount(0);
+
+  // Turn Show Menu Bar back off and verify the one-row bar returns.
+  await app.cmd('file.preferences');
+  await app.page.getByRole('tab', { name: 'Interface' }).click();
+  await app.page.getByRole('tab', { name: 'Display' }).click();
+  await app.page.getByLabel('Show Menu Bar').uncheck();
+  await app.page.getByRole('button', { name: 'Save' }).click();
+
+  await expect(app.page.locator('.menubar .menu-title')).toHaveCount(0);
+  await expect(app.page.locator('.menubar button.brand-mark')).toBeVisible();
+  await expect(app.page.locator('.menubar .menubar-slot > .rb-tabs, .menubar .menubar-slot > .toolbar.tools')).toBeVisible();
+  expect(app.errors).toEqual([]);
+});
