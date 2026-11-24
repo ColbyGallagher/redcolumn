@@ -22,6 +22,8 @@ interface Props {
   onCancel: () => void;
 }
 
+/** The processes in English, for revision notes (stored with the file). */
+export const PROCESS_ENGLISH: Record<ProcessKind, string> = { flatten: 'Flatten', reduce: 'Reduce File Size', colour: 'Colour Processing' };
 export const PROCESS_TITLES = lazy((): Record<ProcessKind, string> => ({ flatten: msg('Flatten'), reduce: msg('Reduce File Size'), colour: msg('Colour Processing') }));
 
 const mb = (n: number) => `${(n / 1024 / 1024).toFixed(n < 1024 * 1024 ? 2 : 1)} MB`;

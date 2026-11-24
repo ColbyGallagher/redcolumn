@@ -106,7 +106,7 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
       setNotice({ text: msg('Could not save symbol: browser storage is full. Delete unused symbols or stamps and try again.'), error: true });
       return;
     }
-    setNotice({ text: `Saved “${sym.name}”.` });
+    setNotice({ text: msg('Saved “{name}”.', { name: sym.name }) });
     if (useNow && onUse) {
       onUse(sym);
       onClose();

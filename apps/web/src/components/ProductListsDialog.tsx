@@ -23,9 +23,9 @@ const newList = (name: string): ProductList => ({
   id: crypto.randomUUID(),
   name,
   columns: [
-    { key: 'name', label: msg('Name'), type: 'text' },
-    { key: 'cost', label: msg('Cost'), type: 'number' },
-    { key: 'price', label: msg('Price'), type: 'number' },
+    { key: 'name', label: 'Name', type: 'text' },
+    { key: 'cost', label: 'Cost', type: 'number' },
+    { key: 'price', label: 'Price', type: 'number' },
   ],
   records: [],
 });
@@ -56,7 +56,7 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
     patch((l) => {
       let n = l.columns.length + 1;
       while (l.columns.some((c) => c.key === `col${n}`)) n++;
-      return { ...l, columns: [...l.columns, { key: `col${n}`, label: msg('Column {n}', { n }), type: 'text' }] };
+      return { ...l, columns: [...l.columns, { key: `col${n}`, label: `Column ${n}`, type: 'text' }] };
     });
   const setCell = (recordId: string, c: Pick<ProductListColumn, 'key'>, text: string) =>
     patch((l) => ({
@@ -66,7 +66,7 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
     }));
   const remove = (l: ProductList) => {
     const used = usage[l.id] ?? 0;
-    if (used && !confirm(msg('{used} item{value} from “{name}”. Delete it anyway? They go back to their own costs.', { used, value: used === 1 ? ' ' + msg('prices') : msg('s price'), name: l.name }))) return;
+    if (used && !confirm(msg('{used, plural, one {# item prices from “{name}”. Delete it anyway? It goes back to its own cost.} other {# items price from “{name}”. Delete it anyway? They go back to their own costs.}}', { used, name: l.name }))) return;
     const next = lists.filter((x) => x.id !== l.id);
     setLists(next);
     setSelectedId(next[0]?.id ?? null);

@@ -60,7 +60,7 @@ export function AccessPrefs() {
       <section>
         <h4>{msg('Microsoft (OneDrive)')}</h4>
         {microsoftSignInManagedOff ? (
-          <p className="access-note managed-note">{msg('{mANAGED_NOTE} Microsoft sign-in is turned off on this computer.', { mANAGED_NOTE: MANAGED_NOTE })}</p>
+          <p className="access-note managed-note">{MANAGED_NOTE} {msg('Microsoft sign-in is turned off on this computer.')}</p>
         ) : !oneDriveConfigured ? (
           <p className="access-note">{msg('Microsoft sign-in is not set up for this site.')}</p>
         ) : ms ? (
@@ -167,7 +167,7 @@ function LocalDataSection() {
     <section>
       <h4>{msg('This computer')}</h4>
       <label className="pref-check">
-        {keyed(msgParts('{input} Encrypt local data', { input: <input type="checkbox" checked={on} disabled={!!busy} onChange={(e) => void change(e.target.checked)} /> }))}
+        <input type="checkbox" checked={on} disabled={!!busy} onChange={(e) => void change(e.target.checked)} /> {msg('Encrypt local data')}
       </label>
       <p className="access-note">
         {busy ??
