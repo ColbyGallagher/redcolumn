@@ -149,7 +149,7 @@ export function ShortcutsDialog({ commands, onDownload, onClose }: Props) {
           }}
         />
         <div className="actions">
-          <button className="btn" title={`A shortcuts file exported here, or Revu's KeyboardShortcuts.xml`} onClick={() => importRef.current?.click()}>
+          <button className="btn" title={msg("A shortcuts file exported here, or Revu's KeyboardShortcuts.xml")} onClick={() => importRef.current?.click()}>
             {msg('Import…')}
           </button>
           <button
