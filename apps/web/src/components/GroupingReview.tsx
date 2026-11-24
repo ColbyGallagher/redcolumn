@@ -80,7 +80,7 @@ function Grouping({ g, store, me, pageLabel, onShow, onMessage, findings, onShow
         <span className={`tp-state ${g.status === 'accepted' ? 'approved' : g.status}`}>{GROUPING_STATUS_LABEL()[g.status]}</span>
       </div>
       <p className="hint-text">
-        {msg('{count, plural, one {# markup} other {# markups}} in {size, plural, one {# group} other {# groups}}: {list}{value}', { count: g.assignments.length, size: counts.size, list: [...counts].map(([v, n]) => `${v || '(none)'} ${n}`).join(', '), value: g.toolUse ? ' ' + msg('· made by the tool “{toolName}”, {when}', { toolName: g.toolUse.toolName, when: when(g.toolUse.at) }) : '' })}
+        {msg('{count, plural, one {# markup} other {# markups}} in {size, plural, one {# group} other {# groups}}: {list}{value}', { count: g.assignments.length, size: counts.size, list: [...counts].map(([v, n]) => `${v || msg('(none)')} ${n}`).join(', '), value: g.toolUse ? ' ' + msg('· made by the tool “{toolName}”, {when}', { toolName: g.toolUse.toolName, when: when(g.toolUse.at) }) : '' })}
       </p>
       <blockquote className="tp-reason">
         <span className="hint-text">
@@ -132,7 +132,9 @@ function Grouping({ g, store, me, pageLabel, onShow, onMessage, findings, onShow
       <ReviewFindings store={store} me={me} findings={findings.get(`column:${g.id}`) ?? []} pageLabel={pageLabel} onShowSource={onShowSource} />
       {g.accepted && (
         <p className="hint-text">
-          {msg('Accepted by {by}, {when}{value}.', { by: g.accepted.by, when: when(g.accepted.at), value: g.assignments.some((a) => a.edited) ? msg(', with {count} markup(s) regrouped by a person', { count: g.assignments.filter((a) => a.edited).length }) : '' })}
+          {g.assignments.some((a) => a.edited)
+            ? msg('Accepted by {by}, {when}, with {count, plural, one {# markup} other {# markups}} regrouped by a person.', { by: g.accepted.by, when: when(g.accepted.at), count: g.assignments.filter((a) => a.edited).length })
+            : msg('Accepted by {by}, {when}.', { by: g.accepted.by, when: when(g.accepted.at) })}
         </p>
       )}
       {g.rejected && (

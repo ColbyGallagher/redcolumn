@@ -242,19 +242,19 @@ export function aiPrompt(standard: DrawingStandard, fileName: string, steps: rea
   const lines = steps.map((s) => {
     const x = r[s];
     if (!x) return `- ${STEP_NAME()[s]}`;
-    const why = [msg('{linked} of {references} references linked', { linked: x.linked, references: x.references }), x.wrong ? msg('{wrong} of {checked} checked links wrong', { wrong: x.wrong, checked: x.checked }) : '', x.unreadable ? msg('{unreadable} marks found by shape but not read', { unreadable: x.unreadable }) : '', x.ambiguous ? msg('{ambiguous} chainages whose alignment is unclear', { ambiguous: x.ambiguous }) : ''].filter(Boolean);
+    const why = [`${x.linked} of ${x.references} references linked`, x.wrong ? `${x.wrong} of ${x.checked} checked links wrong` : '', x.unreadable ? `${x.unreadable} marks found by shape but not read` : '', x.ambiguous ? `${x.ambiguous} chainages whose alignment is unclear` : ''].filter(Boolean);
     return `- ${STEP_NAME()[s]}: ${why.join('; ')}.`;
   });
   return [
-    msg('In redcolumn, {fileName} is open with the drawing standard "{name}". Text and shape search did not finish these setup steps:', { fileName, name: standard.name }),
+    `In redcolumn, ${fileName} is open with the drawing standard "${standard.name}". Text and shape search did not finish these setup steps:`,
     ...lines,
     '',
-    msg('1. Call get_drawing_standard (standard "{name}") for the examples I boxed in each step and how each step did.', { name: standard.name }),
+    `1. Call get_drawing_standard (standard "${standard.name}") for the examples I boxed in each step and how each step did.`,
     '2. Call list_sheet_links for the document, for those kinds, to see what was found and what waits for review.',
     '3. Read the sheets with get_page_text and get_page_image (zoom into callouts, titles, match-line labels and chainages), using my examples to know what to look for.',
     '4. Propose the missing or wrong links with propose_sheet_links, saying how you read each one.',
     '5. If the standard is missing words that would let text search find these next time (title words, match-line words, chainage prefixes, alignment names), propose them with propose_standard_hints.',
     '',
-    msg('Do not change anything else. I will review your links in the Links panel and your words in the setup’s Review step.'),
+    `Do not change anything else. I will review your links in the Links panel and your words in the setup’s Review step.`,
   ].join('\n');
 }

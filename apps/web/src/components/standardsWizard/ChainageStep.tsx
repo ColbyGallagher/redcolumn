@@ -274,7 +274,7 @@ export function ChainageStep(p: Props) {
                 {groupAmbiguous(run.ambiguous).map((g) => (
                   <li key={g.key}>
                     <button type="button" onClick={() => p.look(g.first.pageIndex, g.first.rect)}>
-                      {msg('CH {value} on {name}', { value: g.first.value, name: name(g.first.pageIndex) })}
+                      {msg('CH {value} on {name}', { value: String(g.first.value), name: name(g.first.pageIndex) })}
                     </button>{' '}
                     {msg('could be on')} {g.first.alignments.join(' or ')}
                     {g.count > 1 ? ` (${g.count} places)` : ''}.

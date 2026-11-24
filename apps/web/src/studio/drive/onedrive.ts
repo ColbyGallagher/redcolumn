@@ -493,7 +493,7 @@ async function failure(res: Response, what: string): Promise<Error> {
   const detail = body?.error?.message;
   if (res.status === 401) return new DriveAuthError(msg('Microsoft sign-in has expired.'));
   if (res.status === 403) return new DriveForbiddenError(detail ?? msg('Not allowed to {what}.', { what }));
-  if (res.status === 404) return new Error(msg('OneDrive could not find what was needed to {what}. Is the session folder still shared?', { what }));
+  if (res.status === 404) return new Error(`OneDrive could not find what was needed to ${what}. Is the session folder still shared?`);
   if (res.status === 423) return new DriveLockedError(msg('OneDrive could not {what}: the file is open in Excel, so it is locked. Close it and the update is saved.', { what }));
   return new Error(msg('OneDrive could not {what}{value}.', { what, value: detail ? `: ${detail}` : ` (${res.status})` }));
 }

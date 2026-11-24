@@ -798,8 +798,8 @@ function FileActions({
       <b>{file.name}</b>
       <p className="hint-text">
         {state.kind === 'none' && msg('Not on this device yet.')}
-        {state.kind === 'current' && msg('Your copy is revision {rev}, the latest.', { rev: state.rev })}
-        {state.kind === 'stale' && msg('Your copy is revision {rev}; the Project has revision {latest}.', { rev: state.rev, latest: state.latest })}
+        {state.kind === 'current' && msg('Your copy is revision {rev}, the latest.', { rev: String(state.rev) })}
+        {state.kind === 'stale' && msg('Your copy is revision {rev}; the Project has revision {latest}.', { rev: String(state.rev), latest: String(state.latest) })}
         {' '}
         {msg('Markups are shared live with everyone who has it open.')}
         {file.checkout?.note ? ' ' + msg('Checked out for: {note}', { note: file.checkout.note }) : ''}

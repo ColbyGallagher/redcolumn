@@ -328,7 +328,7 @@ function StampFieldsBuilder({
   const add = (kind: StampField['kind']) => {
     const field: StampField =
       kind === 'choice'
-        ? { id: crypto.randomUUID(), label: fields.some((f) => f.label === 'Action') ? msg('Boxes {count}', { count: fields.length + 1 }) : msg('Action'), kind, options: [{ label: msg('Approved'), color: '#15803d' }, { label: msg('Rejected'), color: '#b91c1c' }] }
+        ? { id: crypto.randomUUID(), label: fields.some((f) => f.label.trim().toLowerCase() === msg('Action').toLowerCase()) ? msg('Boxes {count}', { count: fields.length + 1 }) : msg('Action'), kind, options: [{ label: msg('Approved'), color: '#15803d' }, { label: msg('Rejected'), color: '#b91c1c' }] }
         : { id: crypto.randomUUID(), label: msg('Field {count}', { count: fields.length + 1 }), kind, value: '' };
     onChange([...fields, field]);
     onAdded?.(field);
@@ -500,6 +500,13 @@ function StampFieldsBuilder({
 }
 
 /** Tools › Stamp › Manage Stamps: the stamp library, with an editor for your own stamps. */
+/** A message without its closing punctuation, so several can be joined with semicolons. */
+function trimEnding(m: string): string {
+  let end = m.length;
+  while (end > 0 && '.; \t\n'.includes(m[end - 1]!)) end--;
+  return m.slice(0, end);
+}
+
 export function StampsDialog({ author, onPlace, onClose, creating = false }: Props) {
   const ws = useWorkspace();
   const library = stampLibrary(ws);
@@ -615,7 +622,7 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
                   setMessage(msg('Importing…'));
                   void importStampFiles(files).then(({ added, failed }) => {
                     if (added[0]) setPickedId(added[0].id);
-                    const parts = [added.length ? msg('Imported {count, plural, one {# stamp} other {# stamps}}', { count: added.length }) : '', ...failed].filter(Boolean).map((m) => m.replace(/[.;\s]+$/, ''));
+                    const parts = [added.length ? msg('Imported {count, plural, one {# stamp} other {# stamps}}', { count: added.length }) : '', ...failed].filter(Boolean).map(trimEnding);
                     setMessage(parts.length ? `${parts.join('; ')}.` : msg('Nothing to import.'));
                   });
                 }}

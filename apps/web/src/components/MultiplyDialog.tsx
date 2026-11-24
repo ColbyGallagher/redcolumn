@@ -56,7 +56,8 @@ export function MultiplyDialog({ scale, onApply, onCancel }: Props) {
           <input id="mult-gapy" value={gapY} onChange={(e) => setGapY(e.target.value)} aria-invalid={gy === null} />
         </div>
         <p className="pref-hint">
-          {msg('Spacing is the gap between neighbouring copies, measured at the page scale ({label}).{value}', { label: scale.label, value: copies > MAX_COPIES ? ` At most ${MAX_COPIES} copies at a time.` : '' })}
+          {msg('Spacing is the gap between neighbouring copies, measured at the page scale ({scale}).', { scale: scale.label })}
+          {copies > MAX_COPIES ? ' ' + msg('At most {count} copies at a time.', { count: MAX_COPIES }) : ''}
         </p>
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>

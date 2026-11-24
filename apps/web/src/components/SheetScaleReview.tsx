@@ -31,17 +31,21 @@ const STATUS: Record<ScaleReviewStatus, { label: string; hint: string }> = {
 
 const paperOf = (r: ScaleReviewRow) => r.actual?.paper.name ?? '—';
 
-const WITNESS = { bar: 'scale bar', dimensions: 'dimensions' } as const;
+const witness = (kind: 'bar' | 'dimensions') => (kind === 'bar' ? msg('scale bar') : msg('dimensions'));
 
 /** What the page's own lengths said, short for the table and in full for its tooltip. */
 function checkCell(r: ScaleReviewRow, reading: boolean): { text: string; title: string } {
   const c = r.check;
   if (!c) return reading && (r.proposed || r.current) ? { text: '…', title: msg('Reading the page') } : { text: '—', title: '' };
   if (c.result === 'none') return { text: '—', title: msg('No scale bar or dimensions found on the page') };
-  const what = c.reading!.kind === 'bar' ? msg('scale bar {text}', { text: c.reading!.text }) : c.reading!.text;
-  if (c.result === 'agrees') return { text: `✓ ${WITNESS[c.reading!.kind]}`, title: msg('Agrees with the {what}', { what }) };
+  const bar = c.reading!.kind === 'bar';
+  const text = c.reading!.text;
+  if (c.result === 'agrees') return { text: `✓ ${witness(c.reading!.kind)}`, title: bar ? msg('Agrees with the scale bar {text}', { text }) : msg('Agrees with the dimension {text}', { text }) };
   const times = c.ratio! >= 1 ? `×${c.ratio!.toFixed(2)}` : `÷${(1 / c.ratio!).toFixed(2)}`;
-  return { text: `✗ ${WITNESS[c.reading!.kind]} ${times}`, title: msg('The {what} measures {times} the proposed scale. Check against a known length.', { what, times }) };
+  return {
+    text: `✗ ${witness(c.reading!.kind)} ${times}`,
+    title: bar ? msg('The scale bar {text} measures {times} the proposed scale. Check against a known length.', { text, times }) : msg('The dimension {text} measures {times} the proposed scale. Check against a known length.', { text, times }),
+  };
 }
 
 /**

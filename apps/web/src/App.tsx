@@ -130,7 +130,7 @@ import { cadToolFits, isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
 import { HeaderFooterDialog } from './components/HeaderFooterDialog';
-import { PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
+import { PROCESS_ENGLISH, PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
 import { OcrDialog } from './components/OcrDialog';
 import { CompareDialog, type ComparePairing, type CompareSpec } from './components/CompareDialog';
 import type { OverlayPageSpec } from './documents/overlay';
@@ -4219,14 +4219,14 @@ export function App() {
         const xfdf = toXfdf(formModels[o.file.hash]?.fields ?? [], o.file.name);
         if (/^mailto:/i.test(a.url)) {
           // Mail apps take no attachments from a link: the data is downloaded to attach.
-          download(msg('{replace} form data.xfdf', { replace: o.file.name.replace(/\.pdf$/i, '') }), new Blob([xfdf], { type: 'application/vnd.adobe.xfdf' }));
+          download(`${o.file.name.replace(/\.pdf$/i, '')} form data.xfdf`, new Blob([xfdf], { type: 'application/vnd.adobe.xfdf' }));
           window.open(`${a.url}${a.url.includes('?') ? '&' : '?'}subject=${encodeURIComponent(msg('Form data: {name}', { name: o.file.name }))}&body=${encodeURIComponent(msg('The form data is attached (XFDF).'))}`, '_blank');
           setNotice(msg('The form data was saved as an XFDF file; attach it to the email that opened.'));
           return;
         }
         try {
           const res = await fetch(a.url, { method: 'POST', headers: { 'content-type': 'application/vnd.adobe.xfdf' }, body: xfdf });
-          setNotice(res.ok ? msg('Form submitted to {host}.', { host: new URL(a.url).host }) : msg('Submitting failed: {host} answered {status}.', { host: new URL(a.url).host, status: res.status }));
+          setNotice(res.ok ? msg('Form submitted to {host}.', { host: new URL(a.url).host }) : msg('Submitting failed: {host} answered {status}.', { host: new URL(a.url).host, status: String(res.status) }));
         } catch {
           setError(msg('Could not submit the form to {url} (the server may not accept requests from this app).', { url: a.url }));
         }
@@ -5028,7 +5028,7 @@ export function App() {
       const session = sessionById(sessionId);
       if (!session) return;
       const bytes = await sessionReportBytes(session);
-      download(msg('{name} session report.pdf', { name: session.meta.name }), new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+      download(`${session.meta.name} session report.pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
     },
     [sessionReportBytes],
   );
@@ -5135,10 +5135,10 @@ export function App() {
       if (choice.recordCsv) {
         step(msg('Preparing the session record'));
         const snap = session.getSnapshot();
-        files.push({ name: safe(msg('{name} session record.csv', { name: meta.name })), blob: new Blob(['﻿' + recordToCsv(snap.meta, snap.record)], { type: 'text/csv' }) });
+        files.push({ name: safe(`${meta.name} session record.csv`), blob: new Blob(['﻿' + recordToCsv(snap.meta, snap.record)], { type: 'text/csv' }) });
       }
       if (choice.reportPdf) step(msg('Preparing the session report'));
-      if (choice.reportPdf) files.push({ name: safe(msg('{name} session report.pdf', { name: meta.name })), blob: new Blob([(await sessionReportBytes(session)) as BlobPart], { type: 'application/pdf' }) });
+      if (choice.reportPdf) files.push({ name: safe(`${meta.name} session report.pdf`), blob: new Blob([(await sessionReportBytes(session)) as BlobPart], { type: 'application/pdf' }) });
 
       let where = '';
       if (files.length) {
@@ -5236,7 +5236,7 @@ export function App() {
         void session
           .fetchDocument(d.id)
           .then((bytes) => swapDocument(tab, !inA, bytes, () => tab.store.forgetImported(tab.doc.pages.map((_, i) => i))))
-          .then(() => setNotice(msg('{name} was updated to revision {version}; markups are on the same pages.', { name: d.name, version })))
+          .then(() => setNotice(msg('{name} was updated to revision {version}; markups are on the same pages.', { name: d.name, version: String(version) })))
           .catch((err) => setError(msg('Could not load the new revision of {name}: {value}', { name: d.name, value: err instanceof Error ? err.message : String(err) })));
       }
     }
@@ -5310,7 +5310,7 @@ export function App() {
           const got = await project.download(file.id).catch((err) => {
             // Offline: the copy on this device opens as it is.
             if (!(err instanceof TypeError)) throw err;
-            setNotice(msg('Offline: opened your copy of {name} (revision {rev}); the Project has revision {latest}.', { name: file.name, rev: link.rev, latest }));
+            setNotice(msg('Offline: opened your copy of {name} (revision {rev}); the Project has revision {latest}.', { name: file.name, rev: String(link.rev), latest: String(latest) }));
             return null;
           });
           if (!got) return void (await openFromLibrary(stored));
@@ -5412,7 +5412,7 @@ export function App() {
       if (!file) throw new Error(msg('It is no longer in the Project.'));
       if (!project.heldByMe(file)) throw new Error(file.checkout ? msg('{by} has it checked out.', { by: file.checkout.by }) : msg('It is no longer checked out to you. Check it out again, then retry.'));
       const latest = file.revisions[file.revisions.length - 1]!.n;
-      if (latest > c.baseRev) throw new Error(msg('Someone checked in revision {latest} after your copy (revision {baseRev}).', { latest, baseRev: c.baseRev }));
+      if (latest > c.baseRev) throw new Error(msg('Someone checked in revision {latest} after your copy (revision {baseRev}).', { latest: String(latest), baseRev: String(c.baseRev) }));
       const rev = await project.checkIn(file.id, await projectCopyBytes(c.libraryId), c.comment);
       const link = linkOf(c.libraryId);
       if (link) setLink(c.libraryId, { ...link, rev: rev.n });
@@ -6941,17 +6941,17 @@ export function App() {
       if (req.format === 'pdf') {
         const { reportPdf } = await import('@nb/markup/report');
         const bytes = await reportPdf({ project: base, date, scope, ...(note ? { scaleNote: note } : {}), paper: req.paper, reports: tables });
-        download(msg('{base} - Takeoff Reports.pdf', { base }), new Blob([bytes as BlobPart], { type: 'application/pdf' }));
+        download(`${base} - Takeoff Reports.pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
       } else if (req.format === 'xlsx') {
         const info = [[`Project: ${base}`], [`Cover: ${scope}`], [`Date: ${date}`], ...(note ? [[note]] : [])];
-        download(msg('{base} - Takeoff Reports.xlsx', { base }), new Blob([reportsXlsx(tables, info) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+        download(`${base} - Takeoff Reports.xlsx`, new Blob([reportsXlsx(tables, info) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
       } else {
         // Byte-order mark so Excel reads the CSV as UTF-8.
         const files = tables.map((t) => ({ name: reportFileName(base, t.title, 'csv'), data: new TextEncoder().encode(`\uFEFF${reportCsv(t)}`) }));
         if (files.length === 1) download(files[0]!.name, new Blob([files[0]!.data as BlobPart], { type: 'text/csv' }));
         else {
           const { zipFiles } = await import('./documents/zip');
-          download(msg('{base} - Takeoff Reports.zip', { base }), new Blob([zipFiles(files) as BlobPart], { type: 'application/zip' }));
+          download(`${base} - Takeoff Reports.zip`, new Blob([zipFiles(files) as BlobPart], { type: 'application/zip' }));
         }
       }
       setReportsOpen(false);
@@ -8835,7 +8835,7 @@ export function App() {
       else if (what === 'suggest') open('/issues/new?labels=enhancement&title=Suggestion%3A%20');
       else if (what === 'sponsor') window.open('https://github.com/sponsors/ColbyGallagher', '_blank', 'noopener');
       else if (what === 'whatsNew') setWhatsNewOpen(true);
-      else if (what === 'logs') download(msg('redcolumn log {toISOString}.txt', { toISOString: new Date().toISOString().slice(0, 10) }), logFile());
+      else if (what === 'logs') download(`redcolumn log ${new Date().toISOString().slice(0, 10)}.txt`, logFile());
       else if (what === 'updates') {
         const gate = updateGate();
         if (gate?.waiting) return gate.applyNow();
@@ -8843,10 +8843,10 @@ export function App() {
         if (host) {
           void host.checkForUpdates().then((r) => {
             if (r.status === 'available' && r.url) {
-              if (confirm(msg('redcolumn {latest} is available. You have {current}.\n\nOpen the download page? Run the new installer to update; your documents and markups are kept.', { latest: r.latest, current: r.current }))) window.open(r.url, '_blank', 'noopener');
-            } else if (r.status === 'downloading') setNotice(msg('redcolumn {latest} is downloading in the background ({value}%). It installs when you close redcolumn.', { latest: r.latest, value: r.percent ?? 0 }));
+              if (confirm(msg('redcolumn {latest} is available. You have {current}.\n\nOpen the download page? Run the new installer to update; your documents and markups are kept.', { latest: String(r.latest), current: r.current }))) window.open(r.url, '_blank', 'noopener');
+            } else if (r.status === 'downloading') setNotice(msg('redcolumn {latest} is downloading in the background ({value}%). It installs when you close redcolumn.', { latest: String(r.latest), value: r.percent ?? 0 }));
             else if (r.status === 'ready') {
-              if (confirm(msg('redcolumn {latest} is ready to install. You have {current}.\n\nRestart now to update? Your documents and markups are kept.', { latest: r.latest, current: r.current }))) restartIntoUpdate();
+              if (confirm(msg('redcolumn {latest} is ready to install. You have {current}.\n\nRestart now to update? Your documents and markups are kept.', { latest: String(r.latest), current: r.current }))) restartIntoUpdate();
             } else if (r.status === 'unavailable') setNotice(msg('Could not check for updates (offline?).'));
             else setNotice(msg('You have the latest version ({current}).', { current: r.current }));
           }).catch(() => setNotice(msg('Could not check for updates (offline?).')));
@@ -9775,7 +9775,7 @@ export function App() {
               void import('./documents/forms').then(({ toCsv, toXfdf }) => {
                 const base = activeOpen.file.name.replace(/\.pdf$/i, '');
                 if (format === 'xfdf') download(`${base}.xfdf`, new Blob([toXfdf(model.fields, activeOpen.file.name)], { type: 'application/vnd.adobe.xfdf' }));
-                else download(msg('{base} form data.csv', { base }), new Blob(['\uFEFF' + toCsv(model.fields)], { type: 'text/csv' }));
+                else download(`${base} form data.csv`, new Blob(['\uFEFF' + toCsv(model.fields)], { type: 'text/csv' }));
               });
             }}
             onImport={(file) => {
@@ -10088,7 +10088,7 @@ export function App() {
                 return;
               }
               const csv = recordToCsv(snap.meta, snap.record);
-              download(msg('{name} session record.csv', { name: snap.meta.name }), new Blob(['\uFEFF' + csv], { type: 'text/csv' }));
+              download(`${snap.meta.name} session record.csv`, new Blob(['\uFEFF' + csv], { type: 'text/csv' }));
             }}
             onInviteEmail={(id) => setInviteSession(id)}
             onUpdateDocument={(id, docId, file) =>
@@ -10163,7 +10163,7 @@ export function App() {
               if (!activeOpen) return;
               void (async () => {
                 const bytes = new Uint8Array(await readFile(activeOpen.file.hash)).slice(0, c.signedLength);
-                await openCreated(msg('{replace} (as signed by {signer}).pdf', { replace: activeOpen.file.name.replace(/\.pdf$/i, ''), signer: c.signer }), bytes.buffer);
+                await openCreated(`${activeOpen.file.name.replace(/\.pdf$/i, '')} (as signed by ${c.signer}).pdf`, bytes.buffer);
               })();
             }}
           />
@@ -10906,7 +10906,7 @@ export function App() {
                 pdf.addPage([w, h]).drawImage(img, { x: 0, y: 0, width: w, height: h });
               }
               const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '-');
-              await openCreated(msg('Scan {stamp}.pdf', { stamp }), (await pdf.save()).slice().buffer);
+              await openCreated(`Scan ${stamp}.pdf`, (await pdf.save()).slice().buffer);
               setNotice(msg('Created a {count}-page PDF from the camera. Document › OCR makes its text searchable.', { count: pages.length }));
             })().catch((err) => setError(msg('Creating the PDF failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
           }}
@@ -11483,7 +11483,7 @@ export function App() {
           onCancel={() => setProcessKind(null)}
           onApply={async (spec) => {
             // The contents before are kept as a revision: these changes cannot be undone otherwise.
-            const note = await runProcess(activeOpen, spec, `Before ${PROCESS_TITLES()[spec.kind]}`);
+            const note = await runProcess(activeOpen, spec, `Before ${PROCESS_ENGLISH[spec.kind]}`);
             const changed = (await listFiles()).find((f) => f.id === activeOpen.file.id)?.hash !== activeOpen.file.hash;
             if (note) setNotice(changed ? msg('{note} Document › Revisions brings back the version before.', { note }) : note);
             setProcessKind(null);
@@ -11898,7 +11898,7 @@ export function App() {
           viewportName={calibrationViewport?.name}
           onCancel={() => setCalibration(null)}
           onApply={(scale, allPages) => {
-            if (calibrationViewport) activeOpen.store.setViewport({ ...calibrationViewport, scale: { ...scale, label: msg('Calibrated ({name})', { name: calibrationViewport.name }) } });
+            if (calibrationViewport) activeOpen.store.setViewport({ ...calibrationViewport, scale: { ...scale, label: `Calibrated (${calibrationViewport.name})` } });
             else setPageScale(scale, allPages);
             setCalibration(null);
             activeTools?.setTool('length');
@@ -12005,7 +12005,7 @@ export function App() {
             setAssembliesOpen(true);
           }}
           // Byte-order mark so Excel reads the CSV as UTF-8.
-          onExportCsv={(csv, by) => download(msg('{replace} quantities by {by}.csv', { replace: activeOpen.file.name.replace(/\.pdf$/i, ''), by }), new Blob(['﻿' + csv], { type: 'text/csv' }))}
+          onExportCsv={(csv, by) => download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} quantities by ${by}.csv`, new Blob(['﻿' + csv], { type: 'text/csv' }))}
           onClose={() => setQuantitiesOpen(false)}
         />
       )}
@@ -12064,7 +12064,7 @@ export function App() {
           onExport={() => {
             const doc = documentFile(activeOpen.store);
             const used = referencedRecords(doc, estimating.templates.flatMap((t) => (t.assemblyId ? [t.assemblyId] : [])));
-            download(msg('{replace} takeoff templates.json', { replace: activeOpen.file.name.replace(/\.pdf$/i, '') }), new Blob([estimatingToJson({ ...used, templates: estimating.templates })], { type: 'application/json' }));
+            download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} takeoff templates.json`, new Blob([estimatingToJson({ ...used, templates: estimating.templates })], { type: 'application/json' }));
           }}
           onClose={() => setTemplatesOpen(false)}
         />

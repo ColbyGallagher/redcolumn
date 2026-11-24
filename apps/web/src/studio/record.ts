@@ -1,4 +1,3 @@
-import { msg } from '@nb/i18n';
 // Live Sessions in OneDrive have no server, so each attendee's app writes Record
 // lines for its own edits.
 import * as Y from 'yjs';
@@ -27,18 +26,18 @@ export function describeChanges(changes: readonly MarkupChange[], author: string
     const adds = changes.filter((c) => c.action === 'add').length;
     const deletes = changes.filter((c) => c.action === 'delete').length;
     const parts = [adds && `added ${adds}`, deletes && `deleted ${deletes}`, changes.length - adds - deletes && `modified ${changes.length - adds - deletes}`].filter(Boolean);
-    return [{ ...base, id: recordId(), text: msg('{parts} markups in {docName}', { parts: parts.join(', '), docName }) }];
+    return [{ ...base, id: recordId(), text: `${parts.join(', ')} markups in ${docName}` }];
   }
   return changes.map((c) => {
     const m = c.action === 'delete' ? c.old : c.value;
-    const where = msg('{label} on page {page} of {docName}', { label: label(m.type), page: m.pageIndex + 1, docName });
+    const where = `${label(m.type)} on page ${m.pageIndex + 1} of ${docName}`;
     let text: string;
     if (c.action === 'add') text = `added ${where}`;
     else if (c.action === 'delete') text = `deleted ${where}`;
     else if ((c.value.status ?? 'none') !== (c.old.status ?? 'none')) text = `${STATUS_TEXT[c.value.status ?? 'none'] ?? 'set the status of'} ${where}`;
-    else if ((c.value.comment ?? '') !== (c.old.comment ?? '') && c.value.comment) text = msg('commented on {where}: “{comment}”', { where, comment: c.value.comment });
-    else if ((c.value.replies?.length ?? 0) > (c.old.replies?.length ?? 0)) text = msg('replied to {where}: “{text}”', { where, text: c.value.replies!.at(-1)!.text });
-    else if (isTextType(c.value.type) && (c.value.text ?? '') !== (c.old.text ?? '')) text = msg('edited the text of {where}', { where });
+    else if ((c.value.comment ?? '') !== (c.old.comment ?? '') && c.value.comment) text = `commented on ${where}: “${c.value.comment}”`;
+    else if ((c.value.replies?.length ?? 0) > (c.old.replies?.length ?? 0)) text = `replied to ${where}: “${c.value.replies!.at(-1)!.text}”`;
+    else if (isTextType(c.value.type) && (c.value.text ?? '') !== (c.old.text ?? '')) text = `edited the text of ${where}`;
     else text = `modified ${where}`;
     return { ...base, id: recordId(), text, page: m.pageIndex, markupId: c.id };
   });

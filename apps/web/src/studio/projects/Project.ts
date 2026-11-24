@@ -38,6 +38,9 @@ import {
 /** A Project needs a drive that can delete (check-out locks are released by deleting them). */
 export type ProjectDrive = DriveApi & Required<Pick<DriveApi, 'remove'>>;
 
+/** Access levels in English, for the shared record (read by everyone, whatever their language). */
+const LEVEL_ENGLISH: Record<Level, string> = { viewer: 'Can view', editor: 'Can edit', owner: 'Owner' };
+
 export class ProjectError extends Error {}
 
 /** The file is checked out by someone else. */
@@ -368,13 +371,13 @@ export class Project {
     const clean = cleanItemName(name, 120);
     if (!clean) throw new ProjectError(msg('Give the Project a name.'));
     await opts.authorize();
-    const created = await api.createFolder(msg('{clean} (redcolumn project)', { clean }), { nbStudio: 'project' });
+    const created = await api.createFolder(`${clean} (redcolumn project)`, { nbStudio: 'project' });
     // A view link by default: editors are invited by email (docs/SECURITY-HARDENING.md, 4.2). Project links do not expire.
     const folderId = (await api.shareWithLink(created, opts.linkCanEdit ? 'writer' : 'reader')) || created;
     const manifest: ProjectManifest = { v: 1, name: clean, owner: me.name, ...(me.email ? { ownerEmail: me.email } : {}), createdAt: Date.now(), members: [] };
     await api.createFile(folderId, MANIFEST_NAME, 'application/json', jsonBlob(manifest), { nbRole: ROLE.manifest });
     const project = new Project(api, me, folderId, true, { manifest, folders: [], files: [], record: [], level: 'owner', loadedAt: Date.now(), presence: [] }, opts);
-    await project.note('project', msg('made the Project “{clean}”', { clean }));
+    await project.note('project', `made the Project “${clean}”`);
     return project;
   }
 
@@ -505,7 +508,7 @@ export class Project {
     const folder: ProjectFolder = { id: newId(), name: clean, parentId, by: this.me.name, at: Date.now() };
     await this.write(() => this.api.createFile(this.folderId, `dir-${folder.id}.json`, 'application/json', jsonBlob(folder), { nbRole: ROLE.dir, nbId: folder.id }));
     this.set({ folders: [...this.snap.folders, folder].sort((a, b) => a.name.localeCompare(b.name)) });
-    await this.note('folder', msg('added the folder “{clean}”', { clean }), { folderId: folder.id });
+    await this.note('folder', `added the folder “${clean}”`, { folderId: folder.id });
     return folder;
   }
 
@@ -565,7 +568,7 @@ export class Project {
       await this.poll();
       throw new CheckedOutError(file.checkout?.by ?? 'Someone');
     }
-    await this.note('checkout', msg('checked out {name}', { name: file.name }), { fileId });
+    await this.note('checkout', `checked out ${file.name}`, { fileId });
   }
 
   /**
@@ -580,7 +583,7 @@ export class Project {
     if (!mine && !force) throw new CheckedOutError(file.checkout.by);
     const { lockId, by } = file.checkout;
     await this.write(() => this.api.remove(lockId));
-    await this.note('checkout', mine ? msg('undid the check-out of {name}', { name: file.name }) : msg('released {by}’s check-out of {name}', { by, name: file.name }), { fileId });
+    await this.note('checkout', mine ? `undid the check-out of ${file.name}` : `released ${by}’s check-out of ${file.name}`, { fileId });
     await this.poll();
   }
 
@@ -607,7 +610,7 @@ export class Project {
     await this.putRevision(fileId, rev, bytes);
     // Released only once the revision is safely in.
     await this.write(() => this.api.remove(file.checkout!.lockId));
-    await this.note('checkin', msg('checked in {name} as revision {n}{value}', { name, n: rev.n, value: rev.comment ? `: ${rev.comment}` : '' }), { fileId });
+    await this.note('checkin', `checked in ${name} as revision ${rev.n}${rev.comment ? `: ${rev.comment}` : ''}`, { fileId });
     await this.poll();
     return rev;
   }
@@ -615,8 +618,8 @@ export class Project {
   /** Makes an older revision the newest again, as a new revision (checking the file out first if need be). */
   async restore(fileId: string, n: number): Promise<ProjectRevision> {
     const { bytes, revision } = await this.download(fileId, n);
-    await this.checkOut(fileId, msg('Restoring revision {n}', { n }));
-    return this.checkIn(fileId, bytes, msg('Restored revision {n}', { n: revision.n }));
+    await this.checkOut(fileId, `Restoring revision ${n}`);
+    return this.checkIn(fileId, bytes, `Restored revision ${revision.n}`);
   }
 
   /** The bytes of one revision (the latest by default), checked against its hash. */
@@ -640,7 +643,7 @@ export class Project {
     await this.write(() => this.api.shareWithUser(this.folderId, who, msg('You are invited to the redcolumn Project “{name}”.', { name: this.snap.manifest.name }), level === 'viewer' ? 'reader' : 'writer'));
     const manifest: ProjectManifest = { ...this.snap.manifest, members: [...this.snap.manifest.members.filter((m) => m.who.toLowerCase() !== who.toLowerCase()), { who, level }] };
     await this.writeManifest(manifest);
-    await this.note('members', `invited ${who} (${LEVEL_LABELS()[level].toLowerCase()})`);
+    await this.note('members', `invited ${who} (${LEVEL_ENGLISH[level].toLowerCase()})`);
   }
 
   /** Renames the Project (its OneDrive folder keeps its name). Owner only. */
@@ -651,7 +654,7 @@ export class Project {
     const before = this.snap.manifest.name;
     if (clean === before) return;
     await this.writeManifest({ ...this.snap.manifest, name: clean });
-    await this.note('project', msg('renamed the Project from {before} to {clean}', { before, clean }));
+    await this.note('project', `renamed the Project from ${before} to ${clean}`);
   }
 
   /**
@@ -662,7 +665,7 @@ export class Project {
     if (!this.isOwner) throw new ProjectError(msg('Only the owner can choose the Project’s drawing standard.'));
     const { standard: _old, ...rest } = this.snap.manifest;
     await this.writeManifest(exported ? { ...rest, standard: JSON.parse(exported) as unknown } : rest);
-    await this.note('project', exported ? msg('chose the drawing standard {name}', { name }) : 'stopped using a drawing standard');
+    await this.note('project', exported ? `chose the drawing standard ${name}` : 'stopped using a drawing standard');
   }
 
   /** Who the OneDrive folder is shared with. Only the owner can see this. */
@@ -678,7 +681,7 @@ export class Project {
     if (!this.api.setPermissionRole) throw new ProjectError(msg('This drive cannot change access.'));
     const who = (await this.members()).find((p) => p.id === permissionId);
     await this.write(() => this.api.setPermissionRole!(this.folderId, permissionId, level === 'viewer' ? 'reader' : 'writer'));
-    await this.note('members', `changed ${who?.email ?? who?.name ?? 'access'} to ${LEVEL_LABELS()[level].toLowerCase()}`);
+    await this.note('members', `changed ${who?.email ?? who?.name ?? 'access'} to ${LEVEL_ENGLISH[level].toLowerCase()}`);
   }
 
   /** Stops sharing the folder with one person (or the link). */
@@ -774,7 +777,7 @@ export class Project {
     const clean = this.checkFolderName(name, folder.parentId, folderId);
     if (clean === folder.name) return;
     await this.putEdit({ target: 'folder', id: folderId, name: clean });
-    await this.note('folder', msg('renamed the folder {name} to {clean}', { name: folder.name, clean }), { folderId });
+    await this.note('folder', `renamed the folder ${folder.name} to ${clean}`, { folderId });
     await this.poll();
   }
 
@@ -787,7 +790,7 @@ export class Project {
     if (parentId === folder.parentId) return;
     this.checkFolderName(folder.name, parentId, folderId);
     await this.putEdit({ target: 'folder', id: folderId, to: parentId });
-    await this.note('folder', msg('moved the folder {name} to {where}', { name: folder.name, where: this.where(parentId) }), { folderId });
+    await this.note('folder', `moved the folder ${folder.name} to ${this.where(parentId)}`, { folderId });
     await this.poll();
   }
 
@@ -809,12 +812,12 @@ export class Project {
     const out = this.snap.files.find((f) => f.folderId && ids.has(f.folderId) && f.checkout);
     if (out) throw new ProjectError(msg('{name} is checked out{value}. Release it before deleting the folder.', { name: out.name, value: out.checkout ? ' ' + msg('by {value}', { value: this.heldByMe(out) ? msg('you') : out.checkout.by }) : '' }));
     await this.putEdit({ target: 'folder', id: folderId, deleted: true });
-    await this.note('folder', msg('deleted the folder {name}', { name: folder.name }), { folderId });
+    await this.note('folder', `deleted the folder ${folder.name}`, { folderId });
     await this.poll();
   }
 
   private where(folderId: string | null): string {
-    return folderId ? msg('the folder {list}', { list: this.pathOf(folderId).map((f) => f.name).join(' / ') }) : 'the top of the Project';
+    return folderId ? `the folder ${this.pathOf(folderId).map((f) => f.name).join(' / ')}` : 'the top of the Project';
   }
 
   /** Folders a file sits in, outermost first (for breadcrumbs). */
