@@ -1,6 +1,8 @@
 import { Fragment, useMemo, useRef, useState } from 'react';
 import { estimatingFromJson, estimatingToJson, listCost, mergeAssemblies, type Assembly, type AssemblyItem, type CustomColumn, type Estimating, type Item } from '@nb/markup';
 import { FormulaBuilder, type FormulaNameGroup } from './FormulaBuilder';
+import { DragHandle, GripIcon, SortButton, useDragReorder } from './ReorderControls';
+import { reorderAt, reorderById, sortAlphabetically } from '../assemblies/ordering';
 import { assemblyProblems, MEASURED_NAMES, type ItemQuantity } from '../assemblies/quantities';
 import { loadLibrary, writeLibrary } from '../assemblies/library';
 import { starterGroups } from '../assemblies/starters';
@@ -161,6 +163,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
   const formulaRef = useRef<{ el: FormulaField; itemId: string } | null>(null);
   /** The item whose formula is open in the larger editor. */
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [varOrderTick, setVarOrderTick] = useState(0);
 
   const selected = list.find((a) => a.id === selectedId) ?? null;
   const catalog = estimating.items;
@@ -180,6 +183,24 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
 
   const patch = (fn: (a: Assembly) => Assembly) => setList((l) => l.map((a) => (a.id === selectedId ? fn(a) : a)));
   const patchItem = (id: string, p: Partial<AssemblyItem>) => patch((a) => ({ ...a, items: a.items.map((i) => (i.id === id ? { ...i, ...p } : i)) }));
+  const asmDrag = useDragReorder(
+    list.map((a) => a.id),
+    readOnly,
+    (from, to, pos) => setList((l) => reorderById(l, from, to, pos)),
+  );
+  const varDrag = useDragReorder(
+    (selected?.variables ?? []).map((_, i) => i),
+    readOnly,
+    (from, to, pos) => {
+      patch((a) => ({ ...a, variables: reorderAt(a.variables, from, to, pos) }));
+      setVarOrderTick((t) => t + 1);
+    },
+  );
+  const itemDrag = useDragReorder(
+    (selected?.items ?? []).map((i) => i.id),
+    readOnly,
+    (from, to, pos) => patch((a) => ({ ...a, items: reorderById(a.items, from, to, pos) })),
+  );
   const add = (incoming: Assembly[], how: string) => {
     // Copies get new ids, so the same starter added twice is two assemblies.
     const fresh = incoming.map((a) => ({ ...structuredClone(a), id: crypto.randomUUID(), name: freeName(a.name, list) }));
@@ -248,8 +269,20 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
           <div className="columns-list">
             <ul aria-label="Assemblies in this document">
               {list.map((a) => (
-                <li key={a.id}>
+                <li
+                  key={a.id}
+                  draggable={!readOnly}
+                  className={asmDrag.rowClass(a.id)}
+                  onDragStart={(e) => asmDrag.start(a.id, e)}
+                  onDragEnd={asmDrag.end}
+                  {...asmDrag.targetProps(a.id)}
+                >
                   <button type="button" className={`col-row${a.id === selectedId ? ' active' : ''}${problems.get(a.id)!.size ? ' invalid' : ''}`} onClick={() => setSelectedId(a.id)}>
+                    {!readOnly && (
+                      <span className="drag-handle list-grip" aria-hidden="true">
+                        <GripIcon />
+                      </span>
+                    )}
                     <span className="col-type-icon" aria-hidden="true">
                       {a.items.length}
                     </span>
@@ -270,6 +303,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
               <button type="button" className="btn small" disabled={readOnly || !selected} onClick={() => selected && remove(selected)}>
                 Delete
               </button>
+              <SortButton items={list} getName={(a) => a.name} disabled={readOnly} noun="assemblies" onSort={(dir) => setList((l) => sortAlphabetically(l, (a) => a.name, dir))} />
               <div className="asm-pop" data-asm-pop>
                 <button type="button" className="btn small" disabled={readOnly} aria-expanded={menu === 'starters'} onClick={() => setMenu(menu === 'starters' ? null : 'starters')}>
                   Examples ▾
@@ -352,7 +386,10 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                   <table className="asm-table">
                     <tbody>
                       {selected.variables.map((v, i) => (
-                        <tr key={i}>
+                        <tr key={i} className={varDrag.rowClass(i)} {...varDrag.targetProps(i)}>
+                          <td className="drag-handle-cell">
+                            <DragHandle disabled={readOnly} label={`Drag to reorder variable ${v.name || i + 1}`} onDragStart={(e) => varDrag.start(i, e)} onDragEnd={varDrag.end} />
+                          </td>
                           <td>
                             <input aria-label="Variable name" value={v.name} aria-invalid={p.has(`var:${i}`)} onChange={(e) => patch((a) => ({ ...a, variables: a.variables.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)) }))} />
                           </td>
@@ -376,7 +413,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                                 <option value="0">No</option>
                               </select>
                             ) : (
-                              <NumberBox key={`${selected.id}:${i}:${selected.variables.length}`} label="Variable value" value={v.value} width={90} onChange={(n) => patch((a) => ({ ...a, variables: a.variables.map((x, j) => (j === i ? { ...x, value: n ?? 0 } : x)) }))} />
+                              <NumberBox key={`${selected.id}:${i}:${selected.variables.length}:${varOrderTick}`} label="Variable value" value={v.value} width={90} onChange={(n) => patch((a) => ({ ...a, variables: a.variables.map((x, j) => (j === i ? { ...x, value: n ?? 0 } : x)) }))} />
                             )}
                           </td>
                           <td>
@@ -392,13 +429,23 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                       ))}
                     </tbody>
                   </table>
-                  <div>
+                  <div className="asm-row-actions">
                     <button type="button" className="btn small" onClick={() => patch((a) => ({ ...a, variables: [...a.variables, { name: `Variable ${a.variables.length + 1}`, value: 1 }] }))}>
                       + Variable
-                    </button>{' '}
+                    </button>
                     <button type="button" className="btn small" onClick={() => patch((a) => ({ ...a, variables: [...a.variables, { name: `Switch ${a.variables.length + 1}`, value: 1, type: 'boolean' }] }))}>
                       + Yes/No
                     </button>
+                    <SortButton
+                      items={selected.variables}
+                      getName={(v) => v.name}
+                      disabled={readOnly}
+                      noun="variables"
+                      onSort={(dir) => {
+                        patch((a) => ({ ...a, variables: sortAlphabetically(a.variables, (v) => v.name, dir) }));
+                        setVarOrderTick((t) => t + 1);
+                      }}
+                    />
                   </div>
                 </div>
 
@@ -418,6 +465,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                   <table className="asm-table asm-items">
                     <thead>
                       <tr>
+                        <th className="drag-col" />
                         <th>Item</th>
                         <th title="A catalog item (Takeoff › Items) this item takes its name, unit, cost, waste and rounding from">Catalog</th>
                         <th>Quantity formula</th>
@@ -437,8 +485,11 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                         const fromCost = from ? listCost(from, estimating.productLists).unitCost : undefined;
                         return (
                           <Fragment key={item.id}>
-                            <tr>
-                              <td>
+                            <tr className={itemDrag.rowClass(item.id)} {...itemDrag.targetProps(item.id)}>
+                              <td className="drag-handle-cell">
+                                <DragHandle disabled={readOnly} label={`Drag to reorder ${item.name || from?.name || 'item'}`} onDragStart={(e) => itemDrag.start(item.id, e)} onDragEnd={itemDrag.end} />
+                              </td>
+                              <td className="asm-item-name">
                                 <input aria-label="Item name" value={item.name} placeholder={from?.name} onChange={(e) => patchItem(item.id, { name: e.target.value })} />
                               </td>
                               <td>
@@ -498,7 +549,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                             </tr>
                             {err && (
                               <tr className="asm-error-row">
-                                <td />
+                                <td colSpan={2} />
                                 <td colSpan={results ? 8 : 7}>
                                   <em className="col-error">{err}</em>
                                 </td>
@@ -509,10 +560,17 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                       })}
                     </tbody>
                   </table>
-                  <div>
+                  <div className="asm-row-actions">
                     <button type="button" className="btn small" onClick={() => patch((a) => ({ ...a, items: [...a.items, newItem()] }))}>
                       + Item
                     </button>
+                    <SortButton
+                      items={selected.items}
+                      getName={(i) => i.name.trim() || linked(i)?.name || ''}
+                      disabled={readOnly}
+                      noun="assembly items"
+                      onSort={(dir) => patch((a) => ({ ...a, items: sortAlphabetically(a.items, (i) => i.name.trim() || linked(i)?.name || '', dir) }))}
+                    />
                   </div>
                   <small className="hint-text">{results ? `“Selected” is worked out for ${previewLabel}.` : 'Select a measurement before opening this window to see its quantities here as you edit.'}</small>
                 </div>

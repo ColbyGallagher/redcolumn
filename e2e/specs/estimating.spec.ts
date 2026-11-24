@@ -178,6 +178,91 @@ test.describe('estimating', () => {
     expect(templates.map((t) => t.tool)).toEqual(['length']);
   });
 
+  test('sort alphabetically and drag-and-drop reorder items, assemblies, assembly items, and product lists', async ({ app }) => {
+    const { page } = app;
+
+    // Seed items in unsorted order, sort A-Z, then drag to reorder manually, and verify persistence.
+    await app.cmd('takeoff.items');
+    const items = page.getByRole('dialog', { name: 'Items' });
+    for (const name of ['Zinc flashing', 'Anchor bolt', 'Mortar']) {
+      await items.getByRole('button', { name: '+ Item' }).click();
+      await items.locator('tbody tr').last().getByLabel('Item name').fill(name);
+    }
+    await items.getByRole('button', { name: 'Sort items A–Z' }).click();
+    await expect(items.locator('tbody tr').nth(0).getByLabel('Item name')).toHaveValue('Anchor bolt');
+    await expect(items.locator('tbody tr').nth(1).getByLabel('Item name')).toHaveValue('Mortar');
+    await expect(items.locator('tbody tr').nth(2).getByLabel('Item name')).toHaveValue('Zinc flashing');
+    // Drag Zinc flashing to the top (before Anchor bolt).
+    await items.getByRole('img', { name: 'Drag to reorder Zinc flashing' }).dragTo(items.locator('tbody tr').nth(0));
+    await expect(items.locator('tbody tr').nth(0).getByLabel('Item name')).toHaveValue('Zinc flashing');
+    await expect(items.locator('tbody tr').nth(1).getByLabel('Item name')).toHaveValue('Anchor bolt');
+    await items.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(items).toBeHidden();
+
+    const savedItems = await page.evaluate(() => (window.__nb.tools as unknown as { store: { estimating(): { items: { name: string }[] } } }).store.estimating().items.map((i) => i.name));
+    expect(savedItems).toEqual(['Zinc flashing', 'Anchor bolt', 'Mortar']);
+
+    // Assemblies and items within an assembly: sort A-Z / Z-A and drag-and-drop reorder.
+    await app.cmd('tools.assemblies');
+    const asm = page.getByRole('dialog', { name: 'Assemblies' });
+    for (const name of ['Stud wall', 'Ceiling grid', 'Roof deck']) {
+      await asm.getByRole('button', { name: '+ New' }).click();
+      await asm.getByRole('textbox', { name: 'Name', exact: true }).fill(name);
+    }
+    await asm.getByRole('button', { name: 'Sort assemblies A–Z' }).click();
+    const asmRows = asm.getByRole('list', { name: 'Assemblies in this document' }).locator('li');
+    await expect(asmRows.nth(0)).toContainText('Ceiling grid');
+    await expect(asmRows.nth(1)).toContainText('Roof deck');
+    await expect(asmRows.nth(2)).toContainText('Stud wall');
+    // Drag Stud wall before Ceiling grid.
+    await asmRows.nth(2).dragTo(asmRows.nth(0));
+    await expect(asmRows.nth(0)).toContainText('Stud wall');
+    await expect(asmRows.nth(1)).toContainText('Ceiling grid');
+
+    // Add items inside the selected assembly (Roof deck), sort A-Z, then drag-and-drop reorder.
+    await asm.locator('.asm-items tbody tr').nth(0).getByLabel('Item name').fill('Tape');
+    await asm.getByRole('button', { name: '+ Item' }).click();
+    await asm.locator('.asm-items tbody tr').nth(1).getByLabel('Item name').fill('Board');
+    await asm.getByRole('button', { name: '+ Item' }).click();
+    await asm.locator('.asm-items tbody tr').nth(2).getByLabel('Item name').fill('Screws');
+    await asm.getByRole('button', { name: 'Sort assembly items A–Z' }).click();
+    await expect(asm.locator('.asm-items tbody tr').nth(0).getByLabel('Item name')).toHaveValue('Board');
+    await expect(asm.locator('.asm-items tbody tr').nth(1).getByLabel('Item name')).toHaveValue('Screws');
+    await expect(asm.locator('.asm-items tbody tr').nth(2).getByLabel('Item name')).toHaveValue('Tape');
+    await asm.getByRole('img', { name: 'Drag to reorder Tape' }).dragTo(asm.locator('.asm-items tbody tr').nth(0));
+    await expect(asm.locator('.asm-items tbody tr').nth(0).getByLabel('Item name')).toHaveValue('Tape');
+    await asm.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(asm).toBeHidden();
+
+    const savedAssemblies = await page.evaluate(() =>
+      (window.__nb.tools as unknown as { store: { assemblies(): { name: string; items: { name: string }[] }[] } }).store
+        .assemblies()
+        .map((a) => ({ name: a.name, items: a.items.map((i) => i.name) })),
+    );
+    expect(savedAssemblies.map((a) => a.name)).toEqual(['Stud wall', 'Ceiling grid', 'Roof deck']);
+    expect(savedAssemblies.find((a) => a.name === 'Roof deck')?.items).toEqual(['Tape', 'Board', 'Screws']);
+
+    // Product lists and records within a list: sort A-Z and drag-and-drop.
+    await app.cmd('takeoff.productLists');
+    const lists = page.getByRole('dialog', { name: 'Product Lists' });
+    await lists.getByLabel('Import CSV file').setInputFiles({ name: 'Plumbing.csv', mimeType: 'text/csv', buffer: Buffer.from('Name,Unit Cost\nValve,12\nElbow,3\nPipe,8\n') });
+    await lists.getByLabel('Import CSV file').setInputFiles({ name: 'Electrical.csv', mimeType: 'text/csv', buffer: Buffer.from('Name,Unit Cost\nWire,5\n') });
+    await lists.getByRole('button', { name: 'Sort product lists A–Z' }).click();
+    const listRows = lists.getByRole('list', { name: 'Product lists in this document' }).locator('li');
+    await expect(listRows.nth(0)).toContainText('Electrical');
+    await expect(listRows.nth(1)).toContainText('Plumbing');
+    await listRows.nth(1).click();
+    await lists.getByRole('button', { name: 'Sort records A–Z' }).click();
+    const recRows = lists.getByRole('table', { name: 'Records' }).locator('tbody tr');
+    await expect(recRows.nth(0).getByLabel('Name')).toHaveValue('Elbow');
+    await expect(recRows.nth(1).getByLabel('Name')).toHaveValue('Pipe');
+    await expect(recRows.nth(2).getByLabel('Name')).toHaveValue('Valve');
+    await lists.getByRole('img', { name: 'Drag to reorder Valve' }).dragTo(recRows.nth(0));
+    await expect(recRows.nth(0).getByLabel('Name')).toHaveValue('Valve');
+    await lists.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(lists).toBeHidden();
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });

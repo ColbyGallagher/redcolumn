@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
-import { parseNumber, type ProductList, type ProductListColumn } from '@nb/markup';
+import { parseNumber, recordLabel, type ProductList, type ProductListColumn } from '@nb/markup';
 import { productListFromCsv } from '../assemblies/csv';
 import { addToLibrary, loadEstimatingLibrary } from '../assemblies/estimatingLibrary';
+import { reorderById, sortAlphabetically } from '../assemblies/ordering';
+import { DragHandle, GripIcon, SortButton, useDragReorder } from './ReorderControls';
 
 interface Props {
   initial: readonly ProductList[];
@@ -41,6 +43,16 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
   const csvRef = useRef<HTMLInputElement>(null);
   const selected = lists.find((l) => l.id === selectedId) ?? null;
   const patch = (fn: (l: ProductList) => ProductList) => setLists((all) => all.map((l) => (l.id === selectedId ? fn(l) : l)));
+  const listDrag = useDragReorder(
+    lists.map((l) => l.id),
+    readOnly,
+    (from, to, pos) => setLists((all) => reorderById(all, from, to, pos)),
+  );
+  const recDrag = useDragReorder(
+    (selected?.records ?? []).map((r) => r.id),
+    readOnly,
+    (from, to, pos) => patch((l) => ({ ...l, records: reorderById(l.records, from, to, pos) })),
+  );
   const library = loadEstimatingLibrary().productLists.filter((l) => !lists.some((x) => x.id === l.id));
   const valid = lists.every((l) => l.name.trim() && l.columns.every((c) => c.label.trim()));
 
@@ -85,8 +97,20 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
           <div className="columns-list">
             <ul aria-label="Product lists in this document">
               {lists.map((l) => (
-                <li key={l.id}>
+                <li
+                  key={l.id}
+                  draggable={!readOnly}
+                  className={listDrag.rowClass(l.id)}
+                  onDragStart={(e) => listDrag.start(l.id, e)}
+                  onDragEnd={listDrag.end}
+                  {...listDrag.targetProps(l.id)}
+                >
                   <button type="button" className={`col-row${l.id === selectedId ? ' active' : ''}`} onClick={() => setSelectedId(l.id)}>
+                    {!readOnly && (
+                      <span className="drag-handle list-grip" aria-hidden="true">
+                        <GripIcon />
+                      </span>
+                    )}
                     <span className="col-type-icon" aria-hidden="true">
                       {l.records.length}
                     </span>
@@ -116,6 +140,7 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
               <button type="button" className="btn small" disabled={readOnly || !selected} onClick={() => selected && remove(selected)}>
                 Delete
               </button>
+              <SortButton items={lists} getName={(l) => l.name} disabled={readOnly} noun="product lists" onSort={(dir) => setLists((all) => sortAlphabetically(all, (l) => l.name, dir))} />
               {library.length > 0 && (
                 <select
                   aria-label="Add list from library"
@@ -175,6 +200,7 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                   <table className="asm-table est-table" aria-label="Records">
                     <thead>
                       <tr>
+                        <th className="drag-col" />
                         {selected.columns.map((c) => (
                           <th key={c.key}>
                             <input aria-label="Column name" value={c.label} style={{ width: 100 }} onChange={(e) => setColumn(c.key, { label: e.target.value })} />
@@ -202,7 +228,10 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                     </thead>
                     <tbody>
                       {selected.records.map((r) => (
-                        <tr key={r.id}>
+                        <tr key={r.id} className={recDrag.rowClass(r.id)} {...recDrag.targetProps(r.id)}>
+                          <td className="drag-handle-cell">
+                            <DragHandle disabled={readOnly} label={`Drag to reorder ${recordLabel(selected, r)}`} onDragStart={(e) => recDrag.start(r.id, e)} onDragEnd={recDrag.end} />
+                          </td>
                           {selected.columns.map((c) => (
                             <td key={c.key}>
                               <input aria-label={c.label} value={String(r.values[c.key] ?? '')} style={{ width: c.type === 'number' ? 80 : 140 }} className={c.type === 'number' ? 'num' : undefined} onChange={(e) => setCell(r.id, c, e.target.value)} />
@@ -218,10 +247,17 @@ export function ProductListsDialog({ initial, readOnly, usage, onSave, onClose }
                     </tbody>
                   </table>
                 </div>
-                <div>
+                <div className="asm-row-actions">
                   <button type="button" className="btn small" onClick={() => patch((l) => ({ ...l, records: [...l.records, { id: crypto.randomUUID(), values: {} }] }))}>
                     + Record
                   </button>
+                  <SortButton
+                    items={selected.records}
+                    getName={(r) => recordLabel(selected, r)}
+                    disabled={readOnly}
+                    noun="records"
+                    onSort={(dir) => patch((l) => ({ ...l, records: sortAlphabetically(l.records, (r) => recordLabel(l, r), dir) }))}
+                  />
                 </div>
               </fieldset>
             )}
