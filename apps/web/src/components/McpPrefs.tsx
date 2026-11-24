@@ -61,7 +61,7 @@ export function McpPrefs() {
           <span>{msg('Enable MCP server')}</span>
         </label>
         <p className="pref-note managed-note" role="status">
-          {msg('{mANAGED_NOTE} The MCP server is turned off on this computer, so AI clients cannot reach redcolumn.', { mANAGED_NOTE: MANAGED_NOTE })}
+          {MANAGED_NOTE} {msg('The MCP server is turned off on this computer, so AI clients cannot reach redcolumn.')}
         </p>
       </div>
     );

@@ -39,7 +39,6 @@ export interface PortalDialogState {
   draft?: { pageIndex: number; points: Point[] };
 }
 
-const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /** What saving a portal's linked pages did, in a sentence. */
 export function relinkNotice(name: string, r: { copied: number; adopted: number; unlinked: number }): string {
@@ -48,7 +47,7 @@ export function relinkNotice(name: string, r: { copied: number; adopted: number;
     r.adopted ? msg('{count, plural, one {# matching markup} other {# matching markups}} already there linked instead of copied', { count: r.adopted }) : '',
     r.unlinked ? msg('{count, plural, one {# copy} other {# copies}} on unlinked pages kept as ordinary markups', { count: r.unlinked }) : '',
   ].filter(Boolean);
-  return parts.length ? `Portal "${name}" saved: ${parts.join('; ')}.` : `Portal "${name}" saved.`;
+  return parts.length ? msg('Portal "{name}" saved: {changes}.', { name, changes: parts.join('; ') }) : msg('Portal "{name}" saved.', { name });
 }
 
 /** Whether a selection holds a mirrored markup (Break Portal Link). */

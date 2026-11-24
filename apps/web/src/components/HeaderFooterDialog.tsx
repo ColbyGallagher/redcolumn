@@ -123,9 +123,9 @@ export function HeaderFooterDialog({ mode, pageCount, currentPage, hasExisting, 
           <label>
             {msg('Font')}
             <select value={font} onChange={(e) => setFont(e.target.value as HeaderFooterSpec['font'])}>
-              <option>{msg('Helvetica')}</option>
-              <option>{msg('Times')}</option>
-              <option>{msg('Courier')}</option>
+              <option value="Helvetica">Helvetica</option>
+              <option value="Times">Times</option>
+              <option value="Courier">Courier</option>
             </select>
           </label>
           <label>

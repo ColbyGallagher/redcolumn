@@ -99,7 +99,7 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
         ? msg('Filed {filed} of {total} pages under "{name}".', { filed: pageCount - unmatched.length, total: pageCount, name: t.name }) +
             (unmatched.length
               ? ' ' +
-                msg('{count} had no sheet number that fits: {pages}.', {
+                msg('{count, plural, one {# had} other {# had}} no sheet number that fits: {pages}.', {
                   count: unmatched.length,
                   pages: unmatched.slice(0, 5).map((i) => pageLabel(i) || msg('page {page}', { page: i + 1 })).join(', ') + (unmatched.length > 5 ? '…' : ''),
                 })

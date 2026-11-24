@@ -296,7 +296,7 @@ export class DriveSession implements CollabSession {
   /** Starts a session: a new shared folder in the host's Drive with the manifest and the host's seat. */
   static async create(api: DriveApi, name: string, me: string, permissions: Permissions, opts: DriveSessionOptions & { linkCanEdit: boolean; access?: AccessPolicy; expiresAt?: number | null; encrypt?: boolean }): Promise<DriveSession> {
     await opts.authorize();
-    const created = await api.createFolder(msg('{name} (redcolumn session)', { name }), { nbStudio: 'session' });
+    const created = await api.createFolder(`${name} (redcolumn session)`, { nbStudio: 'session' });
     // Everyone reads with the API key, so the folder must be readable by link; editing by link is optional.
     // The invite link lets new people in until the session ends, or for a week (people who joined keep access).
     const expires = opts.expiresAt ?? Date.now() + LINK_LIFETIME_MS;
@@ -329,7 +329,7 @@ export class DriveSession implements CollabSession {
     // A brand-new folder has nothing to read yet.
     session.synced = true;
     session.markLoaded();
-    session.note('session', msg('started the session “{name}”', { name }));
+    session.note('session', `started the session “${name}”`);
     session.startTimers();
     return session;
   }
@@ -1001,7 +1001,7 @@ export class DriveSession implements CollabSession {
     await this.writeManifest({ revisions: { ...this.manifest.revisions, [docId]: version } });
     this.files = this.files.map((f) => (f.id === docId ? { ...f, size: bytes.byteLength } : f));
     this.set({ meta: this.buildMeta(this.files) });
-    this.note('document', msg('updated {value} to revision {version}', { value: name ?? doc.name, version }), { docId });
+    this.note('document', `updated ${name ?? doc.name} to revision ${version}`, { docId });
     return this.meta.documents.find((d) => d.id === docId)!;
   }
 
@@ -1038,8 +1038,8 @@ export class DriveSession implements CollabSession {
     if (p && !next.access && p.markup !== before.permissions.markup) this.note('session', p.markup ? 'allowed attendees to markup' : 'locked markups to the host');
     if (p && p.addDocuments !== before.permissions.addDocuments) this.note('session', p.addDocuments ? 'allowed attendees to add documents' : 'stopped attendees adding documents');
     if (next.access) this.note('session', 'updated attendee permissions');
-    if (next.name) this.note('session', msg('renamed the session to “{name}”', { name: next.name }));
-    if (next.expiresAt !== undefined) this.note('session', next.expiresAt ? msg('set the session to end {date}', { date: new Date(next.expiresAt).toLocaleString() }) : 'removed the session’s end date');
+    if (next.name) this.note('session', `renamed the session to “${next.name}”`);
+    if (next.expiresAt !== undefined) this.note('session', next.expiresAt ? `set the session to end ${new Date(next.expiresAt).toLocaleString()}` : 'removed the session’s end date');
     const np = next.permissions;
     if (np && (np.saveCopy ?? true) !== (before.permissions.saveCopy ?? true)) this.note('session', np.saveCopy === false ? 'stopped attendees saving copies' : 'allowed attendees to save copies');
     if (np && (np.invite ?? true) !== (before.permissions.invite ?? true)) this.note('session', np.invite === false ? 'stopped attendees inviting others' : 'allowed attendees to invite others');

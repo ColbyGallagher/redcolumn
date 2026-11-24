@@ -45,7 +45,7 @@ export function AssemblyInputFields({
               {v.unit && v.type !== 'boolean' && <span className="muted"> {v.unit}</span>}
               {varies?.has(v.name) && (
                 <span className="muted" title={msg('The measurements being edited have different values: a change sets them all')}>
-                  {' ' + msg('(varies)', {  })}
+                  {' ' + msg('(varies)')}
                 </span>
               )}
               {(values[v.name] ?? v.value) !== v.value && <span className="muted" title={msg('The assembly\'s default')}> {msg('(default {value})', { value: v.type === 'boolean' ? (v.value ? msg('Yes') : msg('No')) : v.value })}</span>}

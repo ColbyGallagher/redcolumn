@@ -176,7 +176,7 @@ export async function signPdf(bytes: Uint8Array, id: UnlockedId | Signer, req: S
   const w = Math.abs(r[2]! - r[0]!);
   const h = Math.abs(r[3]! - r[1]!);
   if (w > 1 && h > 1) {
-    const lines = [msg('Digitally signed by {name}', { name: signer.subject.name }), `Date: ${date.toLocaleString()}`, ...(req.reason ? [`Reason: ${req.reason}`] : []), ...(req.location ? [`Location: ${req.location}`] : [])];
+    const lines = [`Digitally signed by ${signer.subject.name}`, `Date: ${date.toLocaleString()}`, ...(req.reason ? [`Reason: ${req.reason}`] : []), ...(req.location ? [`Location: ${req.location}`] : [])];
     widget.set(PDFName.of('AP'), ctx.obj({ N: await appearance(doc, w, h, lines, req.image) }));
   }
   // Signatures exist; the file should only be appended to from now on.

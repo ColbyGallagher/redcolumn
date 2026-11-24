@@ -25,7 +25,7 @@ interface Props {
   onClose: () => void;
 }
 
-const KIND_LABEL = { added: 'Added', removed: 'Removed', changed: 'Changed' } as const;
+const kindLabel = (kind: 'added' | 'removed' | 'changed') => (kind === 'added' ? msg('Added') : kind === 'removed' ? msg('Removed') : msg('Changed'));
 
 /** With up to this many differences every page lists its own; with more, a page opens on a click. */
 const SHOW_ALL = 200;
@@ -110,14 +110,14 @@ export function CompareResultsPanel({ results, onGo, onSideBySide, onClose }: Pr
               {results.newLabel(p.newPage)}
               {results.oldLabel(p.oldPage) !== results.newLabel(p.newPage) && <span className="muted"> {msg('(old {oldLabel})', { oldLabel: results.oldLabel(p.oldPage) })}</span>}
               <span className="muted"> · {p.differences.length || msg('no changes')}</span>
-              {p.found && <span className="muted" title={msg('Too many differences to mark one by one; nearby ones were grouped.')}> {msg('(grouped from {found})', { found: p.found.toLocaleString() })}</span>}
+              {p.found && <span className="muted" title={msg('Too many differences to mark one by one; nearby ones were grouped.')}> {msg('(grouped from {found})', { found: p.found })}</span>}
             </button>
             {open.has(p) &&
               p.differences.map((d, k) => {
                 const i = firstStop.get(p)! + k;
                 return (
                   <button key={k} className={`compare-item ${d.kind}${i === at ? ' active' : ''}`} onClick={() => go(i)}>
-                    {KIND_LABEL[d.kind]}
+                    {kindLabel(d.kind)}
                   </button>
                 );
               })}

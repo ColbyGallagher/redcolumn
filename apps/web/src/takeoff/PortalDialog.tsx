@@ -106,7 +106,7 @@ export function PortalDialog({ pageCount, pageLabel, scaleKey, scaleText, portal
             </fieldset>
             {mismatched.length > 0 && (
               <p className="pref-hint portal-scale-warning" role="alert">
-                {msg('Warning: {list} {value} a different scale from {pageLabel} ({scaleText}). Mirrored measurements will not match on {value2}.', { list: mismatched.map(pageLabel).join(', '), value: mismatched.length === 1 ? msg('has') : msg('have'), pageLabel: pageLabel(sourcePage), scaleText: scaleText(sourcePage), value2: mismatched.length === 1 ? msg('it') : msg('them') })}
+                {msg('{count, plural, one {Warning: {list} has a different scale from {pageLabel} ({scaleText}). Mirrored measurements will not match on it.} other {Warning: {list} have a different scale from {pageLabel} ({scaleText}). Mirrored measurements will not match on them.}}', { count: mismatched.length, list: mismatched.map(pageLabel).join(', '), pageLabel: pageLabel(sourcePage), scaleText: scaleText(sourcePage) })}
               </p>
             )}
             {current && <p className="pref-hint">{msg('A page you link gets a copy of every markup already mirrored. A page you unlink keeps its copies, as ordinary markups.')}</p>}

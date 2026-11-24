@@ -282,7 +282,7 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
               label: msg('Delete Tool Set…'),
               danger: true,
               onClick: () => {
-                if (confirm(msg('Delete the tool set "{name}" and its {count} tool(s)?', { name: set.name, count: set.items.length }))) editSet(set.id, () => null);
+                if (confirm(msg('Delete the tool set "{name}" and its {count, plural, one {# tool} other {# tools}}?', { name: set.name, count: set.items.length }))) editSet(set.id, () => null);
               },
             },
       ],
@@ -315,7 +315,7 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
         {
           label: msg('Duplicate'),
           disabled: set.id === RECENT_TOOLS_ID,
-          onClick: () => editSet(set.id, (s) => ({ ...s, items: [...s.items, { ...item, id: crypto.randomUUID(), label: `${item.label} (copy)` }] })),
+          onClick: () => editSet(set.id, (s) => ({ ...s, items: [...s.items, { ...item, id: crypto.randomUUID(), label: msg('{label} (copy)', { label: item.label }) }] })),
         },
         { sep: true },
         { label: msg('Delete Tool'), danger: true, onClick: () => editSet(set.id, (s) => ({ ...s, items: s.items.filter((i) => i.id !== item.id) })) },
@@ -393,12 +393,12 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
       {(ws.lineSets.length > 0 || ws.hatchSets.length > 0) && (
         <div className="toolchest-libs" aria-label={msg('Imported libraries')}>
           {ws.lineSets.map((s) => (
-            <span key={`l:${s.title}`} className="toolchest-lib" title={msg('{count} line styles, in the Line style pickers', { count: s.styles.length })}>
+            <span key={`l:${s.title}`} className="toolchest-lib" title={msg('{count, plural, one {# line style} other {# line styles}}, in the Line style pickers', { count: s.styles.length })}>
               {keyed(msgParts('{title} · lines{button}{button2}', { title: s.title, button: <button type="button" aria-label={msg('Export the line style set {title} for Revu', { title: s.title })} title={msg('Export for Revu (.blx)')} onClick={() => { const dropped: Dropped[] = []; void writeBlx(s, dropped).then((xml) => { download(new Blob([xml], { type: 'application/xml' }), s.title, 'blx'); setMessage(exported(`${s.title}.blx`, dropped)); }); }} > ⤓ </button>, button2: <button type="button" aria-label={msg('Remove the line style set {title}', { title: s.title })} onClick={() => updateWorkspace((w) => ({ ...w, lineSets: w.lineSets.filter((x) => x !== s) }))}> × </button> }))}
             </span>
           ))}
           {ws.hatchSets.map((s) => (
-            <span key={`h:${s.title}`} className="toolchest-lib" title={msg('{count} hatches, in the Hatch pickers', { count: s.hatches.length })}>
+            <span key={`h:${s.title}`} className="toolchest-lib" title={msg('{count, plural, one {# hatch} other {# hatches}}, in the Hatch pickers', { count: s.hatches.length })}>
               {keyed(msgParts('{title} · hatches{button}{button2}', { title: s.title, button: <button type="button" aria-label={msg('Export the hatch set {title} for Revu', { title: s.title })} title={msg('Export for Revu (.bhx)')} onClick={() => { const dropped: Dropped[] = []; void writeBhx(s, dropped).then((xml) => { download(new Blob([xml], { type: 'application/xml' }), s.title, 'bhx'); setMessage(exported(`${s.title}.bhx`, dropped)); }); }} > ⤓ </button>, button2: <button type="button" aria-label={msg('Remove the hatch set {title}', { title: s.title })} onClick={() => updateWorkspace((w) => ({ ...w, hatchSets: w.hatchSets.filter((x) => x !== s) }))}> × </button> }))}
             </span>
           ))}

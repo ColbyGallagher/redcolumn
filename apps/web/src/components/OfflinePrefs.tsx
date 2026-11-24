@@ -57,7 +57,7 @@ export function OfflinePrefs() {
         </div>
       )}
       <div className="pref-field">
-        <span className="pref-label">{storage?.persisted ? msg('Kept: {value}', { value: isDesktop ? msg('redcolumn’s documents are not cleared to free space.') : msg('the browser will not clear redcolumn’s documents to free space.') }) : isDesktop ? msg('Not protected: documents and markups could be cleared if the computer runs short of space.') : msg('Not protected: the browser may clear documents and markups if the device runs short of space.')}</span>
+        <span className="pref-label">{storage?.persisted ? isDesktop ? msg('Kept: redcolumn’s documents are not cleared to free space.') : msg('Kept: the browser will not clear redcolumn’s documents to free space.') : isDesktop ? msg('Not protected: documents and markups could be cleared if the computer runs short of space.') : msg('Not protected: the browser may clear documents and markups if the device runs short of space.')}</span>
         {storage && !storage.persisted && (
           <button
             className="btn small"

@@ -16,3 +16,11 @@ test('anything that is not a short string table is refused and leaves the last o
   }
   assert.equal(t('Open'), 'Öffnen');
 });
+
+test('an empty translation or an object that is not a plain table leaves the text as it was', () => {
+  setStrings({ Open: 'Öffnen' });
+  assert.equal(setStrings(new Map([['Open', 'x']])), false);
+  assert.equal(t('Open'), 'Öffnen');
+  setStrings({ Open: '' });
+  assert.equal(t('Open'), 'Open');
+});

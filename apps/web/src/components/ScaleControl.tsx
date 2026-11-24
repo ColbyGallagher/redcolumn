@@ -1,4 +1,5 @@
 import { msg } from '@nb/i18n';
+import { scaleGroupName } from '../i18n/names';
 import { SCALE_PRESETS, type Scale } from '@nb/measure';
 import { SCALE_GROUPS, useSettings } from '../settings/settings';
 
@@ -41,7 +42,7 @@ export function ScaleControl({ scale, disabled, onPreset, onCustom, onBulk, comp
         </option>
         {scale && !isPreset && <option value={CURRENT}>{scale.label}</option>}
         {groups.map((group) => (
-          <optgroup key={group} label={group}>
+          <optgroup key={group} label={scaleGroupName(group)}>
             {SCALE_PRESETS.filter((p) => p.group === group).map((p) => (
               <option key={p.label} value={p.label}>
                 {p.label}

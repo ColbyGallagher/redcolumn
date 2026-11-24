@@ -292,7 +292,7 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
               {draft.protection === 'protected' && (
                 <label className="col-field">
                   <span>{msg('Password')}</span>
-                  <input aria-label={msg('Protection password')} placeholder={msg('redcolumn')} maxLength={60} value={draft.password ?? ''} onChange={(e) => edit({ password: e.target.value || undefined })} />
+                  <input aria-label={msg('Protection password')} placeholder="redcolumn" maxLength={60} value={draft.password ?? ''} onChange={(e) => edit({ password: e.target.value || undefined })} />
                 </label>
               )}
             </div>

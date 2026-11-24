@@ -192,7 +192,7 @@ const csvCell = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"
 
 /** Rolled-up quantities as CSV (the caller adds a BOM for Excel). */
 export function rollupToCsv(rows: readonly RollupRow[], by: RollupBy): string {
-  const head = [...(by === 'item' ? [] : [by === 'assembly' ? 'Assembly' : 'Page']), 'Item', 'Unit', 'Measurements', 'Measured', 'With waste', 'Total', 'Unit cost', 'Cost', msg('Set by hand')];
+  const head = [...(by === 'item' ? [] : [by === 'assembly' ? 'Assembly' : 'Page']), 'Item', 'Unit', 'Measurements', 'Measured', 'With waste', 'Total', 'Unit cost', 'Cost', 'Set by hand'];
   const n = (v: number | null, d = 2) => (v === null ? '' : formatNumber(v, d));
   const lines = rows.map((r) => [...(by === 'item' ? [] : [r.group]), r.item, r.unit, String(r.measurements), n(r.base), n(r.quantity), n(r.total), n(r.unitCost), n(r.cost), String(r.setByHand)].map(csvCell).join(','));
   return [head.map(csvCell).join(','), ...lines].join('\r\n');

@@ -12,12 +12,14 @@ let strings = new Map<string, string>();
 
 /** The English text in the interface language. */
 export function t(english: string): string {
-  return strings.get(english) ?? english;
+  return strings.get(english) || english;
 }
 
 /** Takes the page's translations. Anything that is not a short string-to-string table is ignored. */
 export function setStrings(value: unknown): boolean {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) return false;
   const entries = Object.entries(value as Record<string, unknown>);
   if (entries.length > MAX_STRINGS) return false;
   const next = new Map<string, string>();

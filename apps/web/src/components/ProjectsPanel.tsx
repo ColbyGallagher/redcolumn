@@ -142,7 +142,7 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
         confirm: local ? msg('Choose folder…') : msg('Create'),
         choices: [
           { value: 'plain', label: local ? msg('Not encrypted: the PDFs also open in other apps') : msg('Not encrypted: the PDFs also open in OneDrive itself') },
-          { value: 'encrypted', label: msg('Encrypted: {where} stores only scrambled files. The key is in the Project link; PDFs open only in redcolumn, and a lost link cannot be recovered', { where }) },
+          { value: 'encrypted', label: local ? msg('Encrypted: the sync service stores only scrambled files. The key is in the Project link; PDFs open only in redcolumn, and a lost link cannot be recovered') : msg('Encrypted: OneDrive stores only scrambled files. The key is in the Project link; PDFs open only in redcolumn, and a lost link cannot be recovered') },
         ],
       });
       if (!kind) return;
@@ -798,8 +798,8 @@ function FileActions({
       <b>{file.name}</b>
       <p className="hint-text">
         {state.kind === 'none' && msg('Not on this device yet.')}
-        {state.kind === 'current' && msg('Your copy is revision {rev}, the latest.', { rev: state.rev })}
-        {state.kind === 'stale' && msg('Your copy is revision {rev}; the Project has revision {latest}.', { rev: state.rev, latest: state.latest })}
+        {state.kind === 'current' && msg('Your copy is revision {rev}, the latest.', { rev: String(state.rev) })}
+        {state.kind === 'stale' && msg('Your copy is revision {rev}; the Project has revision {latest}.', { rev: String(state.rev), latest: String(state.latest) })}
         {' '}
         {msg('Markups are shared live with everyone who has it open.')}
         {file.checkout?.note ? ' ' + msg('Checked out for: {note}', { note: file.checkout.note }) : ''}
@@ -960,7 +960,7 @@ function Viewers({ project, fileId }: { project: Project; fileId: string }) {
   if (!others.length) return null;
   return (
     <p className="project-viewers">
-      {keyed(msgParts('Viewing now: {page}', { page: others.map((p, i) => (
+      {keyed(msgParts('Viewing now: {viewers}', { viewers: others.map((p, i) => (
         <span key={p.seat}>
           {i > 0 && ', '}
           <i style={{ background: p.color }} aria-hidden="true" />

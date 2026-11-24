@@ -410,7 +410,7 @@ export function timestampToken(response: Uint8Array): Uint8Array {
   const code = asn1.derToInteger(status[0]!.value as string);
   if (code > 1 || !parts[1]) {
     const words = status[1] && Array.isArray(status[1].value) ? kids(status[1]).map((n) => n.value as string).join(' ') : '';
-    throw new Error(msg('The time stamp server refused{value}', { value: words ? `: ${words}` : ' ' + msg('(status {code})', { code }) }));
+    throw new Error(msg('The time stamp server refused{value}', { value: words ? `: ${words}` : ' ' + msg('(status {code})', { code: String(code) }) }));
   }
   return der(parts[1]);
 }
@@ -627,7 +627,7 @@ export async function ocspRequest(cert: CertFacts, issuer: CertFacts): Promise<U
 export async function ocspStatus(response: Uint8Array, cert: CertFacts, issuer: CertFacts): Promise<Revocation> {
   const top = kids(parse(response));
   const code = asn1.derToInteger(top[0]!.value as string);
-  if (code !== 0) throw new Error(msg('The OCSP responder refused (status {code})', { code }));
+  if (code !== 0) throw new Error(msg('The OCSP responder refused (status {code})', { code: String(code) }));
   const bytes = kids(kids(top[1]!)[0]!);
   if (oidOf(bytes[0]!) !== OID.ocspBasic) throw new Error(msg('An OCSP answer of a kind this app cannot read'));
   const basicNode = parse(bytesOf(bytes[1]!));

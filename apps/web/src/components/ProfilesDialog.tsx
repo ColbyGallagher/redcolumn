@@ -47,11 +47,12 @@ function CloudBackup({ onMessage }: { onMessage: (m: string) => void }) {
   return (
     <div className="profiles-backup">
       <p className="hint-text">
-        {msg('Profiles are saved in this browser only. Clearing the browser’s site data removes them{value}', { value: backends.length ? msg(', so keep a copy in the cloud or export them.') : msg('; export them to keep a copy.') })}
+        {backends.length ? msg('Profiles are saved in this browser only. Clearing the browser’s site data removes them, so keep a copy in the cloud or export them.') : msg('Profiles are saved in this browser only. Clearing the browser’s site data removes them; export them to keep a copy.')}
       </p>
       {link && (
         <p className="hint-text">
-          {msg('Backed up to {backendLabel} {date}. Changes are copied automatically.{value2}', { backendLabel: backendLabel(link.backend), date: new Date(link.at).toLocaleString(), value2: failed && ' ' + msg('The last copy failed: {failed}', { failed }) })}
+          {msg('Backed up to {place} {date}. Changes are copied automatically.', { place: backendLabel(link.backend), date: new Date(link.at).toLocaleString() })}
+          {failed && ' ' + msg('The last copy failed: {failed}', { failed })}
         </p>
       )}
       {backends.map((b) => (
@@ -61,7 +62,7 @@ function CloudBackup({ onMessage }: { onMessage: (m: string) => void }) {
             disabled={busy}
             onClick={() =>
               run(async () => {
-                if (!link && (await hasBackup(b)) && !confirm(msg('{backendLabel} already holds a profile backup. Backing up now replaces it with the profiles in this browser. Restore from it first if you want its profiles.\n\nReplace it?', { backendLabel: backendLabel(b) }))) return 'Backup cancelled.';
+                if (!link && (await hasBackup(b)) && !confirm(msg('{backendLabel} already holds a profile backup. Backing up now replaces it with the profiles in this browser. Restore from it first if you want its profiles.\n\nReplace it?', { backendLabel: backendLabel(b) }))) return msg('Backup cancelled.');
                 await backUpProfiles(b);
                 return msg('Backed up to {backendLabel}.', { backendLabel: backendLabel(b) });
               })
@@ -153,7 +154,7 @@ export function ProfilesDialog({ documentColumns, canApplyToDocument, onApplyToD
               <button
                 className="btn small"
                 onClick={() => {
-                  const p = profiles.create(`${active.name} copy`, 'current');
+                  const p = profiles.create(msg("{name} copy", { name: active.name }), 'current');
                   setRenaming(p.id);
                 }}
                 title={msg('A new profile copying the active one')}
@@ -184,7 +185,10 @@ export function ProfilesDialog({ documentColumns, canApplyToDocument, onApplyToD
                 onClick={() => {
                   const { profile, skipped } = bpxFromLayout(active.name, layout, documentColumns?.columns ?? ws.columnTemplate?.columns ?? []);
                   onDownload(`${active.name}.bpx`, writeBpx(profile));
-                  setMessage(msg('Exported {name}.bpx ({count} markup list columns).{value}', { name: active.name, count: profile.columns.filter((c) => c.visible).length, value: skipped.length ? ' ' + msg('Revu has no column for {skipped}.', { skipped: skipped.join(', ') }) : '' }));
+                  setMessage(
+                    msg('Exported {name}.bpx ({count, plural, one {# markup list column} other {# markup list columns}}).', { name: active.name, count: profile.columns.filter((c) => c.visible).length }) +
+                      (skipped.length ? ' ' + msg('Revu has no column for {skipped}.', { skipped: skipped.join(', ') }) : ''),
+                  );
                 }}
               >
                 {msg('Export for Revu')}
@@ -275,7 +279,7 @@ export function ProfilesDialog({ documentColumns, canApplyToDocument, onApplyToD
               )}
               {tab === 'list' && (
                 <>
-                  <p className="hint-text">{msg('Columns shown in the Markups list{value}:', { value: documentColumns ? '' : ' ' + msg('(open a document to include its custom columns)') })}</p>
+                  <p className="hint-text">{documentColumns ? msg('Columns shown in the Markups list:') : msg('Columns shown in the Markups list (open a document to include its custom columns):')}</p>
                   <div className="check-grid">
                     {layout.map((c) => (
                       <label key={c.key} className="check-tile">
@@ -377,7 +381,10 @@ export function ProfilesDialog({ documentColumns, canApplyToDocument, onApplyToD
             try {
               if (/\.bpx$/i.test(f.name)) {
                 const r = importBpxProfile(await f.text(), f.name, true);
-                setMessage(msg('Imported "{name}" from Bluebeam Revu and made it active: {columns} markup list columns shown.{value}', { name: r.profile.name, columns: r.columns, value: r.skipped.length ? ' ' + msg('No equivalent yet for {skipped}.', { skipped: r.skipped.join(', ') }) : '' }));
+                setMessage(
+                  msg('Imported "{name}" from Bluebeam Revu and made it active: {columns, plural, one {# markup list column} other {# markup list columns}} shown.', { name: r.profile.name, columns: r.columns }) +
+                    (r.skipped.length ? ' ' + msg('No equivalent yet for {skipped}.', { skipped: r.skipped.join(', ') }) : ''),
+                );
                 return;
               }
               const p = profiles.importJson(await f.text());

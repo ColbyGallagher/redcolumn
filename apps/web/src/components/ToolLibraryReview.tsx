@@ -75,7 +75,7 @@ function Tool({ t, store, me, documentName, onMessage, onRan }: { t: GroupingToo
           </blockquote>
           {t.decided && (
             <p className="hint-text">
-              {msg('{sTATUS} by {by}, {when}.', { sTATUS: STATUS()[t.status], by: t.decided.by, when: when(t.decided.at) })}
+              {t.status === 'accepted' ? msg('Accepted by {by}, {when}.', { by: t.decided.by, when: when(t.decided.at) }) : t.status === 'rejected' ? msg('Rejected by {by}, {when}.', { by: t.decided.by, when: when(t.decided.at) }) : msg('Proposed by {by}, {when}.', { by: t.decided.by, when: when(t.decided.at) })}
             </p>
           )}
           {!!t.uses?.length && (
