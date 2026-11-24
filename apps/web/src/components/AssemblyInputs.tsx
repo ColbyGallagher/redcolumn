@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Assembly, Markup, MarkupStore } from '@nb/markup';
 import { assemblyChoice, changedInputs, inputValues, withInput, type AssemblyChoice, type AssemblyDefaults } from '../assemblies/assemblyChoice';
@@ -33,22 +34,21 @@ export function AssemblyInputFields({
             <th scope="row">{v.name}</th>
             <td>
               {v.type === 'boolean' ? (
-                <select aria-label={`Input ${v.name}`} value={varies?.has(v.name) ? '' : values[v.name] ? '1' : '0'} disabled={disabled} onChange={(e) => e.target.value !== '' && onChange(v.name, Number(e.target.value))}>
+                <select aria-label={msg('Input {name}', { name: v.name })} value={varies?.has(v.name) ? '' : values[v.name] ? '1' : '0'} disabled={disabled} onChange={(e) => e.target.value !== '' && onChange(v.name, Number(e.target.value))}>
                   {varies?.has(v.name) && <option value="">—</option>}
-                  <option value="1">Yes</option>
-                  <option value="0">No</option>
+                  <option value="1">{msg('Yes')}</option>
+                  <option value="0">{msg('No')}</option>
                 </select>
               ) : (
-                <NumberInput label={`Input ${v.name}`} value={values[v.name] ?? v.value} varies={!!varies?.has(v.name)} commitOnBlur={commitOnBlur} disabled={disabled} onChange={(n) => onChange(v.name, n)} />
+                <NumberInput label={msg('Input {name}', { name: v.name })} value={values[v.name] ?? v.value} varies={!!varies?.has(v.name)} commitOnBlur={commitOnBlur} disabled={disabled} onChange={(n) => onChange(v.name, n)} />
               )}
               {v.unit && v.type !== 'boolean' && <span className="muted"> {v.unit}</span>}
               {varies?.has(v.name) && (
-                <span className="muted" title="The measurements being edited have different values: a change sets them all">
-                  {' '}
-                  (varies)
+                <span className="muted" title={msg('The measurements being edited have different values: a change sets them all')}>
+                  {' ' + msg('(varies)', {  })}
                 </span>
               )}
-              {(values[v.name] ?? v.value) !== v.value && <span className="muted" title="The assembly's default"> (default {v.type === 'boolean' ? (v.value ? 'Yes' : 'No') : v.value})</span>}
+              {(values[v.name] ?? v.value) !== v.value && <span className="muted" title={msg('The assembly\'s default')}> {msg('(default {value})', { value: v.type === 'boolean' ? (v.value ? msg('Yes') : msg('No')) : v.value })}</span>}
             </td>
           </tr>
         ))}
@@ -81,7 +81,7 @@ function NumberInput({ label, value, varies, commitOnBlur, disabled, onChange }:
       type="number"
       step="any"
       value={text}
-      placeholder={varies ? 'varies' : undefined}
+      placeholder={varies ? msg('varies') : undefined}
       disabled={disabled}
       aria-invalid={!valid && !(varies && text.trim() === '')}
       style={{ width: 90 }}
@@ -117,7 +117,7 @@ export function AssemblyInputsDialog({ assembly, inputs, onOk, onCancel }: { ass
       <form
         className="modal asm-inputs-dialog"
         role="dialog"
-        aria-label="Assembly inputs"
+        aria-label={msg('Assembly inputs')}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
@@ -128,16 +128,16 @@ export function AssemblyInputsDialog({ assembly, inputs, onOk, onCancel }: { ass
           onOk(changedInputs(assembly, values));
         }}
       >
-        <h3>Inputs: {assembly.name}</h3>
-        <p className="muted">The values this takeoff uses. They start at the assembly’s defaults; change them for this measurement only.</p>
+        <h3>{msg('Inputs: {name}', { name: assembly.name })}</h3>
+        <p className="muted">{msg('The values this takeoff uses. They start at the assembly’s defaults; change them for this measurement only.')}</p>
         <AssemblyInputFields assembly={assembly} values={values} onChange={(name, value) => setValues((v) => ({ ...v, [name]: value }))} />
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary">
-            OK
+            {msg('OK')}
           </button>
         </div>
       </form>

@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { LOW_CONFIDENCE, MARKUP_LABELS, type Assembly, type Markup, type MarkupStore, type SourceRef } from '@nb/markup';
 import { itemQuantities } from '../assemblies/quantities';
@@ -38,8 +40,8 @@ type Show = 'pending' | 'low' | 'all';
 const n = (v: number | null | undefined) => (v === null || v === undefined ? '—' : formatNumber(v, 2));
 const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 const pct = (c: number) => `${Math.round(c * 100)}%`;
-const KIND_LABEL: Record<ReviewItem['kind'], string> = { draft: 'Drawn', assembly: 'Assembly', count: 'Count' };
-const STATE_LABEL: Record<ReviewState, string> = { pending: 'Waiting', approved: 'Approved', rejected: 'Rejected' };
+const KIND_LABEL = (): Record<ReviewItem['kind'], string> => ({ draft: msg('Drawn'), assembly: msg('Assembly'), count: msg('Count') });
+const STATE_LABEL = (): Record<ReviewState, string> => ({ pending: msg('Waiting'), approved: msg('Approved'), rejected: msg('Rejected') });
 const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? '' : 's'}`;
 
 /**
@@ -89,9 +91,9 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
   const copyPrompt = async () => {
     try {
       await navigator.clipboard.writeText(reviewerInstructions(documentName));
-      onMessage('Copied. Paste it into a new conversation (or ask your AI client for a subagent) so the review starts fresh.');
+      onMessage(msg('Copied. Paste it into a new conversation (or ask your AI client for a subagent) so the review starts fresh.'));
     } catch {
-      onMessage('Could not copy to the clipboard.');
+      onMessage(msg('Could not copy to the clipboard.'));
     }
   };
 
@@ -117,7 +119,7 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
       else skipped++;
     }
     unpick(list.map((i) => i.key));
-    onMessage(`Approved ${plural(done, 'AI result')}${skipped ? `; ${skipped} could not be (gone, locked, someone else's or read-only)` : ''}. Undo takes it back.`);
+    onMessage(msg('Approved {count, plural, one {# AI result} other {# AI results}}{value}. Undo takes it back.', { count: done, value: skipped ? msg('; {skipped} could not be (gone, locked, someone else\'s or read-only)', { skipped }) : '' }));
   };
 
   const reject = (list: ReviewItem[]) => {
@@ -187,21 +189,21 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
   };
 
   return (
-    <aside className="takeoff-review" role="complementary" aria-label="Review AI takeoff" tabIndex={-1} onKeyDown={onKey}>
+    <aside className="takeoff-review" role="complementary" aria-label={msg('Review AI takeoff')} tabIndex={-1} onKeyDown={onKey}>
       <header className="takeoff-review-head">
-        <h3>Review AI Takeoff</h3>
-        <span className="hint-text">{waitingCount(store) + tools.filter((t) => t.status === 'proposed').length} waiting</span>
+        <h3>{msg('Review AI Takeoff')}</h3>
+        <span className="hint-text">{msg('{count} waiting', { count: waitingCount(store) + tools.filter((t) => t.status === 'proposed').length })}</span>
         <span className="grow" />
-        <select aria-label="Show" value={show} onChange={(e) => setShow(e.target.value as Show)}>
-          <option value="pending">Waiting for review</option>
-          <option value="low">Waiting, low confidence</option>
-          <option value="all">All, with decisions</option>
+        <select aria-label={msg('Show')} value={show} onChange={(e) => setShow(e.target.value as Show)}>
+          <option value="pending">{msg('Waiting for review')}</option>
+          <option value="low">{msg('Waiting, low confidence')}</option>
+          <option value="all">{msg('All, with decisions')}</option>
         </select>
-        <button type="button" className="link-preview-btn" aria-label="Close takeoff review" onClick={onClose}>
+        <button type="button" className="link-preview-btn" aria-label={msg('Close takeoff review')} onClick={onClose}>
           ×
         </button>
       </header>
-      <div className="ar-tabs" role="tablist" aria-label="What to review">
+      <div className="ar-tabs" role="tablist" aria-label={msg('What to review')}>
         {(
           [
             ['takeoff', 'Takeoff', pending.length + liveFindings(store).filter((f) => needsDecision(f) && !f.item?.startsWith('column:')).length],
@@ -228,48 +230,47 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
       {tab === 'takeoff' && (
         <>
       <p className="hint-text takeoff-review-note">
-        An AI client made these through the local assistant. Nothing counts towards the takeoff until you approve it: drawn ones are dashed and left out of quantities until then. Check each against its source.
+        {msg('An AI client made these through the local assistant. Nothing counts towards the takeoff until you approve it: drawn ones are dashed and left out of quantities until then. Check each against its source.')}
       </p>
       <div className="ar-bar">
         <label>
-          Flag below{' '}
-          <input type="number" min={0} max={100} step={5} aria-label="Flag below confidence (%)" value={Math.round(threshold * 100)} onChange={(e) => setThreshold(Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100)} />% confidence
+          {keyed(msgParts('Flag below {input}% confidence', { input: <input type="number" min={0} max={100} step={5} aria-label={msg('Flag below confidence (%)')} value={Math.round(threshold * 100)} onChange={(e) => setThreshold(Math.max(0, Math.min(100, Number(e.target.value) || 0)) / 100)} /> }))}
         </label>
         <span className="grow" />
-        <span className="hint-text">A approve · R reject · E edit · N / P next</span>
+        <span className="hint-text">{msg('A approve · R reject · E edit · N / P next')}</span>
       </div>
-      <div className="ar-bar ar-pass" aria-label="AI review pass">
-        <label title="Off by default. When on, the AI client is asked to have each takeoff checked again in a fresh context.">
-          <input type="checkbox" checked={pass.enabled} disabled={readOnly} onChange={(e) => setReviewPassEnabled(store, e.target.checked)} /> Review pass after each AI takeoff
+      <div className="ar-bar ar-pass" aria-label={msg('AI review pass')}>
+        <label title={msg('Off by default. When on, the AI client is asked to have each takeoff checked again in a fresh context.')}>
+          {keyed(msgParts('{input} Review pass after each AI takeoff', { input: <input type="checkbox" checked={pass.enabled} disabled={readOnly} onChange={(e) => setReviewPassEnabled(store, e.target.checked)} /> }))}
         </label>
         <span className="grow" />
         {pass.requested ? (
           <>
-            <span className="hint-text">Requested by {pass.requested.by}: waiting for your AI client</span>
+            <span className="hint-text">{msg('Requested by {by}: waiting for your AI client', { by: pass.requested.by })}</span>
             <button type="button" className="btn small" disabled={readOnly} onClick={() => cancelReviewRequest(store)}>
-              Cancel
+              {msg('Cancel')}
             </button>
           </>
         ) : (
-          <button type="button" className="btn small" disabled={readOnly || (!items.length && !store.aiReview().columns.length)} onClick={() => requestReviewPass(store, me)} title="Ask your AI client for a second review, in a fresh context">
-            Request Review Pass
+          <button type="button" className="btn small" disabled={readOnly || (!items.length && !store.aiReview().columns.length)} onClick={() => requestReviewPass(store, me)} title={msg('Ask your AI client for a second review, in a fresh context')}>
+            {msg('Request Review Pass')}
           </button>
         )}
-        <button type="button" className="btn small" onClick={copyPrompt} title="Copy the reviewer's instructions, to paste into a new conversation with your AI client">
-          Copy Reviewer Prompt
+        <button type="button" className="btn small" onClick={copyPrompt} title={msg('Copy the reviewer\'s instructions, to paste into a new conversation with your AI client')}>
+          {msg('Copy Reviewer Prompt')}
         </button>
       </div>
       <div className="takeoff-review-list" ref={list}>
         {!!shownMissed.length && (
-          <section className="takeoff-proposal ar-missed" aria-label="Possibly missed">
+          <section className="takeoff-proposal ar-missed" aria-label={msg('Possibly missed')}>
             <div className="tp-head">
-              <b>Possibly missed</b>
-              <span className="hint-text">items the AI review says the takeoff does not have</span>
+              <b>{msg('Possibly missed')}</b>
+              <span className="hint-text">{msg('items the AI review says the takeoff does not have')}</span>
             </div>
             <ReviewFindings store={store} me={me} findings={shownMissed} pageLabel={pageLabel} onShowSource={showSource} />
           </section>
         )}
-        {!shown.length && <p className="empty">{items.length ? 'Nothing waiting for review.' : 'Nothing yet. Ask your AI client (connected to redcolumn) to take off quantities.'}</p>}
+        {!shown.length && <p className="empty">{items.length ? msg('Nothing waiting for review.') : msg('Nothing yet. Ask your AI client (connected to redcolumn) to take off quantities.')}</p>}
         {shown.map((i) => (
           <Item
             key={i.key}
@@ -311,22 +312,22 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
       <footer className="takeoff-review-foot">
         <label className="tp-select-all">
           <input type="checkbox" checked={!!pending.length && pickedPending.length === pending.length} onChange={(e) => setPicked(e.target.checked ? new Set(pending.map((i) => i.key)) : new Set())} disabled={!pending.length} />
-          <span>Select all waiting</span>
+          <span>{msg('Select all waiting')}</span>
         </label>
         <span className="grow" />
         {show === 'all' && items.some((i) => i.state !== 'pending') && (
-          <button type="button" className="btn small" disabled={readOnly} onClick={() => clearDecided(store)} title="Forget rejected drafts and decided proposals">
-            Clear Decided
+          <button type="button" className="btn small" disabled={readOnly} onClick={() => clearDecided(store)} title={msg('Forget rejected drafts and decided proposals')}>
+            {msg('Clear Decided')}
           </button>
         )}
-        <button type="button" className="btn small" disabled={readOnly || !sure.length} title={`Approve every waiting result at or above ${pct(threshold)} confidence`} onClick={() => approve(sure)}>
-          Approve {sure.length} at {pct(threshold)}+
+        <button type="button" className="btn small" disabled={readOnly || !sure.length} title={msg('Approve every waiting result at or above {pct} confidence', { pct: pct(threshold) })} onClick={() => approve(sure)}>
+          {msg('Approve {count} at {pct}+', { count: sure.length, pct: pct(threshold) })}
         </button>
         <button type="button" className="btn small" disabled={!pickedPending.length} onClick={() => reject(pickedPending)}>
-          Reject Selected ({pickedPending.length})
+          {msg('Reject Selected ({count})', { count: pickedPending.length })}
         </button>
         <button type="button" className="btn small primary" disabled={readOnly || !pickedPending.length} onClick={() => approve(pickedPending)}>
-          Approve Selected ({pickedPending.length})
+          {msg('Approve Selected ({count})', { count: pickedPending.length })}
         </button>
       </footer>
         </>
@@ -382,27 +383,27 @@ function Item(props: ItemProps) {
   const pending = i.state === 'pending';
   const conf = i.confidence;
   return (
-    <article data-key={i.key} className={`takeoff-proposal ${i.state}${open ? ' current' : ''}${pending && i.low ? ' low' : ''}`} aria-label={`${KIND_LABEL[i.kind]}: ${i.title}`} aria-current={open || undefined}>
+    <article data-key={i.key} className={`takeoff-proposal ${i.state}${open ? ' current' : ''}${pending && i.low ? ' low' : ''}`} aria-label={`${KIND_LABEL()[i.kind]}: ${i.title}`} aria-current={open || undefined}>
       <div className="tp-head">
-        {pending && <input type="checkbox" aria-label="Select" checked={picked} onChange={(e) => onPick(e.target.checked)} />}
-        <span className={`ar-conf${i.low ? ' low' : ''}`} title={conf === undefined ? 'The AI did not say how sure it is' : `The AI is ${pct(conf)} sure`}>
+        {pending && <input type="checkbox" aria-label={msg('Select')} checked={picked} onChange={(e) => onPick(e.target.checked)} />}
+        <span className={`ar-conf${i.low ? ' low' : ''}`} title={conf === undefined ? msg('The AI did not say how sure it is') : msg('The AI is {pct} sure', { pct: pct(conf) })}>
           {i.low && pending ? '⚑ ' : ''}
           {conf === undefined ? '?' : pct(conf)}
         </span>
-        <span className={`ar-kind ${i.kind}`}>{KIND_LABEL[i.kind]}</span>
-        <button type="button" className="tp-measure" title="Show it on the sheet, and its details" onClick={onOpen} aria-expanded={open}>
+        <span className={`ar-kind ${i.kind}`}>{KIND_LABEL()[i.kind]}</span>
+        <button type="button" className="tp-measure" title={msg('Show it on the sheet, and its details')} onClick={onOpen} aria-expanded={open}>
           {i.title}
           {i.pageIndex !== null ? ` · ${pageLabel(i.pageIndex)}` : ''}
         </button>
         <span className="tp-value">{quantityText(i, props.ctx, props.off)}</span>
         <span className="grow" />
         {props.findings.some(needsDecision) && (
-          <span className="ar-kind review" title="The AI review pass has something to say about this">
-            AI review: {props.findings.filter(needsDecision).length}
+          <span className="ar-kind review" title={msg('The AI review pass has something to say about this')}>
+            {msg('AI review: {count}', { count: props.findings.filter(needsDecision).length })}
           </span>
         )}
-        {i.edits && <span className="ar-edited" title={`Changed by a person: ${i.edits.join(', ')}`}>edited</span>}
-        <span className={`tp-state ${i.state}`}>{STATE_LABEL[i.state]}</span>
+        {i.edits && <span className="ar-edited" title={msg('Changed by a person: {edits}', { edits: i.edits.join(', ') })}>{msg('edited')}</span>}
+        <span className={`tp-state ${i.state}`}>{STATE_LABEL()[i.state]}</span>
       </div>
       {open && (
         <div className="ar-detail">
@@ -410,10 +411,10 @@ function Item(props: ItemProps) {
           {i.kind === 'assembly' && i.takeoff && <AssemblyDetail {...props} p={i.takeoff} />}
           {i.kind === 'count' && i.count && <CountMatches p={i.count} pageLabel={pageLabel} off={props.off} editable={pending} onToggle={props.onToggleMatch} onShow={props.onShowRect} />}
           {!!i.sources.length && (
-            <ul className="ar-sources" aria-label="Sources">
+            <ul className="ar-sources" aria-label={msg('Sources')}>
               {i.sources.map((s, k) => (
                 <li key={k}>
-                  <button type="button" className="rc-linkish" onClick={() => onShowSource(s)} title="Show it on the drawing">
+                  <button type="button" className="rc-linkish" onClick={() => onShowSource(s)} title={msg('Show it on the drawing')}>
                     {pageLabel(s.pageIndex)}
                     {s.kind ? ` · ${s.kind}` : ''}
                   </button>
@@ -422,7 +423,7 @@ function Item(props: ItemProps) {
               ))}
             </ul>
           )}
-          {!i.sources.length && <p className="hint-text">No source given: check it against the drawing.</p>}
+          {!i.sources.length && <p className="hint-text">{msg('No source given: check it against the drawing.')}</p>}
           {i.reasoning && (
             <blockquote className="tp-reason">
               <span className="hint-text">
@@ -436,17 +437,17 @@ function Item(props: ItemProps) {
           {pending && (
             <div className="tp-actions">
               <button type="button" className="btn small" onClick={onReject}>
-                Reject
+                {msg('Reject')}
               </button>
-              <button type="button" className="btn small primary" disabled={readOnly || !approvable(props)} title={approvable(props) ? undefined : 'Its measurement or assembly is gone: choose another assembly, or reject it'} onClick={onApprove}>
-                Approve
+              <button type="button" className="btn small primary" disabled={readOnly || !approvable(props)} title={approvable(props) ? undefined : msg('Its measurement or assembly is gone: choose another assembly, or reject it')} onClick={onApprove}>
+                {msg('Approve')}
               </button>
             </div>
           )}
           {i.state === 'rejected' && (
             <div className="tp-actions">
               <button type="button" className="btn small" disabled={readOnly} onClick={onReopen}>
-                Review Again
+                {msg('Review Again')}
               </button>
             </div>
           )}
@@ -463,25 +464,23 @@ function Decision({ item: i, assemblies }: ItemProps) {
     const o = i.markup.ai.original;
     return (
       <p className="hint-text">
-        Approved by {i.markup.ai.review.by}, {when(i.markup.ai.review.at)}.
-        {i.edits?.length ? ` Changed by a person since the AI drew it: ${i.edits.join(', ')}${i.edits.includes('subject') ? ` (AI: “${o.subject ?? ''}”)` : ''}${i.edits.includes('assembly') ? ` (AI: ${name(o.assemblyId)})` : ''}.` : ' As the AI drew it.'}
+        {msg('Approved by {by}, {when}.{value}', { by: i.markup.ai.review.by, when: when(i.markup.ai.review.at), value: i.edits?.length ? ' ' + msg('Changed by a person since the AI drew it: {edits}{value}{value2}.', { edits: i.edits.join(', '), value: i.edits.includes('subject') ? ' ' + msg('(AI: “{value}”)', { value: o.subject ?? '' }) : '', value2: i.edits.includes('assembly') ? ' ' + msg('(AI: {name})', { name: name(o.assemblyId) }) : '' }) : ' ' + msg('As the AI drew it.') })}
       </p>
     );
   }
-  if (i.kind === 'draft' && i.edits?.length) return <p className="hint-text">You changed: {i.edits.join(', ')}. The AI's version is kept with it.</p>;
-  if (i.kind === 'draft' && i.rejected) return <p className="hint-text">Rejected by {i.rejected.by}, {when(i.rejected.at)}: it is off the drawing.</p>;
+  if (i.kind === 'draft' && i.edits?.length) return <p className="hint-text">{msg('You changed: {edits}. The AI\'s version is kept with it.', { edits: i.edits.join(', ') })}</p>;
+  if (i.kind === 'draft' && i.rejected) return <p className="hint-text">{msg('Rejected by {by}, {when}: it is off the drawing.', { by: i.rejected.by, when: when(i.rejected.at) })}</p>;
   if (i.kind === 'assembly' && i.state === 'approved' && i.markup?.takeoffApproval) {
     const a = i.markup.takeoffApproval;
     return (
       <p className="hint-text">
-        Approved by {a.by}, {when(a.at)}
-        {a.edited ? `, edited before approving${a.proposedAssemblyId ? ` (the AI proposed ${name(a.proposedAssemblyId)})` : ''}` : ''}.
+        {msg('Approved by {by}, {when}{value}.', { by: a.by, when: when(a.at), value: a.edited ? msg(', edited before approving{value}', { value: a.proposedAssemblyId ? ' ' + msg('(the AI proposed {name})', { name: name(a.proposedAssemblyId) }) : '' }) : '' })}
       </p>
     );
   }
-  if (i.kind === 'assembly' && i.takeoff?.rejected) return <p className="hint-text">Rejected by {i.takeoff.rejected.by}, {when(i.takeoff.rejected.at)}.</p>;
-  if (i.kind === 'count' && i.state === 'approved' && i.count?.placed) return <p className="hint-text">Approved by {i.count.placed.by}, {when(i.count.placed.at)}. Undo takes the counts back.</p>;
-  if (i.kind === 'count' && i.count?.rejected) return <p className="hint-text">Rejected by {i.count.rejected.by}, {when(i.count.rejected.at)}.</p>;
+  if (i.kind === 'assembly' && i.takeoff?.rejected) return <p className="hint-text">{msg('Rejected by {by}, {when}.', { by: i.takeoff.rejected.by, when: when(i.takeoff.rejected.at) })}</p>;
+  if (i.kind === 'count' && i.state === 'approved' && i.count?.placed) return <p className="hint-text">{msg('Approved by {by}, {when}. Undo takes the counts back.', { by: i.count.placed.by, when: when(i.count.placed.at) })}</p>;
+  if (i.kind === 'count' && i.count?.rejected) return <p className="hint-text">{msg('Rejected by {by}, {when}.', { by: i.count.rejected.by, when: when(i.count.rejected.at) })}</p>;
   return null;
 }
 
@@ -498,19 +497,19 @@ function DraftDetail({ item: i, store, assemblies, ctx, readOnly, onShow }: Item
       <div className="tp-assembly">
         <span className="hint-text">{MARKUP_LABELS[m.type]}</span>
         {pending ? (
-          <input data-edit aria-label="Subject" className="ar-subject" value={m.subject ?? ''} placeholder="Subject" disabled={readOnly} onChange={(e) => store.update(m.id, { subject: e.target.value || undefined })} />
+          <input data-edit aria-label={msg('Subject')} className="ar-subject" value={m.subject ?? ''} placeholder={msg('Subject')} disabled={readOnly} onChange={(e) => store.update(m.id, { subject: e.target.value || undefined })} />
         ) : (
           <b>{m.subject ?? ''}</b>
         )}
-        <button type="button" className="btn small" onClick={onShow} title="Select it on the sheet to move or reshape it">
-          Edit Shape
+        <button type="button" className="btn small" onClick={onShow} title={msg('Select it on the sheet to move or reshape it')}>
+          {msg('Edit Shape')}
         </button>
       </div>
       <div className="tp-assembly">
-        <span className="hint-text">Assembly</span>
+        <span className="hint-text">{msg('Assembly')}</span>
         {pending ? (
-          <select aria-label="Assembly" value={m.assemblyId ?? ''} disabled={readOnly} onChange={(e) => store.update(m.id, { assemblyId: e.target.value || undefined })}>
-            <option value="">None</option>
+          <select aria-label={msg('Assembly')} value={m.assemblyId ?? ''} disabled={readOnly} onChange={(e) => store.update(m.id, { assemblyId: e.target.value || undefined })}>
+            <option value="">{msg('None')}</option>
             {assemblies.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -523,7 +522,7 @@ function DraftDetail({ item: i, store, assemblies, ctx, readOnly, onShow }: Item
         )}
       </div>
       <ItemsTable items={items} expected={m.ai?.expected} />
-      {!items.length && m.ai?.expected?.length ? <p className="hint-text">AI expected: {m.ai.expected.map((e) => `${e.item} ${formatNumber(e.quantity, 2)}${e.unit ? ` ${e.unit}` : ''}`).join(', ')}</p> : null}
+      {!items.length && m.ai?.expected?.length ? <p className="hint-text">{msg('AI expected: {list}', { list: m.ai.expected.map((e) => `${e.item} ${formatNumber(e.quantity, 2)}${e.unit ? ` ${e.unit}` : ''}`).join(', ') })}</p> : null}
     </>
   );
 }
@@ -541,9 +540,9 @@ function AssemblyDetail({ item: i, p, assemblies, ctx, edit, onEdit }: ItemProps
   return (
     <>
       <div className="tp-assembly">
-        <span className="hint-text">Assembly</span>
+        <span className="hint-text">{msg('Assembly')}</span>
         {pending ? (
-          <select data-edit aria-label="Assembly" value={assemblyId} onChange={(e) => onEdit((x) => ({ ...x, assemblyId: e.target.value === p.assemblyId ? undefined : e.target.value, overrides: undefined }))}>
+          <select data-edit aria-label={msg('Assembly')} value={assemblyId} onChange={(e) => onEdit((x) => ({ ...x, assemblyId: e.target.value === p.assemblyId ? undefined : e.target.value, overrides: undefined }))}>
             {assemblies.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
@@ -554,10 +553,10 @@ function AssemblyDetail({ item: i, p, assemblies, ctx, edit, onEdit }: ItemProps
         ) : (
           <b>{assembly?.name ?? 'deleted assembly'}</b>
         )}
-        {assemblyId !== p.assemblyId && <span className="warn">changed from {proposed?.name ?? 'the proposal'}</span>}
+        {assemblyId !== p.assemblyId && <span className="warn">{msg('changed from {value}', { value: proposed?.name ?? msg('the proposal') })}</span>}
       </div>
-      {!m && <p className="warn">The measurement it was for is gone.</p>}
-      {assembly && assembly.variables.length > 0 && <div className="hint-text tp-vars">Variables: {assembly.variables.map((v) => `${v.name} = ${formatNumber(v.value, 4)}`).join(', ')}</div>}
+      {!m && <p className="warn">{msg('The measurement it was for is gone.')}</p>}
+      {assembly && assembly.variables.length > 0 && <div className="hint-text tp-vars">{msg('Variables: {list}', { list: assembly.variables.map((v) => `${v.name} = ${formatNumber(v.value, 4)}`).join(', ') })}</div>}
       <ItemsTable
         items={items}
         expected={p.expected}
@@ -586,11 +585,11 @@ function ItemsTable({ items, expected, overrides, onOverride }: { items: ReturnT
     <table className="qty-table tp-items">
       <thead>
         <tr>
-          <th>Item</th>
-          <th>Formula</th>
-          <th className="num">Quantity</th>
-          <th className="num">With waste</th>
-          <th className="num">AI expected</th>
+          <th>{msg('Item')}</th>
+          <th>{msg('Formula')}</th>
+          <th className="num">{msg('Quantity')}</th>
+          <th className="num">{msg('With waste')}</th>
+          <th className="num">{msg('AI expected')}</th>
         </tr>
       </thead>
       <tbody>
@@ -612,23 +611,23 @@ function ItemsTable({ items, expected, overrides, onOverride }: { items: ReturnT
                   <input
                     type="number"
                     step="any"
-                    aria-label={`${q.item.name} quantity`}
+                    aria-label={msg('{name} quantity', { name: q.item.name })}
                     className={set !== undefined ? 'tp-set' : undefined}
-                    title={set !== undefined ? 'Set by hand (clear it to use the formula)' : 'From the formula; type to set it by hand'}
+                    title={set !== undefined ? msg('Set by hand (clear it to use the formula)') : msg('From the formula; type to set it by hand')}
                     value={set ?? (q.base !== null ? Number(q.base.toFixed(4)) : '')}
                     onChange={(e) => onOverride(q.item.id, e.target.value === '' ? undefined : Number(e.target.value))}
                   />
                 ) : (
                   <>
                     {n(q.base)}
-                    {set !== undefined && <span className="hint-text"> (set)</span>}
+                    {set !== undefined && <span className="hint-text"> {msg('(set)')}</span>}
                   </>
                 )}
               </td>
               <td className="num">
                 <b>{n(q.rounded)}</b>
               </td>
-              <td className={`num${differs ? ' warn' : ''}`} title={differs ? 'Differs from what the assembly works out' : undefined}>
+              <td className={`num${differs ? ' warn' : ''}`} title={differs ? msg('Differs from what the assembly works out') : undefined}>
                 {exp ? `${formatNumber(exp.quantity, 2)}${differs ? ' ⚠' : ''}` : '—'}
               </td>
             </tr>

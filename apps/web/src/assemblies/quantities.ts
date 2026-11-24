@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { isMeasureKind, reviewedOnly, type Assembly, type AssemblyItem, type CustomColumn, type Markup } from '@nb/markup';
 import { evalFormula, formulaRefs, FormulaError, type Value } from '../columns/formula';
 import { BUILT_IN_COLUMNS, cellsFor, customKey, formatNumber, type Cell, type CellContext } from '../columns/listColumns';
@@ -11,20 +12,20 @@ import { BUILT_IN_COLUMNS, cellsFor, customKey, formatNumber, type Cell, type Ce
 
 /** Names a formula can use besides the list's columns and the assembly's variables. */
 export const MEASURED_NAMES: { name: string; hint: string }[] = [
-  { name: 'Quantity', hint: 'The measurement itself: its length, area, volume or count' },
-  { name: 'Length', hint: 'Length of a line or run; the perimeter of an area' },
-  { name: 'Perimeter', hint: 'Same as Length' },
-  { name: 'Area', hint: 'Area of an area or volume, cutouts taken off' },
-  { name: 'Volume', hint: 'Volume (an area with a depth)' },
-  { name: 'Wall Area', hint: 'Length × depth (a run with a height)' },
-  { name: 'Depth', hint: 'The measurement’s depth or height' },
-  { name: 'Count', hint: 'Items in a count (or a typed count); 1 for any other measurement' },
-  { name: 'Plan Length', hint: 'Length on plan, before the slope' },
-  { name: 'Plan Area', hint: 'Area on plan, before the slope' },
-  { name: 'Slope Factor', hint: 'True over plan: 1 when flat' },
-  { name: 'Pitch', hint: 'The slope as rise per 12 of run' },
-  { name: 'Slope Angle', hint: 'The slope in degrees' },
-  { name: 'Slope %', hint: 'The slope as a percent grade' },
+  { name: 'Quantity', get hint() { return msg('The measurement itself: its length, area, volume or count'); } },
+  { name: 'Length', get hint() { return msg('Length of a line or run; the perimeter of an area'); } },
+  { name: 'Perimeter', get hint() { return msg('Same as Length'); } },
+  { name: 'Area', get hint() { return msg('Area of an area or volume, cutouts taken off'); } },
+  { name: 'Volume', get hint() { return msg('Volume (an area with a depth)'); } },
+  { name: 'Wall Area', get hint() { return msg('Length × depth (a run with a height)'); } },
+  { name: 'Depth', get hint() { return msg('The measurement’s depth or height'); } },
+  { name: 'Count', get hint() { return msg('Items in a count (or a typed count); 1 for any other measurement'); } },
+  { name: 'Plan Length', get hint() { return msg('Length on plan, before the slope'); } },
+  { name: 'Plan Area', get hint() { return msg('Area on plan, before the slope'); } },
+  { name: 'Slope Factor', get hint() { return msg('True over plan: 1 when flat'); } },
+  { name: 'Pitch', get hint() { return msg('The slope as rise per 12 of run'); } },
+  { name: 'Slope Angle', get hint() { return msg('The slope in degrees'); } },
+  { name: 'Slope %', get hint() { return msg('The slope as a percent grade'); } },
 ];
 
 /**
@@ -102,7 +103,7 @@ export function itemQuantities(m: Markup, assembly: Assembly, cells: Readonly<Re
     const res = byHand ?? (item.formula.trim() ? evalFormula(item.formula, lookup) : { error: 'No formula' });
     if ('error' in res) return { item, base: null, quantity: null, rounded: null, cost: null, error: res.error };
     const base = typeof res.value === 'number' ? res.value : Number(res.value);
-    if (!Number.isFinite(base)) return { item, base: null, quantity: null, rounded: null, cost: null, error: 'Not a number' };
+    if (!Number.isFinite(base)) return { item, base: null, quantity: null, rounded: null, cost: null, error: msg('Not a number') };
     const { quantity, rounded } = withWaste(item, base);
     return { item, base, quantity, rounded, cost: item.unitCost !== undefined ? rounded * item.unitCost : null, ...(byHand ? { set: true } : {}) };
   });
@@ -191,7 +192,7 @@ const csvCell = (v: string) => (/[",\n\r]/.test(v) ? `"${v.replace(/"/g, '""')}"
 
 /** Rolled-up quantities as CSV (the caller adds a BOM for Excel). */
 export function rollupToCsv(rows: readonly RollupRow[], by: RollupBy): string {
-  const head = [...(by === 'item' ? [] : [by === 'assembly' ? 'Assembly' : 'Page']), 'Item', 'Unit', 'Measurements', 'Measured', 'With waste', 'Total', 'Unit cost', 'Cost', 'Set by hand'];
+  const head = [...(by === 'item' ? [] : [by === 'assembly' ? 'Assembly' : 'Page']), 'Item', 'Unit', 'Measurements', 'Measured', 'With waste', 'Total', 'Unit cost', 'Cost', msg('Set by hand')];
   const n = (v: number | null, d = 2) => (v === null ? '' : formatNumber(v, d));
   const lines = rows.map((r) => [...(by === 'item' ? [] : [r.group]), r.item, r.unit, String(r.measurements), n(r.base), n(r.quantity), n(r.total), n(r.unitCost), n(r.cost), String(r.setByHand)].map(csvCell).join(','));
   return [head.map(csvCell).join(','), ...lines].join('\r\n');

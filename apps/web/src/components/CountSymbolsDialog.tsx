@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useMemo, useRef, useState } from 'react';
 import {
   badgeCountSymbol,
@@ -31,11 +33,11 @@ export const openCountSymbols = () => window.dispatchEvent(new CustomEvent(MANAG
 type Tab = 'library' | 'badge' | 'image' | 'stamp' | 'tools' | 'selection';
 
 const FRAMES: { value: BadgeFrame; label: string }[] = [
-  { value: 'circle', label: 'Circle' },
-  { value: 'square', label: 'Square' },
-  { value: 'diamond', label: 'Diamond' },
-  { value: 'triangle', label: 'Triangle' },
-  { value: 'none', label: 'Text only' },
+  { value: 'circle', get label() { return msg('Circle'); } },
+  { value: 'square', get label() { return msg('Square'); } },
+  { value: 'diamond', get label() { return msg('Diamond'); } },
+  { value: 'triangle', get label() { return msg('Triangle'); } },
+  { value: 'none', get label() { return msg('Text only'); } },
 ];
 
 interface Props {
@@ -101,7 +103,7 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
   const saveSymbol = (sym: CountSymbol, useNow = false) => {
     const ok = addCountSymbol(sym);
     if (!ok) {
-      setNotice({ text: 'Could not save symbol: browser storage is full. Delete unused symbols or stamps and try again.', error: true });
+      setNotice({ text: msg('Could not save symbol: browser storage is full. Delete unused symbols or stamps and try again.'), error: true });
       return;
     }
     setNotice({ text: `Saved “${sym.name}”.` });
@@ -121,14 +123,14 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
       try {
         const sym = await countSymbolFromImage(f);
         if (addCountSymbol(sym)) added++;
-        else errors.push(`${f.name}: browser storage is full`);
+        else errors.push(msg('{name}: browser storage is full', { name: f.name }));
       } catch (err) {
         errors.push(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
     if (errors.length) setNotice({ text: errors.join('; '), error: true });
     else if (added) {
-      setNotice({ text: `Imported ${added} symbol${added === 1 ? '' : 's'}.` });
+      setNotice({ text: msg('Imported {added, plural, one {# symbol} other {# symbols}}.', { added }) });
       setTab('library');
     }
   };
@@ -155,34 +157,34 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
       <div
         className="modal count-symbols-dialog"
         role="dialog"
-        aria-label="Count Symbols"
+        aria-label={msg('Count Symbols')}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === 'Escape') onClose();
         }}
       >
-        <h3>Count Symbols</h3>
+        <h3>{msg('Count Symbols')}</h3>
 
         <div className="cs-tabs" role="tablist">
           <button type="button" role="tab" aria-selected={tab === 'library'} className={`btn small${tab === 'library' ? ' active' : ''}`} onClick={() => setTab('library')}>
-            Saved ({saved.length})
+            {msg('Saved ({count})', { count: saved.length })}
           </button>
           <button type="button" role="tab" aria-selected={tab === 'badge'} className={`btn small${tab === 'badge' ? ' active' : ''}`} onClick={() => setTab('badge')}>
-            New Badge
+            {msg('New Badge')}
           </button>
           <button type="button" role="tab" aria-selected={tab === 'image'} className={`btn small${tab === 'image' ? ' active' : ''}`} onClick={() => setTab('image')}>
-            Import Image
+            {msg('Import Image')}
           </button>
           <button type="button" role="tab" aria-selected={tab === 'stamp'} className={`btn small${tab === 'stamp' ? ' active' : ''}`} onClick={() => setTab('stamp')}>
-            From Stamp
+            {msg('From Stamp')}
           </button>
           <button type="button" role="tab" aria-selected={tab === 'tools'} className={`btn small${tab === 'tools' ? ' active' : ''}`} onClick={() => setTab('tools')}>
-            From Tool Library
+            {msg('From Tool Library')}
           </button>
           {usableSelection.length > 0 && (
             <button type="button" role="tab" aria-selected={tab === 'selection'} className={`btn small${tab === 'selection' ? ' active' : ''}`} onClick={() => setTab('selection')}>
-              From Selection
+              {msg('From Selection')}
             </button>
           )}
         </div>
@@ -194,7 +196,7 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
             <>
               {saved.length === 0 ? (
                 <p className="muted">
-                  No custom count symbols yet. Create a badge, import a picture, convert a stamp or Tool Library item, or right-click any drawn markup on the page and choose <strong>Save as Count Symbol…</strong>.
+                  {keyed(msgParts('No custom count symbols yet. Create a badge, import a picture, convert a stamp or Tool Library item, or right-click any drawn markup on the page and choose {strong}.', { strong: <strong>{msg('Save as Count Symbol…')}</strong> }))}
                 </p>
               ) : (
                 <div className="cs-grid">
@@ -228,24 +230,24 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
                               onClose();
                             }}
                           >
-                            Use
+                            {msg('Use')}
                           </button>
                         )}
                         <button
                           type="button"
                           className="btn small"
-                          title="Rename"
+                          title={msg('Rename')}
                           onClick={() => {
                             setRenamingId(sym.id);
                             setRenameText(sym.name);
                           }}
                         >
-                          Rename
+                          {msg('Rename')}
                         </button>
                         <button
                           type="button"
                           className="btn small"
-                          title="Delete"
+                          title={msg('Delete')}
                           onClick={() => {
                             removeCountSymbol(sym.id);
                             setNotice(null);
@@ -266,16 +268,16 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
               <div className="cs-badge-preview">
                 <CountSymbolSwatch symbol={badgePreview} size={72} />
                 <span className="muted" style={{ fontSize: 11 }}>
-                  Vector preview
+                  {msg('Vector preview')}
                 </span>
               </div>
               <div className="cs-form">
                 <label className="cs-row">
-                  <span>Name</span>
-                  <input type="text" value={badgeName} onChange={(e) => setBadgeName(e.target.value)} placeholder="e.g. Floor Drain" />
+                  <span>{msg('Name')}</span>
+                  <input type="text" value={badgeName} onChange={(e) => setBadgeName(e.target.value)} placeholder={msg('e.g. Floor Drain')} />
                 </label>
                 <label className="cs-row">
-                  <span>Frame</span>
+                  <span>{msg('Frame')}</span>
                   <select value={badgeFrame} onChange={(e) => setBadgeFrame(e.target.value as BadgeFrame)}>
                     {FRAMES.map((f) => (
                       <option key={f.value} value={f.value}>
@@ -285,30 +287,30 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
                   </select>
                 </label>
                 <label className="cs-row">
-                  <span>Text</span>
-                  <input type="text" maxLength={6} value={badgeText} onChange={(e) => setBadgeText(e.target.value)} placeholder="e.g. D1, SD, C" />
+                  <span>{msg('Text')}</span>
+                  <input type="text" maxLength={6} value={badgeText} onChange={(e) => setBadgeText(e.target.value)} placeholder={msg('e.g. D1, SD, C')} />
                 </label>
                 {badgeFrame !== 'none' && (
                   <>
                     <div className="cs-row">
-                      <span>Outline</span>
+                      <span>{msg('Outline')}</span>
                       <div className="cs-color-row">
                         <input type="color" value={badgeStroke} onChange={(e) => setBadgeStroke(e.target.value)} />
                         <span>{badgeStroke}</span>
                       </div>
                     </div>
                     <div className="cs-row">
-                      <span>Fill</span>
+                      <span>{msg('Fill')}</span>
                       <div className="cs-color-row">
-                        <input type="checkbox" checked={badgeFillOn} onChange={(e) => setBadgeFillOn(e.target.checked)} aria-label="Enable fill" />
+                        <input type="checkbox" checked={badgeFillOn} onChange={(e) => setBadgeFillOn(e.target.checked)} aria-label={msg('Enable fill')} />
                         <input type="color" value={badgeFill} disabled={!badgeFillOn} onChange={(e) => setBadgeFill(e.target.value)} />
-                        <span>{badgeFillOn ? badgeFill : 'None'}</span>
+                        <span>{badgeFillOn ? badgeFill : msg('None')}</span>
                       </div>
                     </div>
                   </>
                 )}
                 <div className="cs-row">
-                  <span>Text color</span>
+                  <span>{msg('Text color')}</span>
                   <div className="cs-color-row">
                     <input type="color" value={badgeTextColor} onChange={(e) => setBadgeTextColor(e.target.value)} />
                     <span>{badgeTextColor}</span>
@@ -321,7 +323,7 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
                     disabled={!badgeText.trim() && badgeFrame === 'none'}
                     onClick={() => saveSymbol({ ...badgePreview, id: crypto.randomUUID() }, false)}
                   >
-                    Save Symbol
+                    {msg('Save Symbol')}
                   </button>
                   {onUse && (
                     <button
@@ -330,7 +332,7 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
                       disabled={!badgeText.trim() && badgeFrame === 'none'}
                       onClick={() => saveSymbol({ ...badgePreview, id: crypto.randomUUID() }, true)}
                     >
-                      Save &amp; Use
+                      {msg('Save & Use')}
                     </button>
                   )}
                 </div>
@@ -341,7 +343,7 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
           {tab === 'image' && (
             <div className="cs-form">
               <p className="muted">
-                Import a PNG, JPEG, GIF, BMP, or WebP image as a reusable count marker. Transparent PNGs stay transparent and are scaled cleanly for crisp markers.
+                {msg('Import a PNG, JPEG, GIF, BMP, or WebP image as a reusable count marker. Transparent PNGs stay transparent and are scaled cleanly for crisp markers.')}
               </p>
               <div>
                 <input
@@ -356,7 +358,7 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
                   }}
                 />
                 <button type="button" className="btn primary" onClick={() => fileRef.current?.click()}>
-                  Choose Image File…
+                  {msg('Choose Image File…')}
                 </button>
               </div>
             </div>
@@ -381,7 +383,7 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
           {tab === 'tools' && (
             <>
               {savedTools.length === 0 ? (
-                <p className="muted">No saved markup tools in your Tool Library yet. Right-click a markup on the page → Add to Tool Library first.</p>
+                <p className="muted">{msg('No saved markup tools in your Tool Library yet. Right-click a markup on the page → Add to Tool Library first.')}</p>
               ) : (
                 <div className="cs-pick-list">
                   {savedTools.map(({ set, item }) => (
@@ -403,13 +405,13 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
               <div className="cs-badge-preview">
                 <CountSymbolSwatch symbol={selectionPreview} size={72} />
                 <span className="muted" style={{ fontSize: 11 }}>
-                  {usableSelection.length} markup{usableSelection.length === 1 ? '' : 's'}
+                  {msg('{count, plural, one {# markup} other {# markups}}', { count: usableSelection.length })}
                 </span>
               </div>
               <div className="cs-form">
                 <label className="cs-row">
-                  <span>Name</span>
-                  <input type="text" value={selName} onChange={(e) => setSelName(e.target.value)} placeholder="Symbol name" />
+                  <span>{msg('Name')}</span>
+                  <input type="text" value={selName} onChange={(e) => setSelName(e.target.value)} placeholder={msg('Symbol name')} />
                 </label>
                 <div className="actions">
                   <button
@@ -420,7 +422,7 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
                       if (sym) saveSymbol(sym, false);
                     }}
                   >
-                    Save Symbol
+                    {msg('Save Symbol')}
                   </button>
                   {onUse && (
                     <button
@@ -431,7 +433,7 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
                         if (sym) saveSymbol(sym, true);
                       }}
                     >
-                      Save &amp; Use
+                      {msg('Save & Use')}
                     </button>
                   )}
                 </div>
@@ -443,7 +445,7 @@ export function CountSymbolsDialog({ author, selectedMarkups = [], onUse, onClos
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onClose}>
-            Close
+            {msg('Close')}
           </button>
         </div>
       </div>

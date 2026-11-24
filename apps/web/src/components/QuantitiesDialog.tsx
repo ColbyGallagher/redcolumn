@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { Fragment, useMemo, useState } from 'react';
 import type { Assembly, Markup } from '@nb/markup';
 import { rollup, rollupToCsv, type RollupBy, type RollupRow } from '../assemblies/quantities';
@@ -15,9 +16,9 @@ interface Props {
 }
 
 const BY: { value: RollupBy; label: string }[] = [
-  { value: 'item', label: 'Item (for ordering)' },
-  { value: 'assembly', label: 'Assembly' },
-  { value: 'page', label: 'Page' },
+  { value: 'item', get label() { return msg('Item (for ordering)'); } },
+  { value: 'assembly', get label() { return msg('Assembly'); } },
+  { value: 'page', get label() { return msg('Page'); } },
 ];
 
 const n = (v: number | null, d = 2) => (v === null ? '' : formatNumber(v, d));
@@ -42,14 +43,14 @@ export function QuantitiesDialog({ markups, assemblies, ctx, pageLabel, onManage
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal quantities-dialog" role="dialog" aria-label="Takeoff quantities" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="modal quantities-dialog" role="dialog" aria-label={msg('Takeoff quantities')} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <div className="columns-head">
-          <h3>Takeoff Quantities</h3>
+          <h3>{msg('Takeoff Quantities')}</h3>
         </div>
         <div className="qty-toolbar">
           <label>
-            Total by{' '}
-            <select aria-label="Total by" value={by} onChange={(e) => setBy(e.target.value as RollupBy)}>
+            {msg('Total by')}{' '}
+            <select aria-label={msg('Total by')} value={by} onChange={(e) => setBy(e.target.value as RollupBy)}>
               {BY.map((b) => (
                 <option key={b.value} value={b.value}>
                   {b.label}
@@ -58,27 +59,27 @@ export function QuantitiesDialog({ markups, assemblies, ctx, pageLabel, onManage
             </select>
           </label>
           <span className="hint-text">
-            {withAssembly} measurement{withAssembly === 1 ? '' : 's'} with an assembly
-            {errors ? <span className="warn"> · {errors} could not be worked out (check the formulas)</span> : null}
+            {withAssembly} {msg('measurement')}{withAssembly === 1 ? '' : 's'} {msg('with an assembly')}
+            {errors ? <span className="warn"> {msg('· {errors} could not be worked out (check the formulas)', { errors })}</span> : null}
           </span>
         </div>
         {!rows.length ? (
           <p className="empty">
-            No measurement has an assembly yet. Select measurements and pick an assembly for them in the Measurements panel{onManage ? ', or set some up first.' : '.'}
+            {msg('No measurement has an assembly yet. Select measurements and pick an assembly for them in the Measurements panel{value}', { value: onManage ? msg(', or set some up first.') : '.' })}
           </p>
         ) : (
           <div className="qty-scroll">
             <table className="qty-table">
               <thead>
                 <tr>
-                  <th>Item</th>
-                  <th>Unit</th>
-                  <th className="num" title="Measurements that contributed">Meas.</th>
-                  <th className="num" title="Before waste">Measured</th>
-                  <th className="num">With waste</th>
-                  <th className="num" title="With waste, rounded up on the total where the item rounds">Total</th>
-                  <th className="num">Unit cost</th>
-                  <th className="num">Cost</th>
+                  <th>{msg('Item')}</th>
+                  <th>{msg('Unit')}</th>
+                  <th className="num" title={msg('Measurements that contributed')}>{msg('Meas.')}</th>
+                  <th className="num" title={msg('Before waste')}>{msg('Measured')}</th>
+                  <th className="num">{msg('With waste')}</th>
+                  <th className="num" title={msg('With waste, rounded up on the total where the item rounds')}>{msg('Total')}</th>
+                  <th className="num">{msg('Unit cost')}</th>
+                  <th className="num">{msg('Cost')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -95,15 +96,14 @@ export function QuantitiesDialog({ markups, assemblies, ctx, pageLabel, onManage
                         <td>
                           {r.item}
                           {r.errors > 0 && (
-                            <span className="warn" title={`${r.errors} measurement(s) could not be worked out and are left out`}>
+                            <span className="warn" title={msg('{errors} measurement(s) could not be worked out and are left out', { errors: r.errors })}>
                               {' '}
                               ⚠
                             </span>
                           )}
                           {r.setByHand > 0 && (
-                            <span className="set-by-hand" title={`Set by hand for ${r.setByHand} measurement${r.setByHand === 1 ? '' : 's'} when approving a takeoff: it does not follow changes to the measurement`}>
-                              {' '}
-                              ✎ set by hand{r.setByHand < r.measurements ? ` (${r.setByHand} of ${r.measurements})` : ''}
+                            <span className="set-by-hand" title={msg('Set by hand for {setByHand, plural, one {# measurement} other {# measurements}} when approving a takeoff: it does not follow changes to the measurement', { setByHand: r.setByHand })}>
+                              {' ' + msg('✎ set by hand{value}', { value: r.setByHand < r.measurements ? ' ' + msg('({setByHand} of {measurements})', { setByHand: r.setByHand, measurements: r.measurements }) : '' })}
                             </span>
                           )}
                         </td>
@@ -124,7 +124,7 @@ export function QuantitiesDialog({ markups, assemblies, ctx, pageLabel, onManage
               {cost !== null && (
                 <tfoot>
                   <tr>
-                    <td colSpan={7}>Total cost</td>
+                    <td colSpan={7}>{msg('Total cost')}</td>
                     <td className="num">{n(cost)}</td>
                   </tr>
                 </tfoot>
@@ -132,19 +132,19 @@ export function QuantitiesDialog({ markups, assemblies, ctx, pageLabel, onManage
             </table>
           </div>
         )}
-        <p className="hint-text">Quantities are in each page’s display units. Check them against the drawings before pricing or ordering.</p>
+        <p className="hint-text">{msg('Quantities are in each page’s display units. Check them against the drawings before pricing or ordering.')}</p>
         <div className="actions">
           {onManage && (
             <button type="button" className="btn small" onClick={onManage}>
-              Assemblies…
+              {msg('Assemblies…')}
             </button>
           )}
           <button type="button" className="btn small" disabled={!rows.length} onClick={() => onExportCsv(rollupToCsv(rows, by), by)}>
-            Export CSV
+            {msg('Export CSV')}
           </button>
           <span className="grow" />
           <button type="button" className="btn primary" onClick={onClose} autoFocus>
-            Close
+            {msg('Close')}
           </button>
         </div>
       </div>

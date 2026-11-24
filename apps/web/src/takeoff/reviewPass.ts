@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import type { MarkupStore, ReviewFinding } from '@nb/markup';
 
 /**
@@ -69,12 +70,12 @@ export function cancelReviewRequest(store: MarkupStore) {
   store.setReviewPass(rest);
 }
 
-export const FINDING_KIND_LABEL: Record<ReviewFinding['kind'], string> = {
-  quantity: 'Quantity',
-  missed: 'Missed',
-  'wrong-item': 'Wrong item',
-  scale: 'Scale',
-  grouping: 'Grouping',
-  duplicate: 'Counted twice',
-  other: 'Other',
-};
+export const FINDING_KIND_LABEL = (): Record<ReviewFinding['kind'], string> => ({
+  quantity: msg('Quantity'),
+  missed: msg('Missed'),
+  'wrong-item': msg('Wrong item'),
+  scale: msg('Scale'),
+  grouping: msg('Grouping'),
+  duplicate: msg('Counted twice'),
+  other: msg('Other'),
+});
