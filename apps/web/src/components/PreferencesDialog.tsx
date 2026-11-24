@@ -579,6 +579,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['dark', 'Dark Mode (inverted)'],
           ['dim', 'Dimmer'],
         ])}
+        <C>{check('showMenuBar', 'Show Menu Bar', { title: 'Keep File, Edit, View and the other menus across the top bar instead of under the redcolumn button' })}</C>
         <C>{check('thinLines', 'Disable Line Weights')}</C>
         <C>{check('keepViewBetweenPages', 'Keep View Between Pages')}</C>
         <C>{check('showRulers', 'Show Rulers')}</C>
