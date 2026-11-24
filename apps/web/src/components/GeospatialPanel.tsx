@@ -481,7 +481,7 @@ export function GeospatialPanel(props: Props) {
             <p className="geo-warning">
               {inStitch ? msg('The model is on the stitch of {page}.', { page: pageLabel(anchor) }) : msg('The model is on {page}.', { page: pageLabel(anchor) })}{' '}
               {keyed(
-                msgParts('{goThere} or {bringItHere}', {
+                msgParts('{goThere} or {bringItHere}.', {
                   goThere: (
                     <button className="link-button" onClick={() => (inStitch ? props.onOpenStitched(anchor) : onGoTo(anchor))}>
                       {msg('Go there')}
@@ -494,7 +494,6 @@ export function GeospatialPanel(props: Props) {
                   ),
                 }),
               )}
-              .
             </p>
           )}
           <div className="panel-toolbar">
@@ -523,7 +522,7 @@ export function GeospatialPanel(props: Props) {
                 {keyed(msgParts('Rotation{numberfield}°', { numberfield: <NumberField value={placement.rotation * DEG} digits={4} disabled={!editable} onCommit={setRotation} /> }))}
               </label>
               <span className="field geo-scale" title={msg('From {pageLabel}’s scale', { pageLabel: pageLabel(anchor) })}>
-                {msg('Scale 1:{round}', { round: Math.round(ratioOfScale(placement.scale / (anchorSheet ? worldPerPoint(anchorSheet.toWorld) : 1))).toLocaleString() })}
+                {msg('Scale 1:{round}', { round: Math.round(ratioOfScale(placement.scale / (anchorSheet ? worldPerPoint(anchorSheet.toWorld) : 1))) })}
               </span>
             </div>
           )}

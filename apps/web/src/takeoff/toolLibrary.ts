@@ -1,4 +1,3 @@
-import { msg } from '@nb/i18n';
 import { useSyncExternalStore } from 'react';
 import { runTool, sanitizeTool, toolRuns, type GroupingProposal, type GroupingTool, type MarkupStore } from '@nb/markup';
 import { ruleContext } from './groupingColumns';
