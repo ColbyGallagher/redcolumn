@@ -104,7 +104,8 @@ const ELECTRON_DIALOG_METHODS = new Set([
 
 const ELECTRON_DIALOG_PROPS = new Set(['title', 'message', 'detail', 'buttonLabel', 'checkboxLabel']);
 
-const IGNORE_COMMENT = /\bi18n-ignore\s*:\s*\S+/;
+// A reason is required: the comment's closing */ does not count as one.
+const IGNORE_COMMENT = /\bi18n-ignore\s*:\s*(?!\*\/)\S/;
 
 /** Converts a simple glob (`*`, `**`, `?`) into a RegExp over forward-slash relative paths. */
 export function globToRegExp(glob: string): RegExp {
