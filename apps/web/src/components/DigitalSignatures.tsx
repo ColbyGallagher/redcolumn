@@ -93,7 +93,7 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
                     {c.reason ? ` · ${c.reason}` : ''}
                     {c.location ? ` · ${c.location}` : ''}
                     {c.certify ? ` · ${CERTIFY()[c.certify]}` : ''}
-                    {c.format === 'pades' ? (c.timestamp?.verified ? (c.ltv ? ' ' + msg('· PAdES B-LT') : ' ' + msg('· PAdES B-T')) : ' · PAdES') : c.format === 'pkcs7' ? ' · PKCS #7' : ''}
+                    {c.format === 'pades' ? (c.timestamp?.verified ? (c.ltv ? ' ' + msg('· PAdES B-LT') : ' ' + msg('· PAdES B-T')) : ' ' + msg('· PAdES')) : c.format === 'pkcs7' ? ' ' + msg('· PKCS #7') : ''}
                     {c.ltv ? ' ' + msg('· LTV enabled') : ''}
                   </div>
                   {c.certificate && (
@@ -103,7 +103,7 @@ export function DigitalSignaturesSection({ checks, trusted, canSign, onSign, onM
                   )}
                   {c.chain.names.length > 1 && (
                     <div className="print-hint" title={c.chain.problem ?? msg('Every certificate in the chain is signed by the next')}>
-                      {msg('Chain: {names}{value}', { names: c.chain.names.join(' → '), value: c.chain.complete ? '' : ` (${c.chain.problem ?? 'incomplete'})` })}
+                      {msg('Chain: {names}{value}', { names: c.chain.names.join(' → '), value: c.chain.complete ? '' : ` (${c.chain.problem ?? msg('incomplete')})` })}
                     </div>
                   )}
                   {revocation[c.field] && <div className="print-hint dsig-revocation">{revocation[c.field]}</div>}
@@ -586,10 +586,15 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, activeCont
         )}
         {!ids.length ? (
           <p>
-            Signing needs a Digital ID.{' '}
-            <button type="button" className="btn small" onClick={onManageIds}>
-              {msg('Make or import one…')}
-            </button>
+            {keyed(
+              msgParts('Signing needs a Digital ID. {button}', {
+                button: (
+                  <button type="button" className="btn small" onClick={onManageIds}>
+                    {msg('Make or import one…')}
+                  </button>
+                ),
+              }),
+            )}
           </p>
         ) : (
           <>
@@ -617,7 +622,7 @@ export function SignDialog({ ids, pictures, fieldName, alreadySigned, activeCont
               <p className="print-hint">{msg('Enter the PIN on the card reader when it asks.')}</p>
             ) : (
               <label className="row" title={card ? msg('Sent to the card for this signature only; never stored') : undefined}>
-                {card ? 'PIN' : msg('Password')}
+                {card ? msg('PIN') : msg('Password')}
                 <input type="password" autoFocus autoComplete="off" value={password} onChange={(e) => setPassword(e.target.value)} />
               </label>
             )}

@@ -187,9 +187,9 @@ export function ScriptsDialog({ markups, ctx, readOnly, onApply, onClose }: Prop
                     <b>
                       {msg('{count, plural, one {# markup} other {# markups}} will change', { count: result.run.changes.length })}
                     </b>
-                    {result.run.found.length > 1 ? ' ' + msg('(rules found {found})', { found: result.run.found.join(', ') }) : ` (found ${result.run.found[0] ?? 0})`}
+                    {result.run.found.length > 1 ? ' ' + msg('(rules found {found})', { found: result.run.found.join(', ') }) : ' ' + msg('(found {count})', { count: result.run.found[0] ?? 0 })}
                     {result.run.skipped.length ? '. ' + msg('Locked, left alone: {count}', { count: result.run.skipped.length }) : ''}
-                    {stale ? '. The script has changed since: preview it again.' : '.'}
+                    {stale ? '. ' + msg('The script has changed since: preview it again.') : '.'}
                   </p>
                   <ul className="scripts-changes">
                     {changesShown.map((c) => (

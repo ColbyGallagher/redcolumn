@@ -49,7 +49,7 @@ export function CombineDialog({ open, onCombine, onCancel }: Props) {
           {items.map((it, i) => (
             <li key={`${it.kind}-${it.name}-${i}`} role="option" aria-selected={i === picked} className={i === picked ? 'picked' : ''} onClick={() => setPicked(i)}>
               <span className="name">{it.name}</span>
-              <span className="where">{it.kind === 'open' ? 'open' : 'from disk'}</span>
+              <span className="where">{it.kind === 'open' ? msg('open') : msg('from disk')}</span>
             </li>
           ))}
           {!items.length && <li className="empty">{msg('Add PDFs or pictures to combine.')}</li>}

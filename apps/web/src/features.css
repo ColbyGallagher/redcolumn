@@ -5124,7 +5124,7 @@ tr.hidden-markup td {
 .compare-pick-guide {
   flex: 1 1 320px;
   padding: 6px 10px;
-  border-left: 3px solid var(--accent);
+  border-inline-start: 3px solid var(--accent);
   border-radius: 3px;
   background: var(--surface-sunken);
   font-size: 13px;
@@ -5132,10 +5132,10 @@ tr.hidden-markup td {
   color: var(--text);
 }
 .compare-pick-guide.ready {
-  border-left-color: #1a8a1a;
+  border-inline-start-color: #1a8a1a;
 }
 .compare-pick-guide.warn {
-  border-left-color: #d97706;
+  border-inline-start-color: #d97706;
 }
 .compare-pick-controls {
   display: flex;

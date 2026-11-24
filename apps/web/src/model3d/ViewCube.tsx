@@ -1,10 +1,11 @@
 import { useSyncExternalStore } from 'react';
+import { msg } from '@nb/i18n';
 import type { ViewDirection } from '@nb/model3d';
 import type { ModelView } from '../documents/openTabs';
 
 const FACES: { dir: ViewDirection; label: string; transform: string }[] = [
-  { dir: 'top', label: 'Top', transform: 'rotateX(90deg)' },
-  { dir: 'bottom', label: 'Bottom', transform: 'rotateX(-90deg)' },
+  { dir: 'top', get label() { return msg('Top'); }, transform: 'rotateX(90deg)' },
+  { dir: 'bottom', get label() { return msg('Bottom'); }, transform: 'rotateX(-90deg)' },
   { dir: 'front', label: 'S', transform: '' },
   { dir: 'back', label: 'N', transform: 'rotateY(180deg)' },
   { dir: 'right', label: 'E', transform: 'rotateY(90deg)' },
@@ -30,17 +31,26 @@ export function ViewCube({ view }: { view: ModelView }) {
     return o ? cubeTransform(o.yaw, o.pitch) : '';
   });
   if (!key) return null;
+  const titles: Record<ViewDirection, string> = {
+    top: msg('Top view'),
+    bottom: msg('Bottom view'),
+    front: msg('Front view'),
+    back: msg('Back view'),
+    left: msg('Left view'),
+    right: msg('Right view'),
+    iso: msg('Isometric view'),
+  };
   const look = (direction: ViewDirection) => view.controls()?.run({ type: 'direction', direction });
   return (
-    <div className="view-cube" aria-label="View cube">
+    <div className="view-cube" aria-label={msg('View cube')}>
       <div className="view-cube-body" style={{ transform: `translateZ(-24px) ${key}` }}>
         {FACES.map((f) => (
-          <button key={f.dir} type="button" className={`view-cube-face ${f.dir}`} style={{ transform: `${f.transform} translateZ(24px)` }} title={`${f.dir[0]!.toUpperCase()}${f.dir.slice(1)} view`} onClick={() => look(f.dir)}>
+          <button key={f.dir} type="button" className={`view-cube-face ${f.dir}`} style={{ transform: `${f.transform} translateZ(24px)` }} title={titles[f.dir]} onClick={() => look(f.dir)}>
             {f.label}
           </button>
         ))}
       </div>
-      <button type="button" className="view-cube-iso" title="Isometric view" onClick={() => look('iso')}>
+      <button type="button" className="view-cube-iso" title={titles.iso} onClick={() => look('iso')}>
         ⌂
       </button>
     </div>

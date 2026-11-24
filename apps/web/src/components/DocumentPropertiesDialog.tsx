@@ -1,4 +1,4 @@
-import { msg } from '@nb/i18n';
+import { formatNumber, msg } from '@nb/i18n';
 import { lazy } from '../i18n/lazy';
 import { useEffect, useState } from 'react';
 import type { DocumentInfo, PdfDocument } from '@nb/pdf-core';
@@ -87,10 +87,10 @@ export function DocumentPropertiesDialog({ fileName, doc, bytes, readOnlyReason,
         <h3>{msg('Document Properties')}</h3>
         {error && <p className="error">{error}</p>}
         <div className="form-grid">
-          {field('title', 'Title')}
-          {field('author', 'Author')}
-          {field('subject', 'Subject')}
-          {field('keywords', 'Keywords')}
+          {field('title', msg('Title'))}
+          {field('author', msg('Author'))}
+          {field('subject', msg('Subject'))}
+          {field('keywords', msg('Keywords'))}
         </div>
         {readOnlyReason && <p className="pref-hint">{readOnlyReason}</p>}
         <dl className="facts">
@@ -99,7 +99,7 @@ export function DocumentPropertiesDialog({ fileName, doc, bytes, readOnlyReason,
           {bytes !== undefined && (
             <>
               <dt>{msg('Size')}</dt>
-              <dd>{bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`}</dd>
+              <dd>{bytes >= 1048576 ? msg('{size} MB', { size: formatNumber(bytes / 1048576, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }) : msg('{size} KB', { size: formatNumber(Math.max(1, Math.round(bytes / 1024)), { maximumFractionDigits: 0 }) })}</dd>
             </>
           )}
           <dt>{msg('Pages')}</dt>

@@ -1,4 +1,5 @@
 import { activate, fallbackChain, localeInfo, messagesBeforeActivation, setNumberLocale, type Catalog } from '@nb/i18n';
+import { mainProcessStrings } from '../desktop/mainStrings';
 import { browserLanguages, resolveLanguage, resolveNumberFormat, systemNumberLocale } from './language';
 
 // Each language's catalog is its own chunk, fetched only when that language is chosen.
@@ -29,6 +30,8 @@ export async function startI18n(choice: unknown, numberFormat: unknown): Promise
     console.warn(`i18n: could not load the ${code} translations`, e);
   }
   activate(code, catalog);
+  // The desktop app's own dialogs (Open, Save, sign-in) follow the same language.
+  if (typeof window !== 'undefined') window.redcolumn?.setInterfaceStrings?.(mainProcessStrings());
   const info = localeInfo(code)!;
   document.documentElement.lang = info.rules ?? info.code;
   document.documentElement.dir = info.dir;

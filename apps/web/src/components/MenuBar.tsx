@@ -802,7 +802,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
           <span className="brand-mark brand-static" aria-hidden="true">
             <img className="brand-col" src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" draggable={false} />
             <span className="brand-word">
-              {/* The product name: never translated. */}
+              {/* i18n-ignore: product name, never translated */}
               <b>red</b>column
             </span>
           </span>
@@ -858,7 +858,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             >
               <img className="brand-col" src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" draggable={false} />
               <span className="brand-word">
-                {/* The product name: never translated. */}
+                {/* i18n-ignore: product name, never translated */}
                 <b>red</b>column
               </span>
               <span className="brand-caret" aria-hidden="true">

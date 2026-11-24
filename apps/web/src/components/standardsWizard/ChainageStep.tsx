@@ -207,7 +207,7 @@ export function ChainageStep(p: Props) {
         {box && (
           <div className="sw-result">
             <p className="sw-read">
-              {keyed(msgParts('Reads: {strong}', { strong: <strong>{read || 'no text'}</strong> }))}
+              {keyed(msgParts('Reads: {strong}', { strong: <strong>{read || msg('no text')}</strong> }))}
             </p>
             {isChainage && (
               <p className={`sw-verdict ${ch ? 'good' : 'some'}`}>
@@ -277,7 +277,7 @@ export function ChainageStep(p: Props) {
                       {msg('CH {value} on {name}', { value: String(g.first.value), name: name(g.first.pageIndex) })}
                     </button>{' '}
                     {msg('could be on')} {g.first.alignments.join(' or ')}
-                    {g.count > 1 ? ` (${g.count} places)` : ''}.
+                    {g.count > 1 ? ' ' + msg('({count, plural, one {# place} other {# places}})', { count: g.count }) : ''}.
                   </li>
                 ))}
               </ul>

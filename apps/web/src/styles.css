@@ -6474,6 +6474,7 @@ select[size] {
 
 .model-status {
   position: absolute;
+  /* logical-css-ignore: centred with translate(-50%), the same either way round */
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
@@ -6499,7 +6500,7 @@ select[size] {
 .view-cube {
   position: absolute;
   top: 12px;
-  right: 12px;
+  inset-inline-end: 12px;
   width: 48px;
   height: 48px;
   perspective: 240px;
@@ -6534,7 +6535,7 @@ select[size] {
 
 .view-cube-iso {
   position: absolute;
-  right: -6px;
+  inset-inline-end: -6px;
   bottom: -10px;
   width: 18px;
   height: 18px;
