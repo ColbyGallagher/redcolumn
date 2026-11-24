@@ -257,7 +257,9 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
       const t = raw ? Date.parse(raw) : Number.NaN;
       out[customKey(c.id)] = { text: raw && !Number.isNaN(t) ? new Date(t).toLocaleDateString(undefined, { timeZone: 'UTC' }) : raw, num: Number.isNaN(t) ? null : t };
     } else {
-      out[customKey(c.id)] = cell(raw, storedNumber(raw));
+      // Text and choice values are typed as words, so a number in one is read in the chosen number
+      // format (`2,5` in German), as a filter is.
+      out[customKey(c.id)] = cell(raw, parseNumber(raw));
     }
   }
 

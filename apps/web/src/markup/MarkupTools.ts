@@ -54,7 +54,6 @@ import {
   isTextType,
   lineRects,
   markupLines,
-  MARKUP_LABELS,
   TYPE_INFO,
   multiplyOffsets,
   offsetCopies,
@@ -137,7 +136,8 @@ import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer'
 import { applyAffine, type Affine } from '../viewer/affine';
 import { drawGroupBox, groupAffine, groupFrame, groupHandleAt, onGroupOutline, type GroupFrame, type GroupHandle } from './groupBox';
 import { toolFieldsPatch, type ToolFields } from './selectionFormat';
-import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadChanges, type CadContext, type CadPick, type CadTool } from './cadTools';
+import { markupName, cadToolName, otherToolName } from '../i18n/names';
+import { cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadChanges, type CadContext, type CadPick, type CadTool } from './cadTools';
 
 /** A CAD Modify tool in use: its page, the points picked so far, and where the pointer is. */
 type CadSession = { tool: CadTool; pageIndex: number; picks: CadPick[]; hover: Point | null; shift: boolean };
@@ -151,40 +151,11 @@ type CadSession = { tool: CadTool; pageIndex: number; picks: CadPick[]; hover: P
 export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'cropImage' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | 'portalPolygon' | CadTool;
 
 /** Tools that draw a markup (not select, calibrate, a label region, lasso or format painter). */
-export const isMarkupTool = (t: Tool): t is MarkupType => !(t in OTHER_TOOL_LABELS);
+export const isMarkupTool = (t: Tool): t is MarkupType => !OTHER_TOOLS.has(t) && !isCadTool(t);
 
-const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
-  select: 'Select',
-  calibrate: 'Calibrate',
-  labelRegion: 'Page Label Region',
-  lasso: 'Lasso',
-  painter: 'Format Painter',
-  cloudPlus: 'Cloud+',
-  eraser: 'Eraser',
-  offset: 'Offset',
-  cutout: 'Cutout',
-  viewport: 'Viewport',
-  dynamicFill: 'Smart Fill',
-  visualSearch: 'Symbol Search',
-  cropArea: 'Crop Area',
-  cropImage: 'Crop Image',
-  eraseContent: 'Erase Content',
-  selectText: 'Select Text',
-  editText: 'Edit Text',
-  formField: 'Form Field',
-  snapshot: 'Snapshot',
-  cutContent: 'Cut Content',
-  scaleLength: 'Scale to Length',
-  matchLine: 'Match Line',
-  stitchRegion: 'Stitch Region',
-  stitchPolygon: 'Stitch Region (Polygon)',
-  portalPolygon: 'Define Portal',
-  stitchMove: 'Move Sheet',
-  pan: 'Pan',
-  zoomBox: 'Zoom',
-  dynamicZoom: 'Dynamic Zoom',
-  ...CAD_TOOL_LABELS,
-};
+/** Tools that do not draw a markup, apart from the CAD tools (their names: `otherToolName`). */
+export type OtherTool = Exclude<Tool, MarkupType | CadTool>;
+const OTHER_TOOLS: ReadonlySet<string> = new Set<OtherTool>(['select', 'calibrate', 'labelRegion', 'lasso', 'painter', 'cloudPlus', 'eraser', 'offset', 'cutout', 'viewport', 'dynamicFill', 'visualSearch', 'cropArea', 'cropImage', 'eraseContent', 'selectText', 'editText', 'formField', 'snapshot', 'cutContent', 'scaleLength', 'matchLine', 'stitchRegion', 'stitchPolygon', 'portalPolygon', 'stitchMove', 'pan', 'zoomBox', 'dynamicZoom']);
 
 /** Region tools that also take a polygon: press-and-drag is a box, clicking corners outlines a polygon. Only Snapshot's box snaps; the corners of an outline snap for all. */
 const POLYGON_REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['snapshot', 'eraseContent', 'cutContent']);
@@ -232,7 +203,7 @@ export interface FormWidgetHit {
 
 /** A tool's name in menus and tooltips. */
 export function toolLabel(tool: Tool): string {
-  return isMarkupTool(tool) ? MARKUP_LABELS[tool] : OTHER_TOOL_LABELS[tool];
+  return isMarkupTool(tool) ? markupName(tool) : isCadTool(tool) ? cadToolName(tool) : otherToolName(tool);
 }
 
 /** Screen pixels within which a click hits a markup or handle. */

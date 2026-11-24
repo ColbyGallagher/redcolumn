@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useState } from 'react';
 import type { StoredFile } from '../storage/fileStore';
 import type { DrawingSet } from '../storage/sets';
@@ -68,25 +69,32 @@ export interface BatchResult {
   message: string;
 }
 
-export const BATCH_LABELS: Record<BatchKind, string> = {
-  flatten: 'Flatten',
-  unflatten: 'Unflatten',
-  reduce: 'Reduce File Size',
-  repair: 'Repair',
-  colour: 'Colour Processing',
-  ocr: 'OCR',
-  removeHeaderFooter: 'Remove Headers & Footers',
-  summary: 'Markup Summary',
-  print: 'Print',
-  link: 'Auto-Link Sheets',
-  stamp: 'Apply Stamp',
-  headerFooter: 'Headers & Footers',
-  crop: 'Crop Pages',
-  pageSetup: 'Page Setup',
-  split: 'Split',
-  sign: 'Sign & Seal',
-  pageLabels: 'Page Labels (AutoMark)',
-};
+/** The bulk operations, in menu order. */
+export const BATCH_KINDS: readonly BatchKind[] = ['flatten', 'unflatten', 'reduce', 'repair', 'colour', 'ocr', 'removeHeaderFooter', 'summary', 'print', 'link', 'stamp', 'headerFooter', 'crop', 'pageSetup', 'split', 'sign', 'pageLabels'];
+
+/** A bulk operation's name. */
+export function batchLabel(kind: BatchKind): string {
+  const labels: Record<BatchKind, string> = {
+    flatten: msg('Flatten'),
+    unflatten: msg('Unflatten'),
+    reduce: msg('Reduce File Size'),
+    repair: msg('Repair'),
+    colour: msg('Colour Processing'),
+    ocr: msg('OCR'),
+    removeHeaderFooter: msg('Remove Headers & Footers'),
+    summary: msg('Markup Summary'),
+    print: msg('Print'),
+    link: msg('Auto-Link Sheets'),
+    stamp: msg('Apply Stamp'),
+    headerFooter: msg('Headers & Footers'),
+    crop: msg('Crop Pages'),
+    pageSetup: msg('Page Setup'),
+    split: msg('Split'),
+    sign: msg('Sign & Seal'),
+    pageLabels: msg('Page Labels (AutoMark)'),
+  };
+  return labels[kind];
+}
 
 const HINTS: Record<BatchKind, string> = {
   flatten: 'Burns each file’s markups into its pages. Links stay interactive.',
@@ -242,7 +250,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
           void onRun({ command: command(), fileIds: ordered, keepRevisions }, (r) => setResults((list) => [...(list ?? []), r])).finally(() => setRunning(false));
         }}
       >
-        <h3>Bulk · {BATCH_LABELS[kind]}</h3>
+        <h3>{msg('Bulk · {operation}', { operation: batchLabel(kind) })}</h3>
         {results ? (
           <>
             <p>
@@ -268,9 +276,9 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
             <label className="row">
               Command
               <select value={kind} onChange={(e) => setKind(e.target.value as BatchKind)}>
-                {(Object.keys(BATCH_LABELS) as BatchKind[]).map((k) => (
+                {BATCH_KINDS.map((k) => (
                   <option key={k} value={k}>
-                    {BATCH_LABELS[k]}
+                    {batchLabel(k)}
                   </option>
                 ))}
               </select>

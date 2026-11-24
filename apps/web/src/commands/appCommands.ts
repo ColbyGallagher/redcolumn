@@ -1,10 +1,11 @@
 import { msg } from '@nb/i18n';
-import { BATCH_LABELS, type BatchKind } from '../components/BatchDialog';
+import { BATCH_KINDS, batchLabel, type BatchKind } from '../components/BatchDialog';
 import { desktop } from '../desktop/host';
 import { applyCommandPolicy } from './commandPolicy';
 import type { Settings } from '../settings/settings';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
-import { CAD_TOOL_LABELS, type CadTool } from '../markup/cadTools';
+import type { CadTool } from '../markup/cadTools';
+import { cadToolName, flowShapeName } from '../i18n/names';
 import { MARKUP_TOOLS, MEASURE_TOOLS } from '../components/ToolBar';
 import type { ToolbarStyle } from '../workspace/profiles';
 import { FLOW_SHAPES, type FlowShapeKind, type Side } from '@nb/markup';
@@ -455,7 +456,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.pasteInPlace', 'Edit', msg('Paste in Place'), a.pasteInPlace, s.editable && s.canPaste),
     cmd('edit.offset', 'Edit', msg('Offset'), a.offset, s.editable && s.selectionFits('offset'), s.tool === 'offset'),
     cmd('edit.multiply', 'Edit', msg('Multiply…'), a.multiply, sel && s.editable),
-    ...CAD_COMMANDS.map(([id, tool]) => cmd(id, 'Edit', CAD_TOOL_LABELS[tool], () => a.cadTool(tool), doc && s.editable && s.selectionFits(tool), s.tool === tool)),
+    ...CAD_COMMANDS.map(([id, tool]) => cmd(id, 'Edit', cadToolName(tool), () => a.cadTool(tool), doc && s.editable && s.selectionFits(tool), s.tool === tool)),
     cmd('edit.join', 'Edit', msg('Join'), a.join, s.selectionJoinable && s.editable),
     cmd('edit.explode', 'Edit', msg('Explode'), a.explode, s.selectionExplodable && s.editable),
     // translators: a verb: reverse the direction of the selected lines
@@ -582,7 +583,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('document.slipSheet', 'Document', msg('Slip Sheet…'), a.slipSheet, s.pagesEditable),
     cmd('document.revisions', 'Document', msg('Revisions…'), a.revisions, doc),
     cmd('document.closeOut', 'Document', msg('Close-out…'), a.closeOut, doc),
-    ...(Object.keys(BATCH_LABELS) as BatchKind[]).map((k) => cmd(`batch.${k}`, 'Bulk', `${BATCH_LABELS[k]}…`, () => a.batch(k), s.libraryCount > 0)),
+    ...BATCH_KINDS.map((k) => cmd(`batch.${k}`, 'Bulk', `${batchLabel(k)}…`, () => a.batch(k), s.libraryCount > 0)),
     cmd('document.security', 'Document', msg('Security…'), a.security, doc && s.canSaveCopy),
     cmd('document.pdfa', 'Document', msg('Archive as PDF/A…'), a.archivePdfA, doc && s.canSaveCopy),
     cmd('document.compare', 'Document', msg('Compare Documents…'), a.compare, s.libraryCount > 1),
@@ -648,7 +649,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('takeoff.templates', 'Tools', msg('Takeoff Templates…'), a.manageTemplates, doc),
     cmd('takeoff.saveTemplate', 'Tools', msg('Save as Template…'), a.saveTemplate, doc && s.canSaveTemplate),
     cmd('tools.signatures', 'Tools', msg('Sign…'), a.signatures, doc),
-    ...FLOW_SHAPES.map((f) => cmd(`diagram.${f.kind}`, 'Tools', f.label, () => a.flowShape(f.kind), doc && s.editable, s.tool === 'flowShape' && s.flowShape === f.kind)),
+    ...FLOW_SHAPES.map((f) => cmd(`diagram.${f.kind}`, 'Tools', flowShapeName(f.kind), () => a.flowShape(f.kind), doc && s.editable, s.tool === 'flowShape' && s.flowShape === f.kind)),
     cmd('tool.connector', 'Tools', msg('Connector'), () => a.setTool('connector'), doc && s.editable, s.tool === 'connector'),
     cmd('diagram.addBelow', 'Tools', msg('Add Step Below'), () => a.addNextShape('bottom'), s.canAddNextShape),
     cmd('diagram.addRight', 'Tools', msg('Add Step Right'), () => a.addNextShape('right'), s.canAddNextShape),
