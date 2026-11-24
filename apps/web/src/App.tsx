@@ -5326,7 +5326,7 @@ export function App() {
             held?.release();
           }
           setLink(copyId, { ...link, rev: got.revision.n });
-          setNotice(msg('{name}: updated to revision {n} from the Project.', { name: file.name, n: got.revision.n }));
+          setNotice(msg('{name}: updated to revision {n} from the Project.', { name: file.name, n: String(got.revision.n) }));
         }
         await openFromLibrary((await listFiles()).find((f) => f.id === copyId)!);
         return;
@@ -5366,7 +5366,7 @@ export function App() {
       try {
         const rev = await project.checkIn(file.id, await projectCopyBytes(copyId), comment);
         setLink(copyId, { ...link, rev: rev.n });
-        setNotice(msg('Checked in {name} as revision {n}.', { name: file.name, n: rev.n }));
+        setNotice(msg('Checked in {name} as revision {n}.', { name: file.name, n: String(rev.n) }));
       } catch (err) {
         if (!isUnreachable(err)) throw err;
         queue();
