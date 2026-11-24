@@ -2458,10 +2458,11 @@ export function App() {
     const mirror = pendingMirror.current;
     pendingMirror.current = false;
     if (mirror && openRef.current) {
-      // One document in both panes (one markup store, two views), kept in step.
+      // One document in both panes (one markup store, two views). The views are independent (own page,
+      // zoom and pan); Synchronise in the View menu ties them together.
       mirrorRef.current = true;
       showInPane('b', openRef.current, true);
-      setSync('document');
+      setSync(null);
       setActivePane('a');
     }
   }, [ctlB, openStored, showInPane]);
@@ -7196,7 +7197,8 @@ export function App() {
 
   /** One pane's row of document tabs: click to bring forward, × or middle-click to close. */
   const docTabs = (pane: Pane) => {
-    const tabs = pane === 'b' ? tabsB : tabsA;
+    // A mirrored right pane shows its document's tab too (it has none of its own in the list).
+    const tabs = pane === 'b' ? (mirrorRef.current && openB ? [openB] : tabsB) : tabsA;
     const front = pane === 'b' ? openB : open;
     return (
       <DocTabStrip

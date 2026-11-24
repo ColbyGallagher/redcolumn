@@ -328,9 +328,9 @@ test.describe('view', () => {
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(true);
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
     expect(picked).toBe(false);
-    // One document, one markup store, two views; Synchronise Document is on.
+    // One document, one markup store, two independent views (Synchronise is off).
     expect(await app.documents()).toHaveLength(1);
-    await expect.poll(async () => (await app.command('view.syncDocument')).checked).toBe(true);
+    await expect.poll(async () => (await app.command('view.syncDocument')).checked).toBe(false);
     expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
     // Switch Panes has nothing to swap.
     expect((await app.command('view.switchPanes')).enabled).toBe(false);
@@ -363,10 +363,11 @@ test.describe('view', () => {
     await app.cmd('view.split');
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
     await expect.poll(() => app.page.evaluate(() => !!window.__nb.viewerB?.pageSize(0))).toBe(true);
-    const sizes = () => app.page.evaluate(() => [window.__nb.viewer.pageSize(0), window.__nb.viewerB?.pageSize(0)]);
-    const [before] = await sizes();
-    // Rotate with the right pane active.
+    // Rotate with the right pane active: its current page (the views are independent) is the one turned.
     await app.page.locator('main.stage').nth(1).click({ position: { x: 5, y: 5 } });
+    const page = await app.page.evaluate(() => window.__nb.viewerB!.currentPageIndex);
+    const sizes = () => app.page.evaluate((p) => [window.__nb.viewer.pageSize(p), window.__nb.viewerB?.pageSize(p)], page);
+    const [before] = await sizes();
     await app.cmd('document.rotatePages');
     await expect
       .poll(async () => {
