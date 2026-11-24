@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useMemo, useState } from 'react';
 import type { PageComparison } from '../compare/compare';
 import type { Difference } from '../compare/diff';
@@ -24,7 +25,7 @@ interface Props {
   onClose: () => void;
 }
 
-const KIND_LABEL = { added: 'Added', removed: 'Removed', changed: 'Changed' } as const;
+const kindLabel = (kind: 'added' | 'removed' | 'changed') => (kind === 'added' ? msg('Added') : kind === 'removed' ? msg('Removed') : msg('Changed'));
 
 /** With up to this many differences every page lists its own; with more, a page opens on a click. */
 const SHOW_ALL = 200;
@@ -76,29 +77,29 @@ export function CompareResultsPanel({ results, onGo, onSideBySide, onClose }: Pr
   return (
     <div className="visual-search compare-results" style={belowRibbon} onKeyDown={(e) => e.stopPropagation()}>
       <div className="vs-head">
-        <b>Compare Results</b>
-        <button className="btn small flat" title="Close" onClick={onClose}>
+        <b>{msg('Compare Results')}</b>
+        <button className="btn small flat" title={msg('Close')} onClick={onClose}>
           ×
         </button>
       </div>
       <p className="vs-result" title={`${results.oldName} → ${results.newName}`}>
         {stops.length
-          ? `${stops.length} difference${stops.length === 1 ? '' : 's'} on ${changedPages} of ${results.pages.length} page${results.pages.length === 1 ? '' : 's'}`
-          : `No differences on ${results.pages.length} page${results.pages.length === 1 ? '' : 's'}`}
+          ? msg('{count, plural, one {# difference} other {# differences}} on {changed} of {pages, plural, one {# page} other {# pages}}', { count: stops.length, changed: changedPages, pages: results.pages.length })
+          : msg('No differences on {count, plural, one {# page} other {# pages}}', { count: results.pages.length })}
       </p>
       {!!crowded && (
         <p className="vs-result compare-warning">
-          {crowded === 1 ? 'One page had' : `${crowded} pages had`} too many differences to mark one by one, so nearby ones were grouped. The pages may not line up: try Scale to fit or 3-point alignment.
+          {msg('{count, plural, one {One page had} other {# pages had}} too many differences to mark one by one, so nearby ones were grouped. The pages may not line up: try Scale to fit or 3-point alignment.', { count: crowded })}
         </p>
       )}
       {!!stops.length && (
         <div className="vs-nav">
           <button className="btn small" onClick={() => go(at < 0 ? -1 : at - 1)}>
-            ‹ Previous
+            {msg('‹ Previous')}
           </button>
-          <span>{at >= 0 ? `${at + 1} of ${stops.length}` : ''}</span>
+          <span>{at >= 0 ? msg('{current} of {total}', { current: at + 1, total: stops.length }) : ''}</span>
           <button className="btn small" onClick={() => go(at + 1)}>
-            Next ›
+            {msg('Next ›')}
           </button>
         </div>
       )}
@@ -107,16 +108,16 @@ export function CompareResultsPanel({ results, onGo, onSideBySide, onClose }: Pr
           <li key={`${p.oldPage}:${p.newPage}`}>
             <button className={`compare-page${open.has(p) ? ' open' : ''}`} disabled={!p.differences.length} aria-expanded={p.differences.length ? open.has(p) : undefined} onClick={() => toggle(p)}>
               {results.newLabel(p.newPage)}
-              {results.oldLabel(p.oldPage) !== results.newLabel(p.newPage) && <span className="muted"> (old {results.oldLabel(p.oldPage)})</span>}
-              <span className="muted"> · {p.differences.length || 'no changes'}</span>
-              {p.found && <span className="muted" title="Too many differences to mark one by one; nearby ones were grouped."> (grouped from {p.found.toLocaleString()})</span>}
+              {results.oldLabel(p.oldPage) !== results.newLabel(p.newPage) && <span className="muted"> {msg('(old {oldLabel})', { oldLabel: results.oldLabel(p.oldPage) })}</span>}
+              <span className="muted"> · {p.differences.length || msg('no changes')}</span>
+              {p.found && <span className="muted" title={msg('Too many differences to mark one by one; nearby ones were grouped.')}> {msg('(grouped from {found})', { found: p.found })}</span>}
             </button>
             {open.has(p) &&
               p.differences.map((d, k) => {
                 const i = firstStop.get(p)! + k;
                 return (
                   <button key={k} className={`compare-item ${d.kind}${i === at ? ' active' : ''}`} onClick={() => go(i)}>
-                    {KIND_LABEL[d.kind]}
+                    {kindLabel(d.kind)}
                   </button>
                 );
               })}
@@ -125,7 +126,7 @@ export function CompareResultsPanel({ results, onGo, onSideBySide, onClose }: Pr
       </ul>
       <div className="vs-apply">
         <button className="btn small" onClick={onSideBySide}>
-          Show side by side
+          {msg('Show side by side')}
         </button>
       </div>
     </div>
