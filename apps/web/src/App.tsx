@@ -7427,9 +7427,11 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     // Selecting one list row selects its whole group (a Cloud+ is a cloud and a callout). That is still one comment.
     const oneGroup = !!first.groupId && ms.every((m) => m.groupId === first.groupId);
     const replyMarkup = oneGroup ? (ms.find((m) => isTextType(m.type)) ?? first) : first;
-    // A callout (alone, or with its cloud in a Cloud+) can take extra leaders.
+    // A callout (alone, or with its cloud in a Cloud+) can take extra leaders; a single text box
+    // becomes a callout when given one.
     const callouts = ms.filter((m) => m.type === 'callout');
     const callout = callouts.length === 1 ? callouts[0] : undefined;
+    const leaderTarget = callout ?? (one && first.type === 'text' ? first : undefined);
     const status = one ? first.status : null;
     const setStatus = (s: string) => {
       store.checkpoint();
@@ -7554,10 +7556,12 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             },
           ]
         : []),
-      ...(callout
+      ...(leaderTarget
         ? [
-            { label: 'Add Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.addCalloutLeader(callout.id) } as MenuEntry,
-            ...(callout.points.length >= 6 ? [{ label: 'Remove Last Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.removeCalloutLeader(callout.id) } as MenuEntry] : []),
+            { label: 'Add Leader', disabled: ro || !!leaderTarget.locked || !store.mayEdit(leaderTarget), onClick: () => c.tools.addCalloutLeader(leaderTarget.id) } as MenuEntry,
+            ...(leaderTarget.type === 'callout' && leaderTarget.points.length >= 6
+              ? [{ label: 'Remove Last Leader', disabled: ro || !!leaderTarget.locked || !store.mayEdit(leaderTarget), onClick: () => c.tools.removeCalloutLeader(leaderTarget.id) } as MenuEntry]
+              : []),
           ]
         : []),
       ...(one && first.attachment
