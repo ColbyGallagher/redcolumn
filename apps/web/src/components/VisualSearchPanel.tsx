@@ -80,7 +80,8 @@ export function VisualSearchPanel({ pageCount, editable, onSearch, onGo, onApply
         </button>
       </div>
       <label className="check">
-        {keyed(msgParts('{input}All {pageCount} pages', { input: <input type="checkbox" checked={allPages} disabled={pageCount < 2} onChange={(e) => setAllPages(e.target.checked)} />, pageCount }))}
+        <input type="checkbox" checked={allPages} disabled={pageCount < 2} onChange={(e) => setAllPages(e.target.checked)} />
+        {msg('{count, plural, one {All # page} other {All # pages}}', { count: pageCount })}
       </label>
       <label className="check">
         {keyed(msgParts('{input}Include rotated copies', { input: <input type="checkbox" checked={rotations} onChange={(e) => setRotations(e.target.checked)} /> }))}
@@ -92,8 +93,17 @@ export function VisualSearchPanel({ pageCount, editable, onSearch, onGo, onApply
         {keyed(msgParts('{input}Match the image (scanned sheets)', { input: <input type="checkbox" checked={image} onChange={(e) => setImage(e.target.checked)} /> }))}
       </label>
       <p className="vs-result">
-        {busy ? msg('Searching…') : hits ? (allPages ? msg('{count} found on {pages, plural, one {# page} other {# pages}}', { count: hits.length, pages }) : msg('{count} found', { count: hits.length })) : ''}
-        {!busy && !!hits?.length && hits[0]!.image && ' ' + msg('by image')}
+        {busy
+          ? msg('Searching…')
+          : hits
+            ? hits.length && hits[0]!.image
+              ? allPages
+                ? msg('{count} found by image on {pages, plural, one {# page} other {# pages}}', { count: hits.length, pages })
+                : msg('{count} found by image', { count: hits.length })
+              : allPages
+                ? msg('{count} found on {pages, plural, one {# page} other {# pages}}', { count: hits.length, pages })
+                : msg('{count} found', { count: hits.length })
+            : ''}
         {!busy && hits?.length === 0 && ' ' + msg('(box one whole symbol)')}
       </p>
       {!!hits?.length && (

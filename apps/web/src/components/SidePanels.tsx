@@ -54,7 +54,7 @@ export function FlagsPanel({
       {flags.length > 0 && (
         <>
           <h3 className="panel-subhead">{msg('Flags')}</h3>
-          <ul className="bookmark-list">{flags.map((m) => item(m, <span className="num" style={{ color: m.style.fill ?? m.style.stroke }}>⚑</span>, `${(m.type === 'flagLabel' ? m.text : m.comment)?.split('\n')[0] || 'Flag'} · p. ${m.pageIndex + 1}`))}</ul>
+          <ul className="bookmark-list">{flags.map((m) => item(m, <span className="num" style={{ color: m.style.fill ?? m.style.stroke }}>⚑</span>, msg('{name} · p. {page}', { name: (m.type === 'flagLabel' ? m.text : m.comment)?.split('\n')[0] || msg('Flag'), page: m.pageIndex + 1 })))}</ul>
         </>
       )}
       {flagged.length > 0 && (

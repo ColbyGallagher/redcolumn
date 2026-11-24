@@ -977,7 +977,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                   const foldKey = `g:${line.groupId}`;
                   const cells = line.rows[0]!.cells;
                   const types = new Set(line.rows.map((r) => r.markup.type));
-                  const name = types.size === 1 ? first.subject || MARKUP_LABELS[first.type] : 'Group';
+                  const name = types.size === 1 ? first.subject || MARKUP_LABELS[first.type] : msg('Group');
                   return (
                     <tr
                       key={`cluster:${line.groupId}`}
