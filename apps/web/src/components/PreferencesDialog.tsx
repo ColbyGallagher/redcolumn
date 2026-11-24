@@ -141,7 +141,9 @@ const RESOLUTION = () => [
   ['300', '300 dpi'],
   ['600', '600 dpi'],
 ] as const;
-const ASSIGN_BY = () => [msg('Drawing Number'), msg('Sheet Number'), msg('Sheet Name'), msg('File Name')];
+/** Built-in ways to file sheets in Sets categories: stored in English (sets.ts reads them), shown translated. */
+const ASSIGN_BY = ['Drawing Number', 'Sheet Number', 'Sheet Name', 'File Name'] as const;
+const assignByLabel = (v: string) => (v === 'Drawing Number' ? msg('Drawing Number') : v === 'Sheet Number' ? msg('Sheet Number') : v === 'Sheet Name' ? msg('Sheet Name') : v === 'File Name' ? msg('File Name') : v);
 
 interface Props {
   author: string;
@@ -508,7 +510,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
       <Grid>
         <C>{check('showGrid', msg('Show Grid'))}</C>
         <C>{check('snapToGrid', msg('Snap to Grid'))}</C>
-        {num('gridSize', msg('Grid Spacing'), { min: 0.01, max: 1000, step: gridUnitOf(d.unitSystem) === 'in' ? 0.125 : 1, unit: gridUnitOf(d.unitSystem) === 'in' ? 'in (set by Units)' : 'mm (set by Units)' })}
+        {num('gridSize', msg('Grid Spacing'), { min: 0.01, max: 1000, step: gridUnitOf(d.unitSystem) === 'in' ? 0.125 : 1, unit: gridUnitOf(d.unitSystem) === 'in' ? msg('in (set by Units)') : msg('mm (set by Units)') })}
         <C>{check('snapToGeometry', msg('Snap to Content'), { title: msg('Lines, ends and intersections in the PDF (hold Alt to bypass)') })}</C>
         <C>{check('snapToMarkup', msg('Snap to Markup'))}</C>
         <C>{check('rightClickFinishes', msg('Right-click Finishes Markup'), { title: msg('While clicking out a measurement or shape, a right-click completes it instead of opening the menu (Enter, Space and double-click always do)') })}</C>
@@ -548,7 +550,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     fileAccess: () => (
       <Grid>
         {num('recentCount', msg('Recent Files'), { min: 1, max: 50 })}
-        {num('recentDays', msg('Opened in the Last'), { min: 0, max: 365, unit: 'days (0: any time)' })}
+        {num('recentDays', msg('Opened in the Last'), { min: 0, max: 365, unit: msg('days (0: any time)') })}
       </Grid>
     ),
     markupsList: () => (
@@ -654,18 +656,18 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     ),
     signature: () => (
       <Grid>
-        {num('signaturePasswordTimeout', msg('Password Time-out'), { min: 0, max: 120, unit: 'Minutes' })}
+        {num('signaturePasswordTimeout', msg('Password Time-out'), { min: 0, max: 120, unit: msg('Minutes') })}
         <Row>
           {L(msg('Digital ID Location'))}
           <span className="pref-row">
-            <input aria-label={msg('Digital ID Location')} value={desktop() ? 'This computer' : 'This browser'} readOnly title={msg('Digital IDs are kept on this device, each locked by its password')} />
+            <input aria-label={msg('Digital ID Location')} value={desktop() ? msg('This computer') : msg('This browser')} readOnly title={msg('Digital IDs are kept on this device, each locked by its password')} />
             {backupButtons('digital-ids')}
           </span>
         </Row>
         <Row>
           {L(msg('Trusted Identity Location'))}
           <span className="pref-row">
-            <input aria-label={msg('Trusted Identity Location')} value={desktop() ? 'This computer' : 'This browser'} readOnly title={msg('Certificates you trust to identify signers are kept on this device')} />
+            <input aria-label={msg('Trusted Identity Location')} value={desktop() ? msg('This computer') : msg('This browser')} readOnly title={msg('Certificates you trust to identify signers are kept on this device')} />
             {backupButtons('trusted-identities')}
           </span>
         </Row>
@@ -792,9 +794,9 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           <Row>
             {L(msg('Assign to Categories by'), 'setTemplates')}
             <select aria-label={msg('Assign to Categories by')} value={template.assignBy} onChange={(e) => setTemplate({ ...template, assignBy: e.target.value })}>
-              {[...new Set([...ASSIGN_BY(), template.assignBy])].map((v) => (
+              {[...new Set<string>([...ASSIGN_BY, template.assignBy])].map((v) => (
                 <option key={v} value={v}>
-                  {msg('Tag: {v}', { v })}
+                  {msg('Tag: {tag}', { tag: assignByLabel(v) })}
                 </option>
               ))}
             </select>
@@ -831,7 +833,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
                   return;
                 }
                 const t = JSON.parse(raw) as { name?: string; template?: SetTemplate };
-                if (!t.name || !Array.isArray(t.template?.categories)) throw new Error('Not a Sets template');
+                if (!t.name || !Array.isArray(t.template?.categories)) throw new Error(msg('Not a Sets template'));
                 set({ setTemplates: { ...d.setTemplates, [t.name]: t.template }, setDefaultTemplate: t.name });
               } catch (err) {
                 setMessage(msg('That file could not be loaded: {message}', { message: (err as Error).message }));
@@ -851,7 +853,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             type="button"
             className="btn"
             onClick={async () => {
-              const n = (await askText(msg('Save Template As'), `${d.setDefaultTemplate} copy`, { label: msg('Template name'), confirm: msg('Save') }))?.trim();
+              const n = (await askText(msg("Save Template As"), msg("{name} copy", { name: d.setDefaultTemplate }), { label: msg('Template name'), confirm: msg('Save') }))?.trim();
               if (n) set({ setTemplates: { ...d.setTemplates, [n]: structuredClone(template) }, setDefaultTemplate: n });
             }}
           >
@@ -1082,7 +1084,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     if (!raw) return;
     try {
       const file = JSON.parse(raw) as Partial<PrefsFile>;
-      if (file.app !== 'RedColumn' || file.kind !== 'preferences') throw new Error('This is not a RedColumn preferences file.');
+      if (file.app !== 'RedColumn' || file.kind !== 'preferences') throw new Error(msg('This is not a RedColumn preferences file.'));
       setD((x) => ({ ...x, ...settings.parse(raw) }));
       if (typeof file.author === 'string' && file.author.trim()) setName(file.author.trim());
       if (Array.isArray(file.words)) setWords([...new Set([...words, ...file.words.filter((w): w is string => typeof w === 'string')])]);
