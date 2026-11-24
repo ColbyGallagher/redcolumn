@@ -157,7 +157,7 @@ export const isMarkupTool = (t: Tool): t is MarkupType => !OTHER_TOOLS.has(t) &&
 
 /** Tools that do not draw a markup, apart from the CAD tools (their names: `otherToolName`). */
 export type OtherTool = Exclude<Tool, MarkupType | CadTool>;
-const OTHER_TOOLS: ReadonlySet<string> = new Set<OtherTool>(['select', 'calibrate', 'labelRegion', 'lasso', 'painter', 'cloudPlus', 'eraser', 'offset', 'cutout', 'viewport', 'dynamicFill', 'visualSearch', 'cropArea', 'cropImage', 'eraseContent', 'selectText', 'editText', 'formField', 'snapshot', 'cutContent', 'scaleLength', 'matchLine', 'stitchRegion', 'stitchPolygon', 'portalPolygon', 'stitchMove', 'pan', 'zoomBox', 'dynamicZoom']);
+const OTHER_TOOLS: ReadonlySet<string> = new Set(Object.keys({ select: true, calibrate: true, labelRegion: true, lasso: true, painter: true, cloudPlus: true, eraser: true, offset: true, cutout: true, viewport: true, dynamicFill: true, visualSearch: true, cropArea: true, cropImage: true, eraseContent: true, selectText: true, editText: true, formField: true, snapshot: true, cutContent: true, scaleLength: true, matchLine: true, stitchRegion: true, stitchPolygon: true, portalPolygon: true, stitchMove: true, pan: true, zoomBox: true, dynamicZoom: true } satisfies Record<OtherTool, true>));
 
 /** Region tools that also take a polygon: press-and-drag is a box, clicking corners outlines a polygon. Only Snapshot's box snaps; the corners of an outline snap for all. */
 const POLYGON_REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['snapshot', 'eraseContent', 'cutContent']);

@@ -142,7 +142,7 @@ function ProjectList({ me, oneDriveAvailable, invite, onDismissInvite, selectedI
         confirm: local ? msg('Choose folder…') : msg('Create'),
         choices: [
           { value: 'plain', label: local ? msg('Not encrypted: the PDFs also open in other apps') : msg('Not encrypted: the PDFs also open in OneDrive itself') },
-          { value: 'encrypted', label: msg('Encrypted: {where} stores only scrambled files. The key is in the Project link; PDFs open only in redcolumn, and a lost link cannot be recovered', { where }) },
+          { value: 'encrypted', label: local ? msg('Encrypted: the sync service stores only scrambled files. The key is in the Project link; PDFs open only in redcolumn, and a lost link cannot be recovered') : msg('Encrypted: OneDrive stores only scrambled files. The key is in the Project link; PDFs open only in redcolumn, and a lost link cannot be recovered') },
         ],
       });
       if (!kind) return;
@@ -960,7 +960,7 @@ function Viewers({ project, fileId }: { project: Project; fileId: string }) {
   if (!others.length) return null;
   return (
     <p className="project-viewers">
-      {keyed(msgParts('Viewing now: {page}', { page: others.map((p, i) => (
+      {keyed(msgParts('Viewing now: {viewers}', { viewers: others.map((p, i) => (
         <span key={p.seat}>
           {i > 0 && ', '}
           <i style={{ background: p.color }} aria-hidden="true" />

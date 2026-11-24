@@ -301,7 +301,8 @@ function Properties({ f, all, onUpdate, onDelete }: { f: FormField; all: readonl
                 </label>
                 <label className="check">
                   <input type="checkbox" checked={fmt.separator} onChange={(e) => setFormat({ ...fmt, separator: e.target.checked })} />
-                  1,000s
+                  {/* translators: a tick box: show a thousands separator, as in 1,000 */}
+                  {msg('1,000s')}
                 </label>
                 <label className="check">
                   {keyed(msgParts('{input}(negative)', { input: <input type="checkbox" checked={fmt.negativeParens} onChange={(e) => setFormat({ ...fmt, negativeParens: e.target.checked })} /> }))}

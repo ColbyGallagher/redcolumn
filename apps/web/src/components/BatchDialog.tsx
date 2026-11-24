@@ -71,8 +71,29 @@ export interface BatchResult {
   message: string;
 }
 
+/** The bulk operations in English, in menu order: revision notes are stored in English. */
+export const BATCH_ENGLISH: Record<BatchKind, string> = {
+  flatten: 'Flatten',
+  unflatten: 'Unflatten',
+  reduce: 'Reduce File Size',
+  repair: 'Repair',
+  colour: 'Colour Processing',
+  ocr: 'OCR',
+  removeHeaderFooter: 'Remove Headers & Footers',
+  summary: 'Markup Summary',
+  print: 'Print',
+  link: 'Auto-Link Sheets',
+  stamp: 'Apply Stamp',
+  headerFooter: 'Headers & Footers',
+  crop: 'Crop Pages',
+  pageSetup: 'Page Setup',
+  split: 'Split',
+  sign: 'Sign & Seal',
+  pageLabels: 'Page Labels (AutoMark)',
+};
+
 /** The bulk operations, in menu order. */
-export const BATCH_KINDS: readonly BatchKind[] = ['flatten', 'unflatten', 'reduce', 'repair', 'colour', 'ocr', 'removeHeaderFooter', 'summary', 'print', 'link', 'stamp', 'headerFooter', 'crop', 'pageSetup', 'split', 'sign', 'pageLabels'];
+export const BATCH_KINDS = Object.keys(BATCH_ENGLISH) as BatchKind[];
 
 /** A bulk operation's name. */
 export function batchLabel(kind: BatchKind): string {

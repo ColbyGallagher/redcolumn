@@ -1,7 +1,6 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
 import { type Markup } from '@nb/markup';
-import { msg, msgParts, msgc, parseNumber } from '@nb/i18n';
-import { keyed } from '../i18n/keyed';
+import { msg, msgc, parseNumber } from '@nb/i18n';
 import { parseLength, type Scale } from '@nb/measure';
 import type { CadTool } from '../markup/cadTools';
 import { cadToolName, markupName } from '../i18n/names';
@@ -99,7 +98,7 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
         </>
       );
       const typed = s.offsetDistance.trim() && !badLength(s.offsetDistance);
-      step = source ? (typed ? 'Click the side for the copies' : 'Click where the copy goes through') : 'Click a line or shape to offset';
+      step = source ? (typed ? msg('Click the side for the copies') : msg('Click where the copy goes through')) : msg('Click a line or shape to offset');
       break;
     }
     case 'move':
@@ -109,7 +108,8 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
     case 'scale':
       fields = (
         <label title={msg('Times bigger (0.5 halves it). Leave empty to scale by reference points.')}>
-          {keyed(msgParts('Factor{input}×', { input: <input ref={first} value={s.scaleFactor} onChange={(e) => settings.set({ scaleFactor: e.target.value })} placeholder={msg('by reference')} aria-label={msg('Scale factor')} /> }))}
+          {msg('Factor')}
+          <input ref={first} value={s.scaleFactor} onChange={(e) => settings.set({ scaleFactor: e.target.value })} placeholder={msg('by reference')} aria-label={msg('Scale factor')} />×
         </label>
       );
       if (s.scaleFactor.trim() && !((parseNumber(s.scaleFactor) ?? 0) > 0)) bad = true;
@@ -163,7 +163,9 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
         <>
           {count('arrayCount', msg('Items'), 2, 500, msg('How many in all, the original included'), first)}
           <label title={msg('The angle the items spread through, counter-clockwise (360 for a full circle; negative goes clockwise)')}>
-            {keyed(msgParts('Fill{input}°', { input: <input type="number" className="cad-count" min={-360} max={360} value={s.arrayAngle} onChange={(e) => settings.set({ arrayAngle: Math.max(-360, Math.min(360, Number(e.target.value) || 360)) })} aria-label={msg('Fill angle')} /> }))}
+            {/* translators: the angle a polar array's copies spread through */}
+            {msgc('polar array', 'Fill')}
+            <input type="number" className="cad-count" min={-360} max={360} value={s.arrayAngle} onChange={(e) => settings.set({ arrayAngle: Math.max(-360, Math.min(360, Number(e.target.value) || 360)) })} aria-label={msg('Fill angle')} />°
           </label>
           {check('arrayRotate', msg('Rotate items'), msg('Turn each copy as it goes round; untick to keep them upright'))}
         </>

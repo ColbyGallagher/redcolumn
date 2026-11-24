@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { msg, msgParts } from '@nb/i18n';
-import { keyed } from '../i18n/keyed';
+import { msg } from '@nb/i18n';
 import { useFloatingPopup } from './useFloatingPopup';
 import { addCustomColor, parseHex, removeCustomColor } from '../workspace/customColors';
 import { profiles, updateWorkspace } from '../workspace/profiles';
@@ -174,7 +173,8 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
             </>
           )}
           <label className="color-more">
-            {keyed(msgParts('{input}More colors…', { input: <input ref={native} type="color" aria-label={msg('{label}: more colors', { label })} value={value ?? fallback ?? '#ffffff'} onChange={(e) => onChange(e.target.value)} /> }))}
+            <input ref={native} type="color" aria-label={msg('{label}: more colors', { label })} value={value ?? fallback ?? '#ffffff'} onChange={(e) => onChange(e.target.value)} />
+            {msg('More colors…')}
           </label>
           <form
             className="color-hex"
