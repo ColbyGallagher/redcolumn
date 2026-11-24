@@ -17,10 +17,10 @@ test('a chosen language is used when registered', () => {
 
 test('pseudo-locales are offered in development, or while in use', () => {
   const codes = (dev: boolean, cur: string[]) => offeredLanguages(dev, cur).map((l) => l.code);
-  assert.deepEqual(codes(false, ['auto', 'en']), ['en']);
-  assert.deepEqual(codes(false, ['ar-XB', 'en']), ['en', 'ar-XB']);
-  assert.deepEqual(codes(false, ['en', 'en-XA']), ['en', 'en-XA'], 'the running one stays listed after choosing another');
-  assert.deepEqual(codes(true, ['auto']), ['en', 'en-XA', 'ar-XB']);
+  assert.deepEqual(codes(false, ['auto', 'en']), ['en', 'de']);
+  assert.deepEqual(codes(false, ['ar-XB', 'en']), ['en', 'de', 'ar-XB']);
+  assert.deepEqual(codes(false, ['en', 'en-XA']), ['en', 'de', 'en-XA'], 'the running one stays listed after choosing another');
+  assert.deepEqual(codes(true, ['auto']), ['en', 'de', 'en-XA', 'ar-XB']);
 });
 
 test('number formats: auto follows the system, and each is named by a sample', () => {

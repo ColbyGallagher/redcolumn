@@ -76,6 +76,8 @@ export function Ignored() {
       <b>red</b>column
       {/* i18n-ignore */}
       <span>Still flagged</span>
+      {/* i18n-ignore: */}
+      <span>Bare reason flagged</span>
     </div>
   );
 }
@@ -83,7 +85,7 @@ export function Ignored() {
   const violations = checkSource('apps/web/src/Ignored.tsx', src);
   assert.deepEqual(
     violations.map((v) => v.text),
-    ['Missing reason fails', 'Still flagged'],
+    ['Missing reason fails', 'Still flagged', 'Bare reason flagged'],
   );
 });
 
