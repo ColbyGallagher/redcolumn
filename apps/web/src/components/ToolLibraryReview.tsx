@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import { checkAction, checkFilter, describeRuleAction, describeRuleFilter, toolRuns, type GroupingTool, type MarkupStore } from '@nb/markup';
@@ -14,7 +15,7 @@ interface Props {
 }
 
 const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-const STATUS = (): Record<GroupingTool['status'], string> => ({ proposed: msg('Proposed'), accepted: msg('Accepted'), rejected: msg('Rejected') });
+const STATUS = lazy((): Record<GroupingTool['status'], string> => ({ proposed: msg('Proposed'), accepted: msg('Accepted'), rejected: msg('Rejected') }));
 
 /**
  * Review AI Takeoff › Tools: the grouping tool library on this computer. Each tool shows what it

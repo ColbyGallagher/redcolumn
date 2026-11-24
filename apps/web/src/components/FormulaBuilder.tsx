@@ -141,7 +141,7 @@ export function FormulaBuilder({ item, unit, formula, groups, problem, result, r
               ))}
           </div>
           <ul className="fb-functions" aria-label={msg('Functions')}>
-            {FUNCTION_DOCS.map((f) => (
+            {FUNCTION_DOCS().map((f) => (
               <li key={f.name}>
                 <button type="button" className="asm-ref" title={f.hint} disabled={readOnly} onMouseDown={(e) => e.preventDefault()} onClick={() => insert(`${f.name}()`, 1)}>
                   {f.signature}

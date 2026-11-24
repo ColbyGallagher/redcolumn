@@ -1,11 +1,12 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import { parsePageRange } from '../documents/printPdf';
 import { settings, useSettings } from '../settings/settings';
 
 /** Languages OCR can read (their data is served with the app); see documents/ocr.ts. */
-const LANGUAGES = (): [string, string][] => [
+const LANGUAGES = lazy((): [string, string][] => [
   ['eng', msg('English')],
   ['fra', msg('French')],
   ['deu', msg('German')],
@@ -13,7 +14,7 @@ const LANGUAGES = (): [string, string][] => [
   ['ita', msg('Italian')],
   ['por', msg('Portuguese')],
   ['nld', msg('Dutch')],
-];
+]);
 
 interface Props {
   pageCount: number;

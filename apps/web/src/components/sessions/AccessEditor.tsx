@@ -1,20 +1,21 @@
 import { msg } from '@nb/i18n';
+import { lazy } from '../../i18n/lazy';
 import { useState } from 'react';
 import { accessFor, sameName, type Access, type AccessGroup, type AccessPolicy } from '../../studio/protocol';
 
-export const ACCESS_LABELS = (): Record<Access, string> => ({
+export const ACCESS_LABELS = lazy((): Record<Access, string> => ({
   none: msg('No access'),
   view: msg('View documents'),
   markup: msg('Add comments, edit own'),
   markupAny: msg('Add comments, edit anyone’s'),
-});
+}));
 
-export const ACCESS_SHORT = (): Record<Access, string> => ({
+export const ACCESS_SHORT = lazy((): Record<Access, string> => ({
   none: msg('No access'),
   view: msg('View'),
   markup: msg('Comment'),
   markupAny: msg('Comment (edit all)'),
-});
+}));
 
 export const emptyPolicy = (): AccessPolicy => ({ default: 'markup', people: [], groups: [] });
 

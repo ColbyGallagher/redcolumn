@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState } from 'react';
 import type { FieldChanges, FieldType, FieldVisibility, FormField, FormModel } from '../documents/forms';
@@ -7,7 +8,7 @@ import { useSettings } from '../settings/settings';
 
 export type NewFieldType = Exclude<FieldType, 'button'> | 'button';
 
-const TYPE_LABELS = (): Record<FieldType, string> => ({
+const TYPE_LABELS = lazy((): Record<FieldType, string> => ({
   text: msg('Text'),
   checkbox: msg('Check Box'),
   radio: msg('Radio Button'),
@@ -15,7 +16,7 @@ const TYPE_LABELS = (): Record<FieldType, string> => ({
   list: msg('List Box'),
   button: msg('Button'),
   signature: msg('Signature'),
-});
+}));
 
 /** Preferences › Forms › Enable Single Key Shortcuts: a letter picks a field type to draw. */
 const SINGLE_KEYS: Record<string, FieldType> = { t: 'text', c: 'checkbox', r: 'radio', d: 'dropdown', l: 'list', b: 'button', s: 'signature' };

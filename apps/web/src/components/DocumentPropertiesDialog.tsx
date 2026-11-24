@@ -1,4 +1,5 @@
 import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { useEffect, useState } from 'react';
 import type { DocumentInfo, PdfDocument } from '@nb/pdf-core';
 import { formatPdfDate, type EditableInfo } from '../documents/docInfo';
@@ -16,14 +17,14 @@ interface Props {
 }
 
 /** Security permission bits (ISO 32000 table 22) and what they allow. */
-const PERMISSIONS = (): [number, string][] => [
+const PERMISSIONS = lazy((): [number, string][] => [
   [1 << 2, msg('Printing')],
   [1 << 3, msg('Changing the document')],
   [1 << 4, msg('Copying content')],
   [1 << 5, msg('Commenting (markups)')],
   [1 << 8, msg('Filling form fields')],
   [1 << 10, msg('Assembling pages')],
-];
+]);
 
 function sizeLabel(w: number, h: number) {
   const named = presetFor(w, h)?.label.replace(/ \(.*/, '');

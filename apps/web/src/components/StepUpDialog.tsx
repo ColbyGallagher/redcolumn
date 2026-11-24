@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useState } from 'react';
 import { PROJECT_URL } from '../help/whatsNew';
 import { setFirstUseConfirm, type CloudProviderName } from '../studio/drive/notices';
@@ -7,17 +9,17 @@ import { setStepUpConfirm, type StepUp } from '../studio/drive/onedrive';
 export function stepUpText(step: StepUp): { title: string; body: string } {
   if (step.kind === 'share')
     return {
-      title: 'Share this folder from your OneDrive?',
-      body: `To ${step.what}, Microsoft needs you to allow redcolumn to read and change files in your OneDrive. redcolumn uses it only for this folder's sharing, and the rest of its work keeps asking for its own folder alone.`,
+      title: msg('Share this folder from your OneDrive?'),
+      body: msg('To {what}, Microsoft needs you to allow redcolumn to read and change files in your OneDrive. redcolumn uses it only for this folder\'s sharing, and the rest of its work keeps asking for its own folder alone.', { what: step.what }),
     };
   if (step.level === 1)
     return {
-      title: 'Open a folder outside the app folder?',
-      body: `To ${step.what}, Microsoft needs you to allow redcolumn to read and change files in your OneDrive. redcolumn uses it only on the folder you opened.`,
+      title: msg('Open a folder outside the app folder?'),
+      body: msg('To {what}, Microsoft needs you to allow redcolumn to read and change files in your OneDrive. redcolumn uses it only on the folder you opened.', { what: step.what }),
     };
   return {
-    title: "Open a folder in someone else's OneDrive?",
-    body: `To ${step.what}, Microsoft needs you to allow redcolumn to reach files other people have shared with you. redcolumn uses it only on the folder in the invite you opened.`,
+    title: msg('Open a folder in someone else\'s OneDrive?'),
+    body: msg('To {what}, Microsoft needs you to allow redcolumn to reach files other people have shared with you. redcolumn uses it only on the folder in the invite you opened.', { what: step.what }),
   };
 }
 
@@ -39,13 +41,13 @@ export function StepUpHost() {
       <div className="modal" role="dialog" aria-label={title} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && done(false)}>
         <h3>{title}</h3>
         <p>{body}</p>
-        <p className="access-note">You can drop back to the smallest access afterwards in Preferences › Account › Access.</p>
+        <p className="access-note">{msg('You can drop back to the smallest access afterwards in Preferences › Account › Access.')}</p>
         <div className="actions">
           <button type="button" className="btn" onClick={() => done(false)}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="button" className="btn primary" autoFocus onClick={() => done(true)}>
-            Continue to Microsoft
+            {msg('Continue to Microsoft')}
           </button>
         </div>
       </div>
@@ -69,35 +71,35 @@ export function FirstUseHost() {
   const drive = 'OneDrive';
   return (
     <div className="modal-backdrop" onMouseDown={() => done(false)}>
-      <div className="modal" role="dialog" aria-label={`Before you sign in to ${name}`} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && done(false)}>
-        <h3>Before you sign in to {name}</h3>
+      <div className="modal" role="dialog" aria-label={msg('Before you sign in to {name}', { name })} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && done(false)}>
+        <h3>{msg('Before you sign in to {name}', { name })}</h3>
         <ul>
           <li>
-            <b>What goes to {name}:</b> the PDFs, markups, chat and names in the sessions, Projects and spreadsheets you use, saved in a folder in your {drive} (or the host's) and shared with the people invited.
+            {keyed(msgParts('{b} the PDFs, markups, chat and names in the sessions, Projects and spreadsheets you use, saved in a folder in your {drive} (or the host\'s) and shared with the people invited.', { b: <b>{msg('What goes to {name}:', { name })}</b>, drive }))}
           </li>
           <li>
-            <b>What goes to redcolumn:</b> nothing. There is no redcolumn server; your browser talks to {name} directly.
+            {keyed(msgParts('{b} nothing. There is no redcolumn server; your browser talks to {name} directly.', { b: <b>{msg('What goes to redcolumn:')}</b>, name }))}
           </li>
           <li>
-            <b>Access:</b>{' '}
+            <b>{msg('Access:')}</b>{' '}
             {req.provider === 'microsoft'
-              ? "at first only the app's own folder in your OneDrive. If sharing or someone else's folder needs more, the app tells you why first."
-              : 'only files and folders the app made or that you pick, never the rest of your Drive.'}
+              ? msg('at first only the app\'s own folder in your OneDrive. If sharing or someone else\'s folder needs more, the app tells you why first.')
+              : msg('only files and folders the app made or that you pick, never the rest of your Drive.')}
           </li>
         </ul>
         <p className="access-note">
           See Preferences › Account to check what was allowed and what the app did, or read the{' '}
           <a href={`${PROJECT_URL}/blob/master/PRIVACY.md`} target="_blank" rel="noopener noreferrer">
-            privacy policy
+            {msg('privacy policy')}
           </a>
           .
         </p>
         <div className="actions">
           <button type="button" className="btn" onClick={() => done(false)}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="button" className="btn primary" autoFocus onClick={() => done(true)}>
-            Continue to {name}
+            {msg('Continue to {name}', { name })}
           </button>
         </div>
       </div>

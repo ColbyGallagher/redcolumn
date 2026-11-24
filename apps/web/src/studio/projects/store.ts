@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { DriveAuthError } from '../drive/DriveApi';
 import { OneDrive, microsoftUser, microsoftUserRestored, parseOneDriveInvite, signInWithMicrosoft } from '../drive/onedrive';
 import { Project, type ProjectDrive, type ProjectOptions } from './Project';
@@ -143,7 +144,7 @@ export async function createProject(name: string, me: string, encrypt = false): 
  */
 export async function openProject(idOrLink: string, me: string, interactive: boolean, show = interactive): Promise<Project> {
   const id = idFromText(idOrLink);
-  if (!id) throw new Error('That is not a Project link. Paste the link the owner sent, or the OneDrive link to the Project folder.');
+  if (!id) throw new Error(msg('That is not a Project link. Paste the link the owner sent, or the OneDrive link to the Project folder.'));
   // An encrypted Project's key comes after # in its link.
   const key = parseProjectKey(idOrLink);
   if (key) rememberProjectKey(id, key);

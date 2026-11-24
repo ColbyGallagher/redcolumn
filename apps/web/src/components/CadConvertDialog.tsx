@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useRef, useState } from 'react';
 import type { CadOptions } from '../cad/client';
@@ -15,12 +16,12 @@ interface Props {
   onCancel: () => void;
 }
 
-const COLOR_MODES = (): [ColorMode, string][] => [
+const COLOR_MODES = lazy((): [ColorMode, string][] => [
   ['auto', msg('As plotted')],
   ['color', msg('Colour')],
   ['grey', msg('Greyscale')],
   ['mono', msg('Black')],
-];
+]);
 
 /** Convert Again: which layouts become pages, how lines are drawn, and reference drawings to fill in. */
 export function CadConvertDialog({ conversion, busy, onConvert, onCancel }: Props) {

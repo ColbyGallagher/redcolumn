@@ -1,14 +1,15 @@
 import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { useEffect, useRef } from 'react';
 import { hatchDraw, paintHatchCell, type HatchSpec, type StoredHatch } from '@nb/markup';
 
 /** Names of hatch ids saved before the Standard set. */
-export const LEGACY_HATCH_LABELS = (): Record<string, string> => ({
+export const LEGACY_HATCH_LABELS = lazy((): Record<string, string> => ({
   diagonal: msg('Diagonal'),
   backDiagonal: msg('Back diagonal'),
   cross: msg('Cross'),
   diagonalCross: msg('Diagonal cross'),
-});
+}));
 
 /** The name of an imported hatch id (`set:<set>/<name>`). */
 export const customHatchName = (id: string) => id.slice(id.indexOf('/') + 1);

@@ -1,4 +1,5 @@
 import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import type { MarkupStore, ReviewFinding, SourceRef } from '@nb/markup';
 import { formatNumber } from '../columns/listColumns';
 import { decideFindings, FINDING_KIND_LABEL } from '../takeoff/reviewPass';
@@ -12,8 +13,8 @@ interface Props {
 }
 
 const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-const SEVERITY = (): Record<ReviewFinding['severity'], string> => ({ issue: msg('Issue'), check: msg('Check'), ok: msg('Agrees') });
-const STATUS = (): Record<ReviewFinding['status'], string> => ({ open: '', accepted: msg('Accepted'), dismissed: msg('Dismissed') });
+const SEVERITY = lazy((): Record<ReviewFinding['severity'], string> => ({ issue: msg('Issue'), check: msg('Check'), ok: msg('Agrees') }));
+const STATUS = lazy((): Record<ReviewFinding['status'], string> => ({ open: '', accepted: msg('Accepted'), dismissed: msg('Dismissed') }));
 
 /**
  * What the AI review pass said about an item (or found missing), labelled as AI review so it is

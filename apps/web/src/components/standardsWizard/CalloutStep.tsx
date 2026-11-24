@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../../i18n/lazy';
 import { keyed } from '../../i18n/keyed';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { spotCheckSample, stepMeter, type PageText, type SheetInfo } from '@nb/sheets';
@@ -42,7 +43,7 @@ interface Props {
   fileName: string;
 }
 
-const WORDS = (): Record<CalloutKind, { many: string; one: string; mark: string; title: string; markHow: string; titleHow: string }> => ({
+const WORDS = lazy((): Record<CalloutKind, { many: string; one: string; mark: string; title: string; markHow: string; titleHow: string }> => ({
   section: {
     many: msg('Sections'),
     one: 'section',
@@ -67,7 +68,7 @@ const WORDS = (): Record<CalloutKind, { many: string; one: string; mark: string;
     markHow: msg('Find a detail callout and drag a box around its bubble: the detail number and the sheet number it points to.'),
     titleHow: msg('This is the sheet the callout points to. Find that detail’s title and drag a box around its bubble and title.'),
   },
-});
+}));
 
 type Phase = 'mark' | 'title' | 'results';
 

@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import { INSTALLER_URL } from '../offline/install';
@@ -43,12 +44,12 @@ function statusText(s: SyncStatus): string {
 }
 
 /** Keep the Markups list in an Excel workbook on this computer, updated as markups change (Windows desktop app). */
-const ISSUE = (): Record<SyncIssue['kind'], string> => ({
+const ISSUE = lazy((): Record<SyncIssue['kind'], string> => ({
   conflict: msg('Changed here and in Excel'),
   replyEdit: msg('An earlier reply was rewritten in Excel'),
   unknown: msg('Excel has a value this column does not take'),
   blocked: msg('Changed in Excel, but this markup cannot be changed here'),
-});
+}));
 
 export function SheetSyncDialog({ docName, link, status, rowCount, localExcelAvailable, inDesktopApp, onConnectLocal, onSetQuantities, onOpenLocal, onShowLocal, twoWay = false, canTwoWay = false, issues = [], onResolve, onUseListColumns, onSyncNow, onStop, onClose }: Props) {
   const [title, setTitle] = useState(`${docName.replace(/\.pdf$/i, '')} markups`);

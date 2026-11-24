@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useState, useSyncExternalStore } from 'react';
 import { clearCloudLog, cloudLog, subscribeCloudLog, type CloudLogEntry } from '../studio/drive/cloudLog';
@@ -21,7 +22,7 @@ import { MANAGED_NOTE } from '../desktop/policy';
 import { checkLocalKey, localEncryptionAvailable, localEncryptionOn, requestLocalEncryption } from '../storage/localCrypto';
 
 /** What each OneDrive access level lets the app do, in the words PRIVACY.md uses. */
-export const MICROSOFT_LEVELS = () => [
+export const MICROSOFT_LEVELS = lazy(() => [
   {
     name: msg("The app's own folder (Apps/redcolumn)"),
     allows: msg('Read and change files in Apps/redcolumn only.'),
@@ -37,7 +38,7 @@ export const MICROSOFT_LEVELS = () => [
     allows: msg('Also reach files other people have shared with you.'),
     usedFor: msg('Only the folder in an invite to someone else\'s session or Project.'),
   },
-];
+]);
 
 const when = (ms: number) =>
   new Date(ms).toLocaleString(undefined, {
@@ -176,7 +177,7 @@ function LocalDataSection() {
   );
 }
 
-const ACTION_WORDS = (): Record<CloudLogEntry['action'], string> => ({
+const ACTION_WORDS = lazy((): Record<CloudLogEntry['action'], string> => ({
   'create folder': msg('Created folder'),
   upload: msg('Uploaded'),
   replace: msg('Saved'),
@@ -187,7 +188,7 @@ const ACTION_WORDS = (): Record<CloudLogEntry['action'], string> => ({
   delete: msg('Deleted'),
   'delete folder': msg('Deleted folder'),
   'save app file': msg('Saved app file'),
-});
+}));
 
 /** Preferences › Account › Activity: what the app did in the cloud, kept in this browser only (1.4). */
 export function ActivityPrefs() {

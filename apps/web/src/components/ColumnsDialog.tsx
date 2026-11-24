@@ -1,4 +1,5 @@
 import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useMemo, useRef, useState } from 'react';
 import { COLUMN_TYPES, importColumnsXml, MARKUP_LABELS, columnsToXml, type ColumnSet, type ColumnType, type CustomColumn, type Markup, type MarkupStatusDef } from '@nb/markup';
@@ -23,7 +24,7 @@ interface Props {
 }
 
 /** What each built-in column is, shown when it is selected. */
-const BUILT_IN_HINTS = (): Partial<Record<string, string>> => ({
+const BUILT_IN_HINTS = lazy((): Partial<Record<string, string>> => ({
   seq: msg('Each markup’s ID: numbered 1, 2, 3… in the order markups are made, never reused.'),
   subject: msg('The markup’s subject; its type’s name until one is typed.'),
   page: msg('The page number the markup is on.'),
@@ -39,7 +40,7 @@ const BUILT_IN_HINTS = (): Partial<Record<string, string>> => ({
   type: msg('The kind of markup.'),
   color: msg('The markup’s line colour.'),
   capture: msg('A picture of the markup taken with right-click › Capture.'),
-});
+}));
 
 const builtInId = (key: string) => `builtin:${key}`;
 
