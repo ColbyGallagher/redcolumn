@@ -31,7 +31,7 @@ export function ReviewFindings({ store, me, findings, pageLabel, onShowSource }:
               {msg('AI review')}
             </span>
             <span className={`ar-sev ${f.severity}`}>{SEVERITY()[f.severity]}</span>
-            <span className="hint-text">{FINDING_KIND_LABEL[f.kind]}</span>
+            <span className="hint-text">{FINDING_KIND_LABEL()[f.kind]}</span>
             <span className="grow" />
             {f.status !== 'open' && <span className={`tp-state ${f.status === 'accepted' ? 'approved' : 'rejected'}`}>{STATUS()[f.status]}</span>}
           </div>

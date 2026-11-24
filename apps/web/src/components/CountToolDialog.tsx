@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import type { CountTool } from '../search/countFromHits';
 import { CountSymbolSwatch } from './CountSymbolSwatch';
@@ -23,7 +25,7 @@ export function CountToolDialog({ total, tools, onApply, onCancel }: Props) {
       <form
         className="modal page-tools print-dialog count-tool-dialog"
         role="dialog"
-        aria-label="Apply Count to Checked"
+        aria-label={msg('Apply Count to Checked')}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
@@ -34,16 +36,14 @@ export function CountToolDialog({ total, tools, onApply, onCancel }: Props) {
           onApply(tool);
         }}
       >
-        <h3>Apply Count to Checked</h3>
+        <h3>{msg('Apply Count to Checked')}</h3>
         <p className="muted">
-          {total} checked result{total === 1 ? '' : 's'} become a count with the symbol at the centre of each match.
+          {msg('{total} checked {total2, plural, one {result} other {results}} become a count with the symbol at the centre of each match.', { total, total2: total })}
         </p>
         <fieldset>
-          <legend>Count tool</legend>
+          <legend>{msg('Count tool')}</legend>
           <label className="row">
-            <input type="radio" name="count-tool" checked={choice === ''} onChange={() => setChoice('')} autoFocus />
-            {swatch(null)}
-            Default count
+            {keyed(msgParts('{input}{swatch}Default count', { input: <input type="radio" name="count-tool" checked={choice === ''} onChange={() => setChoice('')} autoFocus />, swatch: swatch(null) }))}
           </label>
           {tools.map((t) => (
             <label key={t.id} className="row">
@@ -52,15 +52,15 @@ export function CountToolDialog({ total, tools, onApply, onCancel }: Props) {
               {t.name}
             </label>
           ))}
-          {tools.length === 0 && <p className="muted">No count tools in the Tool Chest yet: save a count markup to it to use it here.</p>}
+          {tools.length === 0 && <p className="muted">{msg('No count tools in the Tool Chest yet: save a count markup to it to use it here.')}</p>}
         </fieldset>
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary">
-            Apply
+            {msg('Apply')}
           </button>
         </div>
       </form>

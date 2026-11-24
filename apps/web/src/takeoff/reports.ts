@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { isMeasureKind, ITEM_CATEGORIES, markupLabel, MARKUP_LABELS, measureProps, reviewedOnly, type Assembly, type Item, type Markup } from '@nb/markup';
 import type { ReportColumn, ReportRow, ReportTable } from '@nb/markup/report';
 import { areaUnitOf, DEFAULT_SCALE, formatSlope, measureDetails, measureValue, METERS_PER_UNIT, quantityOf, scaleEquation, slopeApplies, slopeIsFlat, toDisplayQuantity, type Scale } from '@nb/measure';
@@ -14,11 +15,11 @@ import { cellsFor, type CellContext } from '../columns/listColumns';
 export type ReportId = 'byItem' | 'byAssembly' | 'bySheet' | 'detail' | 'counts';
 
 export const REPORTS: { id: ReportId; title: string; hint: string }[] = [
-  { id: 'byItem', title: 'Quantity Summary by Item', hint: 'Each item once, with waste, the quantity to order and its cost, grouped by category' },
-  { id: 'byAssembly', title: 'Quantities by Assembly', hint: 'Each assembly’s items, with a cost subtotal per assembly' },
-  { id: 'bySheet', title: 'Quantities by Sheet', hint: 'The items on each sheet, with a cost subtotal per sheet' },
-  { id: 'detail', title: 'Measurement Detail', hint: 'One row per measurement: plan and sloped quantity, cutouts, depth and assembly' },
-  { id: 'counts', title: 'Count Schedule', hint: 'Counts by subject and sheet, with totals' },
+  { id: 'byItem', get title() { return msg('Quantity Summary by Item'); }, get hint() { return msg('Each item once, with waste, the quantity to order and its cost, grouped by category'); } },
+  { id: 'byAssembly', get title() { return msg('Quantities by Assembly'); }, get hint() { return msg('Each assembly’s items, with a cost subtotal per assembly'); } },
+  { id: 'bySheet', get title() { return msg('Quantities by Sheet'); }, get hint() { return msg('The items on each sheet, with a cost subtotal per sheet'); } },
+  { id: 'detail', get title() { return msg('Measurement Detail'); }, get hint() { return msg('One row per measurement: plan and sloped quantity, cutouts, depth and assembly'); } },
+  { id: 'counts', get title() { return msg('Count Schedule'); }, get hint() { return msg('Counts by subject and sheet, with totals'); } },
 ];
 
 export type ReportScope = 'all' | 'page' | 'selection' | 'list';
@@ -57,13 +58,13 @@ export function reportPageLabel(sheets: Readonly<Record<number, { number: string
 export function scopeLabel(scope: ReportScope, o: { pageLabel: string; count: number }): string {
   switch (scope) {
     case 'page':
-      return `Page ${o.pageLabel}`;
+      return msg('Page {page}', { page: o.pageLabel });
     case 'selection':
-      return `Selection (${o.count} markup${o.count === 1 ? '' : 's'})`;
+      return msg('{count, plural, one {Selection (# markup)} other {Selection (# markups)}}', { count: o.count });
     case 'list':
-      return 'Markups list, as filtered';
+      return msg('Markups list, as filtered');
     default:
-      return 'All pages';
+      return msg('All pages');
   }
 }
 
@@ -80,7 +81,7 @@ export function scaleNote(markups: readonly Markup[], ctx: Pick<CellContext, 'sc
   }
   if (byScale.size < 2) return undefined;
   const parts = [...byScale].map(([label, pages]) => `${label} (${[...pages].sort((a, b) => a - b).map(pageLabel).join(', ')})`);
-  return `Pages use different scales: ${parts.join('; ')}. Each measurement is in its own page's units.`;
+  return msg('Pages use different scales: {parts}. Each measurement is in its own page\'s units.', { parts: parts.join('; ') });
 }
 
 const col = (key: string, label: string, format: ReportColumn['format'] = 'text'): ReportColumn => ({ key, label, align: format === 'text' ? 'left' : 'right', format });
@@ -148,17 +149,17 @@ function bucketRow(b: Bucket): ReportRow & { cost: number | null } {
   return { itemNo: b.itemNo, description: b.description, category: b.category, unit: b.unit, net: b.net, waste, gross: b.gross, order, unitCost, cost };
 }
 
-const QUANTITY_COLUMNS: ReportColumn[] = [
-  col('itemNo', 'Item No'),
-  col('description', 'Description'),
-  col('category', 'Category'),
-  col('unit', 'Unit'),
-  col('net', 'Net Qty', 'qty'),
-  col('waste', 'Waste %', 'pct'),
-  col('gross', 'Gross Qty', 'qty'),
-  col('order', 'Order Qty', 'qty'),
-  col('unitCost', 'Unit Cost', 'money'),
-  col('cost', 'Extended Cost', 'money'),
+const QUANTITY_COLUMNS = (): ReportColumn[] => [
+  col('itemNo', msg('Item No')),
+  col('description', msg('Description')),
+  col('category', msg('Category')),
+  col('unit', msg('Unit')),
+  col('net', msg('Net Qty'), 'qty'),
+  col('waste', msg('Waste %'), 'pct'),
+  col('gross', msg('Gross Qty'), 'qty'),
+  col('order', msg('Order Qty'), 'qty'),
+  col('unitCost', msg('Unit Cost'), 'money'),
+  col('cost', msg('Extended Cost'), 'money'),
 ];
 
 const sum = (rows: readonly { cost?: ReportRow[string] }[]): number | null => {
@@ -184,8 +185,8 @@ function quantified(input: ReportInput): Quantified[] {
 /** Notes every quantity report carries: measurements left out, and quantities set by hand. */
 function quantityNotes(rows: readonly Quantified[]): string[] {
   const failed = rows.filter((q) => q.items.some((i) => i.base === null)).length;
-  const notes = ['Quantities in different units are listed on separate rows and never added together. Costs are added.'];
-  if (failed) notes.push(`${failed} measurement${failed === 1 ? ' has' : 's have'} an item whose formula does not work, and ${failed === 1 ? 'is' : 'are'} left out of those items.`);
+  const notes = [msg('Quantities in different units are listed on separate rows and never added together. Costs are added.')];
+  if (failed) notes.push(msg('{failed, plural, one {# measurement has an item whose formula does not work, and is left out of those items.} other {# measurements have an item whose formula does not work, and are left out of those items.}}', { failed }));
   return notes;
 }
 
@@ -202,10 +203,10 @@ function byItem(input: ReportInput): ReportTable {
   const groups = order
     .map((category) => {
       const inGroup = rows.filter((r) => r.category === category).sort((a, b) => String(a.description).localeCompare(String(b.description), undefined, { numeric: true, sensitivity: 'base' }));
-      return { heading: category, rows: inGroup, subtotal: { description: `Subtotal - ${category}`, cost: sum(inGroup) } };
+      return { heading: category, rows: inGroup, subtotal: { description: msg('Subtotal - {category}', { category }), cost: sum(inGroup) } };
     })
     .filter((g) => g.rows.length);
-  return { title: 'Quantity Summary by Item', columns: QUANTITY_COLUMNS, groups, grandTotal: { description: 'Total', cost: sum(rows) }, notes: quantityNotes(qs) };
+  return { title: msg('Quantity Summary by Item'), columns: QUANTITY_COLUMNS(), groups, grandTotal: { description: msg('Total'), cost: sum(rows) }, notes: quantityNotes(qs) };
 }
 
 function byAssembly(input: ReportInput): ReportTable {
@@ -220,9 +221,9 @@ function byAssembly(input: ReportInput): ReportTable {
     .sort((a, b) => a.assembly.name.localeCompare(b.assembly.name, undefined, { numeric: true, sensitivity: 'base' }))
     .map(({ assembly, buckets }) => {
       const rows = [...buckets.values()].map(bucketRow);
-      return { heading: assembly.name, rows, subtotal: { description: `Subtotal - ${assembly.name}`, cost: sum(rows) } };
+      return { heading: assembly.name, rows, subtotal: { description: msg('Subtotal - {name}', { name: assembly.name }), cost: sum(rows) } };
     });
-  return { title: 'Quantities by Assembly', columns: QUANTITY_COLUMNS, groups, grandTotal: { description: 'Total', cost: sum(groups.flatMap((g) => g.rows)) }, notes: quantityNotes(qs) };
+  return { title: msg('Quantities by Assembly'), columns: QUANTITY_COLUMNS(), groups, grandTotal: { description: msg('Total'), cost: sum(groups.flatMap((g) => g.rows)) }, notes: quantityNotes(qs) };
 }
 
 function bySheet(input: ReportInput): ReportTable {
@@ -238,9 +239,9 @@ function bySheet(input: ReportInput): ReportTable {
     .map(([pageIndex, buckets]) => {
       const label = input.pageLabel(pageIndex);
       const rows = [...buckets.values()].map(bucketRow);
-      return { heading: label, rows, subtotal: { description: `Subtotal - ${label}`, cost: sum(rows) } };
+      return { heading: label, rows, subtotal: { description: msg('Subtotal - {label}', { label }), cost: sum(rows) } };
     });
-  return { title: 'Quantities by Sheet', columns: QUANTITY_COLUMNS, groups, grandTotal: { description: 'Total', cost: sum(groups.flatMap((g) => g.rows)) }, notes: quantityNotes(qs) };
+  return { title: msg('Quantities by Sheet'), columns: QUANTITY_COLUMNS(), groups, grandTotal: { description: msg('Total'), cost: sum(groups.flatMap((g) => g.rows)) }, notes: quantityNotes(qs) };
 }
 
 function detail(input: ReportInput): ReportTable {
@@ -278,30 +279,30 @@ function detail(input: ReportInput): ReportTable {
       cutouts: holes || null,
       cutoutArea,
       depth: m.depth ? (cells.depth?.num ?? null) : null,
-      manual: m.manual ? 'Yes' : '',
+      manual: m.manual ? msg('Yes') : '',
       assembly: cells.assembly?.text ?? '',
     });
   }
   return {
-    title: 'Measurement Detail',
+    title: msg('Measurement Detail'),
     columns: [
-      col('page', 'Page'),
-      col('subject', 'Subject'),
-      col('label', 'Label'),
-      col('type', 'Type'),
-      col('planQty', 'Plan Qty', 'qty'),
-      col('unit', 'Unit'),
-      col('slope', 'Slope'),
-      col('slopeFactor', 'Slope Factor', 'qty'),
-      col('trueQty', 'True Qty', 'qty'),
-      { ...col('cutouts', 'Cutouts'), align: 'right' },
-      col('cutoutArea', 'Cutout Area', 'qty'),
-      col('depth', 'Depth', 'qty'),
-      col('manual', 'Manual'),
-      col('assembly', 'Assembly'),
+      col('page', msg('Page')),
+      col('subject', msg('Subject')),
+      col('label', msg('Label')),
+      col('type', msg('Type')),
+      col('planQty', msg('Plan Qty'), 'qty'),
+      col('unit', msg('Unit')),
+      col('slope', msg('Slope')),
+      col('slopeFactor', msg('Slope Factor'), 'qty'),
+      col('trueQty', msg('True Qty'), 'qty'),
+      { ...col('cutouts', msg('Cutouts')), align: 'right' },
+      col('cutoutArea', msg('Cutout Area'), 'qty'),
+      col('depth', msg('Depth'), 'qty'),
+      col('manual', msg('Manual')),
+      col('assembly', msg('Assembly')),
     ],
     groups: [{ rows }],
-    notes: ['Plan Qty is before the slope and True Qty after it; both are in the page’s display units. Cutout Area is the area taken off (in the page’s area unit). Depth is in the page’s length unit.'],
+    notes: [msg('Plan Qty is before the slope and True Qty after it; both are in the page’s display units. Cutout Area is the area taken off (in the page’s area unit). Depth is in the page’s length unit.')],
   };
 }
 
@@ -318,12 +319,12 @@ function counts(input: ReportInput): ReportTable {
     perPage.set(m.pageIndex, (perPage.get(m.pageIndex) ?? 0) + n);
     subjects.set(subject, perPage);
   }
-  const columns: ReportColumn[] = [col('subject', 'Subject'), ...pages.map((p) => col(`p${p}`, input.pageLabel(p), 'qty')), col('total', 'Total', 'qty')];
+  const columns: ReportColumn[] = [col('subject', msg('Subject')), ...pages.map((p) => col(`p${p}`, input.pageLabel(p), 'qty')), col('total', msg('Total'), 'qty')];
   const rows: ReportRow[] = [...subjects]
     .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: 'base' }))
     .map(([subject, perPage]) => ({ subject, ...Object.fromEntries(pages.map((p) => [`p${p}`, perPage.get(p) ?? null])), total: [...perPage.values()].reduce((a, b) => a + b, 0) }));
-  const total: ReportRow = { subject: 'Total', ...Object.fromEntries(pages.map((p) => [`p${p}`, rows.reduce((n, r) => n + (Number(r[`p${p}`]) || 0), 0)])), total: rows.reduce((n, r) => n + (Number(r.total) || 0), 0) };
-  return { title: 'Count Schedule', columns, groups: [{ rows }], grandTotal: rows.length ? total : undefined, notes: ['Counts include typed (manual) counts.'] };
+  const total: ReportRow = { subject: msg('Total'), ...Object.fromEntries(pages.map((p) => [`p${p}`, rows.reduce((n, r) => n + (Number(r[`p${p}`]) || 0), 0)])), total: rows.reduce((n, r) => n + (Number(r.total) || 0), 0) };
+  return { title: msg('Count Schedule'), columns, groups: [{ rows }], grandTotal: rows.length ? total : undefined, notes: [msg('Counts include typed (manual) counts.')] };
 }
 
 /** AI drafts no person has approved yet are left out of every report, and the report says so. */
@@ -332,7 +333,7 @@ export function buildReport(id: ReportId, input: ReportInput): ReportTable {
   const drafts = input.markups.length - reviewed.length;
   const table = reportFor(id, reviewed === input.markups ? input : { ...input, markups: reviewed });
   if (!drafts) return table;
-  return { ...table, notes: [...(table.notes ?? []), `${drafts} AI draft${drafts === 1 ? ' is' : 's are'} waiting for review and left out (Review AI Takeoff).`] };
+  return { ...table, notes: [...(table.notes ?? []), msg('{drafts} AI {drafts2, plural, one {draft is} other {drafts are}} waiting for review and left out (Review AI Takeoff).', { drafts, drafts2: drafts })] };
 }
 
 function reportFor(id: ReportId, input: ReportInput): ReportTable {
