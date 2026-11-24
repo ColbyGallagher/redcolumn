@@ -51,9 +51,7 @@ test.describe('menus in the accented pseudo-locale', () => {
       for (const field of await flyout.locator('.menu-field').allInnerTexts()) expect(field.trim(), field).toMatch(/^\[\[[^[]*\]\]$/);
     }
     expect(checked).toBeGreaterThan(150);
-    // Still English: tool names (Lasso, Snapshot, Hyperlink, File Attachment; the tool-labels PR) and the
-    // Bulk menu's processes (BATCH_LABELS; the dialogs PR). Lower this as those land.
-    expect(untranslated.length, untranslated.join('\n')).toBeLessThanOrEqual(21);
+    expect(untranslated, untranslated.join('\n')).toEqual([]);
     expect(app.errors).toEqual([]);
   });
 });
@@ -83,10 +81,7 @@ test.describe('ribbon in the accented pseudo-locale', () => {
     }
     expect(groups).toBeGreaterThan(40);
     expect(buttons).toBeGreaterThan(150);
-    // Still English: markup, measure, CAD and flowchart tool names (the tool-labels PR) and the Bulk
-    // tab's processes (BATCH_LABELS; the dialogs PR). Lower this as those land.
-    expect(untranslated.filter((u) => u.includes(' › group ')), untranslated.join('\n')).toEqual([]);
-    expect(untranslated.length, untranslated.join('\n')).toBeLessThanOrEqual(103);
+    expect(untranslated, untranslated.join('\n')).toEqual([]);
 
     await ribbon.getByRole('tab').first().click();
     await expect(app.page.locator('.ribbon [data-ribbon-command="edit.formatPainter"]')).toHaveCount(0);

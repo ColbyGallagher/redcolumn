@@ -54,7 +54,6 @@ import {
   isTextType,
   lineRects,
   markupLines,
-  MARKUP_LABELS,
   TYPE_INFO,
   multiplyOffsets,
   offsetCopies,
@@ -137,7 +136,8 @@ import type { PagePoint, TileViewer, ViewerOverlay } from '../viewer/TileViewer'
 import { applyAffine, type Affine } from '../viewer/affine';
 import { drawGroupBox, groupAffine, groupFrame, groupHandleAt, onGroupOutline, type GroupFrame, type GroupHandle } from './groupBox';
 import { toolFieldsPatch, type ToolFields } from './selectionFormat';
-import { CAD_TOOL_LABELS, cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadChanges, type CadContext, type CadPick, type CadTool } from './cadTools';
+import { markupName, cadToolName, otherToolName } from '../i18n/names';
+import { cadClick, cadPickTarget, cadPreview, cadPrompt, isCadTool, type CadChanges, type CadContext, type CadPick, type CadTool } from './cadTools';
 
 /** A CAD Modify tool in use: its page, the points picked so far, and where the pointer is. */
 type CadSession = { tool: CadTool; pageIndex: number; picks: CadPick[]; hover: Point | null; shift: boolean };
@@ -151,40 +151,11 @@ type CadSession = { tool: CadTool; pageIndex: number; picks: CadPick[]; hover: P
 export type Tool = 'select' | MarkupType | 'calibrate' | 'labelRegion' | 'lasso' | 'painter' | 'cloudPlus' | 'eraser' | 'offset' | 'cutout' | 'viewport' | 'dynamicFill' | 'visualSearch' | 'cropArea' | 'cropImage' | 'eraseContent' | 'selectText' | 'editText' | 'formField' | 'pan' | 'zoomBox' | 'dynamicZoom' | 'snapshot' | 'cutContent' | 'scaleLength' | 'matchLine' | 'stitchRegion' | 'stitchPolygon' | 'stitchMove' | 'portalPolygon' | CadTool;
 
 /** Tools that draw a markup (not select, calibrate, a label region, lasso or format painter). */
-export const isMarkupTool = (t: Tool): t is MarkupType => !(t in OTHER_TOOL_LABELS);
+export const isMarkupTool = (t: Tool): t is MarkupType => !OTHER_TOOLS.has(t) && !isCadTool(t);
 
-const OTHER_TOOL_LABELS: Record<Exclude<Tool, MarkupType>, string> = {
-  select: 'Select',
-  calibrate: 'Calibrate',
-  labelRegion: 'Page Label Region',
-  lasso: 'Lasso',
-  painter: 'Format Painter',
-  cloudPlus: 'Cloud+',
-  eraser: 'Eraser',
-  offset: 'Offset',
-  cutout: 'Cutout',
-  viewport: 'Viewport',
-  dynamicFill: 'Smart Fill',
-  visualSearch: 'Symbol Search',
-  cropArea: 'Crop Area',
-  cropImage: 'Crop Image',
-  eraseContent: 'Erase Content',
-  selectText: 'Select Text',
-  editText: 'Edit Text',
-  formField: 'Form Field',
-  snapshot: 'Snapshot',
-  cutContent: 'Cut Content',
-  scaleLength: 'Scale to Length',
-  matchLine: 'Match Line',
-  stitchRegion: 'Stitch Region',
-  stitchPolygon: 'Stitch Region (Polygon)',
-  portalPolygon: 'Define Portal',
-  stitchMove: 'Move Sheet',
-  pan: 'Pan',
-  zoomBox: 'Zoom',
-  dynamicZoom: 'Dynamic Zoom',
-  ...CAD_TOOL_LABELS,
-};
+/** Tools that do not draw a markup, apart from the CAD tools (their names: `otherToolName`). */
+export type OtherTool = Exclude<Tool, MarkupType | CadTool>;
+const OTHER_TOOLS: ReadonlySet<string> = new Set(Object.keys({ select: true, calibrate: true, labelRegion: true, lasso: true, painter: true, cloudPlus: true, eraser: true, offset: true, cutout: true, viewport: true, dynamicFill: true, visualSearch: true, cropArea: true, cropImage: true, eraseContent: true, selectText: true, editText: true, formField: true, snapshot: true, cutContent: true, scaleLength: true, matchLine: true, stitchRegion: true, stitchPolygon: true, portalPolygon: true, stitchMove: true, pan: true, zoomBox: true, dynamicZoom: true } satisfies Record<OtherTool, true>));
 
 /** Region tools that also take a polygon: press-and-drag is a box, clicking corners outlines a polygon. Only Snapshot's box snaps; the corners of an outline snap for all. */
 const POLYGON_REGION_TOOLS: ReadonlySet<Tool> = new Set<Tool>(['snapshot', 'eraseContent', 'cutContent']);
@@ -232,7 +203,7 @@ export interface FormWidgetHit {
 
 /** A tool's name in menus and tooltips. */
 export function toolLabel(tool: Tool): string {
-  return isMarkupTool(tool) ? MARKUP_LABELS[tool] : OTHER_TOOL_LABELS[tool];
+  return isMarkupTool(tool) ? markupName(tool) : isCadTool(tool) ? cadToolName(tool) : otherToolName(tool);
 }
 
 /** Screen pixels within which a click hits a markup or handle. */
@@ -331,7 +302,7 @@ type Gesture =
   /** Dragging a grouped callout's text box (Cloud+): the box and knee move, the arrow tip stays put. */
   | { kind: 'calloutBox'; id: string; start: Point; dx: number; dy: number }
   /** Placing a callout: first click sets the arrow tip, second click places the text box. */
-  | { kind: 'calloutPlace'; markup: Markup; tip: Point; down: Point }
+  | { kind: 'calloutPlace'; markup: Markup; tip: Point; down: Point; placing?: boolean }
   /** Adding a leader to an existing callout: the new arrow tip follows the pointer until clicked. */
   | { kind: 'calloutLeader'; id: string; tip: Point | null }
   | { kind: 'handle'; id: string; index: number; point: Point; linkedIndices?: number[]; calloutSnap?: Point | null }
@@ -2075,12 +2046,12 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /**
-   * Starts adding another leader to a callout: the new arrow tip follows the pointer until clicked
-   * (Escape or right-click cancels).
+   * Starts adding a leader to a callout (or turning a text box into a callout with one): the new
+   * arrow tip follows the pointer until clicked (Escape or right-click cancels).
    */
   addCalloutLeader(id: string) {
     const m = this.store?.get(id);
-    if (!this.store || this.store.readOnly || !m || m.type !== 'callout' || this.frozen(m) || m.points.length < 4) return;
+    if (!this.store || this.store.readOnly || !m || !canAddLeader(m) || this.frozen(m)) return;
     const tip = this.lastPointer?.pageIndex === m.pageIndex ? this.lastPointer.at : null;
     this.setState({ tool: 'select', selected: new Set([id]) });
     this.setGesture({ kind: 'calloutLeader', id, tip });
@@ -3083,37 +3054,39 @@ export class MarkupTools implements ViewerOverlay {
     // Pressing anywhere else lets go of selected text (a drag over words picks new text).
     if (e.button === 0) this.clearTextSelection();
 
-    // Adding a leader to a callout: left-click places the arrow tip, right-click cancels.
+    // Adding a leader to a callout or text box: left-click places the arrow tip, right-click cancels.
     if (this.gesture?.kind === 'calloutLeader') {
       const g = this.gesture;
       this.setGesture(null);
       this.snapHit = null;
       if (e.button !== 0) return true;
       const m = this.store.get(g.id);
-      if (m && m.type === 'callout' && !this.frozen(m) && !this.store.readOnly && m.points.length >= 4 && pageIndex === m.pageIndex) {
+      if (m && canAddLeader(m) && !this.frozen(m) && !this.store.readOnly && pageIndex === m.pageIndex) {
         const tip = this.resolve(pt, e, null, m.id);
-        const box = contentBox(m);
-        const zoom = this.viewer.zoomFor(m.pageIndex);
-        const knee = calloutKneeForSide(calloutSideForPoint(tip, box), box, CALLOUT_LANDING_PX / zoom);
-        this.store.checkpoint();
-        this.store.update(m.id, { points: [...m.points, tip, knee] });
-        this.select([m.id]);
+        const patch = withCalloutLeader(m, tip, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex));
+        if (patch) {
+          this.store.checkpoint();
+          this.store.update(m.id, patch);
+          this.select([m.id]);
+        }
       }
       return true;
     }
 
-    // Placing a callout (second click): places the text box and finishes.
+    // Placing a callout (second click): arm on pointerDown and commit on pointerUp so the mouse click
+    // finishes before TextEditor mounts and takes focus (otherwise mousedown blurs and removes it).
     if (this.gesture?.kind === 'calloutPlace') {
       const g = this.gesture;
-      this.setGesture(null);
       this.snapHit = null;
-      if (e.button !== 0) return true;
+      if (e.button !== 0) {
+        this.setGesture(null);
+        return true;
+      }
       if (pageIndex === g.markup.pageIndex) {
         const zoom = this.viewer.zoomFor(pageIndex);
         g.markup.points = calloutPoints(g.tip, toPoint(pt), CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom);
       }
-      this.store.checkpoint();
-      this.commitDraft(g.markup);
+      g.placing = true;
       return true;
     }
 
@@ -3839,10 +3812,12 @@ export class MarkupTools implements ViewerOverlay {
     // Scale to Length and Add Leader go click by click.
     if (g.kind === 'scaleRef' || g.kind === 'calloutLeader') return;
     if (g.kind === 'calloutPlace') {
-      // A click stays in placement mode for the second click; a deliberate drag finishes immediately.
+      // Second click finishes on pointerUp; first click stays in placement mode unless dragged.
       const zoom = this.viewer.zoomFor(g.markup.pageIndex);
-      if (Math.hypot(pt[0] - g.down[0], pt[1] - g.down[1]) * zoom > this.dragPx * 2) {
-        g.markup.points = calloutPoints(g.tip, toPoint(pt), CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom);
+      if (g.placing || Math.hypot(pt[0] - g.down[0], pt[1] - g.down[1]) * zoom > this.dragPx * 2) {
+        if (this.page === g.markup.pageIndex) {
+          g.markup.points = calloutPoints(g.tip, toPoint(pt), CALLOUT_BOX.w, CALLOUT_BOX.h, CALLOUT_LANDING_PX / zoom);
+        }
         this.setGesture(null);
         this.store.checkpoint();
         this.commitDraft(g.markup);
@@ -5235,10 +5210,9 @@ export class MarkupTools implements ViewerOverlay {
     const g = this.gesture;
     if (g?.kind === 'move' && !g.copy && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
     if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex)) };
-    if (g?.kind === 'calloutLeader' && g.id === m.id && g.tip && m.points.length >= 4) {
-      const box = contentBox(m);
-      const knee = calloutKneeForSide(calloutSideForPoint(g.tip, box), box, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex));
-      return { ...m, points: [...m.points, g.tip, knee] };
+    if (g?.kind === 'calloutLeader' && g.id === m.id && g.tip) {
+      const patch = withCalloutLeader(m, g.tip, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex));
+      if (patch) return { ...m, ...patch };
     }
     if (g?.kind === 'handle' && g.id === m.id) {
       return m.type === 'connector'
@@ -5267,6 +5241,30 @@ function groupSig(ms: readonly Markup[]): string {
 /** A Cloud+: a cloud grouped with the callout holding its comment. It keeps the handles of both rather than a group box. */
 function isCloudPlus(ms: readonly Markup[]): boolean {
   return ms.length === 2 && ms.some((m) => m.type === 'callout') && ms.some((m) => m.type === 'cloud' || m.type === 'polygonCloud');
+}
+
+/** Markups that can take a callout leader: an existing callout, or a text box (which becomes one). */
+function canAddLeader(m: Pick<Markup, 'type' | 'points'>): boolean {
+  return (m.type === 'callout' && m.points.length >= 4) || (m.type === 'text' && m.points.length >= 2);
+}
+
+/** Patch that adds a leader pointing at `tip` to a callout, or converts a text box into a callout with one. */
+function withCalloutLeader(m: Markup, tip: Point, landing: number): Partial<Markup> | null {
+  if (!canAddLeader(m)) return null;
+  const box = contentBox(m);
+  const knee = calloutKneeForSide(calloutSideForPoint(tip, box), box, landing);
+  if (m.type === 'callout') return { points: [...m.points, tip, knee] };
+  const style =
+    m.style.width <= 0 || m.style.noBox
+      ? { ...m.style, width: m.style.width > 0 ? m.style.width : DEFAULT_STYLES.callout.width, borderless: true }
+      : undefined;
+  return {
+    type: 'callout',
+    points: [tip, knee, [box.x, box.y], [box.x + box.w, box.y + box.h]],
+    ...(m.rotation ? { rotation: undefined } : {}),
+    ...(m.subject === TYPE_INFO.text.label ? { subject: TYPE_INFO.callout.label } : {}),
+    ...(style ? { style } : {}),
+  };
 }
 
 /**

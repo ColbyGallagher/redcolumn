@@ -4,6 +4,7 @@ import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
 import { currentLocale, localeInfo, msg, numberLocale, supportedNumberLocale } from '@nb/i18n';
 import { THEMES } from '../theme/themes';
 import { browserLanguages, NUMBER_FORMATS, numberSample, offeredLanguages, resolveLanguage, resolveNumberFormat, systemNumberLocale } from '../i18n/language';
+import { lengthUnitName } from '../i18n/names';
 import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, DEFAULT_UNIT_CHOICES, gridUnitOf, settings, switchUnitSystem, type SetTag, type SetTemplate, type Settings, type UnitSystem } from '../settings/settings';
 import { addToDictionary, personalWords, removeFromDictionary } from '../spelling/spell';
 import { askText } from './AskText';
@@ -126,7 +127,6 @@ type BoolKey = KeysOf<boolean>;
 type NumKey = KeysOf<number>;
 type StrKey = KeysOf<string>;
 
-const LENGTH_NAMES: Record<LengthUnit, string> = { mm: 'Millimetres (mm)', cm: 'Centimetres (cm)', m: 'Metres (m)', km: 'Kilometres (km)', in: 'Inches (in)', ft: 'Feet (ft)', yd: 'Yards (yd)', mi: 'Miles (mi)' };
 const COLOURSPACE = [
   ['auto', 'Auto-Detect'],
   ['colour', 'Colour'],
@@ -155,7 +155,7 @@ interface Props {
   /** Render nothing: report every preference's label and where it lives, for the menu bar search. */
   onIndex?: (entries: PrefEntry[]) => void;
   /** Restarts the app (the new language applies then), after asking about unsaved changes. */
-  onRestart?: () => void;
+  onRestart?: () => void | Promise<void>;
 }
 
 /** One searchable preference: its label and the category and tab that show it. */
@@ -220,6 +220,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, initialTab, initialQuery, onIndex, onRestart }: Props) {
   const [d, setD] = useState<Settings>(settings.get);
   const [name, setName] = useState(author);
+  const [restarting, setRestarting] = useState(false);
   const [words, setWords] = useState(personalWords);
   const [category, setCategory] = useState<Category>(initialCategory ?? 'general');
   const [tabs, setTabs] = useState<Partial<Record<Category, string>>>(initialCategory && initialTab ? { [initialCategory]: initialTab } : {});
@@ -369,10 +370,17 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
               {msg('The new language and number format apply when redcolumn restarts.')}{' '}
               <button
                 type="button"
+                disabled={restarting}
                 onClick={async () => {
-                  // Everything in the dialog is kept, as OK does, then the app restarts.
-                  await apply();
-                  onRestart?.();
+                  // Everything in the dialog is kept, as OK does, then the app restarts. A second
+                  // click while that runs does nothing.
+                  setRestarting(true);
+                  try {
+                    await apply();
+                    await onRestart?.();
+                  } finally {
+                    setRestarting(false);
+                  }
                 }}
               >
                 {msg('Restart Now')}
@@ -471,7 +479,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
               <option value="imperial">Imperial</option>
             </select>
           </Row>
-          {unitSelect('lengthUnit', 'Length', choices.length, (u) => LENGTH_NAMES[u])}
+          {unitSelect('lengthUnit', 'Length', choices.length, (u) => lengthUnitName(u))}
           {unitSelect('areaUnit', 'Area', choices.area, (u) => AREA_LABELS[u])}
           {unitSelect('volumeUnit', 'Volume', choices.volume, (u) => VOLUME_LABELS[u])}
         </Grid>
@@ -579,6 +587,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['dark', 'Dark Mode (inverted)'],
           ['dim', 'Dimmer'],
         ])}
+        <C>{check('showMenuBar', 'Show Menu Bar', { title: 'Keep File, Edit, View and the other menus across the top bar instead of under the redcolumn button' })}</C>
         <C>{check('thinLines', 'Disable Line Weights')}</C>
         <C>{check('keepViewBetweenPages', 'Keep View Between Pages')}</C>
         <C>{check('showRulers', 'Show Rulers')}</C>

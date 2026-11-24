@@ -131,6 +131,7 @@ import { HeaderFooterDialog } from './components/HeaderFooterDialog';
 import { PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
 import { OcrDialog } from './components/OcrDialog';
 import { CompareDialog, type ComparePairing, type CompareSpec } from './components/CompareDialog';
+import type { PickerPageHandle } from './components/ComparePagePicker';
 import type { OverlayPageSpec } from './documents/overlay';
 import type { PagePair } from './compare/pairing';
 import { SlipSheetDialog, type SlipSheetSpec } from './components/SlipSheetDialog';
@@ -143,7 +144,7 @@ import type { SignatureCheck } from './documents/pdfSign';
 import { FormsPanel, type NewFieldType } from './components/FormsPanel';
 import { FieldEditor } from './components/FieldEditor';
 import type { FieldChanges, FormField, FormModel } from './documents/forms';
-import { BatchDialog, BATCH_LABELS, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
+import { BatchDialog, BATCH_ENGLISH, batchLabel, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
 import { drawingSets, type SetSheet, type SheetIndex } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
@@ -2866,6 +2867,58 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     [acquireDocument],
   );
 
+  /** Live handle to a library page for Align Pages / Select Region (crisp zoomed tiles + Snap to Content). */
+  const openPickerPage = useCallback(
+    async (fileId: string, page: number): Promise<PickerPageHandle> => {
+      const { open, release } = await acquireDocument(fileId);
+      const index = Math.min(Math.max(0, page), open.doc.pages.length - 1);
+      const size = open.doc.pages[index]!;
+      let snapPromise: Promise<SnapIndex> | null = null;
+      return {
+        width: size.width,
+        height: size.height,
+        renderTile: async (scale, x, y, width, height, signal) => {
+          const { bitmap } = await open.doc.renderTile(index, scale, x, y, width, height, { signal, thinLines: settings.get().thinLines });
+          return bitmap;
+        },
+        snapIndex: () => {
+          if (!snapPromise) {
+            snapPromise = open.doc.geometry(index).then((g) => new SnapIndex(g.segments, undefined, g.curves));
+          }
+          return snapPromise;
+        },
+        release,
+      };
+    },
+    [acquireDocument],
+  );
+
+  /** Adds a file picked from the user's computer to the library without opening a tab, returning its ID. */
+  const importLibraryFile = useCallback(
+    async (file: File): Promise<string | null> => {
+      try {
+        const cad = isCadFile(file);
+        const image = !cad && isImageFile(file);
+        const conversion = cad ? await convertFile(file) : null;
+        const raw = image || cad ? null : await file.arrayBuffer();
+        const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
+        const name = cad ? pdfNameFor(file.name) : image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
+        const source = handleOf(file);
+        const hostId = cad ? null : hostDocumentId(tokenOf(source));
+        let stored = await saveFile(name, bytes.slice(0), hostId ?? undefined);
+        if (hostId && stored.hash !== (await contentHash(bytes))) stored = await takeHostContentsRef.current(stored, bytes.slice(0));
+        if (source && bytes === raw) await rememberHandle(stored.id, source);
+        if (conversion) cadSession.set(stored.id, conversion);
+        await refreshLibrary();
+        return stored.id;
+      } catch (err) {
+        if (isAbort(err)) return null;
+        throw err;
+      }
+    },
+    [refreshLibrary, unlockBytes],
+  );
+
   /**
    * Compare Documents: each pair of pages is rendered, lined up and diffed; differences are clouded
    * in the new revision (and the old one, if asked), replacing clouds from an earlier compare.
@@ -3714,12 +3767,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
    */
   const runBatch = useCallback(
     async (spec: BatchSpec, onResult: (r: BatchResult) => void) => {
-      const label = BATCH_LABELS[spec.command.kind];
-      const note = spec.keepRevisions ? `Before Bulk ${label}` : undefined;
+      const label = batchLabel(spec.command.kind);
+      // Revision notes are kept in English: they are stored with the file, and stepLabel reads them back.
+      const note = spec.keepRevisions ? `Before Bulk ${BATCH_ENGLISH[spec.command.kind]}` : undefined;
       const nameOf = (id: string) => library.find((f) => f.id === id)?.name ?? id;
       const fail = (fileId: string, err: unknown) => onResult({ fileId, name: nameOf(fileId), ok: false, message: err instanceof Error ? err.message : String(err) });
       try {
-        await runJob(`Bulk ${label}`, async (ctx) => {
+        await runJob(msg('Bulk {operation}', { operation: label }), async (ctx) => {
           const { signal, progress } = ctx;
           const cancelled = () => {
             if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -4656,28 +4710,38 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     try {
       await Promise.all(sessionsRef.current.map((s) => s.saveLocally?.()));
     } catch {
-      setError('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing.');
+      setError(msg('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing or restarting.'));
       return false;
     }
     return true;
   }, [activateTab, settleUnsaved]);
 
   /**
-   * Restarts the app (Preferences › Language), after the same questions closing the window asks
-   * (the desktop app has no browser prompt on reload). A second click while asking does nothing.
+   * Leaves the app (the desktop window closing, or Restart Now) once `settleBeforeLeaving` allows it.
+   * One guard covers both, so a close request while Restart Now is asking (or the reverse) does not
+   * ask about the same documents twice.
    */
-  const restarting = useRef(false);
-  const restartApp = useCallback(async () => {
-    if (restarting.current) return;
-    restarting.current = true;
-    try {
-      if (await settleBeforeLeaving()) location.reload();
-    } catch (e) {
-      setError(`Could not restart: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      restarting.current = false;
-    }
-  }, [settleBeforeLeaving]);
+  const leaving = useRef(false);
+  const leaveApp = useCallback(
+    async (go: () => void, failed: (error: string) => string) => {
+      if (leaving.current) return;
+      leaving.current = true;
+      try {
+        if (await settleBeforeLeaving()) go();
+      } catch (e) {
+        setError(failed(e instanceof Error ? e.message : String(e)));
+      } finally {
+        leaving.current = false;
+      }
+    },
+    [settleBeforeLeaving],
+  );
+
+  /**
+   * Restarts the app (Preferences › Language), after the same questions closing the window asks
+   * (the desktop app has no browser prompt on reload).
+   */
+  const restartApp = useCallback(() => leaveApp(() => location.reload(), (error) => msg('Could not restart: {error}', { error })), [leaveApp]);
 
   // The desktop app asks before its window closes while documents have unsaved changes: the page
   // reports whether any do, and on a close request asks about each one, showing it first.
@@ -4731,19 +4795,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   useEffect(() => {
     const host = desktop();
     if (!host?.onCloseRequest) return;
-    let asking = false;
-    return host.onCloseRequest(() => {
-      if (asking) return;
-      asking = true;
-      void (async () => {
-        try {
-          if (await settleBeforeLeaving()) host.closeWindow?.();
-        } finally {
-          asking = false;
-        }
-      })();
-    });
-  }, [settleBeforeLeaving]);
+    return host.onCloseRequest(() => void leaveApp(() => host.closeWindow?.(), (error) => msg('Could not close the window: {error}', { error })));
+  }, [leaveApp]);
 
   /** Closes tabs one after another, stopping when the person cancels one. */
   const requestCloseTabs = useCallback(
@@ -7456,9 +7509,11 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     // Selecting one list row selects its whole group (a Cloud+ is a cloud and a callout). That is still one comment.
     const oneGroup = !!first.groupId && ms.every((m) => m.groupId === first.groupId);
     const replyMarkup = oneGroup ? (ms.find((m) => isTextType(m.type)) ?? first) : first;
-    // A callout (alone, or with its cloud in a Cloud+) can take extra leaders.
+    // A callout (alone, or with its cloud in a Cloud+) can take extra leaders; a single text box
+    // becomes a callout when given one.
     const callouts = ms.filter((m) => m.type === 'callout');
     const callout = callouts.length === 1 ? callouts[0] : undefined;
+    const leaderTarget = callout ?? (one && first.type === 'text' ? first : undefined);
     const status = one ? first.status : null;
     const setStatus = (s: string) => {
       store.checkpoint();
@@ -7583,10 +7638,12 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             },
           ]
         : []),
-      ...(callout
+      ...(leaderTarget
         ? [
-            { label: 'Add Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.addCalloutLeader(callout.id) } as MenuEntry,
-            ...(callout.points.length >= 6 ? [{ label: 'Remove Last Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.removeCalloutLeader(callout.id) } as MenuEntry] : []),
+            { label: 'Add Leader', disabled: ro || !!leaderTarget.locked || !store.mayEdit(leaderTarget), onClick: () => c.tools.addCalloutLeader(leaderTarget.id) } as MenuEntry,
+            ...(leaderTarget.type === 'callout' && leaderTarget.points.length >= 6
+              ? [{ label: 'Remove Last Leader', disabled: ro || !!leaderTarget.locked || !store.mayEdit(leaderTarget), onClick: () => c.tools.removeCalloutLeader(leaderTarget.id) } as MenuEntry]
+              : []),
           ]
         : []),
       ...(one && first.attachment
@@ -11256,6 +11313,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           currentId={activeOpen?.file.id ?? null}
           currentPage={pageIndex}
           preview={previewPage}
+          openPage={openPickerPage}
+          onImportFile={importLibraryFile}
           onCancel={() => setCompareOpen(null)}
           onRun={(spec) => {
             setCompareOpen(null);
@@ -12364,7 +12423,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setLibraryOpen(false)}
         />
       )}
-      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} onRestart={() => void restartApp()} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
+      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} onRestart={restartApp} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
           documentColumns={activeOpen ? columnSet : null}

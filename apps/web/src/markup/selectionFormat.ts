@@ -39,6 +39,19 @@ export function styleMixed<K extends keyof MarkupStyle>(markups: readonly Pick<M
   return isMixed(markups.map((m) => (resolve ? resolve(m.style[key]) : m.style[key])));
 }
 
+/** Whether a selection consists solely of Cloud+ parts (clouds and callouts, at least one of each). */
+export function isCloudPlusSelection(markups: readonly Pick<Markup, 'type'>[]): boolean {
+  if (markups.length < 2) return false;
+  let hasCloud = false;
+  let hasCallout = false;
+  for (const m of markups) {
+    if (m.type === 'cloud') hasCloud = true;
+    else if (m.type === 'callout') hasCallout = true;
+    else return false;
+  }
+  return hasCloud && hasCallout;
+}
+
 /** The ribbon's tab following the selection. `onFormat`: showing the Markup Format tab. */
 export interface FormatFollow {
   onFormat: boolean;
