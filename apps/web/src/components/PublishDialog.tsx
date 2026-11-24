@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import { parsePageRange } from '../documents/printPdf';
 import type { Colourspace } from '../documents/imagePdf';
@@ -53,60 +55,55 @@ export function PublishDialog({ mode, pageCount, currentPage, busy, onRun, onClo
       >
         {mode === 'pdf' ? (
           <>
-            <h3>Publish</h3>
-            <p>Saves a copy to hand out. The document here is not changed.</p>
+            <h3>{msg('Publish')}</h3>
+            <p>{msg('Saves a copy to hand out. The document here is not changed.')}</p>
             <label className="field">
-              <input type="checkbox" checked={flatten} onChange={(e) => setFlatten(e.target.checked)} />
-              Flatten markups (part of the drawing; they cannot be edited or removed)
+              {keyed(msgParts('{input}Flatten markups (part of the drawing; they cannot be edited or removed)', { input: <input type="checkbox" checked={flatten} onChange={(e) => setFlatten(e.target.checked)} /> }))}
             </label>
             <label className="field">
-              <input type="checkbox" checked={clean} onChange={(e) => setClean(e.target.checked)} />
-              Remove editing history (write the file again from scratch)
+              {keyed(msgParts('{input}Remove editing history (write the file again from scratch)', { input: <input type="checkbox" checked={clean} onChange={(e) => setClean(e.target.checked)} /> }))}
             </label>
             <label className="field">
-              <input type="checkbox" checked={reduce} onChange={(e) => setReduce(e.target.checked)} />
-              Compress pictures
+              {keyed(msgParts('{input}Compress pictures', { input: <input type="checkbox" checked={reduce} onChange={(e) => setReduce(e.target.checked)} /> }))}
             </label>
             {reduce && (
               <label className="field">
-                JPEG quality
-                <input type="range" min={30} max={95} value={quality} onChange={(e) => setQuality(Number(e.target.value))} />
-                {quality}%
+                {keyed(msgParts('JPEG quality{input}{quality}%', { input: <input type="range" min={30} max={95} value={quality} onChange={(e) => setQuality(Number(e.target.value))} />, quality }))}
               </label>
             )}
           </>
         ) : (
           <>
-            <h3>Export Page Images</h3>
+            <h3>{msg('Export Page Images')}</h3>
             <div className="form-grid">
-              <label>Format</label>
+              <label>{msg('Format')}</label>
               <select value={format} onChange={(e) => setFormat(e.target.value as 'png' | 'jpeg' | 'tiff')}>
-                <option value="png">PNG (sharp lines)</option>
-                <option value="jpeg">JPEG (smaller)</option>
-                <option value="tiff">TIFF</option>
+                <option value="png">{msg('PNG (sharp lines)')}</option>
+                <option value="jpeg">{msg('JPEG (smaller)')}</option>
+                <option value="tiff">{msg('TIFF')}</option>
               </select>
-              <label>Colour</label>
+              <label>{msg('Colour')}</label>
               <select value={colour} onChange={(e) => setColour(e.target.value as Colourspace)} disabled={format === 'tiff' && settings.get().tiffCompression === 'ccittG4'}>
-                <option value="auto">As drawn</option>
-                <option value="colour">Colour</option>
-                <option value="grey">Greyscale</option>
-                <option value="mono">Black and white</option>
+                <option value="auto">{msg('As drawn')}</option>
+                <option value="colour">{msg('Colour')}</option>
+                <option value="grey">{msg('Greyscale')}</option>
+                <option value="mono">{msg('Black and white')}</option>
               </select>
-              <label>Resolution</label>
+              <label>{msg('Resolution')}</label>
               <select value={dpi} onChange={(e) => setDpi(Number(e.target.value))}>
                 {[...new Set([72, 96, 150, 200, 300, 400, 600, dpi])].sort((a, b) => a - b).map((d) => (
                   <option key={d} value={d}>
-                    {d} dpi
+                    {msg('{d} dpi', { d })}
                   </option>
                 ))}
               </select>
-              <label>Pages</label>
+              <label>{msg('Pages')}</label>
               <span className="radio-row">
                 <label>
-                  <input type="radio" checked={range === 'current'} onChange={() => setRange('current')} /> Current
+                  {keyed(msgParts('{input} Current', { input: <input type="radio" checked={range === 'current'} onChange={() => setRange('current')} /> }))}
                 </label>
                 <label>
-                  <input type="radio" checked={range === 'all'} onChange={() => setRange('all')} /> All ({pageCount})
+                  {keyed(msgParts('{input} All ({pageCount})', { input: <input type="radio" checked={range === 'all'} onChange={() => setRange('all')} />, pageCount }))}
                 </label>
                 <label>
                   <input type="radio" checked={range === 'range'} onChange={() => setRange('range')} />
@@ -115,21 +112,20 @@ export function PublishDialog({ mode, pageCount, currentPage, busy, onRun, onClo
               </span>
             </div>
             <label className="field">
-              <input type="checkbox" checked={markups} onChange={(e) => setMarkups(e.target.checked)} />
-              Include markups
+              {keyed(msgParts('{input}Include markups', { input: <input type="checkbox" checked={markups} onChange={(e) => setMarkups(e.target.checked)} /> }))}
             </label>
             <p className="pref-hint">
-              {format === 'tiff' && settings.get().tiffCompression === 'ccittG4' ? 'TIFFs use CCITT Group 4 compression, which is black and white (Preferences › Images). ' : ''}
-              {format === 'tiff' && settings.get().multiPageTiff ? 'All the pages go into one multi-page TIFF.' : 'Several pages are saved together in a .zip.'}
+              {format === 'tiff' && settings.get().tiffCompression === 'ccittG4' ? msg('TIFFs use CCITT Group 4 compression, which is black and white (Preferences › Images). ') : ''}
+              {format === 'tiff' && settings.get().multiPageTiff ? msg('All the pages go into one multi-page TIFF.') : msg('Several pages are saved together in a .zip.')}
             </p>
           </>
         )}
         <div className="actions">
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!valid || busy}>
-            {busy ? 'Working…' : mode === 'pdf' ? 'Publish' : 'Export'}
+            {busy ? msg('Working…') : mode === 'pdf' ? msg('Publish') : msg('Export')}
           </button>
         </div>
       </form>

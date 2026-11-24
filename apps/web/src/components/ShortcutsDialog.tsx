@@ -1,4 +1,6 @@
+import { msg } from '@nb/i18n';
 import { useMemo, useRef, useState } from 'react';
+import { categoryName } from '../i18n/names';
 import type { Command, CommandCategory } from '../commands/appCommands';
 import { assignKey, comboOf, DEFAULT_KEYS, formatCombo, keysFor, removeKey, resetKeys } from '../commands/keys';
 import { importRevuShortcuts, revu21Preset, revuNote } from '../commands/revuKeys';
@@ -27,23 +29,23 @@ export function ShortcutsDialog({ commands, onDownload, onClose }: Props) {
   const [note, setNote] = useState<string | null>(null);
   const importRef = useRef<HTMLInputElement>(null);
   const ids = useMemo(() => commands.map((c) => c.id), [commands]);
-  const labels = useMemo(() => new Map(commands.map((c) => [c.id, `${c.category} › ${c.label}`])), [commands]);
+  const labels = useMemo(() => new Map(commands.map((c) => [c.id, `${categoryName(c.category)} › ${c.label}`])), [commands]);
 
   const save = (next: Record<string, readonly string[]>) => updateWorkspace((w) => ({ ...w, shortcuts: next }));
   const record = (id: string, combo: string) => {
     if (RESERVED.has(combo)) {
-      setNote(`${combo} is kept for finishing and cancelling, so it cannot be a shortcut.`);
+      setNote(msg('{combo} is kept for finishing and cancelling, so it cannot be a shortcut.', { combo }));
       return;
     }
     const holder = ids.find((other) => other !== id && keysFor(other, overrides).includes(combo));
     save(assignKey(ids, overrides, id, combo));
-    setNote(holder ? `${formatCombo(combo)} moved from ${labels.get(holder)}.` : null);
+    setNote(holder ? msg('{combo} moved from {get}.', { combo: formatCombo(combo), get: labels.get(holder) }) : null);
     setRecording(null);
   };
 
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   const shown = commands.filter((c) => {
-    const hay = `${c.category} ${c.label} ${keysFor(c.id, overrides).join(' ')}`.toLowerCase();
+    const hay = `${c.category} ${categoryName(c.category)} ${c.label} ${keysFor(c.id, overrides).join(' ')}`.toLowerCase();
     return words.every((w) => hay.includes(w));
   });
   const changed = Object.keys(overrides).length;
@@ -53,7 +55,7 @@ export function ShortcutsDialog({ commands, onDownload, onClose }: Props) {
       <div
         className="modal shortcuts-editor"
         role="dialog"
-        aria-label="Keyboard shortcuts"
+        aria-label={msg('Keyboard shortcuts')}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
@@ -68,9 +70,9 @@ export function ShortcutsDialog({ commands, onDownload, onClose }: Props) {
           } else if (e.key === 'Escape') onClose();
         }}
       >
-        <h3>Keyboard Shortcuts</h3>
-        <p className="pref-hint">Click a command's key box, then press the new shortcut. Changes are saved to the active profile. The defaults follow Revu 21; Import… also reads Revu's KeyboardShortcuts.xml.</p>
-        <input autoFocus value={query} placeholder="Search commands or keys…" aria-label="Search shortcuts" onChange={(e) => setQuery(e.target.value)} />
+        <h3>{msg('Keyboard Shortcuts')}</h3>
+        <p className="pref-hint">{msg('Click a command\'s key box, then press the new shortcut. Changes are saved to the active profile. The defaults follow Revu 21; Import… also reads Revu\'s KeyboardShortcuts.xml.')}</p>
+        <input autoFocus value={query} placeholder={msg('Search commands or keys…')} aria-label={msg('Search shortcuts')} onChange={(e) => setQuery(e.target.value)} />
         {note && <p className="pref-hint note">{note}</p>}
         <div className="shortcut-list">
           {CATEGORIES.map((cat) => {
@@ -78,7 +80,7 @@ export function ShortcutsDialog({ commands, onDownload, onClose }: Props) {
             if (!rows.length) return null;
             return (
               <section key={cat}>
-                <h4>{cat}</h4>
+                <h4>{categoryName(cat)}</h4>
                 {rows.map((c) => {
                   const keys = keysFor(c.id, overrides);
                   const custom = c.id in overrides;
@@ -89,21 +91,21 @@ export function ShortcutsDialog({ commands, onDownload, onClose }: Props) {
                         {keys.map((k) => (
                           <span key={k} className="key-chip">
                             <kbd>{formatCombo(k)}</kbd>
-                            <button className="chip-x" title={`Remove ${formatCombo(k)}`} onClick={() => save(removeKey(overrides, c.id, k))}>
+                            <button className="chip-x" title={msg('Remove {combo}', { combo: formatCombo(k) })} onClick={() => save(removeKey(overrides, c.id, k))}>
                               ×
                             </button>
                           </span>
                         ))}
                         <button className={`btn small add-key${recording === c.id ? ' recording' : ''}`} onClick={() => setRecording(recording === c.id ? null : c.id)}>
-                          {recording === c.id ? 'Press keys…' : keys.length ? '+' : 'Add'}
+                          {recording === c.id ? msg('Press keys…') : keys.length ? '+' : msg('Add')}
                         </button>
                         {custom && (
                           <button
                             className="btn small"
-                            title={`Back to ${(DEFAULT_KEYS[c.id] ?? []).map((k) => formatCombo(k)).join(', ') || 'no shortcut'}`}
+                            title={msg('Back to {value}', { value: (DEFAULT_KEYS[c.id] ?? []).map((k) => formatCombo(k)).join(', ') || msg('no shortcut') })}
                             onClick={() => save(resetKeys(overrides, c.id))}
                           >
-                            Reset
+                            {msg('Reset')}
                           </button>
                         )}
                       </span>
@@ -140,36 +142,36 @@ export function ShortcutsDialog({ commands, onDownload, onClose }: Props) {
               const next: Record<string, string[]> = {};
               for (const [id, keys] of Object.entries(data.shortcuts)) if (Array.isArray(keys)) next[id] = keys.filter((k): k is string => typeof k === 'string');
               save(next);
-              setNote(`Imported shortcuts from ${file.name}.`);
+              setNote(msg('Imported shortcuts from {name}.', { name: file.name }));
             } catch {
-              setNote(`${file.name} is not a shortcuts file.`);
+              setNote(msg('{name} is not a shortcuts file.', { name: file.name }));
             }
           }}
         />
         <div className="actions">
-          <button className="btn" title="A shortcuts file exported here, or Revu's KeyboardShortcuts.xml" onClick={() => importRef.current?.click()}>
-            Import…
+          <button className="btn" title={msg('A shortcuts file exported here, or Revu\'s KeyboardShortcuts.xml')} onClick={() => importRef.current?.click()}>
+            {msg('Import…')}
           </button>
           <button
             className="btn"
-            title="Only Revu 21's own shortcuts: keys redcolumn adds (O for Offset, Ctrl+Shift+K for Find Commands…) are removed"
+            title={msg('Only Revu 21\'s own shortcuts: keys redcolumn adds (O for Offset, Ctrl+Shift+K for Find Commands…) are removed')}
             onClick={() => {
-              if (changed && !confirm('Replace your shortcuts with the Revu 21 preset?')) return;
+              if (changed && !confirm(msg('Replace your shortcuts with the Revu 21 preset?'))) return;
               save({ ...revu21Preset() });
-              setNote("Revu 21 preset: every shortcut is Revu 21's, and keys Revu does not have are off. Reset All goes back to redcolumn's defaults (Revu's keys plus a few of its own).");
+              setNote(msg("Revu 21 preset: every shortcut is Revu 21's, and keys Revu does not have are off. Reset All goes back to redcolumn's defaults (Revu's keys plus a few of its own)."));
             }}
           >
-            Revu 21 Preset
+            {msg('Revu 21 Preset')}
           </button>
           <button className="btn" onClick={() => onDownload('shortcuts.json', JSON.stringify({ format: 'nb-shortcuts', version: 1, shortcuts: overrides }, null, 2))}>
-            Export…
+            {msg('Export…')}
           </button>
-          <button className="btn" disabled={!changed} onClick={() => confirm('Put every shortcut back to its default?') && save({})}>
-            Reset All
+          <button className="btn" disabled={!changed} onClick={() => confirm(msg('Put every shortcut back to its default?')) && save({})}>
+            {msg('Reset All')}
           </button>
           <span className="spacer" />
           <button className="btn primary" onClick={onClose}>
-            Done
+            {msg('Done')}
           </button>
         </div>
       </div>

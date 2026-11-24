@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../../i18n/keyed';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { alignmentsIn, readChainages, regionOfBox, sheetTitled, spotCheckSample, stepMeter, textInRegion, type ChainageAmbiguity, type PageText, type SheetInfo } from '@nb/sheets';
 import type { DrawingStandard } from '../../sheets/standards';
@@ -33,32 +35,32 @@ interface Props {
 type Box = keyof ChainBoxes;
 const ORDER: Box[] = ['planChainage', 'planAlignment', 'sectionAlignment', 'sectionChainage'];
 
-const ASK: Record<Box, { title: string; how: string; label: string; gif: string }> = {
+const ASK = (): Record<Box, { title: string; how: string; label: string; gif: string }> => ({
   planChainage: {
-    title: 'Box a chainage on a plan',
-    how: 'Find a plan where chainages are marked along an alignment and drag a box around one: a tick label (100) or a written chainage (CH 100).',
+    title: msg('Box a chainage on a plan'),
+    how: msg('Find a plan where chainages are marked along an alignment and drag a box around one: a tick label (100) or a written chainage (CH 100).'),
     label: 'plan chainage',
     gif: 'plan-chainage',
   },
   planAlignment: {
-    title: 'Box the name of its alignment',
-    how: 'On the same plan, box the name of the alignment that chainage is on (MC00, LINE A). Many alignments share chainages, so this says which one CH 100 means.',
+    title: msg('Box the name of its alignment'),
+    how: msg('On the same plan, box the name of the alignment that chainage is on (MC00, LINE A). Many alignments share chainages, so this says which one CH 100 means.'),
     label: 'alignment',
     gif: 'plan-alignment',
   },
   sectionAlignment: {
-    title: 'Box the alignment on a cross-section sheet',
-    how: 'Go to a cross-section sheet of that alignment and box where it names the alignment: in the title, or the label beside a section.',
+    title: msg('Box the alignment on a cross-section sheet'),
+    how: msg('Go to a cross-section sheet of that alignment and box where it names the alignment: in the title, or the label beside a section.'),
     label: 'alignment',
     gif: 'section-alignment',
   },
   sectionChainage: {
-    title: 'Box one section’s chainage',
-    how: 'On that sheet, box the chainage of one section, with the word in front of it (CHAINAGE 100, CH 100).',
+    title: msg('Box one section’s chainage'),
+    how: msg('On that sheet, box the chainage of one section, with the word in front of it (CHAINAGE 100, CH 100).'),
     label: 'section chainage',
     gif: 'section-chainage',
   },
-};
+});
 
 /**
  * The chainage step of the setup wizard: four boxes make the chain a chainage link follows (a
@@ -93,7 +95,7 @@ export function ChainageStep(p: Props) {
     const shown: ShownBox[] = [];
     for (const k of ORDER) {
       const b = boxes[k];
-      if (b && b.pageIndex === p.page) shown.push({ key: k, ...b.box, label: ASK[k].label, tone: k === phase ? 'active' : 'done' });
+      if (b && b.pageIndex === p.page) shown.push({ key: k, ...b.box, label: ASK()[k].label, tone: k === phase ? 'active' : 'done' });
     }
     p.setSheet({ onBox, boxes: shown });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -152,7 +154,7 @@ export function ChainageStep(p: Props) {
 
   if (phase !== 'results') {
     const at = ORDER.indexOf(phase);
-    const ask = ASK[phase];
+    const ask = ASK()[phase];
     const box = boxes[phase];
     const isChainage = phase === 'planChainage' || phase === 'sectionChainage';
     const read = box ? textInRegion(box.contents.words, box.box) : '';
@@ -179,46 +181,46 @@ export function ChainageStep(p: Props) {
     };
     return (
       <section className="sw-question">
-        <p className="sw-progress">Chainages · {at + 1} of 5</p>
+        <p className="sw-progress">{msg('Chainages · {number} of 5', { number: at + 1 })}</p>
         <ol className="sw-checklist">
           {ORDER.map((k, i) => (
             <li key={k} className={`${k === phase ? 'current' : ''}${boxes[k] ? ' done' : ''}`}>
               <button type="button" disabled={!boxes[k] && i > at} onClick={() => goToBox(k)}>
                 {boxes[k] ? '✓ ' : ''}
-                {ASK[k].title}
+                {ASK()[k].title}
               </button>
             </li>
           ))}
         </ol>
         <h2>{ask.title}</h2>
         <p>{ask.how}</p>
-        <Gif src={`${window.location.origin}/help/gif/standards-chainage-${ask.gif}.gif`} alt={`Where to draw the ${ask.label} box on a sample drawing`} />
-        {!box && <p className="sw-hint">Drag on the sheet to draw the box. Scroll to zoom; drag with the middle button to move around.</p>}
+        <Gif src={`${window.location.origin}/help/gif/standards-chainage-${ask.gif}.gif`} alt={msg('Where to draw the {label} box on a sample drawing', { label: ask.label })} />
+        {!box && <p className="sw-hint">{msg('Drag on the sheet to draw the box. Scroll to zoom; drag with the middle button to move around.')}</p>}
         {phase === 'sectionAlignment' && !box && planName && (
           <p className="sw-hint">
             {sectionSheets.length
-              ? `Cross-section sheets that name ${planName}: ${sectionSheets.slice(0, 3).map(name).join(', ')}${sectionSheets.length > 3 ? ` and ${sectionSheets.length - 3} more` : ''}.`
-              : `No sheet title names ${planName} as a cross-section sheet. Find one with the thumbnails.`}
+              ? msg('Cross-section sheets that name {planName}: {list}{value}.', { planName, list: sectionSheets.slice(0, 3).map(name).join(', '), value: sectionSheets.length > 3 ? ' ' + msg('and {count} more', { count: sectionSheets.length - 3 }) : '' })
+              : msg('No sheet title names {planName} as a cross-section sheet. Find one with the thumbnails.', { planName })}
           </p>
         )}
         {box && (
           <div className="sw-result">
             <p className="sw-read">
-              Reads: <strong>{read || 'no text'}</strong>
+              {keyed(msgParts('Reads: {strong}', { strong: <strong>{read || 'no text'}</strong> }))}
             </p>
             {isChainage && (
               <p className={`sw-verdict ${ch ? 'good' : 'some'}`}>
-                {ch ? `Chainage ${ch.value}${ch.prefix ? `, written after ${ch.prefix}` : ch.plus ? '' : ', a bare number'}.` : 'No chainage read in this box.'}
+                {ch ? msg('Chainage {value}{value2}.', { value: ch.value, value2: ch.prefix ? msg(', written after {prefix}', { prefix: ch.prefix }) : ch.plus ? '' : msg(', a bare number') }) : msg('No chainage read in this box.')}
               </p>
             )}
-            {phase === 'sectionAlignment' && planName && !` ${alignmentSays(box)} `.includes(` ${planName} `) && <p className="sw-warn">The plan’s alignment is {planName}, but this box reads {alignmentSays(box) || 'nothing'}.</p>}
+            {phase === 'sectionAlignment' && planName && !` ${alignmentSays(box)} `.includes(` ${planName} `) && <p className="sw-warn">{msg('The plan’s alignment is {planName}, but this box reads {value}.', { planName, value: alignmentSays(box) || msg('nothing') })}</p>}
           </div>
         )}
         {problem && <p className="sw-warn">{problem}</p>}
-        <p className="sw-hint">These four boxes are the examples an AI assistant connected over MCP is given, to link the chainages text search cannot place.</p>
+        <p className="sw-hint">{msg('These four boxes are the examples an AI assistant connected over MCP is given, to link the chainages text search cannot place.')}</p>
         <div className="sw-nav">
           <button type="button" className="btn" onClick={back}>
-            Back
+            {msg('Back')}
           </button>
           {box && !p.readOnly && (
             <button
@@ -232,16 +234,16 @@ export function ChainageStep(p: Props) {
                 })
               }
             >
-              Re-draw box
+              {msg('Re-draw box')}
             </button>
           )}
           {at === 0 && !box && (
-            <button type="button" className="btn flat" onClick={p.onNext} title="Skip chainages: this set has none">
-              This set has none
+            <button type="button" className="btn flat" onClick={p.onNext} title={msg('Skip chainages: this set has none')}>
+              {msg('This set has none')}
             </button>
           )}
           <button type="button" className="btn primary" disabled={!box || (at === ORDER.length - 1 && (!p.texts || ORDER.some((k) => !boxes[k])))} onClick={next}>
-            {at === ORDER.length - 1 ? 'Find the rest' : 'Next'}
+            {at === ORDER.length - 1 ? msg('Find the rest') : msg('Next')}
           </button>
         </div>
       </section>
@@ -250,8 +252,8 @@ export function ChainageStep(p: Props) {
 
   return (
     <section className="sw-question">
-      <p className="sw-progress">Chainages · 5 of 5</p>
-      <h2>Check the chainages linked</h2>
+      <p className="sw-progress">{msg('Chainages · 5 of 5')}</p>
+      <h2>{msg('Check the chainages linked')}</h2>
       {notes.length > 0 && (
         <ul className="sw-notes">
           {notes.map((n) => (
@@ -259,21 +261,21 @@ export function ChainageStep(p: Props) {
           ))}
         </ul>
       )}
-      {!run && <p className="sw-hint">Looking through the set…</p>}
+      {!run && <p className="sw-hint">{msg('Looking through the set…')}</p>}
       {run && meter && (
         <>
-          <Meter meter={meter} places={run.places} linked={run.linked} what="chainage" />
+          <Meter meter={meter} places={run.places} linked={run.linked} what={msg('chainage')} />
           {run.ambiguous.length > 0 && (
             <>
-              <h3>Alignment unclear</h3>
-              <p className="sw-hint">Cross sections at these chainages are drawn for more than one alignment, and the sheet does not say which it means. Their links wait for review.</p>
+              <h3>{msg('Alignment unclear')}</h3>
+              <p className="sw-hint">{msg('Cross sections at these chainages are drawn for more than one alignment, and the sheet does not say which it means. Their links wait for review.')}</p>
               <ul className="sw-ambiguous">
                 {groupAmbiguous(run.ambiguous).map((g) => (
                   <li key={g.key}>
                     <button type="button" onClick={() => p.look(g.first.pageIndex, g.first.rect)}>
-                      CH {g.first.value} on {name(g.first.pageIndex)}
+                      {msg('CH {value} on {name}', { value: g.first.value, name: name(g.first.pageIndex) })}
                     </button>{' '}
-                    could be on {g.first.alignments.join(' or ')}
+                    {msg('could be on')} {g.first.alignments.join(' or ')}
                     {g.count > 1 ? ` (${g.count} places)` : ''}.
                   </li>
                 ))}
@@ -282,8 +284,8 @@ export function ChainageStep(p: Props) {
           )}
           {sample.length > 0 && (
             <>
-              <h3>Are these right?</h3>
-              <p className="sw-hint">Click a picture to see it on the sheet. Your answers set the meter, and are kept on the links.</p>
+              <h3>{msg('Are these right?')}</h3>
+              <p className="sw-hint">{msg('Click a picture to see it on the sheet. Your answers set the meter, and are kept on the links.')}</p>
               <ol className="sw-checks">
                 {sample.map((l) => (
                   <CheckCard
@@ -306,15 +308,14 @@ export function ChainageStep(p: Props) {
           )}
           {(meter.band === 'ai' || run.ambiguous.length > 0) && (
             <div className="sw-ai">
-              <strong>{meter.band === 'ai' ? 'Recommended: finish this step with AI.' : 'AI can settle the unclear ones.'}</strong> Chainage links need the alignment on both ends, and text alone often cannot tell it. An AI assistant connected to redcolumn over MCP can read the sheets, using the four boxes you drew as its examples.
-              <AskAi prompt={aiPrompt(p.standard, p.fileName, ['chainage'])} />
+              {keyed(msgParts('{strong} Chainage links need the alignment on both ends, and text alone often cannot tell it. An AI assistant connected to redcolumn over MCP can read the sheets, using the four boxes you drew as its examples.{askai}', { strong: <strong>{meter.band === 'ai' ? msg('Recommended: finish this step with AI.') : msg('AI can settle the unclear ones.')}</strong>, askai: <AskAi prompt={aiPrompt(p.standard, p.fileName, ['chainage'])} /> }))}
             </div>
           )}
         </>
       )}
       <div className="sw-nav">
         <button type="button" className="btn" onClick={p.onBack}>
-          Back
+          {msg('Back')}
         </button>
         <button
           type="button"
@@ -326,10 +327,10 @@ export function ChainageStep(p: Props) {
             setPhase('planChainage');
           }}
         >
-          Teach another example
+          {msg('Teach another example')}
         </button>
         <button type="button" className="btn primary" onClick={p.onNext}>
-          Next
+          {msg('Next')}
         </button>
       </div>
     </section>

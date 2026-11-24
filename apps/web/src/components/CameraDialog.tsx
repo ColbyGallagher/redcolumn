@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { flatSize, guessCorners, warpQuad, type Pt } from '../documents/perspective';
 import { settings } from '../settings/settings';
@@ -51,8 +52,8 @@ export function CameraDialog({ onDone, onCancel }: Props) {
         setStream(s);
         if (video.current) video.current.srcObject = s;
       })
-      .catch((err: Error) => setError(err.name === 'NotAllowedError' ? 'The camera is blocked for this site.' : `No camera: ${err.message}`));
-    if (!navigator.mediaDevices) setError('This browser has no camera access.');
+      .catch((err: Error) => setError(err.name === 'NotAllowedError' ? msg('The camera is blocked for this site.') : msg('No camera: {message}', { message: err.message })));
+    if (!navigator.mediaDevices) setError(msg('This browser has no camera access.'));
     return () => live?.getTracks().forEach((t) => t.stop());
   }, []);
 
@@ -110,7 +111,7 @@ export function CameraDialog({ onDone, onCancel }: Props) {
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Create PDF from Camera</h3>
+        <h3>{msg('Create PDF from Camera')}</h3>
         {error && <p className="error-text">{error}</p>}
         <div className="camera-body">
           {current ? (
@@ -131,30 +132,30 @@ export function CameraDialog({ onDone, onCancel }: Props) {
         </div>
         <div className="camera-strip">
           {shots.map((s, i) => (
-            <button key={s.id} className={`camera-thumb${s.id === editing ? ' active' : ''}`} onClick={() => setEditing(s.id === editing ? null : s.id)} title={`Page ${i + 1}: adjust its corners`}>
-              <img src={s.preview} alt={`Page ${i + 1}`} />
+            <button key={s.id} className={`camera-thumb${s.id === editing ? ' active' : ''}`} onClick={() => setEditing(s.id === editing ? null : s.id)} title={msg('Page {number}: adjust its corners', { number: i + 1 })}>
+              <img src={s.preview} alt={msg('Page {number}', { number: i + 1 })} />
               <span>{i + 1}</span>
             </button>
           ))}
         </div>
-        <p className="pref-hint">{current ? 'Drag the corners onto the corners of the page, then take the next photo or create the PDF.' : 'Point the camera at a page and take a photo; add as many pages as you like.'}</p>
+        <p className="pref-hint">{current ? msg('Drag the corners onto the corners of the page, then take the next photo or create the PDF.') : msg('Point the camera at a page and take a photo; add as many pages as you like.')}</p>
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           {current && (
             <button type="button" className="btn" onClick={() => {
               setShots((all) => all.filter((s) => s.id !== current.id));
               setEditing(null);
             }}>
-              Delete Page
+              {msg('Delete Page')}
             </button>
           )}
           <button type="button" className="btn" disabled={!stream} onClick={() => (current ? setEditing(null) : capture())}>
-            {current ? 'Next Photo' : '● Take Photo'}
+            {current ? msg('Next Photo') : msg('● Take Photo')}
           </button>
           <button type="button" className="btn primary" disabled={!shots.length || busy} onClick={() => void finish()}>
-            {busy ? 'Working…' : `Create PDF (${shots.length} page${shots.length === 1 ? '' : 's'})`}
+            {busy ? msg('Working…') : msg('Create PDF ({count, plural, one {# page} other {# pages}})', { count: shots.length })}
           </button>
         </div>
       </div>
@@ -185,7 +186,7 @@ function CornerEditor({ shot, onChange }: { shot: Shot; onChange: (corners: Pt[]
   };
   return (
     <div className="corner-editor" ref={box} style={{ aspectRatio: `${w} / ${h}` }}>
-      <img src={shot.preview} alt="Photo" draggable={false} />
+      <img src={shot.preview} alt={msg('Photo')} draggable={false} />
       <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
         <polygon points={shot.corners.map((c) => c.join(',')).join(' ')} />
       </svg>

@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../../i18n/keyed';
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { boxFromRegion, regionOfBox, templateRegex, type PageText, type SheetInfo, type TitleBox } from '@nb/sheets';
 import type { PreviewDrawing, PreviewView } from '../LinkPreview';
@@ -70,7 +72,7 @@ interface Props {
 
 const QUESTIONS = TITLE_QUESTIONS.length;
 const LAST_TITLE = QUESTIONS + TITLE_EXTRAS.length - 1;
-const FIELD_NAME: Record<TitleBox['field'], string> = { number: 'Number', title: 'Title', revision: 'Rev', scale: 'Scale', sheetSize: 'Size', custom: '', ignore: 'Ignore' };
+const FIELD_NAME = (): Record<TitleBox['field'], string> => ({ number: msg('Number'), title: msg('Title'), revision: msg('Rev'), scale: msg('Scale'), sheetSize: msg('Size'), custom: '', ignore: msg('Ignore') });
 
 /**
  * The drawing standards setup wizard: instructions and what has been read on the left (a third of
@@ -164,7 +166,7 @@ export function StandardsWizard(props: Props) {
   const titleBoxes: ShownBox[] = boxes.map((b, i) => {
     const r = regionOfBox(b, size);
     const active = !!answer && b === answer;
-    return { key: `${i}:${b.field}:${b.name ?? ''}`, ...r, label: b.field === 'custom' ? (b.name ?? '') : FIELD_NAME[b.field], tone: b.field === 'ignore' ? 'ignore' : active ? 'active' : 'done' };
+    return { key: `${i}:${b.field}:${b.name ?? ''}`, ...r, label: b.field === 'custom' ? (b.name ?? '') : FIELD_NAME()[b.field], tone: b.field === 'ignore' ? 'ignore' : active ? 'active' : 'done' };
   });
   // Once the number is boxed, later title-block questions show the title block, not the whole sheet.
   const focus = useMemo(() => {
@@ -223,7 +225,7 @@ export function StandardsWizard(props: Props) {
           <strong>{standard.name}</strong>
           <span>{props.fileName}</span>
         </div>
-        <nav className="sw-steps" aria-label="Setup steps">
+        <nav className="sw-steps" aria-label={msg('Setup steps')}>
           {WIZARD_STEPS.map((s, i) => (
             <button key={s.id} type="button" className={`sw-step${s.id === step ? ' current' : ''}${i < stepIndex ? ' past' : ''}`} aria-current={s.id === step ? 'step' : undefined} onClick={() => stepTo(s.id)}>
               <span className="sw-step-n">{i + 1}</span>
@@ -231,16 +233,16 @@ export function StandardsWizard(props: Props) {
             </button>
           ))}
         </nav>
-        <button type="button" className="btn small flat" onClick={props.onClose} aria-label="Close the setup">
-          Close
+        <button type="button" className="btn small flat" onClick={props.onClose} aria-label={msg('Close the setup')}>
+          {msg('Close')}
         </button>
       </header>
 
-      <aside className="sw-guide" aria-label="Instructions">
+      <aside className="sw-guide" aria-label={msg('Instructions')}>
         {step === 'titleBlock' && (
           <>
             <p className="sw-progress">
-              Title block · {question + 1} of {LAST_TITLE + 1}
+              {msg('Title block · {number} of {number2}', { number: question + 1, number2: LAST_TITLE + 1 })}
             </p>
             <ol className="sw-checklist">
               {[...TITLE_QUESTIONS.map((x) => ({ key: x.key, label: x.label, done: !!boxFor(boxes, x) })), ...TITLE_EXTRAS.map((x) => ({ key: x.id, label: x.label, done: false }))].map((item, i) => (
@@ -256,15 +258,15 @@ export function StandardsWizard(props: Props) {
               <section className="sw-question">
                 <h2>{q.label}</h2>
                 <p>{q.prompt}</p>
-                {readOnly && <p className="sw-warn">This document is read-only, so boxes cannot be drawn on it.</p>}
-                {!answer && !readOnly && <p className="sw-hint">Drag on the sheet to draw the box. Scroll to zoom; drag with the middle button to move around.</p>}
+                {readOnly && <p className="sw-warn">{msg('This document is read-only, so boxes cannot be drawn on it.')}</p>}
+                {!answer && !readOnly && <p className="sw-hint">{msg('Drag on the sheet to draw the box. Scroll to zoom; drag with the middle button to move around.')}</p>}
                 {answer && <BoxResult check={check} verdict={check ? checkVerdict(check, q.field) : null} sheets={sheets} onGoTo={goTo} />}
               </section>
             )}
             {extra === 'ownFields' && (
               <section className="sw-question">
-                <h2>Your own fields</h2>
-                <p>Anything else in the title block you want read from every sheet (Package, Drawn by, Contract). Name it, then draw its box.</p>
+                <h2>{msg('Your own fields')}</h2>
+                <p>{msg('Anything else in the title block you want read from every sheet (Package, Drawn by, Contract). Name it, then draw its box.')}</p>
                 <div className="sw-row">
                   <input
                     value={customName}
@@ -272,12 +274,12 @@ export function StandardsWizard(props: Props) {
                       setCustomName(e.target.value);
                       setDrawingCustom(false);
                     }}
-                    placeholder="Field name"
-                    aria-label="Field name"
+                    placeholder={msg('Field name')}
+                    aria-label={msg('Field name')}
                     maxLength={60}
                   />
                   <button type="button" className="btn small" disabled={!customName.trim() || !!nameProblem || readOnly} onClick={() => setDrawingCustom(true)}>
-                    {drawingCustom ? 'Drag on the sheet…' : 'Draw its box'}
+                    {drawingCustom ? msg('Drag on the sheet…') : msg('Draw its box')}
                   </button>
                 </div>
                 {nameProblem && <p className="sw-warn">{nameProblem}</p>}
@@ -291,33 +293,33 @@ export function StandardsWizard(props: Props) {
             )}
             {extra === 'ignore' && (
               <section className="sw-question">
-                <h2>Other numbers</h2>
-                <p>Box any number in the title block that is not the drawing number but looks like one: a contract number, a file name, a reference drawing. They are never taken for the sheet's number.</p>
+                <h2>{msg('Other numbers')}</h2>
+                <p>{msg('Box any number in the title block that is not the drawing number but looks like one: a contract number, a file name, a reference drawing. They are never taken for the sheet\'s number.')}</p>
                 <BoxList boxes={boxes.filter((b) => b.field === 'ignore')} texts={texts} page={page} onRemove={(b) => change((s) => ({ ...s, sheets: { ...s.sheets, boxes: s.sheets.boxes.filter((x) => x !== b) } }))} />
               </section>
             )}
             {extra === 'numbers' && <NumbersStep standard={standard} numbers={numbers} boxed={!!numberBox} reading={!texts} change={change} />}
             <div className="sw-nav">
               <button type="button" className="btn" onClick={back} disabled={question === 0}>
-                Back
+                {msg('Back')}
               </button>
               {q && answer && !readOnly && (
                 <button type="button" className="btn" onClick={() => change((s) => ({ ...s, sheets: { ...s.sheets, boxes: withAnswer(s.sheets.boxes, q, null) } }))}>
-                  Re-draw box
+                  {msg('Re-draw box')}
                 </button>
               )}
               {q?.optional && !answer && (
                 <button type="button" className="btn flat" onClick={next}>
-                  Skip
+                  {msg('Skip')}
                 </button>
               )}
               {question < LAST_TITLE ? (
                 <button type="button" className="btn primary" onClick={next} disabled={!!q && !q.optional && !answer}>
-                  Next
+                  {msg('Next')}
                 </button>
               ) : (
                 <button type="button" className="btn primary" onClick={() => stepTo('sections')}>
-                  Next: sections
+                  {msg('Next: sections')}
                 </button>
               )}
             </div>
@@ -400,14 +402,15 @@ export function StandardsWizard(props: Props) {
         )}
         {step === 'review' && (
           <section className="sw-question">
-            <h2>Review</h2>
+            <h2>{msg('Review')}</h2>
             <p>
-              {standard.name} reads {boxes.filter((b) => b.field !== 'ignore').length} title-block fields
-              {standard.sheets.template ? `, with drawing numbers like ${standard.sheets.template}` : ''}. It is saved in your profile as you go.
+              {standard.sheets.template
+                ? msg('{name} reads {count} title-block fields, with drawing numbers like {example}. It is saved in your profile as you go.', { name: standard.name, count: boxes.filter((b) => b.field !== 'ignore').length, example: standard.sheets.template })
+                : msg('{name} reads {count} title-block fields. It is saved in your profile as you go.', { name: standard.name, count: boxes.filter((b) => b.field !== 'ignore').length })}
             </p>
             {texts && numberBox && (
               <p>
-                The drawing number box reads a number on {numbers.length} of {texts.length} sheets in {props.fileName}.
+                {msg('The drawing number box reads a number on {count} of {count2} sheets in {fileName}.', { count: numbers.length, count2: texts.length, fileName: props.fileName })}
               </p>
             )}
             <ReviewSteps standard={standard} live={props.standards.find((x) => x.id === standard.id) ?? standard} fileName={props.fileName} readOnly={readOnly} change={change} onStep={stepTo} />
@@ -432,17 +435,17 @@ export function StandardsWizard(props: Props) {
             />
             <div className="sw-nav">
               <button type="button" className="btn" onClick={() => stepTo('chainage')}>
-                Back
+                {msg('Back')}
               </button>
               <button type="button" className="btn primary" disabled={readOnly} onClick={() => props.onUse(standard.id, checks)}>
-                Read this document with it
+                {msg('Read this document with it')}
               </button>
             </div>
           </section>
         )}
       </aside>
 
-      <div className="sw-split" role="separator" aria-orientation="vertical" aria-label="Resize the instructions" onPointerDown={splitDown} onPointerMove={splitMove} onPointerUp={splitUp} onPointerCancel={splitUp} />
+      <div className="sw-split" role="separator" aria-orientation="vertical" aria-label={msg('Resize the instructions')} onPointerDown={splitDown} onPointerMove={splitMove} onPointerUp={splitUp} onPointerCancel={splitUp} />
 
       <main className="sw-sheet">
         <div className="sw-sheet-body">
@@ -481,11 +484,11 @@ function StartScreen({ standards, readOnly, onClose, onStart, onSave, onImport }
   return (
     <div className="standards-wizard start">
       <section className="sw-start">
-        <h1>Set up a drawing standard</h1>
-        <p>A drawing standard is how one client draws: where its title block keeps the drawing number, title and revision, and how its sheets refer to each other. Set it up once on one of its sets; every set from that client is then read the same way.</p>
-        <p>The setup takes you through it a step at a time, with the sheet beside the instructions.</p>
+        <h1>{msg('Set up a drawing standard')}</h1>
+        <p>{msg('A drawing standard is how one client draws: where its title block keeps the drawing number, title and revision, and how its sheets refer to each other. Set it up once on one of its sets; every set from that client is then read the same way.')}</p>
+        <p>{msg('The setup takes you through it a step at a time, with the sheet beside the instructions.')}</p>
         <div className="sw-row">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Client or standard name" aria-label="Standard name" maxLength={200} />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={msg('Client or standard name')} aria-label={msg('Standard name')} maxLength={200} />
           <button
             type="button"
             className="btn primary"
@@ -496,12 +499,12 @@ function StartScreen({ standards, readOnly, onClose, onStart, onSave, onImport }
               onStart(s);
             }}
           >
-            Start
+            {msg('Start')}
           </button>
         </div>
         {standards.length > 0 && (
           <>
-            <h2>Or carry on with one you have</h2>
+            <h2>{msg('Or carry on with one you have')}</h2>
             <ul className="sw-standards">
               {standards.map((s) => (
                 <li key={s.id}>
@@ -514,9 +517,9 @@ function StartScreen({ standards, readOnly, onClose, onStart, onSave, onImport }
           </>
         )}
         <p className="sw-hint">
-          Someone shared a standard with you?{' '}
-          <button type="button" className="btn small" onClick={() => importRef.current?.click()} title="Add a standard someone shared (.rcstandard)">
-            Import…
+          {msg('Someone shared a standard with you?')}{' '}
+          <button type="button" className="btn small" onClick={() => importRef.current?.click()} title={msg('Add a standard someone shared (.rcstandard)')}>
+            {msg('Import…')}
           </button>
           <input
             ref={importRef}
@@ -532,7 +535,7 @@ function StartScreen({ standards, readOnly, onClose, onStart, onSave, onImport }
         </p>
         <div className="sw-nav">
           <button type="button" className="btn flat" onClick={onClose}>
-            Close
+            {msg('Close')}
           </button>
         </div>
       </section>
@@ -541,28 +544,28 @@ function StartScreen({ standards, readOnly, onClose, onStart, onSave, onImport }
 }
 
 function BoxResult({ check, verdict, sheets, onGoTo }: { check: ReturnType<typeof checkBox> | null; verdict: 'good' | 'some' | 'poor' | null; sheets: Props['sheets']; onGoTo: (page: number) => void }) {
-  if (!check) return <p className="sw-hint">Reading the set's text…</p>;
+  if (!check) return <p className="sw-hint">{msg('Reading the set\'s text…')}</p>;
   return (
     <div className="sw-result">
       <p className="sw-read">
-        Reads: <strong>{check.here ?? 'nothing'}</strong>
+        {keyed(msgParts('Reads: {strong}', { strong: <strong>{check.here ?? 'nothing'}</strong> }))}
       </p>
       <p className={`sw-verdict ${verdict}`}>
-        Read on {check.read} of {check.of} sheets
-        {check.empty.length > 0 && check.empty.length < check.of && ' (the others are marked in the thumbnails)'}
-        {verdict === 'good' && ' — looks right.'}
-        {verdict === 'some' && ' — some sheets have nothing there (covers and indexes often don’t).'}
-        {verdict === 'poor' && (check.here ? ' — too few; try a box that takes in the whole field.' : ' — nothing read on this sheet; draw the box around the text itself.')}
+        {msg('Read on {read} of {total} sheets', { read: check.read, total: check.of })}
+        {check.empty.length > 0 && check.empty.length < check.of && ' ' + msg('(the others are marked in the thumbnails)')}
+        {verdict === 'good' && ' ' + msg('— looks right.')}
+        {verdict === 'some' && ' ' + msg('— some sheets have nothing there (covers and indexes often don’t).')}
+        {verdict === 'poor' && (check.here ? ' ' + msg('— too few; try a box that takes in the whole field.') : ' ' + msg('— nothing read on this sheet; draw the box around the text itself.'))}
       </p>
-      {check.repeated.length > 0 && <p className="sw-warn">The same number is read on several sheets ({check.repeated.slice(0, 3).join(', ')}). Is the box on the drawing number?</p>}
+      {check.repeated.length > 0 && <p className="sw-warn">{msg('The same number is read on several sheets ({slice}). Is the box on the drawing number?', { slice: check.repeated.slice(0, 3).join(', ') })}</p>}
       <table className="sw-samples">
-        <caption>On other sheets</caption>
+        <caption>{msg('On other sheets')}</caption>
         <tbody>
           {check.samples.map((s) => (
             <tr key={s.page}>
               <td>
                 <button type="button" className="sw-link" title={sheets[s.page]?.number ?? undefined} onClick={() => onGoTo(s.page)}>
-                  Sheet {s.page + 1}
+                  {msg('Sheet {page}', { page: s.page + 1 })}
                 </button>
               </td>
               <td className={s.value ? '' : 'none'}>{s.value ?? 'nothing'}</td>
@@ -575,17 +578,17 @@ function BoxResult({ check, verdict, sheets, onGoTo }: { check: ReturnType<typeo
 }
 
 function BoxList({ boxes, texts, page, onRemove }: { boxes: TitleBox[]; texts: readonly PageText[] | null; page: number; onRemove: (b: TitleBox) => void }) {
-  if (!boxes.length) return <p className="sw-hint">None yet.</p>;
+  if (!boxes.length) return <p className="sw-hint">{msg('None yet.')}</p>;
   return (
     <ul className="sw-boxes">
       {boxes.map((b, i) => {
         const c = texts ? checkBox(texts, b, page) : null;
         return (
           <li key={i}>
-            <span>{b.field === 'custom' ? b.name : 'Ignored'}</span>
+            <span>{b.field === 'custom' ? b.name : msg('Ignored')}</span>
             <span className="sw-box-value">{c ? (c.here ?? 'nothing here') : '…'}</span>
-            <button type="button" className="btn small flat" onClick={() => onRemove(b)} aria-label={`Remove ${b.field === 'custom' ? b.name : 'ignored box'}`}>
-              Remove
+            <button type="button" className="btn small flat" onClick={() => onRemove(b)} aria-label={b.field === 'custom' ? msg('Remove {name}', { name: b.name }) : msg('Remove ignored box')}>
+              {msg('Remove')}
             </button>
           </li>
         );
@@ -610,44 +613,50 @@ function NumbersStep({ standard, numbers, boxed, reading, change }: { standard: 
   const part = standard.sheets.disciplinePart;
   const codes = candidates.find((c) => c.part === part)?.codes ?? [];
   const setSheets = (patch: Partial<DrawingStandard['sheets']>) => change((s) => ({ ...s, sheets: { ...s.sheets, ...patch } }));
-  if (!boxed) return <p className="sw-warn">Box the drawing number first (step 1), so its numbers can be read.</p>;
-  if (reading) return <p className="sw-hint">Reading the set's text…</p>;
+  if (!boxed) return <p className="sw-warn">{msg('Box the drawing number first (step 1), so its numbers can be read.')}</p>;
+  if (reading) return <p className="sw-hint">{msg('Reading the set\'s text…')}</p>;
   return (
     <section className="sw-question">
-      <h2>Drawing numbers</h2>
+      <h2>{msg('Drawing numbers')}</h2>
       <p>
-        How this client builds drawing numbers: <code>#</code> a digit, <code>@</code> a letter, <code>?</code> either, <code>*</code> a run of them. Numbers that do not fit (another consultant’s sheets) are left to the text.
+        {keyed(
+          msgParts('How this client builds drawing numbers: {digit} a digit, {letter} a letter, {either} either, {run} a run of them. Numbers that do not fit (another consultant’s sheets) are left to the text.', {
+            digit: <code>#</code>,
+            letter: <code>@</code>,
+            either: <code>?</code>,
+            run: <code>*</code>,
+          }),
+        )}
       </p>
       <div className="sw-row">
-        <input value={template ?? ''} onChange={(e) => setSheets({ template: e.target.value.trim() || null })} placeholder={suggested ?? 'Any number'} aria-label="Drawing number template" />
+        <input value={template ?? ''} onChange={(e) => setSheets({ template: e.target.value.trim() || null })} placeholder={suggested ?? msg('Any number')} aria-label={msg('Drawing number template')} />
         {suggested && suggested !== template && (
           <button type="button" className="btn small" onClick={() => setSheets({ template: suggested })}>
-            Use {suggested}
+            {msg('Use {suggested}', { suggested })}
           </button>
         )}
       </div>
       {fits !== null && (
         <p className={`sw-verdict ${fits === numbers.length ? 'good' : 'some'}`}>
-          {fits} of {numbers.length} numbers read fit.
+          {msg('{fits} of {count} numbers read fit.', { fits, count: numbers.length })}
         </p>
       )}
       {candidates.length > 0 && (
         <>
-          <h3>Which part names the discipline?</h3>
-          <div className="sw-choices" role="radiogroup" aria-label="Discipline part">
+          <h3>{msg('Which part names the discipline?')}</h3>
+          <div className="sw-choices" role="radiogroup" aria-label={msg('Discipline part')}>
             <label>
-              <input type="radio" checked={part === null} onChange={() => setSheets({ disciplinePart: null })} /> None of them
+              {keyed(msgParts('{input} None of them', { input: <input type="radio" checked={part === null} onChange={() => setSheets({ disciplinePart: null })} /> }))}
             </label>
             {candidates.map((c) => (
               <label key={c.part}>
-                <input type="radio" checked={part === c.part} onChange={() => setSheets({ disciplinePart: c.part })} /> Part {c.part + 1}: {c.codes.slice(0, 6).join(', ')}
-                {c.codes.length > 6 ? '…' : ''}
+                {keyed(msgParts('{input} Part {number}: {slice}{value2}', { input: <input type="radio" checked={part === c.part} onChange={() => setSheets({ disciplinePart: c.part })} />, number: c.part + 1, slice: c.codes.slice(0, 6).join(', '), value2: c.codes.length > 6 ? '…' : '' }))}
               </label>
             ))}
           </div>
           {part !== null && codes.length > 0 && (
             <table className="sw-samples">
-              <caption>Discipline names</caption>
+              <caption>{msg('Discipline names')}</caption>
               <tbody>
                 {codes.map((code) => (
                   <tr key={code}>
@@ -656,7 +665,7 @@ function NumbersStep({ standard, numbers, boxed, reading, change }: { standard: 
                       <input
                         value={standard.sheets.disciplines[code] ?? ''}
                         placeholder={code}
-                        aria-label={`Discipline name for ${code}`}
+                        aria-label={msg('Discipline name for {code}', { code })}
                         maxLength={100}
                         onChange={(e) => {
                           const name = e.target.value;
@@ -679,8 +688,8 @@ function NumbersStep({ standard, numbers, boxed, reading, change }: { standard: 
   );
 }
 
-const STEP_LABEL: Record<SetupStep, string> = { sections: 'Sections', elevations: 'Elevations', details: 'Details', matchLines: 'Match lines', chainage: 'Chainages' };
-const BAND_LABEL = { good: 'Good', review: 'Review', ai: 'Recommend AI' } as const;
+const STEP_LABEL = (): Record<SetupStep, string> => ({ sections: msg('Sections'), elevations: msg('Elevations'), details: msg('Details'), matchLines: msg('Match lines'), chainage: msg('Chainages') });
+const BAND_LABEL = () => ({ good: msg('Good'), review: msg('Review'), ai: msg('Recommend AI') }) as const;
 
 /**
  * The review's summary of the link steps (how each last did), the words an AI assistant proposed
@@ -696,9 +705,9 @@ function ReviewSteps({ standard, live, fileName, readOnly, change, onStep }: { s
       <table className="sw-review">
         <thead>
           <tr>
-            <th>Step</th>
-            <th>Linked</th>
-            <th>Verdict</th>
+            <th>{msg('Step')}</th>
+            <th>{msg('Linked')}</th>
+            <th>{msg('Verdict')}</th>
           </tr>
         </thead>
         <tbody>
@@ -708,11 +717,11 @@ function ReviewSteps({ standard, live, fileName, readOnly, change, onStep }: { s
               <tr key={step}>
                 <td>
                   <button type="button" className="sw-link" onClick={() => onStep(step)}>
-                    {STEP_LABEL[step]}
+                    {STEP_LABEL()[step]}
                   </button>
                 </td>
                 <td>{r ? `${r.linked} of ${r.references}` : '—'}</td>
-                <td className={r ? `band ${r.band}` : ''}>{r ? BAND_LABEL[r.band] : 'Not run'}</td>
+                <td className={r ? `band ${r.band}` : ''}>{r ? BAND_LABEL()[r.band] : msg('Not run')}</td>
               </tr>
             );
           })}
@@ -720,13 +729,12 @@ function ReviewSteps({ standard, live, fileName, readOnly, change, onStep }: { s
       </table>
       {forAi.length > 0 && (
         <div className="sw-ai">
-          <strong>{forAi.length === 1 ? 'One step' : `${forAi.length} steps`} could use AI:</strong> {forAi.map((s) => STEP_LABEL[s]).join(', ')}. An AI assistant connected to redcolumn over MCP reads the sheets with your examples and proposes links and words; nothing is used until you keep it.
-          <AskAi prompt={aiPrompt(standard, fileName, forAi)} />
+          {keyed(msgParts('{strong} {list}. An AI assistant connected to redcolumn over MCP reads the sheets with your examples and proposes links and words; nothing is used until you keep it.{askai}', { strong: <strong>{msg('{value} could use AI:', { value: forAi.length === 1 ? msg('One step') : msg('{count} steps', { count: forAi.length }) })}</strong>, list: forAi.map((s) => STEP_LABEL()[s]).join(', '), askai: <AskAi prompt={aiPrompt(standard, fileName, forAi)} /> }))}
         </div>
       )}
       {proposals.length > 0 && (
         <>
-          <h3>Proposed by AI</h3>
+          <h3>{msg('Proposed by AI')}</h3>
           <ul className="sw-proposals">
             {proposals.map((p) => (
               <li key={p.id}>
@@ -738,16 +746,16 @@ function ReviewSteps({ standard, live, fileName, readOnly, change, onStep }: { s
                 <p className="sw-hint">{p.reasoning}</p>
                 <div className="sw-row">
                   <button type="button" className="btn small primary" disabled={readOnly} onClick={() => change((s) => acceptProposal(s, p.id))}>
-                    Add these words
+                    {msg('Add these words')}
                   </button>
                   <button type="button" className="btn small" disabled={readOnly} onClick={() => change((s) => dismissProposal(s, p.id))}>
-                    Dismiss
+                    {msg('Dismiss')}
                   </button>
                 </div>
               </li>
             ))}
           </ul>
-          <p className="sw-hint">Links an AI assistant proposes wait in the Links panel, under Needs review.</p>
+          <p className="sw-hint">{msg('Links an AI assistant proposes wait in the Links panel, under Needs review.')}</p>
         </>
       )}
     </>

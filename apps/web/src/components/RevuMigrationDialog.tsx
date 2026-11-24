@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { desktop } from '../desktop/host';
 import { REVU_KIND_LABEL, REVU_KINDS, revuItems, splitPickedFolder, type RevuKind } from '../migrate/revuFolder';
@@ -84,7 +86,7 @@ export function RevuMigrationDialog({ onClose, onHelp }: { onClose: () => void; 
     setVersions(found);
     setVersion(found[0]?.version ?? '');
     setOff(new Set());
-    setError(found.length ? null : 'No Revu tool sets, stamps or other libraries in that folder. Choose the folder named 21 (or 20, 2019…) under Bluebeam Software\\Revu.');
+    setError(found.length ? null : msg('No Revu tool sets, stamps or other libraries in that folder. Choose the folder named 21 (or 20, 2019…) under Bluebeam Software\\Revu.'));
   };
 
   const start = async () => {
@@ -100,39 +102,39 @@ export function RevuMigrationDialog({ onClose, onHelp }: { onClose: () => void; 
       <div
         className="modal revu-migration"
         role="dialog"
-        aria-label="Migrate from Revu"
+        aria-label={msg('Migrate from Revu')}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === 'Escape' && !busy) onClose();
         }}
       >
-        <h3>Migrate from Revu</h3>
-        {stage.at === 'finding' && <p className="pref-hint">Looking for Revu's settings on this computer…</p>}
+        <h3>{msg('Migrate from Revu')}</h3>
+        {stage.at === 'finding' && <p className="pref-hint">{msg('Looking for Revu\'s settings on this computer…')}</p>}
 
         {stage.at === 'choose' && (
           <>
             {scanner && !versions.length && !error && (
-              <p>No Revu settings were found in {REVU_FOLDER.replace('\\21', '')} on this computer. If they are somewhere else (a copy from another computer, say), choose the folder.</p>
+              <p>{msg('No Revu settings were found in {replace} on this computer. If they are somewhere else (a copy from another computer, say), choose the folder.', { replace: REVU_FOLDER.replace('\\21', '') })}</p>
             )}
             {!scanner && !versions.length && (
               <p>
-                Choose Revu's settings folder: in File Explorer, go to <code>{REVU_FOLDER}</code> (or 20, 2019… for older versions). The browser reads only the library files in it, and nothing leaves this computer.
+                {keyed(msgParts('Choose Revu\'s settings folder: in File Explorer, go to {code} (or 20, 2019… for older versions). The browser reads only the library files in it, and nothing leaves this computer.', { code: <code>{REVU_FOLDER}</code> }))}
               </p>
             )}
             {error && <p className="pref-hint note">{error}</p>}
             {versions.length > 0 && current && (
               <>
                 <p className="pref-hint">
-                  Ticked items are added to the profile <strong>{profileName}</strong>. Importing a tool set or profile twice adds it twice; stamps, hatch sets, bookmark templates and categories of the same name are replaced.
+                  {keyed(msgParts('Ticked items are added to the profile {strong}. Importing a tool set or profile twice adds it twice; stamps, hatch sets, bookmark templates and categories of the same name are replaced.', { strong: <strong>{profileName}</strong> }))}
                 </p>
                 {versions.length > 1 && (
                   <label className="revu-version">
-                    Revu version{' '}
+                    {msg('Revu version')}{' '}
                     <select value={current.version} onChange={(e) => setVersion(e.target.value)}>
                       {versions.map((v) => (
                         <option key={v.version} value={v.version}>
-                          {/^\d+$/.test(v.version) ? `Revu ${v.version}` : v.version} ({v.items.length} items)
+                          {msg('{value} ({count} items)', { value: /^\d+$/.test(v.version) ? `Revu ${v.version}` : v.version, count: v.items.length })}
                         </option>
                       ))}
                     </select>
@@ -157,7 +159,7 @@ export function RevuMigrationDialog({ onClose, onHelp }: { onClose: () => void; 
                             {REVU_KIND_LABEL[kind]}
                           </label>
                           <span className="count">
-                            {on} of {list.length}
+                            {msg('{on} of {count}', { on, count: list.length })}
                           </span>
                           {list.length > 1 || kind !== 'shortcuts' ? (
                             <button
@@ -172,11 +174,11 @@ export function RevuMigrationDialog({ onClose, onHelp }: { onClose: () => void; 
                                 })
                               }
                             >
-                              {expanded ? 'Hide' : 'Show'}
+                              {expanded ? msg('Hide') : msg('Show')}
                             </button>
                           ) : null}
                         </div>
-                        {kind === 'shortcuts' && <p className="pref-hint">Replaces this profile's shortcuts with the ones in Revu, where redcolumn has the command.</p>}
+                        {kind === 'shortcuts' && <p className="pref-hint">{msg('Replaces this profile\'s shortcuts with the ones in Revu, where redcolumn has the command.')}</p>}
                         {expanded && (
                           <ul className="revu-files">
                             {list.map((i) => (
@@ -201,7 +203,7 @@ export function RevuMigrationDialog({ onClose, onHelp }: { onClose: () => void; 
         {stage.at === 'importing' && (
           <>
             <p>
-              Importing {REVU_KIND_LABEL[stage.kind].toLowerCase()}… ({stage.done} of {stage.total})
+              {msg('Importing {value}… ({done} of {total})', { value: REVU_KIND_LABEL[stage.kind].toLowerCase(), done: stage.done, total: stage.total })}
             </p>
             <progress max={stage.total} value={stage.done} />
           </>
@@ -220,10 +222,10 @@ export function RevuMigrationDialog({ onClose, onHelp }: { onClose: () => void; 
                     {n}
                   </p>
                 ))}
-                {!r.notes.length && !r.failed.length && <p>Nothing imported.</p>}
+                {!r.notes.length && !r.failed.length && <p>{msg('Nothing imported.')}</p>}
               </section>
             ))}
-            <p className="pref-hint">Some Revu settings have no equivalent yet and are not imported: see the help page for the list.</p>
+            <p className="pref-hint">{msg('Some Revu settings have no equivalent yet and are not imported: see the help page for the list.')}</p>
           </div>
         )}
 
@@ -239,7 +241,7 @@ export function RevuMigrationDialog({ onClose, onHelp }: { onClose: () => void; 
         />
         <div className="actions">
           <button className="btn" onClick={onHelp}>
-            Help
+            {msg('Help')}
           </button>
           {stage.at === 'choose' && (
             <button
@@ -249,21 +251,21 @@ export function RevuMigrationDialog({ onClose, onHelp }: { onClose: () => void; 
                 pickRef.current?.click();
               }}
             >
-              {versions.length ? 'Choose Another Folder…' : 'Choose Folder…'}
+              {versions.length ? msg('Choose Another Folder…') : msg('Choose Folder…')}
             </button>
           )}
           <span className="spacer" />
           {stage.at === 'done' ? (
             <button className="btn primary" onClick={onClose}>
-              Done
+              {msg('Done')}
             </button>
           ) : (
             <>
               <button className="btn" disabled={busy} onClick={onClose}>
-                Cancel
+                {msg('Cancel')}
               </button>
               <button className="btn primary" disabled={stage.at !== 'choose' || !chosen.length} onClick={() => void start()}>
-                {chosen.length ? `Import ${chosen.length} Item${chosen.length === 1 ? '' : 's'}` : 'Import'}
+                {chosen.length ? msg('Import {count, plural, one {# Item} other {# Items}}', { count: chosen.length }) : msg('Import')}
               </button>
             </>
           )}

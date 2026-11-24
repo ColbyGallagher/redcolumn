@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useRef, useState } from 'react';
 import type { StoredFile } from '../storage/fileStore';
 
@@ -55,40 +57,40 @@ export function SlipSheetDialog({ targetName, files, closed, onRun, onCancel }: 
           if (sources.length) onRun({ sources, mode, addUnmatched, alignMarkups, leaveClosed });
         }}
       >
-        <h3>Slip Sheet</h3>
+        <h3>{msg('Slip Sheet')}</h3>
         <p>
-          New revisions of sheets replace the old ones in <b>{targetName}</b>. Each sheet keeps its place and its markups; the current set is kept as a revision.
+          {keyed(msgParts('New revisions of sheets replace the old ones in {b}. Each sheet keeps its place and its markups; the current set is kept as a revision.', { b: <b>{targetName}</b> }))}
         </p>
         <fieldset>
-          <legend>New revisions</legend>
+          <legend>{msg('New revisions')}</legend>
           {sources.length ? (
             <ul className="slip-sources">
               {sources.map((s, i) => (
                 <li key={i}>
                   <span>{sourceName(s)}</span>
-                  <button type="button" className="btn small flat" title="Remove" onClick={() => setSources((cur) => cur.filter((_, k) => k !== i))}>
+                  <button type="button" className="btn small flat" title={msg('Remove')} onClick={() => setSources((cur) => cur.filter((_, k) => k !== i))}>
                     ×
                   </button>
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="print-hint">Add the PDFs with the new sheets.</p>
+            <p className="print-hint">{msg('Add the PDFs with the new sheets.')}</p>
           )}
           <div className="row">
             <button type="button" className="btn small" onClick={() => input.current?.click()}>
-              Add files…
+              {msg('Add files…')}
             </button>
             <select
               value={pick}
-              aria-label="Add from the library"
+              aria-label={msg('Add from the library')}
               onChange={(e) => {
                 const f = files.find((x) => x.id === e.target.value);
                 if (f) add([{ kind: 'library', id: f.id, name: f.name }]);
                 setPick('');
               }}
             >
-              <option value="">Add from the library…</option>
+              <option value="">{msg('Add from the library…')}</option>
               {files.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name}
@@ -109,40 +111,35 @@ export function SlipSheetDialog({ targetName, files, closed, onRun, onCancel }: 
           />
         </fieldset>
         <fieldset>
-          <legend>Match sheets</legend>
+          <legend>{msg('Match sheets')}</legend>
           <label className="row">
-            <input type="radio" checked={mode === 'sheet'} onChange={() => setMode('sheet')} />
-            By sheet number
+            {keyed(msgParts('{input}By sheet number', { input: <input type="radio" checked={mode === 'sheet'} onChange={() => setMode('sheet')} /> }))}
           </label>
           <label className="row">
-            <input type="radio" checked={mode === 'order'} onChange={() => setMode('order')} />
-            By page order (the new pages replace pages 1, 2, 3…)
+            {keyed(msgParts('{input}By page order (the new pages replace pages 1, 2, 3…)', { input: <input type="radio" checked={mode === 'order'} onChange={() => setMode('order')} /> }))}
           </label>
         </fieldset>
         <label className="check">
-          <input type="checkbox" checked={addUnmatched} onChange={(e) => setAddUnmatched(e.target.checked)} />
-          Add new sheets that don't match any page, at the end
+          {keyed(msgParts('{input}Add new sheets that don\'t match any page, at the end', { input: <input type="checkbox" checked={addUnmatched} onChange={(e) => setAddUnmatched(e.target.checked)} /> }))}
         </label>
         <label className="check">
-          <input type="checkbox" checked={alignMarkups} onChange={(e) => setAlignMarkups(e.target.checked)} />
-          Move markups to line up with the new sheets
+          {keyed(msgParts('{input}Move markups to line up with the new sheets', { input: <input type="checkbox" checked={alignMarkups} onChange={(e) => setAlignMarkups(e.target.checked)} /> }))}
         </label>
         <label className="check">
-          <input type="checkbox" checked={leaveClosed} onChange={(e) => setLeaveClosed(e.target.checked)} />
-          Leave closed comments behind
+          {keyed(msgParts('{input}Leave closed comments behind', { input: <input type="checkbox" checked={leaveClosed} onChange={(e) => setLeaveClosed(e.target.checked)} /> }))}
         </label>
         <p className="print-hint">
           {leaveClosed
-            ? `Comments that are ${closed.means} on the replaced sheets are not carried to the new revision (${closed.count} in this document now). They stay in the copy of the current set kept under Document › Revisions. Open comments carry forward.`
-            : 'Every comment carries forward to the new revision, open or closed.'}
+            ? msg('Comments that are {means} on the replaced sheets are not carried to the new revision ({count} in this document now). They stay in the copy of the current set kept under Document › Revisions. Open comments carry forward.', { means: closed.means, count: closed.count })
+            : msg('Every comment carries forward to the new revision, open or closed.')}
         </p>
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!sources.length}>
-            Slip Sheet
+            {msg('Slip Sheet')}
           </button>
         </div>
       </form>

@@ -277,7 +277,7 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
         {list.length > limit && (
           <li className="sc-more">
             <button className="btn small flat" onClick={() => setLimit(limit + PAGE)}>
-              {msg('Show {count} more of {count2}', { count: Math.min(PAGE, list.length - limit), count2: list.length - limit })}
+              {msg('Show {count} more of {total}', { count: Math.min(PAGE, list.length - limit), total: list.length - limit })}
             </button>
           </li>
         )}

@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { DEFAULT_STYLES, DYNAMIC_FIELD_NAMES, drawMarkup, fillStampFieldsNow, isDynamicFieldName, onImageLoad, removeFieldToken, renameFieldToken, resolveStamp, setStampField, STAMP_FIELDS, stampAspect, stampFieldValues, stampFormColor, type Markup, type StampArtText, type StampDef, type StampField, type StampOption } from '@nb/markup';
@@ -13,7 +14,7 @@ interface Props {
 }
 
 function blankStamp(): StampDef {
-  return { id: crypto.randomUUID(), name: 'New Stamp', lines: ['CHECKED', 'By {User} on {Date}'], color: '#1d4ed8', frame: 'rounded' };
+  return { id: crypto.randomUUID(), name: msg('New Stamp'), lines: ['CHECKED', 'By {User} on {Date}'], color: '#1d4ed8', frame: 'rounded' };
 }
 
 /** How far in from the preview's edge the stamp is drawn, so its frame is not cut off. */
@@ -78,8 +79,8 @@ function ArtTextPositioner({ stamp, author, width, values, onMove }: { stamp: St
           role="button"
           tabIndex={0}
           className="stamp-art-handle"
-          aria-label={`Move text ${i + 1}`}
-          title={`${t.text} (drag to move)`}
+          aria-label={msg('Move text {number}', { number: i + 1 })}
+          title={msg('{text} (drag to move)', { text: t.text })}
           style={{ left: PREVIEW_INSET + t.x * w, top: PREVIEW_INSET + t.y * h, width: t.w * w, height: t.h * h }}
           onPointerDown={(e) => {
             e.preventDefault();
@@ -177,7 +178,7 @@ function optionHint(fields: StampField[], o: StampOption): string | undefined {
       const f = fields.find((x) => x.id === id);
       if (!f) return '';
       if (f.kind === 'choice') return v ? `ticks “${v}”` : `clears ${f.label}`;
-      return v ? `sets ${f.label} to “${v}”` : `clears ${f.label}`;
+      return v ? msg('sets {field} to “{value}”', { field: f.label, value: v }) : msg('clears {field}', { field: f.label });
     })
     .filter(Boolean);
   return parts.length ? `Also ${parts.join(', ')}` : undefined;
@@ -230,7 +231,7 @@ export function FillStampDialog({
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" autoFocus>
             {applyLabel}
@@ -259,8 +260,8 @@ const MAX_FIELD_NAME = 256;
 function fieldNameProblem(fields: readonly StampField[], f: StampField): string | null {
   const label = f.label.trim();
   if (!label) return null;
-  if (isDynamicFieldName(label)) return `{${label}} is filled in by itself when the stamp is placed. Give this field another name.`;
-  if (fields.some((o) => o.id !== f.id && o.label.trim().toLowerCase() === label.toLowerCase())) return `Another field is called ${label}. Give this field another name.`;
+  if (isDynamicFieldName(label)) return msg('\'{\'{label}\'}\' is filled in by itself when the stamp is placed. Give this field another name.', { label });
+  if (fields.some((o) => o.id !== f.id && o.label.trim().toLowerCase() === label.toLowerCase())) return msg('Another field is called {label}. Give this field another name.', { label });
   return null;
 }
 
@@ -327,8 +328,8 @@ function StampFieldsBuilder({
   const add = (kind: StampField['kind']) => {
     const field: StampField =
       kind === 'choice'
-        ? { id: crypto.randomUUID(), label: fields.some((f) => f.label === 'Action') ? `Boxes ${fields.length + 1}` : 'Action', kind, options: [{ label: 'Approved', color: '#15803d' }, { label: 'Rejected', color: '#b91c1c' }] }
-        : { id: crypto.randomUUID(), label: `Field ${fields.length + 1}`, kind, value: '' };
+        ? { id: crypto.randomUUID(), label: fields.some((f) => f.label === 'Action') ? msg('Boxes {count}', { count: fields.length + 1 }) : msg('Action'), kind, options: [{ label: msg('Approved'), color: '#15803d' }, { label: msg('Rejected'), color: '#b91c1c' }] }
+        : { id: crypto.randomUUID(), label: msg('Field {count}', { count: fields.length + 1 }), kind, value: '' };
     onChange([...fields, field]);
     onAdded?.(field);
   };
@@ -340,11 +341,11 @@ function StampFieldsBuilder({
         return (
           <div key={f.id} className="stamp-field-card">
             <div className="stamp-field-head">
-              <span className="stamp-field-kind">{f.kind === 'choice' ? 'Tick boxes' : 'Text'}</span>
+              <span className="stamp-field-kind">{f.kind === 'choice' ? msg('Tick boxes') : msg('Text')}</span>
               <input
-                aria-label="Field name"
+                aria-label={msg('Field name')}
                 value={f.label}
-                placeholder="Field name"
+                placeholder={msg('Field name')}
                 maxLength={MAX_FIELD_NAME}
                 aria-invalid={!!problem || undefined}
                 onChange={(e) => {
@@ -354,19 +355,19 @@ function StampFieldsBuilder({
                   rename(f, label);
                 }}
               />
-              <button type="button" className="btn small" title={`Use this field in the wording as {${f.label}}`} onClick={() => onInsert(`{${f.label.trim()}}`)}>
-                In wording
+              <button type="button" className="btn small" title={msg('Use this field in the wording as \'{\'{label}\'}\'', { label: f.label })} onClick={() => onInsert(`{${f.label.trim()}}`)}>
+                {msg('In wording')}
               </button>
-              <button type="button" className="btn small" aria-label="Move up" disabled={i === 0} onClick={() => move(i, -1)}>
+              <button type="button" className="btn small" aria-label={msg('Move up')} disabled={i === 0} onClick={() => move(i, -1)}>
                 ↑
               </button>
-              <button type="button" className="btn small" aria-label="Move down" disabled={i === fields.length - 1} onClick={() => move(i, 1)}>
+              <button type="button" className="btn small" aria-label={msg('Move down')} disabled={i === fields.length - 1} onClick={() => move(i, 1)}>
                 ↓
               </button>
               <button
                 type="button"
                 className="btn small"
-                aria-label={`Remove ${f.label}`}
+                aria-label={msg('Remove {label}', { label: f.label })}
                 onClick={() => {
                   onChange(fields.filter((_, j) => j !== i));
                   // Only the name its {Label} has is taken out of the wording.
@@ -384,16 +385,16 @@ function StampFieldsBuilder({
             {f.kind === 'text' ? (
               <>
                 <label className="stamp-field-row">
-                  <span>Starts as</span>
-                  <input value={f.value ?? ''} placeholder="Blank, or e.g. {User} or {Date}" onChange={(e) => update(i, { value: e.target.value })} />
+                  <span>{msg('Starts as')}</span>
+                  <input value={f.value ?? ''} placeholder={msg('Blank, or e.g. \'{\'User\'}\' or \'{\'Date\'}\'')} onChange={(e) => update(i, { value: e.target.value })} />
                 </label>
-                <label className="stamp-field-row" title="Leave blank to type anything; otherwise the value is picked from this list, one per line">
-                  <span>Pick from</span>
+                <label className="stamp-field-row" title={msg('Leave blank to type anything; otherwise the value is picked from this list, one per line')}>
+                  <span>{msg('Pick from')}</span>
                   <textarea
-                    aria-label={`${f.label} choices`}
+                    aria-label={msg('{label} choices', { label: f.label })}
                     rows={Math.min(4, Math.max(1, (f.choices?.length ?? 0) + 1))}
                     value={(f.choices ?? []).join('\n')}
-                    placeholder="Any text (or one choice per line)"
+                    placeholder={msg('Any text (or one choice per line)')}
                     onChange={(e) => {
                       const choices = e.target.value.split('\n');
                       update(i, { choices: choices.some((c) => c.trim()) ? choices : undefined, ...(choices.some((c) => c.trim()) ? {} : { editable: undefined }) });
@@ -403,7 +404,7 @@ function StampFieldsBuilder({
                 {!!f.choices?.some((c) => c.trim()) && (
                   <label className="stamp-field-row stamp-field-check">
                     <input type="checkbox" checked={!!f.editable} onChange={(e) => update(i, { editable: e.target.checked || undefined })} />
-                    <span>Other text can be typed too</span>
+                    <span>{msg('Other text can be typed too')}</span>
                   </label>
                 )}
               </>
@@ -411,12 +412,12 @@ function StampFieldsBuilder({
               <table className="stamp-options">
                 <thead>
                   <tr>
-                    <th title="Ticked when the stamp is placed">Start</th>
-                    <th>Box</th>
-                    <th title="Ticking it turns the stamp this colour">Colour</th>
+                    <th title={msg('Ticked when the stamp is placed')}>{msg('Start')}</th>
+                    <th>{msg('Box')}</th>
+                    <th title={msg('Ticking it turns the stamp this colour')}>{msg('Colour')}</th>
                     {others.map((o) => (
-                      <th key={o.id} title={`What ticking the box puts in ${o.label} (left alone when blank)`}>
-                        Sets {o.label}
+                      <th key={o.id} title={msg('What ticking the box puts in {label} (left alone when blank)', { label: o.label })}>
+                        {msg('Sets {label}', { label: o.label })}
                       </th>
                     ))}
                     <th />
@@ -426,11 +427,11 @@ function StampFieldsBuilder({
                   {(f.options ?? []).map((o, k) => (
                     <tr key={k}>
                       <td>
-                        <input type="radio" name={`start-${f.id}`} aria-label={`Start with ${o.label} ticked`} checked={!!o.label && f.value === o.label} onChange={() => update(i, { value: o.label })} onClick={() => f.value === o.label && update(i, { value: '' })} />
+                        <input type="radio" name={`start-${f.id}`} aria-label={msg('Start with {label} ticked', { label: o.label })} checked={!!o.label && f.value === o.label} onChange={() => update(i, { value: o.label })} onClick={() => f.value === o.label && update(i, { value: '' })} />
                       </td>
                       <td>
                         <input
-                          aria-label="Box label"
+                          aria-label={msg('Box label')}
                           value={o.label}
                           onChange={(e) => {
                             const label = e.target.value;
@@ -439,8 +440,8 @@ function StampFieldsBuilder({
                         />
                       </td>
                       <td className="stamp-option-colour">
-                        <input type="checkbox" aria-label="Recolour the stamp" checked={!!o.color} onChange={(e) => setOption(i, k, { color: e.target.checked ? OPTION_COLOURS[k % OPTION_COLOURS.length] : undefined })} />
-                        {o.color && <input type="color" aria-label="Colour" value={o.color} onChange={(e) => setOption(i, k, { color: e.target.value })} />}
+                        <input type="checkbox" aria-label={msg('Recolour the stamp')} checked={!!o.color} onChange={(e) => setOption(i, k, { color: e.target.checked ? OPTION_COLOURS[k % OPTION_COLOURS.length] : undefined })} />
+                        {o.color && <input type="color" aria-label={msg('Colour')} value={o.color} onChange={(e) => setOption(i, k, { color: e.target.value })} />}
                       </td>
                       {others.map((other) => {
                         const v = o.sets?.[other.id];
@@ -453,23 +454,23 @@ function StampFieldsBuilder({
                         return (
                           <td key={other.id}>
                             {other.kind === 'choice' ? (
-                              <select aria-label={`Sets ${other.label}`} value={v === undefined ? '\u0000' : v} onChange={(e) => setTo(e.target.value === '\u0000' ? undefined : e.target.value)}>
+                              <select aria-label={msg('Sets {label}', { label: other.label })} value={v === undefined ? '\u0000' : v} onChange={(e) => setTo(e.target.value === '\u0000' ? undefined : e.target.value)}>
                                 <option value={'\u0000'}>—</option>
-                                <option value="">Untick all</option>
+                                <option value="">{msg('Untick all')}</option>
                                 {(other.options ?? []).filter((x) => x.label.trim()).map((x) => (
                                   <option key={x.label} value={x.label}>
-                                    Tick {x.label}
+                                    {msg('Tick {label}', { label: x.label })}
                                   </option>
                                 ))}
                               </select>
                             ) : (
-                              <input aria-label={`Sets ${other.label}`} value={v ?? ''} placeholder="—" onChange={(e) => setTo(e.target.value || undefined)} />
+                              <input aria-label={msg('Sets {label}', { label: other.label })} value={v ?? ''} placeholder="—" onChange={(e) => setTo(e.target.value || undefined)} />
                             )}
                           </td>
                         );
                       })}
                       <td>
-                        <button type="button" className="btn small" aria-label={`Remove ${o.label}`} disabled={(f.options ?? []).length < 2} onClick={() => update(i, { options: (f.options ?? []).filter((_, j) => j !== k), value: f.value === o.label ? '' : f.value })}>
+                        <button type="button" className="btn small" aria-label={msg('Remove {label}', { label: o.label })} disabled={(f.options ?? []).length < 2} onClick={() => update(i, { options: (f.options ?? []).filter((_, j) => j !== k), value: f.value === o.label ? '' : f.value })}>
                           ✕
                         </button>
                       </td>
@@ -479,8 +480,8 @@ function StampFieldsBuilder({
               </table>
             )}
             {f.kind === 'choice' && (
-              <button type="button" className="btn small" onClick={() => update(i, { options: [...(f.options ?? []), { label: `Option ${(f.options ?? []).length + 1}` }] })}>
-                Add Box
+              <button type="button" className="btn small" onClick={() => update(i, { options: [...(f.options ?? []), { label: msg('Option {count}', { count: (f.options ?? []).length + 1 }) }] })}>
+                {msg('Add Box')}
               </button>
             )}
           </div>
@@ -488,10 +489,10 @@ function StampFieldsBuilder({
       })}
       <div className="stamp-fields-add">
         <button type="button" className="btn small" onClick={() => add('choice')}>
-          Add Tick Boxes
+          {msg('Add Tick Boxes')}
         </button>
         <button type="button" className="btn small" onClick={() => add('text')}>
-          Add Text Field
+          {msg('Add Text Field')}
         </button>
       </div>
     </div>
@@ -577,11 +578,11 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal stamps-dialog" role="dialog" aria-label="Stamps" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && (draft ? setDraft(null) : onClose())}>
-        <h3>Stamps</h3>
+      <div className="modal stamps-dialog" role="dialog" aria-label={msg('Stamps')} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && (draft ? setDraft(null) : onClose())}>
+        <h3>{msg('Stamps')}</h3>
         {!draft ? (
           <>
-            <ul className="stamp-list" role="listbox" aria-label="Stamp library">
+            <ul className="stamp-list" role="listbox" aria-label={msg('Stamp library')}>
               {library.map((s) => (
                 <li key={s.id} role="option" aria-selected={s.id === picked.id} className={s.id === picked.id ? 'picked' : ''} onClick={() => setPickedId(s.id)} onDoubleClick={() => onPlace(s)}>
                   <StampPreview stamp={s} author={author} width={150} />
@@ -596,10 +597,10 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
             )}
             <div className="actions">
               <button className="btn" onClick={() => setDraft(blankStamp())}>
-                New…
+                {msg('New…')}
               </button>
-              <button className="btn" title="Import stamps from Bluebeam® Revu® (the PDFs in its Stamps folder), or pictures (PNG, JPEG, GIF, BMP, WebP)" onClick={() => importRef.current?.click()}>
-                Import…
+              <button className="btn" title={msg('Import stamps from Bluebeam® Revu® (the PDFs in its Stamps folder), or pictures (PNG, JPEG, GIF, BMP, WebP)')} onClick={() => importRef.current?.click()}>
+                {msg('Import…')}
               </button>
               <input
                 ref={importRef}
@@ -611,35 +612,35 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
                   const files = [...(e.target.files ?? [])];
                   e.target.value = '';
                   if (!files.length) return;
-                  setMessage('Importing…');
+                  setMessage(msg('Importing…'));
                   void importStampFiles(files).then(({ added, failed }) => {
                     if (added[0]) setPickedId(added[0].id);
-                    const parts = [added.length ? `Imported ${added.length} stamp${added.length === 1 ? '' : 's'}` : '', ...failed].filter(Boolean).map((m) => m.replace(/[.;\s]+$/, ''));
-                    setMessage(parts.length ? `${parts.join('; ')}.` : 'Nothing to import.');
+                    const parts = [added.length ? msg('Imported {count, plural, one {# stamp} other {# stamps}}', { count: added.length }) : '', ...failed].filter(Boolean).map((m) => m.replace(/[.;\s]+$/, ''));
+                    setMessage(parts.length ? `${parts.join('; ')}.` : msg('Nothing to import.'));
                   });
                 }}
               />
               <button className="btn" onClick={() => setDraft(withUsableFieldNames(picked.builtIn ? { ...picked, id: crypto.randomUUID(), name: `${picked.name} (copy)`, builtIn: undefined } : { ...picked }))}>
-                {picked.builtIn ? 'Copy and Edit…' : 'Edit…'}
+                {picked.builtIn ? msg('Copy and Edit…') : msg('Edit…')}
               </button>
               <button
                 className="btn"
                 disabled={!!picked.builtIn}
-                title={picked.builtIn ? 'Built-in stamps cannot be deleted' : undefined}
+                title={picked.builtIn ? msg('Built-in stamps cannot be deleted') : undefined}
                 onClick={() => {
-                  if (!confirm(`Delete the stamp "${picked.name}"?`)) return;
+                  if (!confirm(msg('Delete the stamp "{name}"?', { name: picked.name }))) return;
                   updateWorkspace((w) => ({ ...w, stamps: w.stamps.filter((s) => s.id !== picked.id), lastStampId: w.lastStampId === picked.id ? null : w.lastStampId }));
                   setPickedId(library[0]!.id);
                 }}
               >
-                Delete
+                {msg('Delete')}
               </button>
               <span className="spacer" />
               <button className="btn" onClick={onClose}>
-                Close
+                {msg('Close')}
               </button>
               <button className="btn primary" onClick={() => onPlace(picked)}>
-                Place
+                {msg('Place')}
               </button>
             </div>
           </>
@@ -651,80 +652,80 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
             }}
           >
             <div className="form-grid">
-              <label htmlFor="stamp-name">Name</label>
+              <label htmlFor="stamp-name">{msg('Name')}</label>
               <input id="stamp-name" value={draft.name} autoFocus onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
               {draft.art ? (
                 <>
-                  <label>Texts</label>
+                  <label>{msg('Texts')}</label>
                   <div className="stamp-art-texts">
                     {draft.art.texts.map((t, i) => (
                       <div key={i} className="stamp-art-text">
                         <input
                           id={`stamp-text-${i}`}
-                          aria-label={`Text ${i + 1}`}
+                          aria-label={msg('Text {number}', { number: i + 1 })}
                           value={t.text}
                           onFocus={() => setArtFocus(i)}
                           onChange={(e) => setArtText(i, { text: e.target.value })}
                         />
-                        <input type="number" aria-label={`Text ${i + 1} size`} title="Size, as a percentage of the stamp's height" min={2} max={100} step={1} value={Math.round(t.size * 100)} onChange={(e) => setArtText(i, { size: Math.max(0.02, Math.min(1, Number(e.target.value) / 100 || t.size)) })} />
-                        <input type="color" aria-label={`Text ${i + 1} colour`} value={t.color} onChange={(e) => setArtText(i, { color: e.target.value })} />
-                        <select aria-label={`Text ${i + 1} alignment`} value={t.align} onChange={(e) => setArtText(i, { align: e.target.value as StampArtText['align'] })}>
-                          <option value="left">Left</option>
-                          <option value="center">Centre</option>
-                          <option value="right">Right</option>
+                        <input type="number" aria-label={msg('Text {number} size', { number: i + 1 })} title={msg('Size, as a percentage of the stamp\'s height')} min={2} max={100} step={1} value={Math.round(t.size * 100)} onChange={(e) => setArtText(i, { size: Math.max(0.02, Math.min(1, Number(e.target.value) / 100 || t.size)) })} />
+                        <input type="color" aria-label={msg('Text {number} colour', { number: i + 1 })} value={t.color} onChange={(e) => setArtText(i, { color: e.target.value })} />
+                        <select aria-label={msg('Text {number} alignment', { number: i + 1 })} value={t.align} onChange={(e) => setArtText(i, { align: e.target.value as StampArtText['align'] })}>
+                          <option value="left">{msg('Left')}</option>
+                          <option value="center">{msg('Centre')}</option>
+                          <option value="right">{msg('Right')}</option>
                         </select>
-                        <label className="stamp-art-bold" title="Bold">
-                          <input type="checkbox" aria-label={`Text ${i + 1} bold`} checked={t.bold} onChange={(e) => setArtText(i, { bold: e.target.checked })} />B
+                        <label className="stamp-art-bold" title={msg('Bold')}>
+                          <input type="checkbox" aria-label={msg('Text {number} bold', { number: i + 1 })} checked={t.bold} onChange={(e) => setArtText(i, { bold: e.target.checked })} />B
                         </label>
-                        <button type="button" className="btn small" aria-label={`Remove text ${i + 1}`} onClick={() => removeArtText(i)}>
+                        <button type="button" className="btn small" aria-label={msg('Remove text {number}', { number: i + 1 })} onClick={() => removeArtText(i)}>
                           ✕
                         </button>
                       </div>
                     ))}
                     <button type="button" className="btn small" onClick={() => addArtText('Text')}>
-                      Add Text
+                      {msg('Add Text')}
                     </button>
                   </div>
                   <span />
                   <div className="field-chips">
                     {STAMP_FIELDS.map((f) => (
-                      <button key={f.token} type="button" className="btn small" title={`Insert ${f.label.toLowerCase()}, filled in when placed`} onClick={() => insertField(f.token)}>
+                      <button key={f.token} type="button" className="btn small" title={msg('Insert {label}, filled in when placed', { label: f.label.toLowerCase() })} onClick={() => insertField(f.token)}>
                         {f.label}
                       </button>
                     ))}
                   </div>
-                  <label>Fields</label>
+                  <label>{msg('Fields')}</label>
                   <StampFieldsBuilder fields={draft.fields ?? []} onChange={setFields} onInsert={insertField} onRename={renameField} onRemoved={removeField} onAdded={(f) => addArtText(`{${f.label}}`)} />
                 </>
               ) : (
                 <>
-                  <label htmlFor="stamp-lines">Wording</label>
+                  <label htmlFor="stamp-lines">{msg('Wording')}</label>
                   <textarea id="stamp-lines" ref={linesRef} rows={3} value={draft.lines.join('\n')} onChange={(e) => setDraft({ ...draft, lines: e.target.value.split('\n') })} />
                   <span />
                   <div className="field-chips">
                     {STAMP_FIELDS.map((f) => (
-                      <button key={f.token} type="button" className="btn small" title={`Insert ${f.label.toLowerCase()}, filled in when placed`} onClick={() => insertField(f.token)}>
+                      <button key={f.token} type="button" className="btn small" title={msg('Insert {label}, filled in when placed', { label: f.label.toLowerCase() })} onClick={() => insertField(f.token)}>
                         {f.label}
                       </button>
                     ))}
                   </div>
-                  <label htmlFor="stamp-color">Colour</label>
+                  <label htmlFor="stamp-color">{msg('Colour')}</label>
                   <input id="stamp-color" type="color" value={draft.color} onChange={(e) => setDraft({ ...draft, color: e.target.value })} />
-                  <label htmlFor="stamp-frame">Frame</label>
+                  <label htmlFor="stamp-frame">{msg('Frame')}</label>
                   <select id="stamp-frame" value={draft.frame} onChange={(e) => setDraft({ ...draft, frame: e.target.value as StampDef['frame'] })}>
-                    <option value="rounded">Rounded</option>
-                    <option value="box">Square</option>
-                    <option value="none">None</option>
+                    <option value="rounded">{msg('Rounded')}</option>
+                    <option value="box">{msg('Square')}</option>
+                    <option value="none">{msg('None')}</option>
                   </select>
-                  <label>Fields</label>
+                  <label>{msg('Fields')}</label>
                   <StampFieldsBuilder fields={draft.fields ?? []} onChange={setFields} onInsert={insertField} onRename={renameField} onRemoved={removeField} />
                 </>
               )}
             </div>
             <p className="pref-hint">
               {draft.art
-                ? 'This stamp is a picture with text on it. Drag each text in the preview to place it. Fields such as {Date} are filled in when it is placed; a field shows where a text names it, such as {Checked by}. Fields are filled in when you place the stamp, and can be changed later by double-clicking it.'
-                : 'The first line is the headline. Fields such as {Date} are filled in when the stamp is placed. Tick boxes and text fields are filled in when you place the stamp, and can be changed later by double-clicking it.'}
+                ? msg('This stamp is a picture with text on it. Drag each text in the preview to place it. Fields such as \'{\'Date\'}\' are filled in when it is placed; a field shows where a text names it, such as \'{\'Checked by\'}\'. Fields are filled in when you place the stamp, and can be changed later by double-clicking it.')
+                : msg('The first line is the headline. Fields such as \'{\'Date\'}\' are filled in when the stamp is placed. Tick boxes and text fields are filled in when you place the stamp, and can be changed later by double-clicking it.')}
             </p>
             <div className="stamp-preview-row">
               {draft.art ? (
@@ -735,10 +736,10 @@ export function StampsDialog({ author, onPlace, onClose, creating = false }: Pro
             </div>
             <div className="actions">
               <button type="button" className="btn" onClick={() => setDraft(null)}>
-                Cancel
+                {msg('Cancel')}
               </button>
               <button type="submit" className="btn primary" disabled={!draft.name.trim() || !draft.lines.some((l) => l.trim()) || !!draft.fields?.some((f) => fieldNameProblem(draft.fields!, f))}>
-                Save Stamp
+                {msg('Save Stamp')}
               </button>
             </div>
           </form>
@@ -885,7 +886,7 @@ export function StampMenu({
             ref={menuRef}
             className="stamp-menu"
             role="menu"
-            aria-label="Stamps"
+            aria-label={msg('Stamps')}
             style={pos ? { left: pos.left, top: pos.top, maxHeight: pos.maxHeight } : { visibility: 'hidden' }}
             onKeyDown={onMenuKey}
           >
@@ -902,11 +903,11 @@ export function StampMenu({
             <div className="menu-sep" role="separator" />
             <button type="button" role="menuitem" className="menu-item" onClick={() => choose(onNew)}>
               <span className="check" />
-              <span className="label">New Stamp…</span>
+              <span className="label">{msg('New Stamp…')}</span>
             </button>
             <button type="button" role="menuitem" className="menu-item" onClick={() => choose(onManage)}>
               <span className="check" />
-              <span className="label">Manage Stamps…</span>
+              <span className="label">{msg('Manage Stamps…')}</span>
             </button>
           </div>,
           document.body,

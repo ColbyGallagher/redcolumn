@@ -11486,7 +11486,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onCancel={() => setProcessKind(null)}
           onApply={async (spec) => {
             // The contents before are kept as a revision: these changes cannot be undone otherwise.
-            const msg = await runProcess(activeOpen, spec, `Before ${PROCESS_TITLES[spec.kind]}`);
+            const msg = await runProcess(activeOpen, spec, `Before ${PROCESS_TITLES()[spec.kind]}`);
             const changed = (await listFiles()).find((f) => f.id === activeOpen.file.id)?.hash !== activeOpen.file.hash;
             if (msg) setNotice(changed ? `${msg} Document › Revisions brings back the version before.` : msg);
             setProcessKind(null);

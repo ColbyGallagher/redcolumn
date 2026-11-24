@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchIndex, fetchPack, filterEntries, LIBRARY_PAGE, tradesOf, type LibraryEntry, type LibraryIndex } from '../library/catalog';
 import { describeCounts, PACK_EXTENSION, parseTradePack, type TradePack } from '../library/pack';
@@ -72,39 +74,39 @@ export function LibraryDialog({ onInstall, onHelp, onClose }: Props) {
       <div
         className="modal library-dialog"
         role="dialog"
-        aria-label="Community Library"
+        aria-label={msg('Community Library')}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
           if (e.key === 'Escape') onClose();
         }}
       >
-        <h3>Community Library</h3>
+        <h3>{msg('Community Library')}</h3>
         <p className="library-intro">
-          Trade packs shared by other estimators: assemblies, tool sets, takeoff templates and drawing standards. Adding one puts it in your own library; quantities and rates are starting points to check, not advice.
+          {msg('Trade packs shared by other estimators: assemblies, tool sets, takeoff templates and drawing standards. Adding one puts it in your own library; quantities and rates are starting points to check, not advice.')}
         </p>
         <div className="library-filters">
-          <select aria-label="Trade" value={trade ?? ''} onChange={(e) => setTrade(e.target.value || null)} disabled={!index}>
-            <option value="">All trades</option>
+          <select aria-label={msg('Trade')} value={trade ?? ''} onChange={(e) => setTrade(e.target.value || null)} disabled={!index}>
+            <option value="">{msg('All trades')}</option>
             {trades.map((t) => (
               <option key={t} value={t}>
                 {t}
               </option>
             ))}
           </select>
-          <input type="search" aria-label="Search the library" placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} disabled={!index} autoFocus />
+          <input type="search" aria-label={msg('Search the library')} placeholder={msg('Search')} value={query} onChange={(e) => setQuery(e.target.value)} disabled={!index} autoFocus />
         </div>
         <div className="library-list" aria-live="polite">
-          {load.state === 'loading' && <p className="empty">Getting the list from GitHub…</p>}
+          {load.state === 'loading' && <p className="empty">{msg('Getting the list from GitHub…')}</p>}
           {load.state === 'failed' && (
             <div className="empty">
               <p>{load.error}</p>
               <button className="btn" onClick={() => setAttempt((n) => n + 1)}>
-                Try Again
+                {msg('Try Again')}
               </button>
             </div>
           )}
-          {index && !shown.length && <p className="empty">{index.entries.length ? 'No packs match.' : 'The library has no packs yet.'}</p>}
+          {index && !shown.length && <p className="empty">{index.entries.length ? msg('No packs match.') : msg('The library has no packs yet.')}</p>}
           {shown.map((e) => (
             <article key={e.id} className="library-entry">
               <div className="library-entry-text">
@@ -116,31 +118,31 @@ export function LibraryDialog({ onInstall, onHelp, onClose }: Props) {
                 </div>
                 {e.description && <p>{e.description}</p>}
                 <div className="library-meta">{describeCounts({ assemblies: 0, items: 0, productLists: 0, templates: 0, toolSets: 0, tools: 0, standards: 0, ...e.contents })}</div>
-                {done[e.id] && <div className="library-added">Added {done[e.id]}.</div>}
+                {done[e.id] && <div className="library-added">{msg('Added {done}.', { done: done[e.id] })}</div>}
               </div>
               <button className="btn" disabled={busy !== null} onClick={() => void add(e)}>
-                {busy === e.id ? 'Adding…' : done[e.id] ? 'Add Again' : 'Add'}
+                {busy === e.id ? msg('Adding…') : done[e.id] ? msg('Add Again') : msg('Add')}
               </button>
             </article>
           ))}
         </div>
         {message && <p className={message.error ? 'library-error' : 'library-added'}>{message.text}</p>}
         <p className="print-hint">
-          Listed from <code>github.com/ColbyGallagher/redcolumn-library</code> when this opens. Nothing about you or your documents is sent.
+          {keyed(msgParts('Listed from {code} when this opens. Nothing about you or your documents is sent.', { code: <code>github.com/ColbyGallagher/redcolumn-library</code> }))}
         </p>
         <div className="actions">
           <button className="btn" onClick={onHelp}>
-            Help
+            {msg('Help')}
           </button>
           <a className="btn" href={LIBRARY_PAGE} target="_blank" rel="noopener noreferrer">
-            Share a Pack…
+            {msg('Share a Pack…')}
           </a>
           <button className="btn" onClick={() => fileRef.current?.click()}>
-            Add from File…
+            {msg('Add from File…')}
           </button>
           <span className="spacer" />
           <button className="btn primary" onClick={onClose}>
-            Close
+            {msg('Close')}
           </button>
         </div>
         <input

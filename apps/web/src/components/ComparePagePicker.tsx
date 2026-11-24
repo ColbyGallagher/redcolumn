@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { affineFromPoints, type Affine } from '../compare/affine';
 import type { Box } from '../compare/diff';
@@ -32,7 +33,7 @@ function PageSurface({ preview, marks, region, onPoint, onRegion, label }: { pre
     return [((e.clientX - r.left) / r.width) * preview!.width, ((e.clientY - r.top) / r.height) * preview!.height];
   };
   const shown = drag ? boxOf(drag.start, drag.end) : region;
-  if (!preview) return <div className="compare-pick-page loading">Drawing {label.toLowerCase()}…</div>;
+  if (!preview) return <div className="compare-pick-page loading">{msg('Drawing {label}…', { label: label.toLowerCase() })}</div>;
   const pct = (v: number, of: number) => `${(v / of) * 100}%`;
   return (
     <figure className="compare-pick">
@@ -116,7 +117,7 @@ export function ComparePagePicker(props: Props) {
 
   const transform = props.mode === 'points' && oldPts.length === 3 && curPts.length === 3 ? affineFromPoints(oldPts, curPts) : null;
   const add = (set: typeof setOldPts) => (p: Point) => set((list) => (list.length >= 3 ? list : [...list, p]));
-  const next = props.mode === 'points' ? (oldPts.length <= curPts.length ? (oldPts.length < 3 ? `Click point ${oldPts.length + 1} on the old page.` : '') : `Click point ${curPts.length} on the new page, at the same spot.`) : '';
+  const next = props.mode === 'points' ? (oldPts.length <= curPts.length ? (oldPts.length < 3 ? msg('Click point {count} on the old page.', { count: oldPts.length + 1 }) : '') : msg('Click point {count} on the new page, at the same spot.', { count: curPts.length })) : '';
 
   return (
     <div className="modal-backdrop" onMouseDown={props.onCancel}>
@@ -128,17 +129,17 @@ export function ComparePagePicker(props: Props) {
           if (e.key === 'Escape') props.onCancel();
         }}
       >
-        <h3>{props.mode === 'points' ? 'Align Pages' : 'Select Region'}</h3>
+        <h3>{props.mode === 'points' ? msg('Align Pages') : msg('Select Region')}</h3>
         <p>
           {props.mode === 'points'
-            ? 'Click three points on the old page, then the same three on the new page (grid intersections or title block corners work well), alternating or in turn. The old revision is then scaled, turned and moved to match.'
-            : 'Drag a rectangle over the part of the new page to compare. Only differences inside it are found.'}
+            ? msg('Click three points on the old page, then the same three on the new page (grid intersections or title block corners work well), alternating or in turn. The old revision is then scaled, turned and moved to match.')
+            : msg('Drag a rectangle over the part of the new page to compare. Only differences inside it are found.')}
         </p>
         {error && <p className="print-error">{error}</p>}
         <div className="compare-pick-pages">
-          {props.mode === 'points' && <PageSurface label="Old page" preview={oldPreview} marks={oldPts} onPoint={oldPts.length <= curPts.length ? add(setOldPts) : undefined} />}
+          {props.mode === 'points' && <PageSurface label={msg('Old page')} preview={oldPreview} marks={oldPts} onPoint={oldPts.length <= curPts.length ? add(setOldPts) : undefined} />}
           <PageSurface
-            label={props.mode === 'points' ? 'New page' : 'Page'}
+            label={props.mode === 'points' ? msg('New page') : msg('Page')}
             preview={curPreview}
             marks={curPts}
             region={region}
@@ -146,7 +147,7 @@ export function ComparePagePicker(props: Props) {
             onRegion={props.mode === 'region' ? setRegion : undefined}
           />
         </div>
-        {props.mode === 'points' && <p className="print-hint">{transform ? 'Three pairs picked.' : oldPts.length === 3 && curPts.length === 3 ? 'Those points are in a line: pick points spread over the page.' : next}</p>}
+        {props.mode === 'points' && <p className="print-hint">{transform ? msg('Three pairs picked.') : oldPts.length === 3 && curPts.length === 3 ? msg('Those points are in a line: pick points spread over the page.') : next}</p>}
         <div className="actions">
           {props.mode === 'points' ? (
             <button
@@ -158,19 +159,19 @@ export function ComparePagePicker(props: Props) {
                 setCurPts([]);
               }}
             >
-              Start over
+              {msg('Start over')}
             </button>
           ) : (
             <button type="button" className="btn" disabled={!region} onClick={() => setRegion(null)}>
-              Whole page
+              {msg('Whole page')}
             </button>
           )}
           <span className="spacer" />
           <button type="button" className="btn" onClick={props.onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="button" className="btn primary" disabled={props.mode === 'points' ? !transform : false} onClick={() => (props.mode === 'points' ? transform && props.onDone(transform) : props.onDone(region))}>
-            {props.mode === 'points' ? 'Align' : 'OK'}
+            {props.mode === 'points' ? msg('Align') : 'OK'}
           </button>
         </div>
       </div>

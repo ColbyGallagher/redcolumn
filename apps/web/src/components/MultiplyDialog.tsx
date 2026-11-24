@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { normalizeNumberText } from '@nb/i18n';
+import { msg, normalizeNumberText } from '@nb/i18n';
 import { METERS_PER_UNIT, pageLengthFor, parseLength, type Scale } from '@nb/measure';
 
 interface Props {
@@ -43,28 +43,27 @@ export function MultiplyDialog({ scale, onApply, onCancel }: Props) {
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Multiply</h3>
-        <p>Copies the selection into a grid. The original is the top-left copy.</p>
+        <h3>{msg('Multiply')}</h3>
+        <p>{msg('Copies the selection into a grid. The original is the top-left copy.')}</p>
         <div className="form-grid">
-          <label htmlFor="mult-cols">Columns</label>
+          <label htmlFor="mult-cols">{msg('Columns')}</label>
           <input id="mult-cols" type="number" min={1} max={100} value={columns} onChange={(e) => setColumns(Math.max(1, Math.floor(Number(e.target.value) || 1)))} autoFocus />
-          <label htmlFor="mult-gapx">Horizontal spacing ({scale.unit})</label>
+          <label htmlFor="mult-gapx">{msg('Horizontal spacing ({unit})', { unit: scale.unit })}</label>
           <input id="mult-gapx" value={gapX} onChange={(e) => setGapX(e.target.value)} aria-invalid={gx === null} />
-          <label htmlFor="mult-rows">Rows</label>
+          <label htmlFor="mult-rows">{msg('Rows')}</label>
           <input id="mult-rows" type="number" min={1} max={100} value={rows} onChange={(e) => setRows(Math.max(1, Math.floor(Number(e.target.value) || 1)))} />
-          <label htmlFor="mult-gapy">Vertical spacing ({scale.unit})</label>
+          <label htmlFor="mult-gapy">{msg('Vertical spacing ({unit})', { unit: scale.unit })}</label>
           <input id="mult-gapy" value={gapY} onChange={(e) => setGapY(e.target.value)} aria-invalid={gy === null} />
         </div>
         <p className="pref-hint">
-          Spacing is the gap between neighbouring copies, measured at the page scale ({scale.label}).
-          {copies > MAX_COPIES ? ` At most ${MAX_COPIES} copies at a time.` : ''}
+          {msg('Spacing is the gap between neighbouring copies, measured at the page scale ({label}).{value}', { label: scale.label, value: copies > MAX_COPIES ? ` At most ${MAX_COPIES} copies at a time.` : '' })}
         </p>
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!valid}>
-            Make {Math.max(0, copies)} {copies === 1 ? 'copy' : 'copies'}
+            {msg('Make {count, plural, one {# copy} other {# copies}}', { count: Math.max(0, copies) })}
           </button>
         </div>
       </form>

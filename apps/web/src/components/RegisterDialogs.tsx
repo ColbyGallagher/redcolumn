@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import type { MarkupStatusDef } from '@nb/markup';
 import { REGISTER_VALUES, THUMB_AUTO_ROWS, THUMB_KEY, THUMB_MAX_ROWS, blankKey, cellRef, fieldKey, parseCellRef, withStatuses, type RegisterCell, type RegisterColumn, type RegisterField, type RegisterTemplate, type RegisterValue } from '../sheetsync/register';
@@ -41,16 +43,16 @@ export function ExportRegisterDialog({ docName, templates, initialId, values: in
   const used = REGISTER_VALUES.filter((v) => template?.cells.some((c) => c.value === v.value));
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal register-dialog" role="dialog" aria-label="Export comment register" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
-        <h3>Export Comment Register</h3>
+      <div className="modal register-dialog" role="dialog" aria-label={msg('Export comment register')} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+        <h3>{msg('Export Comment Register')}</h3>
         {template ? (
           <>
             <p className="hint-text">
-              Writes the comments on <b>{docName}</b> to an Excel workbook in a client's register layout. The designer fills in responses and statuses, and the workbook comes back with File › Import › Markups from Excel.
+              {keyed(msgParts('Writes the comments on {b} to an Excel workbook in a client\'s register layout. The designer fills in responses and statuses, and the workbook comes back with File › Import › Markups from Excel.', { b: <b>{docName}</b> }))}
             </p>
             <label className="col-field">
-              <span>Template</span>
-              <select aria-label="Register template" value={template.id} onChange={(e) => setId(e.target.value)}>
+              <span>{msg('Template')}</span>
+              <select aria-label={msg('Register template')} value={template.id} onChange={(e) => setId(e.target.value)}>
                 {templates.map((t) => (
                   <option key={t.id} value={t.id}>
                     {t.name}
@@ -58,22 +60,22 @@ export function ExportRegisterDialog({ docName, templates, initialId, values: in
                 ))}
               </select>
               <button type="button" className="btn small" onClick={() => onTemplates(template.id)}>
-                Edit Templates…
+                {msg('Edit Templates…')}
               </button>
             </label>
             <label className="col-field">
-              <span>Rows</span>
-              <select aria-label="Register rows" value={scope} onChange={(e) => setScope(e.target.value as RegisterScope)}>
-                <option value="comments">Markups with a comment ({counts.comments})</option>
-                <option value="all">Every markup ({counts.all})</option>
+              <span>{msg('Rows')}</span>
+              <select aria-label={msg('Register rows')} value={scope} onChange={(e) => setScope(e.target.value as RegisterScope)}>
+                <option value="comments">{msg('Markups with a comment ({comments})', { comments: counts.comments })}</option>
+                <option value="all">{msg('Every markup ({all})', { all: counts.all })}</option>
               </select>
             </label>
             {canFill && template.clientFile && (
               <label className="col-field">
-                <span>Workbook</span>
-                <select aria-label="Register workbook" value={into} onChange={(e) => setInto(e.target.value === 'new' ? 'new' : 'client')}>
-                  <option value="client">A copy of the client’s file ({template.clientFile.name})</option>
-                  <option value="new">A new workbook in the template’s layout</option>
+                <span>{msg('Workbook')}</span>
+                <select aria-label={msg('Register workbook')} value={into} onChange={(e) => setInto(e.target.value === 'new' ? 'new' : 'client')}>
+                  <option value="client">{msg('A copy of the client’s file ({name})', { name: template.clientFile.name })}</option>
+                  <option value="new">{msg('A new workbook in the template’s layout')}</option>
                 </select>
               </label>
             )}
@@ -85,38 +87,38 @@ export function ExportRegisterDialog({ docName, templates, initialId, values: in
             ))}
             {hasThumbs && (
               <label className="check">
-                <input type="checkbox" aria-label="Include thumbnails" checked={thumbnails} disabled={tooMany} onChange={(e) => setThumbs(e.target.checked)} />
-                Include thumbnails
+                <input type="checkbox" aria-label={msg('Include thumbnails')} checked={thumbnails} disabled={tooMany} onChange={(e) => setThumbs(e.target.checked)} />
+                {msg('Include thumbnails')}
                 <span className="hint-text">
                   {' '}
                   {tooMany
-                    ? `(not with more than ${THUMB_MAX_ROWS} rows)`
+                    ? msg('(not with more than {tHUMB_MAX_ROWS} rows)', { tHUMB_MAX_ROWS: THUMB_MAX_ROWS })
                     : counts[scope] > THUMB_AUTO_ROWS
-                      ? `(${counts[scope]} pictures make the workbook large to email)`
-                      : '(a picture of each markup in the Thumbnail column)'}
+                      ? msg('({counts} pictures make the workbook large to email)', { counts: counts[scope] })
+                      : msg('(a picture of each markup in the Thumbnail column)')}
                 </span>
               </label>
             )}
             <p className="hint-text">
               {fill
-                ? 'Excel fills in a copy of the client’s file: its title block, logos and styles stay as they are, and you choose where the copy is saved. The copy is not protected.'
+                ? msg('Excel fills in a copy of the client’s file: its title block, logos and styles stay as they are, and you choose where the copy is saved. The copy is not protected.')
                 : template.protection === 'protected'
-                ? 'This template is protected: only the columns to fill in can be changed. The designer can filter the sheet but not sort it. The password is written on the workbook’s Read me sheet.'
-                : 'This template is open: nothing is locked, so the sheet can be sorted.'}
+                ? msg('This template is protected: only the columns to fill in can be changed. The designer can filter the sheet but not sort it. The password is written on the workbook’s Read me sheet.')
+                : msg('This template is open: nothing is locked, so the sheet can be sorted.')}
             </p>
           </>
         ) : (
-          <p>There are no register templates yet. A template sets the column headings, the status wording and the block above the table for one client.</p>
+          <p>{msg('There are no register templates yet. A template sets the column headings, the status wording and the block above the table for one client.')}</p>
         )}
         <div className="actions">
           {!template && (
             <button type="button" className="btn" onClick={() => onTemplates()}>
-              New Template…
+              {msg('New Template…')}
             </button>
           )}
           <span className="grow" />
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="button" className="btn primary" disabled={!template || !counts[scope] || busy}
             onClick={() => {
@@ -125,7 +127,7 @@ export function ExportRegisterDialog({ docName, templates, initialId, values: in
               void onExport(template, scope, values, { fill, thumbnails }).finally(() => setBusy(false));
             }}
           >
-            {busy ? 'Exporting…' : 'Export'}
+            {busy ? msg('Exporting…') : msg('Export')}
           </button>
         </div>
       </div>
@@ -194,66 +196,66 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
   // The legacy sheet-protection password is hashed a byte per character.
   const badPassword = !!draft?.password && !/^[\x20-\x7e]*$/.test(draft.password);
   const cellsBelow = draft ? draft.cells.filter((c) => c.row >= draft.headerRow).length : 0;
-  const problem = !draft ? '' : !draft.name.trim() ? 'Give the template a name.' : !draft.columns.length ? 'Add at least one column.' : repeated ? 'Each field can be in one column only.' : badPassword ? 'The password can only use plain letters, digits and punctuation.' : '';
+  const problem = !draft ? '' : !draft.name.trim() ? msg('Give the template a name.') : !draft.columns.length ? msg('Add at least one column.') : repeated ? msg('Each field can be in one column only.') : badPassword ? msg('The password can only use plain letters, digits and punctuation.') : '';
   const fields = [
     ...listColumns.map((c) => ({ key: c.key, label: c.label })),
-    ...THREADS.map((n) => ({ key: `reply:${n}`, label: `Reply ${n} (text)` })),
-    ...THREADS.map((n) => ({ key: `responder:${n}`, label: `Reply ${n} (who wrote it)` })),
-    { key: THUMB_KEY, label: 'Thumbnail (picture of the markup)' },
-    ...THREADS.map((n) => ({ key: blankKey(n), label: `Nothing: left blank (${n})` })),
+    ...THREADS.map((n) => ({ key: `reply:${n}`, label: msg('Reply {n} (text)', { n }) })),
+    ...THREADS.map((n) => ({ key: `responder:${n}`, label: msg('Reply {n} (who wrote it)', { n }) })),
+    { key: THUMB_KEY, label: msg('Thumbnail (picture of the markup)') },
+    ...THREADS.map((n) => ({ key: blankKey(n), label: msg('Nothing: left blank ({n})', { n }) })),
   ];
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal quantities-dialog register-templates-dialog" role="dialog" aria-label="Register templates" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="modal quantities-dialog register-templates-dialog" role="dialog" aria-label={msg('Register templates')} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <div className="columns-head">
-          <h3>Register Templates</h3>
+          <h3>{msg('Register Templates')}</h3>
         </div>
         <div className="qty-toolbar">
-          <select aria-label="Template" value={draft?.id ?? ''} onChange={(e) => open(templates.find((t) => t.id === e.target.value) ?? null)}>
-            {draft && !templates.some((t) => t.id === draft.id) && <option value={draft.id}>{draft.name || 'New template'} (not saved)</option>}
+          <select aria-label={msg('Template')} value={draft?.id ?? ''} onChange={(e) => open(templates.find((t) => t.id === e.target.value) ?? null)}>
+            {draft && !templates.some((t) => t.id === draft.id) && <option value={draft.id}>{msg('{value} (not saved)', { value: draft.name || msg('New template') })}</option>}
             {templates.map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
             ))}
-            {!draft && <option value="">No templates yet</option>}
+            {!draft && <option value="">{msg('No templates yet')}</option>}
           </select>
           <button type="button" className="btn small" onClick={() => open(onNew(), true)}>
-            New
+            {msg('New')}
           </button>
           <button type="button" className="btn small" disabled={!draft} onClick={() => draft && open({ ...draft, id: crypto.randomUUID(), name: `${draft.name} copy` }, true)}>
-            Duplicate
+            {msg('Duplicate')}
           </button>
           <button type="button" className="btn small" onClick={() => void onImportFile().then((t) => t && open(t, true))}>
-            Open File…
+            {msg('Open File…')}
           </button>
-          <button type="button" className="btn small" disabled={!draft || dirty} title={dirty ? 'Save the template first' : 'Save this template as a file to share'} onClick={() => draft && onExportFile(draft)}>
-            Save as File…
+          <button type="button" className="btn small" disabled={!draft || dirty} title={dirty ? msg('Save the template first') : msg('Save this template as a file to share')} onClick={() => draft && onExportFile(draft)}>
+            {msg('Save as File…')}
           </button>
           <button
             type="button"
             className="btn small"
             disabled={!draft || !templates.some((t) => t.id === draft.id)}
             onClick={() => {
-              if (!draft || !confirm(`Delete the template “${draft.name}”? Registers already exported with it can still be imported.`)) return;
+              if (!draft || !confirm(msg('Delete the template “{name}”? Registers already exported with it can still be imported.', { name: draft.name }))) return;
               onDelete(draft.id);
               open(templates.find((t) => t.id !== draft.id) ?? null);
             }}
           >
-            Delete
+            {msg('Delete')}
           </button>
         </div>
         {draft ? (
           <div className="qty-scroll register-editor">
             <div className="register-basics">
               <label className="col-field">
-                <span>Name</span>
-                <input aria-label="Template name" value={draft.name} onChange={(e) => edit({ name: e.target.value })} />
+                <span>{msg('Name')}</span>
+                <input aria-label={msg('Template name')} value={draft.name} onChange={(e) => edit({ name: e.target.value })} />
               </label>
               <label className="col-field">
-                <span>Client</span>
-                <select aria-label="Client drawing standard" value={draft.standardId ?? ''} onChange={(e) => edit({ standardId: e.target.value || undefined })}>
-                  <option value="">Any (no drawing standard)</option>
+                <span>{msg('Client')}</span>
+                <select aria-label={msg('Client drawing standard')} value={draft.standardId ?? ''} onChange={(e) => edit({ standardId: e.target.value || undefined })}>
+                  <option value="">{msg('Any (no drawing standard)')}</option>
                   {standards.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
@@ -262,17 +264,17 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                 </select>
               </label>
               <label className="col-field">
-                <span>Sheet name</span>
-                <input aria-label="Sheet name" maxLength={31} value={draft.sheet} onChange={(e) => edit({ sheet: e.target.value })} />
+                <span>{msg('Sheet name')}</span>
+                <input aria-label={msg('Sheet name')} maxLength={31} value={draft.sheet} onChange={(e) => edit({ sheet: e.target.value })} />
               </label>
               <label className="col-field">
-                <span>Header row</span>
-                <input aria-label="Header row" type="number" min={1} max={1000} value={draft.headerRow + 1} onChange={(e) => edit({ headerRow: Math.max(0, Math.min(999, Math.round(Number(e.target.value) || 1) - 1)) })} />
+                <span>{msg('Header row')}</span>
+                <input aria-label={msg('Header row')} type="number" min={1} max={1000} value={draft.headerRow + 1} onChange={(e) => edit({ headerRow: Math.max(0, Math.min(999, Math.round(Number(e.target.value) || 1) - 1)) })} />
               </label>
               <label className="col-field">
-                <span>First column</span>
+                <span>{msg('First column')}</span>
                 <input
-                  aria-label="First column"
+                  aria-label={msg('First column')}
                   value={columnName(draft.firstCol)}
                   onChange={(e) => {
                     const at = parseCellRef(`${e.target.value}1`);
@@ -281,28 +283,26 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                 />
               </label>
               <label className="col-field">
-                <span>Sheet</span>
-                <select aria-label="Protection" value={draft.protection} onChange={(e) => edit({ protection: e.target.value === 'open' ? 'open' : 'protected' })}>
-                  <option value="protected">Protected (filter only)</option>
-                  <option value="open">Open (can be sorted)</option>
+                <span>{msg('Sheet')}</span>
+                <select aria-label={msg('Protection')} value={draft.protection} onChange={(e) => edit({ protection: e.target.value === 'open' ? 'open' : 'protected' })}>
+                  <option value="protected">{msg('Protected (filter only)')}</option>
+                  <option value="open">{msg('Open (can be sorted)')}</option>
                 </select>
               </label>
               {draft.protection === 'protected' && (
                 <label className="col-field">
-                  <span>Password</span>
-                  <input aria-label="Protection password" placeholder="redcolumn" maxLength={60} value={draft.password ?? ''} onChange={(e) => edit({ password: e.target.value || undefined })} />
+                  <span>{msg('Password')}</span>
+                  <input aria-label={msg('Protection password')} placeholder={msg('redcolumn')} maxLength={60} value={draft.password ?? ''} onChange={(e) => edit({ password: e.target.value || undefined })} />
                 </label>
               )}
             </div>
             <label className="check">
-              <input type="checkbox" aria-label="Link item numbers" checked={!!draft.links} onChange={(e) => edit({ links: e.target.checked || undefined })} />
-              Link each item number to its comment
-              <span className="hint-text"> (clicking it in Excel opens the document at the comment, on a computer that has the document in redcolumn)</span>
+              {keyed(msgParts('{input}Link each item number to its comment{span}', { input: <input type="checkbox" aria-label={msg('Link item numbers')} checked={!!draft.links} onChange={(e) => edit({ links: e.target.checked || undefined })} />, span: <span className="hint-text"> {msg('(clicking it in Excel opens the document at the comment, on a computer that has the document in redcolumn)')}</span> }))}
             </label>
             {onPickClientFile && (
               <div className="register-client-file">
-                <span className="register-client-label">Client’s file</span>
-                <span data-testid="client-file-name">{draft.clientFile ? draft.clientFile.name : 'None: the export makes a new workbook in this layout'}</span>
+                <span className="register-client-label">{msg('Client’s file')}</span>
+                <span data-testid="client-file-name">{draft.clientFile ? draft.clientFile.name : msg('None: the export makes a new workbook in this layout')}</span>
                 <button
                   type="button"
                   className="btn small"
@@ -314,7 +314,7 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                     })
                   }
                 >
-                  Choose…
+                  {msg('Choose…')}
                 </button>
                 {draft.clientFile && (
                   <button
@@ -325,15 +325,14 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                       setFileCheck(null);
                     }}
                   >
-                    Clear
+                    {msg('Clear')}
                   </button>
                 )}
               </div>
             )}
             {onPickClientFile && draft.clientFile && (
               <p className="hint-text">
-                The export can fill in a copy of this file with Excel, keeping its title block, logos, merged headings and styles. The sheet name, header row, first column and headings below must be the file’s own. Text cells above the table, widths and protection are not used: the file keeps
-                its own.
+                {msg('The export can fill in a copy of this file with Excel, keeping its title block, logos, merged headings and styles. The sheet name, header row, first column and headings below must be the file’s own. Text cells above the table, widths and protection are not used: the file keeps its own.')}
               </p>
             )}
             {fileCheck &&
@@ -345,20 +344,20 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                 ))
               ) : (
                 <p className="hint-text" data-testid="client-file-check">
-                  The file’s headings match this template.
+                  {msg('The file’s headings match this template.')}
                 </p>
               ))}
-            {draft.protection === 'protected' && <p className="hint-text">Protection stops a column being deleted or overtyped by accident. It is not security: the password is written on the workbook’s Read me sheet so anyone who needs to sort or restructure the sheet can.</p>}
+            {draft.protection === 'protected' && <p className="hint-text">{msg('Protection stops a column being deleted or overtyped by accident. It is not security: the password is written on the workbook’s Read me sheet so anyone who needs to sort or restructure the sheet can.')}</p>}
 
-            <h4>Columns</h4>
-            <p className="hint-text">The table’s header row is row {draft.headerRow + 1}, starting at column {columnName(draft.firstCol)}. Status, Comment, the document’s own columns and the reply columns can be filled in; the rest are locked.</p>
+            <h4>{msg('Columns')}</h4>
+            <p className="hint-text">{msg('The table’s header row is row {number}, starting at column {columnName}. Status, Comment, the document’s own columns and the reply columns can be filled in; the rest are locked.', { number: draft.headerRow + 1, columnName: columnName(draft.firstCol) })}</p>
             <table className="qty-table register-columns">
               <thead>
                 <tr>
-                  <th>Column</th>
-                  <th>Heading</th>
-                  <th>Holds</th>
-                  <th>Width</th>
+                  <th>{msg('Column')}</th>
+                  <th>{msg('Heading')}</th>
+                  <th>{msg('Holds')}</th>
+                  <th>{msg('Width')}</th>
                   <th />
                 </tr>
               </thead>
@@ -369,11 +368,11 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                     <tr key={i}>
                       <td>{columnName(draft.firstCol + i)}</td>
                       <td>
-                        <input aria-label={`Heading ${i + 1}`} value={c.header} onChange={(e) => column(i, { header: e.target.value })} />
+                        <input aria-label={msg('Heading {number}', { number: i + 1 })} value={c.header} onChange={(e) => column(i, { header: e.target.value })} />
                       </td>
                       <td>
-                        <select aria-label={`Field ${i + 1}`} value={key} onChange={(e) => column(i, { field: fieldOf(e.target.value) })}>
-                          {!fields.some((f) => f.key === key) && <option value={key}>{key} (not in this document)</option>}
+                        <select aria-label={msg('Field {number}', { number: i + 1 })} value={key} onChange={(e) => column(i, { field: fieldOf(e.target.value) })}>
+                          {!fields.some((f) => f.key === key) && <option value={key}>{msg('{key} (not in this document)', { key })}</option>}
                           {fields.map((f) => (
                             <option key={f.key} value={f.key}>
                               {f.label}
@@ -382,16 +381,16 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                         </select>
                       </td>
                       <td>
-                        <input aria-label={`Width ${i + 1}`} type="number" min={1} max={255} placeholder="auto" value={c.width ?? ''} onChange={(e) => column(i, { width: e.target.value ? Math.max(1, Math.min(255, Math.round(Number(e.target.value)))) : undefined })} />
+                        <input aria-label={msg('Width {number}', { number: i + 1 })} type="number" min={1} max={255} placeholder={msg('auto')} value={c.width ?? ''} onChange={(e) => column(i, { width: e.target.value ? Math.max(1, Math.min(255, Math.round(Number(e.target.value)))) : undefined })} />
                       </td>
                       <td className="register-row-actions">
-                        <button type="button" className="btn small" aria-label={`Move column ${i + 1} left`} disabled={i === 0} onClick={() => move(i, -1)}>
+                        <button type="button" className="btn small" aria-label={msg('Move column {number} left', { number: i + 1 })} disabled={i === 0} onClick={() => move(i, -1)}>
                           ↑
                         </button>
-                        <button type="button" className="btn small" aria-label={`Move column ${i + 1} right`} disabled={i === draft.columns.length - 1} onClick={() => move(i, 1)}>
+                        <button type="button" className="btn small" aria-label={msg('Move column {number} right', { number: i + 1 })} disabled={i === draft.columns.length - 1} onClick={() => move(i, 1)}>
                           ↓
                         </button>
-                        <button type="button" className="btn small" aria-label={`Remove column ${i + 1}`} onClick={() => edit({ columns: draft.columns.filter((_, n) => n !== i) })}>
+                        <button type="button" className="btn small" aria-label={msg('Remove column {number}', { number: i + 1 })} onClick={() => edit({ columns: draft.columns.filter((_, n) => n !== i) })}>
                           ✕
                         </button>
                       </td>
@@ -408,36 +407,36 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                 if (free) edit({ columns: [...draft.columns, { header: free.label, field: fieldOf(free.key) }] });
               }}
             >
-              Add Column
+              {msg('Add Column')}
             </button>
 
-            <h4>Status wording</h4>
-            <p className="hint-text">The client’s word for each status, which ones count as closed out, and any other words that mean the same when they are typed in the register (separate them with commas).</p>
+            <h4>{msg('Status wording')}</h4>
+            <p className="hint-text">{msg('The client’s word for each status, which ones count as closed out, and any other words that mean the same when they are typed in the register (separate them with commas).')}</p>
             <table className="qty-table register-statuses">
               <thead>
                 <tr>
-                  <th>Status</th>
-                  <th>Register says</th>
-                  <th>Closed</th>
-                  <th>Also read as</th>
+                  <th>{msg('Status')}</th>
+                  <th>{msg('Register says')}</th>
+                  <th>{msg('Closed')}</th>
+                  <th>{msg('Also read as')}</th>
                 </tr>
               </thead>
               <tbody>
                 {draft.statuses.map((s, i) => {
                   const def = statuses.find((x) => x.id === s.id);
                   const status = (patch: Partial<typeof s>) => edit({ statuses: draft.statuses.map((x, n) => (n === i ? { ...x, ...patch } : x)) });
-                  const name = s.id === 'none' ? 'No status' : (def?.name ?? `${s.id} (not in this document)`);
+                  const name = s.id === 'none' ? msg('No status') : (def?.name ?? msg('{id} (not in this document)', { id: s.id }));
                   return (
                     <tr key={s.id}>
                       <td>{name}</td>
                       <td>
-                        <input aria-label={`Word for ${name}`} value={s.word} onChange={(e) => status({ word: e.target.value })} />
+                        <input aria-label={msg('Word for {name}', { name })} value={s.word} onChange={(e) => status({ word: e.target.value })} />
                       </td>
                       <td>
-                        <input type="checkbox" aria-label={`${name} is closed`} checked={s.closed} onChange={(e) => status({ closed: e.target.checked })} />
+                        <input type="checkbox" aria-label={msg('{name} is closed', { name })} checked={s.closed} onChange={(e) => status({ closed: e.target.checked })} />
                       </td>
                       <td>
-                        <input aria-label={`Other words for ${name}`} value={s.also.join(', ')} onChange={(e) => status({ also: e.target.value.split(',').map((a) => a.trimStart()) })} onBlur={() => status({ also: s.also.map((a) => a.trim()).filter(Boolean) })} />
+                        <input aria-label={msg('Other words for {name}', { name })} value={s.also.join(', ')} onChange={(e) => status({ also: e.target.value.split(',').map((a) => a.trimStart()) })} onBlur={() => status({ also: s.also.map((a) => a.trim()).filter(Boolean) })} />
                       </td>
                     </tr>
                   );
@@ -445,15 +444,15 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
               </tbody>
             </table>
 
-            <h4>Above the table</h4>
-            <p className="hint-text">Cells in the rows above the header: fixed text such as a title, or a detail filled in at each export. They are ignored on import.</p>
+            <h4>{msg('Above the table')}</h4>
+            <p className="hint-text">{msg('Cells in the rows above the header: fixed text such as a title, or a detail filled in at each export. They are ignored on import.')}</p>
             <table className="qty-table register-cells">
               <thead>
                 <tr>
-                  <th>Cell</th>
-                  <th>Shows</th>
-                  <th>Text</th>
-                  <th>Bold</th>
+                  <th>{msg('Cell')}</th>
+                  <th>{msg('Shows')}</th>
+                  <th>{msg('Text')}</th>
+                  <th>{msg('Bold')}</th>
                   <th />
                 </tr>
               </thead>
@@ -462,7 +461,7 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                   <tr key={i} className={c.row >= draft.headerRow ? 'conflict' : undefined}>
                     <td>
                       <input
-                        aria-label={`Cell ${i + 1}`}
+                        aria-label={msg('Cell {number}', { number: i + 1 })}
                         defaultValue={cellRef(c.row, c.col)}
                         key={cellRef(c.row, c.col)}
                         onBlur={(e) => {
@@ -473,8 +472,8 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                       />
                     </td>
                     <td>
-                      <select aria-label={`Cell ${i + 1} shows`} value={c.value ?? ''} onChange={(e) => cell(i, e.target.value ? { value: e.target.value as RegisterValue, text: undefined } : { value: undefined, text: c.text ?? '' })}>
-                        <option value="">Text</option>
+                      <select aria-label={msg('Cell {number} shows', { number: i + 1 })} value={c.value ?? ''} onChange={(e) => cell(i, e.target.value ? { value: e.target.value as RegisterValue, text: undefined } : { value: undefined, text: c.text ?? '' })}>
+                        <option value="">{msg('Text')}</option>
                         {REGISTER_VALUES.map((v) => (
                           <option key={v.value} value={v.value}>
                             {v.label}
@@ -482,12 +481,12 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                         ))}
                       </select>
                     </td>
-                    <td>{!c.value && <input aria-label={`Cell ${i + 1} text`} value={c.text ?? ''} onChange={(e) => cell(i, { text: e.target.value })} />}</td>
+                    <td>{!c.value && <input aria-label={msg('Cell {number} text', { number: i + 1 })} value={c.text ?? ''} onChange={(e) => cell(i, { text: e.target.value })} />}</td>
                     <td>
-                      <input type="checkbox" aria-label={`Cell ${i + 1} bold`} checked={!!c.bold} onChange={(e) => cell(i, { bold: e.target.checked || undefined })} />
+                      <input type="checkbox" aria-label={msg('Cell {number} bold', { number: i + 1 })} checked={!!c.bold} onChange={(e) => cell(i, { bold: e.target.checked || undefined })} />
                     </td>
                     <td>
-                      <button type="button" className="btn small" aria-label={`Remove cell ${i + 1}`} onClick={() => edit({ cells: draft.cells.filter((_, n) => n !== i) })}>
+                      <button type="button" className="btn small" aria-label={msg('Remove cell {number}', { number: i + 1 })} onClick={() => edit({ cells: draft.cells.filter((_, n) => n !== i) })}>
                         ✕
                       </button>
                     </td>
@@ -495,19 +494,19 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
                 ))}
               </tbody>
             </table>
-            {cellsBelow > 0 && <p className="warn">{cellsBelow === 1 ? 'One cell is' : `${cellsBelow} cells are`} on or below the header row and will be left out: move the header row down, or the cell up.</p>}
+            {cellsBelow > 0 && <p className="warn">{msg('{value} on or below the header row and will be left out: move the header row down, or the cell up.', { value: cellsBelow === 1 ? msg('One cell is') : msg('{cellsBelow} cells are', { cellsBelow }) })}</p>}
             <button type="button" className="btn small" onClick={() => edit({ cells: [...draft.cells, { row: Math.max(0, Math.min(draft.headerRow - 1, draft.cells.length)), col: draft.firstCol, text: '' }] })} disabled={draft.headerRow === 0}>
-              Add Cell
+              {msg('Add Cell')}
             </button>
           </div>
         ) : (
-          <p className="empty">No templates yet. Click New to start from the usual register columns, or Open File… to use one a colleague saved.</p>
+          <p className="empty">{msg('No templates yet. Click New to start from the usual register columns, or Open File… to use one a colleague saved.')}</p>
         )}
         <div className="actions">
           {problem && <span className="form-error">{problem}</span>}
           <span className="grow" />
           <button type="button" className="btn" onClick={onClose}>
-            Close
+            {msg('Close')}
           </button>
           <button
             type="button"
@@ -520,7 +519,7 @@ export function RegisterTemplatesDialog({ templates, initialId, standards, listC
               open(saved);
             }}
           >
-            Save Template
+            {msg('Save Template')}
           </button>
         </div>
       </div>

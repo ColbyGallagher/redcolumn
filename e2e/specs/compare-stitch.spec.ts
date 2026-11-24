@@ -154,14 +154,14 @@ test.describe('compare with too many differences', () => {
     // 750 tags gone and 750 new ones: 1,500 changes, listed a page at a time.
     await expect(panel.locator('.sc-nav')).toContainText('1500 shown', { timeout: 60_000 });
     await expect(panel.locator('.sc-item')).toHaveCount(200);
-    await panel.getByRole('button', { name: 'Show 200 more of 1300' }).click();
+    await panel.getByRole('button', { name: 'Show 200 more of 1,300' }).click();
     await expect(panel.locator('.sc-item')).toHaveCount(400);
     // Previous from the start wraps to the last change: its page of changes is listed, not all.
     await panel.getByRole('button', { name: '‹ Previous' }).click();
     await expect(panel.locator('.sc-item.active')).toHaveCount(1);
     await expect(panel.locator('.sc-item')).toHaveCount(100);
     await expect(panel.locator('.sc-nav')).toContainText('1500 of 1500');
-    await panel.getByRole('button', { name: 'Show 200 earlier of 1400' }).click();
+    await panel.getByRole('button', { name: 'Show 200 earlier of 1,400' }).click();
     await expect(panel.locator('.sc-item')).toHaveCount(300);
     expect(app.errors).toEqual([]);
   });
