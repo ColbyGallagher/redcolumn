@@ -128,7 +128,7 @@ export function useToolLibrary(): GroupingTool[] {
  */
 /** `ai`: the AI client that ran it (over MCP), when not the person. */
 export function runToolOn(store: MarkupStore, tool: GroupingTool, by: string, documentName: string, ai?: string): GroupingProposal {
-  if (!toolRuns(tool)) throw new Error(tool.status !== 'accepted' ? msg('“{name}” is not accepted yet: a person accepts it in Review AI Takeoff › Tools first.', { name: tool.name }) : msg('“{name}” is turned off.', { name: tool.name }));
+  if (!toolRuns(tool)) throw new Error(tool.status !== 'accepted' ? `“${tool.name}” is not accepted yet: a person accepts it in Review AI Takeoff › Tools first.` : `“${tool.name}” is turned off.`);
   if (store.readOnly) throw new Error(`${documentName} is read-only.`);
   const a = tool.action;
   if (a.kind === 'zone' && a.document && a.document !== documentName) throw new Error(`“${tool.name}” groups by zones drawn on ${a.document}: they are that document's page positions, so it runs on that document only.`);
@@ -139,7 +139,7 @@ export function runToolOn(store: MarkupStore, tool: GroupingTool, by: string, do
     id: crypto.randomUUID(),
     name: tool.column,
     type: 'choice',
-    reasoning: msg('Made by the tool “{name}”: {value}', { name: tool.name, value: tool.description || msg('no description') }),
+    reasoning: `Made by the tool “${tool.name}”: ${tool.description || 'no description'}`,
     source: ai ?? by,
     createdAt: at,
     status: 'proposed',

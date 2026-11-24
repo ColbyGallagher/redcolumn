@@ -58,13 +58,13 @@ export function reportPageLabel(sheets: Readonly<Record<number, { number: string
 export function scopeLabel(scope: ReportScope, o: { pageLabel: string; count: number }): string {
   switch (scope) {
     case 'page':
-      return `Page ${o.pageLabel}`;
+      return msg('Page {page}', { page: o.pageLabel });
     case 'selection':
-      return `Selection (${o.count} markup${o.count === 1 ? '' : 's'})`;
+      return msg('{count, plural, one {Selection (# markup)} other {Selection (# markups)}}', { count: o.count });
     case 'list':
       return msg('Markups list, as filtered');
     default:
-      return 'All pages';
+      return msg('All pages');
   }
 }
 
@@ -186,7 +186,7 @@ function quantified(input: ReportInput): Quantified[] {
 function quantityNotes(rows: readonly Quantified[]): string[] {
   const failed = rows.filter((q) => q.items.some((i) => i.base === null)).length;
   const notes = [msg('Quantities in different units are listed on separate rows and never added together. Costs are added.')];
-  if (failed) notes.push(msg('{failed, plural, one {# measurement has} other {# measurements have}} an item whose formula does not work, and {value} left out of those items.', { failed, value: failed === 1 ? msg('is') : msg('are') }));
+  if (failed) notes.push(msg('{failed, plural, one {# measurement has an item whose formula does not work, and is left out of those items.} other {# measurements have an item whose formula does not work, and are left out of those items.}}', { failed }));
   return notes;
 }
 
@@ -279,7 +279,7 @@ function detail(input: ReportInput): ReportTable {
       cutouts: holes || null,
       cutoutArea,
       depth: m.depth ? (cells.depth?.num ?? null) : null,
-      manual: m.manual ? 'Yes' : '',
+      manual: m.manual ? msg('Yes') : '',
       assembly: cells.assembly?.text ?? '',
     });
   }
@@ -323,7 +323,7 @@ function counts(input: ReportInput): ReportTable {
   const rows: ReportRow[] = [...subjects]
     .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: 'base' }))
     .map(([subject, perPage]) => ({ subject, ...Object.fromEntries(pages.map((p) => [`p${p}`, perPage.get(p) ?? null])), total: [...perPage.values()].reduce((a, b) => a + b, 0) }));
-  const total: ReportRow = { subject: 'Total', ...Object.fromEntries(pages.map((p) => [`p${p}`, rows.reduce((n, r) => n + (Number(r[`p${p}`]) || 0), 0)])), total: rows.reduce((n, r) => n + (Number(r.total) || 0), 0) };
+  const total: ReportRow = { subject: msg('Total'), ...Object.fromEntries(pages.map((p) => [`p${p}`, rows.reduce((n, r) => n + (Number(r[`p${p}`]) || 0), 0)])), total: rows.reduce((n, r) => n + (Number(r.total) || 0), 0) };
   return { title: msg('Count Schedule'), columns, groups: [{ rows }], grandTotal: rows.length ? total : undefined, notes: [msg('Counts include typed (manual) counts.')] };
 }
 

@@ -20,7 +20,7 @@ interface Props {
 function newItem(category: ItemCategory, items: readonly Item[]): Item {
   const taken = new Set(items.map((i) => i.name.trim().toLowerCase()));
   let name = 'New item';
-  for (let n = 2; taken.has(name.toLowerCase()); n++) name = msg('New item {n}', { n });
+  for (let n = 2; taken.has(name.toLowerCase()); n++) name = `New item ${n}`;
   return { id: crypto.randomUUID(), name, category, unit: 'ea' };
 }
 

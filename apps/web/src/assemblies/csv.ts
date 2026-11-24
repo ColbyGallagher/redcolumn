@@ -53,7 +53,7 @@ export function productListFromCsv(name: string, text: string): ProductList {
   const columns = head.map((label, i) => {
     const values = body.map((r) => (r[i] ?? '').trim()).filter((v) => v !== '');
     const numeric = values.length > 0 && values.every((v) => Number.isFinite(parseNumber(v)));
-    return { key: keyFor(label || `Column ${i + 1}`, taken), label: label.trim() || msg('Column {number}', { number: i + 1 }), type: numeric ? ('number' as const) : ('text' as const) };
+    return { key: keyFor(label || `Column ${i + 1}`, taken), label: label.trim() || `Column ${i + 1}`, type: numeric ? ('number' as const) : ('text' as const) };
   });
   const records = body.map((r) => ({
     id: crypto.randomUUID(),

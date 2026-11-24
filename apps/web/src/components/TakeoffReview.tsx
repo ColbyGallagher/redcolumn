@@ -42,7 +42,6 @@ const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle:
 const pct = (c: number) => `${Math.round(c * 100)}%`;
 const KIND_LABEL = (): Record<ReviewItem['kind'], string> => ({ draft: msg('Drawn'), assembly: msg('Assembly'), count: msg('Count') });
 const STATE_LABEL = (): Record<ReviewState, string> => ({ pending: msg('Waiting'), approved: msg('Approved'), rejected: msg('Rejected') });
-const plural = (k: number, word: string) => `${k} ${word}${k === 1 ? '' : 's'}`;
 
 /**
  * Takeoff › Review AI Takeoff: every measurement an AI client drew, every assembly it proposed for
@@ -206,9 +205,9 @@ export function TakeoffReview({ store, me, ctx, pageLabel, onShow, onShowRect, o
       <div className="ar-tabs" role="tablist" aria-label={msg('What to review')}>
         {(
           [
-            ['takeoff', 'Takeoff', pending.length + liveFindings(store).filter((f) => needsDecision(f) && !f.item?.startsWith('column:')).length],
-            ['columns', 'Columns', store.aiReview().columns.filter(isWaitingGrouping).length + liveFindings(store).filter((f) => needsDecision(f) && !!f.item?.startsWith('column:')).length],
-            ['tools', 'Tools', tools.filter((t) => t.status === 'proposed').length],
+            ['takeoff', msg('Takeoff'), pending.length + liveFindings(store).filter((f) => needsDecision(f) && !f.item?.startsWith('column:')).length],
+            ['columns', msg('Columns'), store.aiReview().columns.filter(isWaitingGrouping).length + liveFindings(store).filter((f) => needsDecision(f) && !!f.item?.startsWith('column:')).length],
+            ['tools', msg('Tools'), tools.filter((t) => t.status === 'proposed').length],
           ] as const
         ).map(([id, label, count]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} className={`ar-tab${tab === id ? ' active' : ''}`} onClick={() => setTab(id)}>

@@ -59,7 +59,7 @@ export function QuantitiesDialog({ markups, assemblies, ctx, pageLabel, onManage
             </select>
           </label>
           <span className="hint-text">
-            {withAssembly} {msg('measurement')}{withAssembly === 1 ? '' : 's'} {msg('with an assembly')}
+            {msg('{count, plural, one {# measurement with an assembly} other {# measurements with an assembly}}', { count: withAssembly })}
             {errors ? <span className="warn"> {msg('· {errors} could not be worked out (check the formulas)', { errors })}</span> : null}
           </span>
         </div>
@@ -96,7 +96,7 @@ export function QuantitiesDialog({ markups, assemblies, ctx, pageLabel, onManage
                         <td>
                           {r.item}
                           {r.errors > 0 && (
-                            <span className="warn" title={msg('{errors} measurement(s) could not be worked out and are left out', { errors: r.errors })}>
+                            <span className="warn" title={msg('{errors, plural, one {# measurement could not be worked out and is left out} other {# measurements could not be worked out and are left out}}', { errors: r.errors })}>
                               {' '}
                               ⚠
                             </span>

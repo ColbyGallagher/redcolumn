@@ -32,7 +32,7 @@ interface Props {
   onClose: () => void;
 }
 
-const newItem = (): AssemblyItem => ({ id: crypto.randomUUID(), name: msg('New item'), unit: 'ea', formula: '[Quantity]' });
+const newItem = (): AssemblyItem => ({ id: crypto.randomUUID(), name: 'New item', unit: 'ea', formula: '[Quantity]' });
 const newAssembly = (name: string): Assembly => ({ id: crypto.randomUUID(), name, variables: [], items: [newItem()] });
 
 /** A free name like "New assembly 2". */
@@ -195,7 +195,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
     const fresh = incoming.map((a) => ({ ...structuredClone(a), id: crypto.randomUUID(), name: freeName(a.name, list) }));
     setList((l) => [...l, ...fresh]);
     setSelectedId(fresh[0]?.id ?? selectedId);
-    setMessage(msg('{how}. Save to apply.', { how }));
+    setMessage(how);
     setMenu(null);
   };
   const remove = (a: Assembly) => {
@@ -227,7 +227,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
 
   const p = selected ? problems.get(selected.id)! : new Map<string, string>();
   const fmt = (n: number | null) => (n === null ? '' : formatNumber(n, 2));
-  const varHint = (v: Assembly['variables'][number]) => (v.type === 'boolean' ? msg('Yes/No switch: {value} (1 or 0)', { value: v.value ? msg('Yes') : msg('No') }) : `Variable: ${v.value}${v.unit ? ` ${v.unit}` : ''}`);
+  const varHint = (v: Assembly['variables'][number]) => (v.type === 'boolean' ? msg('Yes/No switch: {value} (1 or 0)', { value: v.value ? msg('Yes') : msg('No') }) : v.unit ? msg('Variable: {value} {unit}', { value: v.value, unit: v.unit }) : msg('Variable: {value}', { value: v.value }));
   /** What the Formula Builder's property picker offers: measured values, this assembly's variables and switches, the document's columns. */
   const groups: FormulaNameGroup[] = selected
     ? [
@@ -271,10 +271,10 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
               {!list.length && <li className="empty">{msg('No assemblies yet. Start from an example or make a new one.')}</li>}
             </ul>
             <div className="col-add asm-add">
-              <button type="button" className="btn small" disabled={readOnly} onClick={() => add([newAssembly(freeName('New assembly', list))], 'Added a new assembly')}>
+              <button type="button" className="btn small" disabled={readOnly} onClick={() => add([newAssembly(freeName('New assembly', list))], msg('Added a new assembly. Save to apply.'))}>
                 {msg('+ New')}
               </button>
-              <button type="button" className="btn small" disabled={readOnly || !selected} onClick={() => selected && add([{ ...selected, name: `${selected.name} copy` }], `Duplicated “${selected?.name}”`)}>
+              <button type="button" className="btn small" disabled={readOnly || !selected} onClick={() => selected && add([{ ...selected, name: `${selected.name} copy` }], msg('Duplicated “{name}”. Save to apply.', { name: selected?.name }))}>
                 {msg('Duplicate')}
               </button>
               <button type="button" className="btn small" disabled={readOnly || !selected} onClick={() => selected && remove(selected)}>
@@ -290,17 +290,17 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                       <div key={g.discipline} role="group" aria-label={g.discipline}>
                         <div className="asm-menu-head">{g.discipline}</div>
                         {g.assemblies.map((a) => (
-                          <button key={a.name} type="button" role="menuitem" onClick={() => add([a], `Added the example “${a.name}”`)}>
+                          <button key={a.name} type="button" role="menuitem" onClick={() => add([a], msg('Added the example “{name}”. Save to apply.', { name: a.name }))}>
                             {a.name}
                           </button>
                         ))}
-                        <button type="button" role="menuitem" className="asm-menu-all" onClick={() => add(g.assemblies, `Added the ${g.assemblies.length} ${g.discipline.toLowerCase()} examples`)}>
+                        <button type="button" role="menuitem" className="asm-menu-all" onClick={() => add(g.assemblies, msg('Added the {count} {discipline} examples. Save to apply.', { count: g.assemblies.length, discipline: g.discipline.toLowerCase() }))}>
                           {msg('All {discipline}', { discipline: g.discipline.toLowerCase() })}
                         </button>
                       </div>
                     ))}
                     <div className="asm-menu-head" />
-                    <button type="button" role="menuitem" onClick={() => add(starterGroups(unitSystem).flatMap((g) => g.assemblies), 'Added every example')}>
+                    <button type="button" role="menuitem" onClick={() => add(starterGroups(unitSystem).flatMap((g) => g.assemblies), msg('Added every example. Save to apply.'))}>
                       {msg('Every example')}
                     </button>
                   </div>
@@ -314,7 +314,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                   <div className="ms-menu up" role="menu">
                     {library.map((a) => (
                       <div key={a.id} className="asm-lib-row">
-                        <button type="button" role="menuitem" onClick={() => add([a], `Added “${a.name}” from My Assemblies`)}>
+                        <button type="button" role="menuitem" onClick={() => add([a], msg('Added “{name}” from My Assemblies. Save to apply.', { name: a.name }))}>
                           {a.name}
                         </button>
                         <button
