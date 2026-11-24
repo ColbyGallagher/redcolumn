@@ -129,7 +129,7 @@ async function get(url: string, max: number, what: string, fetcher: typeof fetch
   } catch {
     throw new Error(msg('Could not reach the community library to get {what}. Check the connection and try again.', { what }));
   }
-  if (!res.ok) throw new Error(msg('The community library did not send {what} ({status}).', { what, status: res.status }));
+  if (!res.ok) throw new Error(msg('The community library did not send {what} ({status}).', { what, status: String(res.status) }));
   const body = await res.arrayBuffer();
   if (body.byteLength > max) throw new Error(msg('The community library sent {what} larger than redcolumn accepts.', { what }));
   return body;

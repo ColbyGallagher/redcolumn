@@ -199,7 +199,7 @@ export class SessionCrypto {
     const m = await this.openJson<M>(raw);
     const { sig, ...rest } = m;
     if (!m.enc || !sig || (await fingerprint(m.enc.host.sign)) !== this.secret.host || !(await verifyBytes(m.enc.host.sign, te.encode(canonical(rest)), fromB64url(sig)))) {
-      throw new Error(msg('The session’s manifest is not signed by its host. It may have been changed by someone else.'));
+      throw new Error(`The session’s manifest is not signed by its host. It may have been changed by someone else.`);
     }
     return m;
   }

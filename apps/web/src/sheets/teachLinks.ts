@@ -271,6 +271,6 @@ export function learnChainage(section: TaughtBox, plan: TaughtBox, sheets: reado
   const titles = learnSheetTitles(h, section, plan, sheets, notes);
   if (titles) return fail(titles);
   const linked = detectChainageLinks([plan.page, section.page], [sheets[plan.pageIndex], sheets[section.pageIndex]], h, true).some((l) => l.pageIndex === 1 && l.targetPage === 0);
-  notes.push(linked ? msg('Chainage {value} on the cross section links to the plan.', { value: String(cut.value) }) : msg('No run of chainages was found along the alignment on the plan, so chainage {value} is not linked yet.', { value: cut.value }));
+  notes.push(linked ? msg('Chainage {value} on the cross section links to the plan.', { value: String(cut.value) }) : msg('No run of chainages was found along the alignment on the plan, so chainage {value} is not linked yet.', { value: String(cut.value) }));
   return { marks: [], links: null, chainage: same(h, hints) ? null : h, notes, problem: null };
 }

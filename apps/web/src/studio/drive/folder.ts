@@ -119,7 +119,7 @@ export class SessionFolderDrive implements DriveApi {
       files = await this.host.list(folderId);
     } catch (err) {
       // Removed (the host ended the session) or moved away: DriveSession stops syncing on "could not find".
-      if (err instanceof Error && /ENOENT|no longer chosen/.test(err.message)) throw new Error(msg('This computer could not find the session folder.'));
+      if (err instanceof Error && /ENOENT|no longer chosen/.test(err.message)) throw new Error(`This computer could not find the session folder.`);
       throw err;
     }
     return Promise.all(files.map((f) => this.adopt(f)));

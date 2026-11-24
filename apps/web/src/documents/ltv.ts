@@ -355,9 +355,9 @@ function latestEntries(sections: readonly XrefSection[]): Map<number, XrefEntry>
 function resolve(bytes: Uint8Array, latest: Map<number, XrefEntry>, n: number, g: number, ctx: PDFContext): PDFObject {
   const e = latest.get(n);
   if (e?.type === 1 && e.gen === g) return objectAt(bytes, e.offset, ctx, { n, g }, true).obj;
-  if (e?.type !== 2 || g !== 0) throw new Error(msg('Object {n} {g} is not in the file', { n, g }));
+  if (e?.type !== 2 || g !== 0) throw new Error(msg('Object {n} {g} is not in the file', { n: String(n), g: String(g) }));
   const holder = latest.get(e.offset);
-  if (holder?.type !== 1) throw new Error(msg('Object {n} {g} is not in the file', { n, g }));
+  if (holder?.type !== 1) throw new Error(msg('Object {n} {g} is not in the file', { n: String(n), g: String(g) }));
   const { obj: stream } = objectAt(bytes, holder.offset, ctx, { n: e.offset, g: holder.gen }, true);
   if (!(stream instanceof PDFRawStream) || stream.dict.get(PDFName.of('Type')) !== PDFName.of('ObjStm')) throw new Error(msg('Not an object stream'));
   const data = decodePDFRawStream(stream).decode();
@@ -366,7 +366,7 @@ function resolve(bytes: Uint8Array, latest: Map<number, XrefEntry>, n: number, g
   if (first === null || count === null) throw new Error(msg('Unreadable object stream'));
   const header = latin1(data.subarray(0, first)).trim().split(/[\0\t\n\f\r ]+/).map(Number);
   // The index in the cross-reference says which; the number there must agree.
-  if (e.gen >= count || header[e.gen * 2] !== n) throw new Error(msg('Object {n} {g} is not in its object stream', { n, g }));
+  if (e.gen >= count || header[e.gen * 2] !== n) throw new Error(msg('Object {n} {g} is not in its object stream', { n: String(n), g: String(g) }));
   return StrictParser.of(data.subarray(first + header[e.gen * 2 + 1]!), ctx).parseObject();
 }
 
