@@ -1,19 +1,20 @@
+import { msg } from '@nb/i18n';
 import { useState } from 'react';
 import { accessFor, sameName, type Access, type AccessGroup, type AccessPolicy } from '../../studio/protocol';
 
-export const ACCESS_LABELS: Record<Access, string> = {
-  none: 'No access',
-  view: 'View documents',
-  markup: 'Add comments, edit own',
-  markupAny: 'Add comments, edit anyone’s',
-};
+export const ACCESS_LABELS = (): Record<Access, string> => ({
+  none: msg('No access'),
+  view: msg('View documents'),
+  markup: msg('Add comments, edit own'),
+  markupAny: msg('Add comments, edit anyone’s'),
+});
 
-export const ACCESS_SHORT: Record<Access, string> = {
-  none: 'No access',
-  view: 'View',
-  markup: 'Comment',
-  markupAny: 'Comment (edit all)',
-};
+export const ACCESS_SHORT = (): Record<Access, string> => ({
+  none: msg('No access'),
+  view: msg('View'),
+  markup: msg('Comment'),
+  markupAny: msg('Comment (edit all)'),
+});
 
 export const emptyPolicy = (): AccessPolicy => ({ default: 'markup', people: [], groups: [] });
 
@@ -36,7 +37,7 @@ function AccessSelect({ value, onChange, inherit, label }: { value: Access | nul
       {inherit && <option value="">{inherit}</option>}
       {(['markupAny', 'markup', 'view', 'none'] as const).map((a) => (
         <option key={a} value={a}>
-          {ACCESS_LABELS[a]}
+          {ACCESS_LABELS()[a]}
         </option>
       ))}
     </select>
@@ -66,11 +67,11 @@ export function AccessEditor({ policy, onChange, host }: { policy: AccessPolicy;
   return (
     <div className="access-editor">
       <label className="access-default">
-        <span>Anyone else with the invite link</span>
-        <AccessSelect label="Access for anyone else" value={policy.default} onChange={(a) => onChange({ ...policy, default: a ?? 'markup' })} />
+        <span>{msg('Anyone else with the invite link')}</span>
+        <AccessSelect label={msg('Access for anyone else')} value={policy.default} onChange={(a) => onChange({ ...policy, default: a ?? 'markup' })} />
       </label>
 
-      <h4>People</h4>
+      <h4>{msg('People')}</h4>
       <table className="access-table">
         <tbody>
           <tr className="host-row">
@@ -78,7 +79,7 @@ export function AccessEditor({ policy, onChange, host }: { policy: AccessPolicy;
               <span className="who">{host}</span>
             </td>
             <td colSpan={2}>
-              <span className="access-badge host">Host · full control</span>
+              <span className="access-badge host">{msg('Host · full control')}</span>
             </td>
           </tr>
           {policy.people.map((p) => {
@@ -94,9 +95,9 @@ export function AccessEditor({ policy, onChange, host }: { policy: AccessPolicy;
                 </td>
                 <td>
                   <AccessSelect
-                    label={`Access for ${p.name}`}
+                    label={msg('Access for {name}', { name: p.name })}
                     value={p.access}
-                    inherit={`${groups.length ? 'From groups' : 'Default'} (${ACCESS_SHORT[effective]})`}
+                    inherit={groups.length ? msg('From groups ({access})', { access: ACCESS_SHORT()[effective] }) : msg('Default ({access})', { access: ACCESS_SHORT()[effective] })}
                     onChange={(access) => onChange({ ...policy, people: policy.people.map((x) => (x.name === p.name ? { ...x, access } : x)) })}
                   />
                 </td>
@@ -104,7 +105,7 @@ export function AccessEditor({ policy, onChange, host }: { policy: AccessPolicy;
                   <button
                     type="button"
                     className="btn small flat"
-                    title={`Remove ${p.name}`}
+                    title={msg('Remove {name}', { name: p.name })}
                     onClick={() =>
                       onChange({
                         ...policy,
@@ -131,27 +132,27 @@ export function AccessEditor({ policy, onChange, host }: { policy: AccessPolicy;
               addPeople();
             }
           }}
-          placeholder="Names or emails, separated by commas"
-          aria-label="Add people"
+          placeholder={msg('Names or emails, separated by commas')}
+          aria-label={msg('Add people')}
         />
         <button type="button" className="btn" disabled={!adding.trim()} onClick={addPeople}>
-          Add
+          {msg('Add')}
         </button>
       </div>
 
-      <h4>Groups</h4>
-      {policy.groups.length === 0 && <p className="hint">Groups give several people the same access, e.g. “Reviewers” who can only view.</p>}
+      <h4>{msg('Groups')}</h4>
+      {policy.groups.length === 0 && <p className="hint">{msg('Groups give several people the same access, e.g. “Reviewers” who can only view.')}</p>}
       {policy.groups.map((g) => (
         <fieldset key={g.id} className="access-group">
           <div className="row">
-            <input aria-label="Group name" value={g.name} onChange={(e) => setGroup(g.id, { name: e.target.value })} maxLength={60} />
-            <AccessSelect label={`Access for ${g.name}`} value={g.access} onChange={(a) => setGroup(g.id, { access: a ?? 'view' })} />
-            <button type="button" className="btn small flat" title={`Delete ${g.name}`} onClick={() => onChange({ ...policy, groups: policy.groups.filter((x) => x.id !== g.id) })}>
+            <input aria-label={msg('Group name')} value={g.name} onChange={(e) => setGroup(g.id, { name: e.target.value })} maxLength={60} />
+            <AccessSelect label={msg('Access for {name}', { name: g.name })} value={g.access} onChange={(a) => setGroup(g.id, { access: a ?? 'view' })} />
+            <button type="button" className="btn small flat" title={msg('Delete {name}', { name: g.name })} onClick={() => onChange({ ...policy, groups: policy.groups.filter((x) => x.id !== g.id) })}>
               ×
             </button>
           </div>
           {policy.people.length === 0 ? (
-            <p className="hint">Add people above, then tick who belongs to this group.</p>
+            <p className="hint">{msg('Add people above, then tick who belongs to this group.')}</p>
           ) : (
             <div className="members">
               {policy.people.map((p) => (
@@ -168,8 +169,8 @@ export function AccessEditor({ policy, onChange, host }: { policy: AccessPolicy;
         <input
           value={groupName}
           onChange={(e) => setGroupName(e.target.value)}
-          placeholder="New group name"
-          aria-label="New group name"
+          placeholder={msg('New group name')}
+          aria-label={msg('New group name')}
           maxLength={60}
           onKeyDown={(e) => {
             if (e.key === 'Enter') e.preventDefault();
@@ -184,7 +185,7 @@ export function AccessEditor({ policy, onChange, host }: { policy: AccessPolicy;
             setGroupName('');
           }}
         >
-          Create group
+          {msg('Create group')}
         </button>
       </div>
     </div>

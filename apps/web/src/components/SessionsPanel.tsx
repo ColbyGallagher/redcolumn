@@ -195,7 +195,7 @@ function SessionList({
     const j = joined.find((x) => x.session.id === r.id);
     const meta = j?.snapshot.meta ?? null;
     const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? msg('Ended') : j.snapshot.meta.status === 'finished' ? msg('Closed') : msg('Joined')) : r.removed ? msg('Removed') : r.backend === 'folder' ? msg('Folder') : 'OneDrive';
-    const access = j ? (j.snapshot.isHost ? msg('Host') : ACCESS_SHORT[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
+    const access = j ? (j.snapshot.isHost ? msg('Host') : ACCESS_SHORT()[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
     return { ref: r, joined: j, meta, status, usable: true, access };
   });
   const notJoinedCount = rows.filter((row) => !row.joined && !row.ref.removed).length;

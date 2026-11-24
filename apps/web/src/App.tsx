@@ -128,7 +128,7 @@ import { cadToolFits, isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
 import { HeaderFooterDialog } from './components/HeaderFooterDialog';
-import { PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
+import { PROCESS_ENGLISH, PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
 import { OcrDialog } from './components/OcrDialog';
 import { CompareDialog, type ComparePairing, type CompareSpec } from './components/CompareDialog';
 import type { PickerPageHandle } from './components/ComparePagePicker';
@@ -11546,7 +11546,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onCancel={() => setProcessKind(null)}
           onApply={async (spec) => {
             // The contents before are kept as a revision: these changes cannot be undone otherwise.
-            const msg = await runProcess(activeOpen, spec, `Before ${PROCESS_TITLES[spec.kind]}`);
+            const msg = await runProcess(activeOpen, spec, `Before ${PROCESS_ENGLISH[spec.kind]}`);
             const changed = (await listFiles()).find((f) => f.id === activeOpen.file.id)?.hash !== activeOpen.file.hash;
             if (msg) setNotice(changed ? `${msg} Document › Revisions brings back the version before.` : msg);
             setProcessKind(null);

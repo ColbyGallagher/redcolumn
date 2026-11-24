@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SnapIndex, type Snap, type SnapKind } from '@nb/measure';
 import { affineFromPoints, type Affine } from '../compare/affine';
@@ -607,18 +608,18 @@ function PageSurface({ page, snapIndex, snapLoading, snapContent, snapGrid, mark
             {activePrompt}
           </span>
         )}
-        {snapContent && snapLoading && <span className="compare-pick-snap-state">Loading snap…</span>}
+        {snapContent && snapLoading && <span className="compare-pick-snap-state">{msg('Loading snap…')}</span>}
         <span className="spacer" />
-        <span className="compare-pick-zoom" role="group" aria-label={`${label} zoom controls`}>
-          <button type="button" className="btn compare-pick-zbtn" title="Zoom out" aria-label={`Zoom out ${label}`} disabled={!page} onClick={() => zoomAt(1 / 1.35)}>
+        <span className="compare-pick-zoom" role="group" aria-label={msg('{label} zoom controls', { label })}>
+          <button type="button" className="btn compare-pick-zbtn" title={msg('Zoom out')} aria-label={msg('Zoom out {label}', { label })} disabled={!page} onClick={() => zoomAt(1 / 1.35)}>
             −
           </button>
           <span className="compare-pick-zpct">{zoomPct}%</span>
-          <button type="button" className="btn compare-pick-zbtn" title="Zoom in" aria-label={`Zoom in ${label}`} disabled={!page} onClick={() => zoomAt(1.35)}>
+          <button type="button" className="btn compare-pick-zbtn" title={msg('Zoom in')} aria-label={msg('Zoom in {label}', { label })} disabled={!page} onClick={() => zoomAt(1.35)}>
             +
           </button>
-          <button type="button" className="btn compare-pick-zbtn" title="Fit page in view" aria-label={`Fit ${label}`} disabled={!page} onClick={resetFit}>
-            Fit
+          <button type="button" className="btn compare-pick-zbtn" title={msg('Fit page in view')} aria-label={msg('Fit {label}', { label })} disabled={!page} onClick={resetFit}>
+            {msg('Fit')}
           </button>
         </span>
       </figcaption>
@@ -704,7 +705,7 @@ function PageSurface({ page, snapIndex, snapLoading, snapContent, snapGrid, mark
           setHoverScreen(null);
         }}
       >
-        {!page ? <div className="compare-pick-loading">Drawing {label.toLowerCase()}…</div> : <canvas ref={canvasRef} className="compare-pick-canvas" />}
+        {!page ? <div className="compare-pick-loading">{msg('Drawing {label}…', { label: label.toLowerCase() })}</div> : <canvas ref={canvasRef} className="compare-pick-canvas" />}
       </div>
     </figure>
   );
@@ -896,36 +897,36 @@ function AlignmentPreview({
   return (
     <figure className="compare-pick compare-pick-preview">
       <figcaption className="compare-pick-bar">
-        <span className="compare-pick-title">Alignment preview</span>
+        <span className="compare-pick-title">{msg('Alignment preview')}</span>
         <span className="compare-pick-legend">
           <span className="compare-pick-swatch" style={{ background: colors.old }} />
-          Old
+          {msg('Old')}
           <span className="compare-pick-swatch" style={{ background: colors.new }} />
-          New
-          <span className="compare-pick-snap-state">· Matching lines appear dark</span>
+          {msg('New')}
+          <span className="compare-pick-snap-state">{msg('· Matching lines appear dark')}</span>
         </span>
         <span className="spacer" />
-        <label className="compare-pick-opacity" title="Adjust old page visibility">
-          Old
+        <label className="compare-pick-opacity" title={msg('Adjust old page visibility')}>
+          {msg('Old')}
           <input type="range" min={0} max={100} value={Math.round(oldOpacity * 100)} onChange={(e) => setOldOpacity(Number(e.target.value) / 100)} />
         </label>
-        <span className="compare-pick-zoom" role="group" aria-label="Alignment preview zoom controls">
-          <button type="button" className="btn compare-pick-zbtn" title="Zoom out" aria-label="Zoom out preview" onClick={() => zoomAt(1 / 1.35)}>
+        <span className="compare-pick-zoom" role="group" aria-label={msg('Alignment preview zoom controls')}>
+          <button type="button" className="btn compare-pick-zbtn" title={msg('Zoom out')} aria-label={msg('Zoom out preview')} onClick={() => zoomAt(1 / 1.35)}>
             −
           </button>
           <span className="compare-pick-zpct">{zoomPct}%</span>
-          <button type="button" className="btn compare-pick-zbtn" title="Zoom in" aria-label="Zoom in preview" onClick={() => zoomAt(1.35)}>
+          <button type="button" className="btn compare-pick-zbtn" title={msg('Zoom in')} aria-label={msg('Zoom in preview')} onClick={() => zoomAt(1.35)}>
             +
           </button>
-          <button type="button" className="btn compare-pick-zbtn" title="Fit page in view" aria-label="Fit preview" onClick={resetFit}>
-            Fit
+          <button type="button" className="btn compare-pick-zbtn" title={msg('Fit page in view')} aria-label={msg('Fit preview')} onClick={resetFit}>
+            {msg('Fit')}
           </button>
         </span>
       </figcaption>
       <div
         ref={wrapRef}
         className={`compare-pick-viewport ${panning ? 'panning' : 'pan-ready'}`}
-        aria-label="Alignment preview"
+        aria-label={msg('Alignment preview')}
         onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
           if (!camRef.current || (e.button !== 0 && e.button !== 1 && e.button !== 2)) return;
@@ -1080,13 +1081,13 @@ export function ComparePagePicker(props: Props) {
 
   const stepGuidance = (() => {
     if (props.mode !== 'points') return '';
-    if (transform) return previewing ? 'Inspect the overlaid pages (scroll to zoom, drag to pan), then click Align to apply or Back to points to adjust.' : 'All 3 point pairs selected — click Preview alignment to verify, or click Align to apply.';
-    if (pointsDone) return 'Those 3 points are nearly in a straight line. Undo or start over and pick points spread across the page.';
+    if (transform) return previewing ? msg('Inspect the overlaid pages (scroll to zoom, drag to pan), then click Align to apply or Back to points to adjust.') : msg('All 3 point pairs selected — click Preview alignment to verify, or click Align to apply.');
+    if (pointsDone) return msg('Those 3 points are nearly in a straight line. Undo or start over and pick points spread across the page.');
     if (needOld) {
-      const hint = activePairIndex === 0 ? 'choose a crisp corner or grid intersection' : activePairIndex === 1 ? 'far from Point 1' : 'spread out to form a wide triangle';
-      return `Step ${stepNumber} of 6 — Click Point ${activePairIndex + 1} on the Old page (${hint}).`;
+      const hint = activePairIndex === 0 ? msg('choose a crisp corner or grid intersection') : activePairIndex === 1 ? msg('far from Point 1') : msg('spread out to form a wide triangle');
+      return msg('Step {step} of 6 — Click Point {point} on the Old page ({hint}).', { step: stepNumber, point: activePairIndex + 1, hint });
     }
-    return `Step ${stepNumber} of 6 — Now click the matching Point ${activePairIndex + 1} on the New page.`;
+    return msg('Step {step} of 6 — Now click the matching Point {point} on the New page.', { step: stepNumber, point: activePairIndex + 1 });
   })();
 
   const isPoints = props.mode === 'points';
@@ -1110,9 +1111,9 @@ export function ComparePagePicker(props: Props) {
       >
         <div className="compare-pick-header">
           <div className="compare-pick-heading">
-            <h3>{isPoints ? 'Align Pages' : 'Select Region'}</h3>
+            <h3>{isPoints ? msg('Align Pages') : msg('Select Region')}</h3>
             {isPoints ? (
-              <div className="compare-pick-steps" aria-label="Alignment point progress">
+              <div className="compare-pick-steps" aria-label={msg('Alignment point progress')}>
                 {[0, 1, 2].map((i) => {
                   const hasOld = oldPts.length > i;
                   const hasNew = curPts.length > i;
@@ -1120,14 +1121,14 @@ export function ComparePagePicker(props: Props) {
                   return (
                     <span key={i} className={`compare-pick-step${isCurrent ? ' current' : hasOld && hasNew ? ' done' : ''}`} style={{ '--step-color': COLORS[i] } as React.CSSProperties}>
                       <span className="compare-pick-dot">{i + 1}</span>
-                      <span className={`compare-pick-pill${hasOld ? ' ok' : needOld && isCurrent ? ' active' : ''}`}>Old{hasOld ? ' ✓' : ''}</span>
-                      <span className={`compare-pick-pill${hasNew ? ' ok' : needCur && isCurrent ? ' active' : ''}`}>New{hasNew ? ' ✓' : ''}</span>
+                      <span className={`compare-pick-pill${hasOld ? ' ok' : needOld && isCurrent ? ' active' : ''}`}>{msg('Old')}{hasOld ? ' ✓' : ''}</span>
+                      <span className={`compare-pick-pill${hasNew ? ' ok' : needCur && isCurrent ? ' active' : ''}`}>{msg('New')}{hasNew ? ' ✓' : ''}</span>
                     </span>
                   );
                 })}
               </div>
             ) : (
-              <span className="print-hint">Drag a rectangle over the part of the page to use.</span>
+              <span className="print-hint">{msg('Drag a rectangle over the part of the page to use.')}</span>
             )}
           </div>
           {isPoints && (
@@ -1137,16 +1138,16 @@ export function ComparePagePicker(props: Props) {
               </div>
               <div className="compare-pick-controls">
                 {props.openPage && (
-                  <label className="check" title="Snap cursor to drawing endpoints, intersections, midpoints and centres (hold Alt to temporarily bypass)">
+                  <label className="check" title={msg('Snap cursor to drawing endpoints, intersections, midpoints and centres (hold Alt to temporarily bypass)')}>
                     <input type="checkbox" checked={snapContent} onChange={(e) => setSnapContent(e.target.checked)} />
-                    Snap to Content
+                    {msg('Snap to Content')}
                   </label>
                 )}
-                <label className="check" title="Snap cursor to the page grid when no drawing geometry is nearer">
+                <label className="check" title={msg('Snap cursor to the page grid when no drawing geometry is nearer')}>
                   <input type="checkbox" checked={snapGrid} onChange={(e) => setSnapGrid(e.target.checked)} />
-                  Snap to Grid
+                  {msg('Snap to Grid')}
                 </label>
-                <span className="compare-pick-hint">Scroll: zoom · Drag / Middle-drag / Space+drag: pan · Alt: bypass snap</span>
+                <span className="compare-pick-hint">{msg('Scroll: zoom · Drag / Middle-drag / Space+drag: pan · Alt: bypass snap')}</span>
               </div>
             </div>
           )}
@@ -1159,7 +1160,7 @@ export function ComparePagePicker(props: Props) {
             <>
               {isPoints && (
                 <PageSurface
-                  label="Old page"
+                  label={msg('Old page')}
                   page={oldLoaded.page}
                   snapIndex={oldLoaded.snapIndex}
                   snapLoading={oldLoaded.snapLoading}
@@ -1167,12 +1168,12 @@ export function ComparePagePicker(props: Props) {
                   snapGrid={snapGrid}
                   marks={oldPts}
                   onPoint={needOld ? add(setOldPts) : undefined}
-                  activePrompt={needOld ? `Click Point ${activePairIndex + 1} here` : null}
+                  activePrompt={needOld ? msg('Click Point {point} here', { point: activePairIndex + 1 }) : null}
                   activeColor={activePairIndex >= 0 ? COLORS[activePairIndex] : undefined}
                 />
               )}
               <PageSurface
-                label={isPoints ? 'New page' : 'Page'}
+                label={isPoints ? msg('New page') : msg('Page')}
                 page={curLoaded.page}
                 snapIndex={curLoaded.snapIndex}
                 snapLoading={curLoaded.snapLoading}
@@ -1182,7 +1183,7 @@ export function ComparePagePicker(props: Props) {
                 region={region}
                 onPoint={needCur ? add(setCurPts) : undefined}
                 onRegion={props.mode === 'region' ? setRegion : undefined}
-                activePrompt={needCur ? `Click matching Point ${activePairIndex + 1} here` : null}
+                activePrompt={needCur ? msg('Click matching Point {point} here', { point: activePairIndex + 1 }) : null}
                 activeColor={activePairIndex >= 0 ? COLORS[activePairIndex] : undefined}
               />
             </>
@@ -1191,8 +1192,8 @@ export function ComparePagePicker(props: Props) {
         <div className="actions">
           {isPoints ? (
             <>
-              <button type="button" className="btn" disabled={!oldPts.length} onClick={undoLastPoint} title="Remove the last placed point (Ctrl+Z)">
-                Undo point
+              <button type="button" className="btn" disabled={!oldPts.length} onClick={undoLastPoint} title={msg('Remove the last placed point (Ctrl+Z)')}>
+                {msg('Undo point')}
               </button>
               <button
                 type="button"
@@ -1204,29 +1205,29 @@ export function ComparePagePicker(props: Props) {
                   setCurPts([]);
                 }}
               >
-                Start over
+                {msg('Start over')}
               </button>
               <button
                 type="button"
                 className={`btn${showPreview ? ' active' : ''}`}
                 disabled={!transform || !oldLoaded.page || !curLoaded.page}
                 onClick={() => setPreviewing((v) => !v)}
-                title="Blend the transformed old page over the new page to verify alignment"
+                title={msg('Blend the transformed old page over the new page to verify alignment')}
               >
-                {showPreview ? 'Back to points' : 'Preview alignment'}
+                {showPreview ? msg('Back to points') : msg('Preview alignment')}
               </button>
             </>
           ) : (
             <button type="button" className="btn" disabled={!region} onClick={() => setRegion(null)}>
-              Whole page
+              {msg('Whole page')}
             </button>
           )}
           <span className="spacer" />
           <button type="button" className="btn" onClick={props.onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="button" className="btn primary" disabled={isPoints ? !transform : false} onClick={() => (props.mode === 'points' ? transform && props.onDone(transform) : props.onDone(region))}>
-            {isPoints ? 'Align' : 'OK'}
+            {isPoints ? msg('Align') : msg('OK')}
           </button>
         </div>
       </div>

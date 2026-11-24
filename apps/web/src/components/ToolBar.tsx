@@ -1308,7 +1308,7 @@ function HatchMenu({ style, mixed, disabled, bare, onChange, onPreview }: { styl
   const { hatchSets } = useWorkspace();
   const active = !!resolveHatch(current, style.hatchSpec);
   const color = style.hatchColor ?? style.stroke;
-  const name = mixed ? msg('Mixed') : !current ? msg('None') : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS[current]) ?? msg('None'));
+  const name = mixed ? msg('Mixed') : !current ? msg('None') : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS()[current]) ?? msg('None'));
   const patchFor = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec): Partial<MarkupStyle> =>
     value === 'none' ? { hatch: undefined, hatchSpec: undefined, hatchColor: undefined, hatchScale: undefined } : { hatch: value, hatchSpec: spec };
   const choose = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec) => {
@@ -1385,7 +1385,7 @@ function HatchMenu({ style, mixed, disabled, bare, onChange, onPreview }: { styl
               onClick={() => choose(current, style.hatchSpec)}
             >
               <HatchSwatch pattern={current} spec={style.hatchSpec} color={color} width={48} height={22} />
-              {current.startsWith('set:') ? customHatchName(current) : (LEGACY_HATCH_LABELS[current] ?? current)}
+              {current.startsWith('set:') ? customHatchName(current) : (LEGACY_HATCH_LABELS()[current] ?? current)}
             </button>
           )}
           {!bare && (

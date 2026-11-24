@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 
 /**
@@ -56,7 +57,7 @@ export function DocTabStrip({
         <button
           type="button"
           className="doc-tab-more"
-          title="All open documents"
+          title={msg('All open documents')}
           aria-haspopup="menu"
           onClick={(e) => {
             e.stopPropagation();

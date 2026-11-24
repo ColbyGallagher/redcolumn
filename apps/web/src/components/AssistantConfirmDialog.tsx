@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useSyncExternalStore } from 'react';
 import { allowAssistant, assistantPrompt, denyAssistant, subscribeAssistantPrompt } from '../desktop/assistantConfirm';
 
@@ -19,14 +20,14 @@ export function AssistantConfirmDialog() {
   return (
     <div className="modal-backdrop assistant-confirm" onMouseDown={denyAssistant}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="assistant-confirm-title" onMouseDown={(e) => e.stopPropagation()}>
-        <h3 id="assistant-confirm-title">Allow the assistant?</h3>
+        <h3 id="assistant-confirm-title">{msg('Allow the assistant?')}</h3>
         <p>{message}</p>
         <div className="actions">
           <button type="button" className="btn" autoFocus onClick={denyAssistant}>
-            Deny
+            {msg('Deny')}
           </button>
           <button type="button" className="btn primary" onClick={allowAssistant}>
-            Allow
+            {msg('Allow')}
           </button>
         </div>
       </div>

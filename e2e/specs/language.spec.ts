@@ -102,10 +102,11 @@ test.describe('restarting with unsaved changes', () => {
     await app.page.getByRole('combobox', { name: /^\[\[Ļåñĝûåĝé ~+\]\]$/ }).selectOption('en');
     await app.page.getByRole('button', { name: /^\[\[Ŕéšţåŕţ Ñöŵ ~+\]\]$/ }).click();
 
-    // The save prompt's own text is not translated yet, so it is found by its role alone.
+    // The save prompt is translated too; the file name inside it is not.
     const prompt = app.page.getByRole('dialog').filter({ hasText: 'plan.pdf' });
     await expect(prompt).toBeVisible();
-    await prompt.getByRole('button', { name: /Cancel/ }).click();
+    await expect(prompt.getByRole('heading')).toHaveText(/^\[\[.*\]\]$/);
+    await prompt.getByRole('button', { name: /^\[\[Çåñçéļ ~+\]\]$/ }).click();
     await expect(prompt).toBeHidden();
     // Still running, still in the pseudo-locale, markup kept; the new choice is saved for next time.
     expect(await app.raw()).toHaveLength(1);

@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useState, type ReactNode } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import { parsePageRange } from '../documents/printPdf';
@@ -30,13 +32,13 @@ interface Props {
   onCancel: () => void;
 }
 
-const TITLES: Record<PageToolKind, string> = {
-  extract: 'Extract Pages',
-  split: 'Split Document',
-  replace: 'Replace Pages',
-  crop: 'Crop Pages',
-  setup: 'Page Setup',
-};
+const TITLES = (): Record<PageToolKind, string> => ({
+  extract: msg('Extract Pages'),
+  split: msg('Split Document'),
+  replace: msg('Replace Pages'),
+  crop: msg('Crop Pages'),
+  setup: msg('Page Setup'),
+});
 
 const UNITS = { in: 72, mm: 72 / 25.4 } as const;
 
@@ -47,19 +49,15 @@ export function usePageChoice(pageCount: number, currentPage: number, initial: '
   const pages = which === 'all' ? Array.from({ length: pageCount }, (_, i) => i) : which === 'current' ? [currentPage] : parsePageRange(range, pageCount);
   const ui = (
     <fieldset>
-      <legend>Pages</legend>
+      <legend>{msg('Pages')}</legend>
       <label className="row">
-        <input type="radio" checked={which === 'current'} onChange={() => setWhich('current')} />
-        Current page ({currentPage + 1})
+        {keyed(msgParts('{input}Current page ({page})', { input: <input type="radio" checked={which === 'current'} onChange={() => setWhich('current')} />, page: currentPage + 1 }))}
       </label>
       <label className="row">
-        <input type="radio" checked={which === 'all'} onChange={() => setWhich('all')} />
-        All {pageCount} pages
+        {keyed(msgParts('{input}All {pageCount} pages', { input: <input type="radio" checked={which === 'all'} onChange={() => setWhich('all')} />, pageCount }))}
       </label>
       <label className="row">
-        <input type="radio" checked={which === 'range'} onChange={() => setWhich('range')} />
-        Pages
-        <input type="text" value={range} aria-label="Page range" placeholder="e.g. 1-3, 5" onFocus={() => setWhich('range')} onChange={(e) => setRange(e.target.value)} />
+        {keyed(msgParts('{input}Pages{input2}', { input: <input type="radio" checked={which === 'range'} onChange={() => setWhich('range')} />, input2: <input type="text" value={range} aria-label={msg('Page range')} placeholder="e.g. 1-3, 5" onFocus={() => setWhich('range')} onChange={(e) => setRange(e.target.value)} /> }))}
       </label>
     </fieldset>
   );
@@ -104,7 +102,7 @@ export function PageToolsDialog({ kind, pageCount, currentPage, fileName, bookma
         setSourceCount(d.getPageCount());
         setSourceRange(`1-${Math.min(d.getPageCount(), choice.pages?.length ?? 1)}`);
       })
-      .catch(() => setError('That file could not be read as a PDF.'));
+      .catch(() => setError(msg('That file could not be read as a PDF.')));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file]);
 
@@ -122,17 +120,17 @@ export function PageToolsDialog({ kind, pageCount, currentPage, fileName, bookma
   let spec: PageToolSpec | null = null;
   let problem: string | null = null;
   const pages = choice.pages;
-  if (kind !== 'split' && !pages?.length) problem = `Enter pages between 1 and ${pageCount}.`;
+  if (kind !== 'split' && !pages?.length) problem = msg('Enter pages between 1 and {pageCount}.', { pageCount });
   else if (kind === 'extract') spec = { kind, pages: pages!, oneFilePerPage: oneFile, deleteAfter };
   else if (kind === 'split') spec = { kind, ...split };
   else if (kind === 'replace') {
-    if (!file) problem = 'Choose the PDF with the new pages.';
-    else if (!sourcePages) problem = sourceCount ? `Enter pages of the new PDF between 1 and ${sourceCount}.` : null;
-    else if (sourcePages.length !== pages!.length) problem = `Pick as many new pages (${sourcePages.length}) as pages to replace (${pages!.length}).`;
+    if (!file) problem = msg('Choose the PDF with the new pages.');
+    else if (!sourcePages) problem = sourceCount ? msg('Enter pages of the new PDF between 1 and {sourceCount}.', { sourceCount }) : null;
+    else if (sourcePages.length !== pages!.length) problem = msg('Pick as many new pages ({count}) as pages to replace ({count2}).', { count: sourcePages.length, count2: pages!.length });
     else spec = { kind, file, targetPages: pages!, sourcePages };
   } else if (kind === 'crop') {
     if (useDrawn && drawnRect) spec = { kind, pages: pages!, margins: null, rect: drawnRect };
-    else if (!marginPts) problem = 'Margins must be numbers of zero or more.';
+    else if (!marginPts) problem = msg('Margins must be numbers of zero or more.');
     else spec = { kind, pages: pages!, margins: marginPts, rect: null };
   } else if (kind === 'setup') {
     const p = PAGE_SIZES.find((s) => s.id === sizeId)!;
@@ -145,12 +143,10 @@ export function PageToolsDialog({ kind, pageCount, currentPage, fileName, bookma
       <>
         {choice.ui}
         <label className="check">
-          <input type="checkbox" checked={oneFile} onChange={(e) => setOneFile(e.target.checked)} />
-          One file per page (downloaded as a zip)
+          {keyed(msgParts('{input}One file per page (downloaded as a zip)', { input: <input type="checkbox" checked={oneFile} onChange={(e) => setOneFile(e.target.checked)} /> }))}
         </label>
         <label className="check">
-          <input type="checkbox" checked={deleteAfter} onChange={(e) => setDeleteAfter(e.target.checked)} />
-          Delete the pages from this document afterwards
+          {keyed(msgParts('{input}Delete the pages from this document afterwards', { input: <input type="checkbox" checked={deleteAfter} onChange={(e) => setDeleteAfter(e.target.checked)} /> }))}
         </label>
       </>
     );
@@ -160,20 +156,17 @@ export function PageToolsDialog({ kind, pageCount, currentPage, fileName, bookma
       <>
         {choice.ui}
         <fieldset>
-          <legend>New pages</legend>
+          <legend>{msg('New pages')}</legend>
           <label className="row">
-            PDF
-            <input type="file" accept="application/pdf,.pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+            {keyed(msgParts('PDF{input}', { input: <input type="file" accept="application/pdf,.pdf" onChange={(e) => setFile(e.target.files?.[0] ?? null)} /> }))}
           </label>
           {sourceCount > 0 && (
             <label className="row">
-              Its pages
-              <input type="text" value={sourceRange} aria-label="Pages of the new PDF" onChange={(e) => setSourceRange(e.target.value)} />
-              of {sourceCount}
+              {keyed(msgParts('Its pages{input}of {sourceCount}', { input: <input type="text" value={sourceRange} aria-label={msg('Pages of the new PDF')} onChange={(e) => setSourceRange(e.target.value)} />, sourceCount }))}
             </label>
           )}
         </fieldset>
-        <p className="print-hint">Markups stay on the replaced pages.</p>
+        <p className="print-hint">{msg('Markups stay on the replaced pages.')}</p>
       </>
     );
   else if (kind === 'crop')
@@ -181,13 +174,13 @@ export function PageToolsDialog({ kind, pageCount, currentPage, fileName, bookma
       <>
         {choice.ui}
         <fieldset>
-          <legend>Crop to</legend>
+          <legend>{msg('Crop to')}</legend>
           <label className="row">
             <input type="radio" checked={!useDrawn} onChange={() => setUseDrawn(false)} />
-            Margins
+            {msg('Margins')}
             <select value={unit} onChange={(e) => setUnit(e.target.value as keyof typeof UNITS)}>
-              <option value="in">in</option>
-              <option value="mm">mm</option>
+              <option value="in">{msg('in')}</option>
+              <option value="mm">{msg('mm')}</option>
             </select>
           </label>
           <div className="margins" onFocus={() => setUseDrawn(false)}>
@@ -200,9 +193,9 @@ export function PageToolsDialog({ kind, pageCount, currentPage, fileName, bookma
           </div>
           <label className="row">
             <input type="radio" checked={useDrawn} disabled={!drawnRect} onChange={() => setUseDrawn(true)} />
-            {drawnRect ? 'The rectangle drawn on the page' : 'A rectangle drawn on the page'}
+            {drawnRect ? msg('The rectangle drawn on the page') : msg('A rectangle drawn on the page')}
             <button type="button" className="btn small" onClick={onDraw}>
-              Draw…
+              {msg('Draw…')}
             </button>
           </label>
         </fieldset>
@@ -213,9 +206,9 @@ export function PageToolsDialog({ kind, pageCount, currentPage, fileName, bookma
       <>
         {choice.ui}
         <fieldset>
-          <legend>New page size</legend>
+          <legend>{msg('New page size')}</legend>
           <label className="row">
-            <select value={sizeId} onChange={(e) => setSizeId(e.target.value)} aria-label="Paper size">
+            <select value={sizeId} onChange={(e) => setSizeId(e.target.value)} aria-label={msg('Paper size')}>
               {PAGE_SIZES.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
@@ -224,17 +217,13 @@ export function PageToolsDialog({ kind, pageCount, currentPage, fileName, bookma
             </select>
           </label>
           <label className="row">
-            <input type="radio" checked={!landscape} onChange={() => setLandscape(false)} />
-            Portrait
-            <input type="radio" checked={landscape} onChange={() => setLandscape(true)} />
-            Landscape
+            {keyed(msgParts('{input}Portrait{input2}Landscape', { input: <input type="radio" checked={!landscape} onChange={() => setLandscape(false)} />, input2: <input type="radio" checked={landscape} onChange={() => setLandscape(true)} /> }))}
           </label>
           <label className="check">
-            <input type="checkbox" checked={fit} onChange={(e) => setFit(e.target.checked)} />
-            Scale content to fit (otherwise keep its size, centred)
+            {keyed(msgParts('{input}Scale content to fit (otherwise keep its size, centred)', { input: <input type="checkbox" checked={fit} onChange={(e) => setFit(e.target.checked)} /> }))}
           </label>
         </fieldset>
-        <p className="print-hint">Markups move and scale with the content.</p>
+        <p className="print-hint">{msg('Markups move and scale with the content.')}</p>
       </>
     );
 
@@ -258,16 +247,16 @@ export function PageToolsDialog({ kind, pageCount, currentPage, fileName, bookma
           });
         }}
       >
-        <h3>{TITLES[kind]}</h3>
+        <h3>{TITLES()[kind]}</h3>
         {body}
         {(problem || error) && <p className="print-error">{error ?? problem}</p>}
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!spec || busy}>
-            {busy ? 'Working…' : 'OK'}
+            {busy ? msg('Working…') : 'OK'}
           </button>
         </div>
       </form>

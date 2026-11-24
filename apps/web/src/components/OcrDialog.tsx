@@ -1,16 +1,18 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import { parsePageRange } from '../documents/printPdf';
 import { settings, useSettings } from '../settings/settings';
 
 /** Languages OCR can read (their data is served with the app); see documents/ocr.ts. */
-const LANGUAGES: [string, string][] = [
-  ['eng', 'English'],
-  ['fra', 'French'],
-  ['deu', 'German'],
-  ['spa', 'Spanish'],
-  ['ita', 'Italian'],
-  ['por', 'Portuguese'],
-  ['nld', 'Dutch'],
+const LANGUAGES = (): [string, string][] => [
+  ['eng', msg('English')],
+  ['fra', msg('French')],
+  ['deu', msg('German')],
+  ['spa', msg('Spanish')],
+  ['ita', msg('Italian')],
+  ['por', msg('Portuguese')],
+  ['nld', msg('Dutch')],
 ];
 
 interface Props {
@@ -48,40 +50,35 @@ export function OcrDialog({ pageCount, currentPage, pagesWithoutText, onRun, onC
           if (pages?.length) onRun(pages, dpi);
         }}
       >
-        <h3>OCR</h3>
-        <p>Reads the words on scanned pages and adds them as invisible text, so they can be searched, selected and copied. The pages look the same.</p>
+        <h3>{msg('OCR')}</h3>
+        <p>{msg('Reads the words on scanned pages and adds them as invisible text, so they can be searched, selected and copied. The pages look the same.')}</p>
         <fieldset>
-          <legend>Pages</legend>
+          <legend>{msg('Pages')}</legend>
           <label className="row">
-            <input type="radio" checked={which === 'scans'} disabled={!pagesWithoutText.length} onChange={() => setWhich('scans')} />
-            Pages without text ({pagesWithoutText.length})
+            {keyed(msgParts('{input}Pages without text ({count})', { input: <input type="radio" checked={which === 'scans'} disabled={!pagesWithoutText.length} onChange={() => setWhich('scans')} />, count: pagesWithoutText.length }))}
           </label>
           <label className="row">
-            <input type="radio" checked={which === 'current'} onChange={() => setWhich('current')} />
-            Current page ({currentPage + 1})
+            {keyed(msgParts('{input}Current page ({page})', { input: <input type="radio" checked={which === 'current'} onChange={() => setWhich('current')} />, page: currentPage + 1 }))}
           </label>
           <label className="row">
-            <input type="radio" checked={which === 'all'} onChange={() => setWhich('all')} />
-            All {pageCount} pages
+            {keyed(msgParts('{input}All {pageCount} pages', { input: <input type="radio" checked={which === 'all'} onChange={() => setWhich('all')} />, pageCount }))}
           </label>
           <label className="row">
-            <input type="radio" checked={which === 'range'} onChange={() => setWhich('range')} />
-            Pages
-            <input type="text" value={range} aria-label="Page range" onFocus={() => setWhich('range')} onChange={(e) => setRange(e.target.value)} />
+            {keyed(msgParts('{input}Pages{input2}', { input: <input type="radio" checked={which === 'range'} onChange={() => setWhich('range')} />, input2: <input type="text" value={range} aria-label={msg('Page range')} onFocus={() => setWhich('range')} onChange={(e) => setRange(e.target.value)} /> }))}
           </label>
         </fieldset>
         <label className="row">
-          Resolution
+          {msg('Resolution')}
           <select value={dpi} onChange={(e) => setDpi(Number(e.target.value))}>
-            <option value={150}>150 dpi (faster)</option>
-            <option value={200}>200 dpi</option>
-            <option value={300}>300 dpi (small text)</option>
+            <option value={150}>{msg('150 dpi (faster)')}</option>
+            <option value={200}>{msg('200 dpi')}</option>
+            <option value={300}>{msg('300 dpi (small text)')}</option>
           </select>
         </label>
         <fieldset>
-          <legend>Languages</legend>
+          <legend>{msg('Languages')}</legend>
           <div className="row wrap">
-            {LANGUAGES.map(([code, name]) => (
+            {LANGUAGES().map(([code, name]) => (
               <label key={code} className="check">
                 <input
                   type="checkbox"
@@ -96,14 +93,14 @@ export function OcrDialog({ pageCount, currentPage, pagesWithoutText, onRun, onC
             ))}
           </div>
         </fieldset>
-        <p className="print-hint">Pick the languages on the pages (each extra one makes OCR slower). Large sheets are read at up to 7000 pixels across.</p>
+        <p className="print-hint">{msg('Pick the languages on the pages (each extra one makes OCR slower). Large sheets are read at up to 7000 pixels across.')}</p>
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!pages?.length}>
-            Run OCR
+            {msg('Run OCR')}
           </button>
         </div>
       </form>
