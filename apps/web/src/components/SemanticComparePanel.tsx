@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useMemo, useState, useSyncExternalStore } from 'react';
 import { countKinds, type ChangeKind, type MatchBasis, type SemanticChange, type WordPart } from '../compare/semantic';
 import { aiPrompt, AI_WAIT_MS, semanticCompare, useSemanticCompare } from '../compare/semanticStore';
@@ -18,17 +19,17 @@ interface Props {
 }
 
 const KINDS: { kind: ChangeKind; label: string }[] = [
-  { kind: 'added', label: 'Added' },
-  { kind: 'removed', label: 'Removed' },
-  { kind: 'modified', label: 'Modified' },
-  { kind: 'moved', label: 'Moved' },
-  { kind: 'unchanged', label: 'Unchanged' },
+  { kind: 'added', get label() { return msg('Added'); } },
+  { kind: 'removed', get label() { return msg('Removed'); } },
+  { kind: 'modified', get label() { return msg('Modified'); } },
+  { kind: 'moved', get label() { return msg('Moved'); } },
+  { kind: 'unchanged', get label() { return msg('Unchanged'); } },
 ];
 
 const BASIS: Record<MatchBasis, { label: string; title: string }> = {
-  exact: { label: 'Same text', title: 'The two paragraphs have the same text. redcolumn checked.' },
-  ai: { label: 'AI judgement', title: 'An AI client matched these by meaning. It can be wrong: check it against the documents.' },
-  text: { label: 'Text match', title: 'Matched by how many words they share. No AI was involved.' },
+  exact: { get label() { return msg('Same text'); }, get title() { return msg('The two paragraphs have the same text. redcolumn checked.'); } },
+  ai: { get label() { return msg('AI judgement'); }, get title() { return msg('An AI client matched these by meaning. It can be wrong: check it against the documents.'); } },
+  text: { get label() { return msg('Text match'); }, get title() { return msg('Matched by how many words they share. No AI was involved.'); } },
 };
 
 /** Changes listed at first, and added by each Show more: thousands are listed a page at a time. */
@@ -58,7 +59,7 @@ const clip = (text: string, n = 220) => (text.length > n ? `${text.slice(0, n).t
 /** One revision's side of a change: its text, with the words that changed marked when the wording differs. */
 function Side({ side, change, full }: { side: 'old' | 'new'; change: SemanticChange; full: boolean }) {
   const paragraph = side === 'old' ? change.old : change.new;
-  if (!paragraph) return <span className="sc-absent">{side === 'old' ? 'Not in the old revision' : 'Not in the new revision'}</span>;
+  if (!paragraph) return <span className="sc-absent">{side === 'old' ? msg('Not in the old revision') : msg('Not in the new revision')}</span>;
   if (!change.wording) return <span className="sc-text">{full ? paragraph.text : clip(paragraph.text)}</span>;
   const mark = side === 'old' ? 'del' : 'ins';
   const parts = (full ? change.wording : excerpt(change.wording)).filter((p) => p.op === 'same' || p.op === mark);
@@ -127,16 +128,16 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
     if (!state) return;
     try {
       await navigator.clipboard.writeText(aiPrompt(state.request));
-      onMessage('Copied. Paste it into your AI client, which is connected to redcolumn.');
+      onMessage(msg('Copied. Paste it into your AI client, which is connected to redcolumn.'));
     } catch {
-      onMessage('Could not copy. Ask your AI client to compare the two documents in redcolumn.');
+      onMessage(msg('Could not copy. Ask your AI client to compare the two documents in redcolumn.'));
     }
   };
 
   const picker = (value: string, onChange: (id: string) => void, label: string) => (
     <select value={value} aria-label={label} onChange={(e) => onChange(e.target.value)}>
       <option value="" disabled>
-        Choose a document…
+        {msg('Choose a document…')}
       </option>
       {docs.map((d) => (
         <option key={d.id} value={d.id}>
@@ -149,21 +150,25 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
   if (!state) {
     return (
       <div className="semantic-compare sc-panel">
-        <h3 className="panel-subhead sc-heading">Compare documents</h3>
-        <p className="sc-intro">Compares what two revisions say, not where it sits. A paragraph that only moved, or was lightly reworded, is not reported as a change.</p>
-        <label className="sc-field">Old revision {picker(oldId, setOldId, 'Old revision')}</label>
-        <label className="sc-field">New revision {picker(newId, setNewId, 'New revision')}</label>
-        {oldId && oldId === newId && <p className="print-error">Choose two different documents.</p>}
-        {docs.length < 2 && <p className="print-error">Open both revisions in tabs first.</p>}
+        <h3 className="panel-subhead sc-heading">{msg('Compare documents')}</h3>
+        <p className="sc-intro">{msg('Compares what two revisions say, not where it sits. A paragraph that only moved, or was lightly reworded, is not reported as a change.')}</p>
+        <label className="sc-field">
+          {msg('Old revision')} {picker(oldId, setOldId, msg('Old revision'))}
+        </label>
+        <label className="sc-field">
+          {msg('New revision')} {picker(newId, setNewId, msg('New revision'))}
+        </label>
+        {oldId && oldId === newId && <p className="print-error">{msg('Choose two different documents.')}</p>}
+        {docs.length < 2 && <p className="print-error">{msg('Open both revisions in tabs first.')}</p>}
         {error && <p className="print-error">{error}</p>}
         <p className="sc-intro sc-privacy">
           {desktop()
-            ? 'The text of both documents is shared only with the AI client you connected to redcolumn, and only after you press Compare or allow its request. Without one you get a plain text comparison. You can also ask your AI client to compare two open documents.'
-            : 'This is the web app, which has no AI client to ask. You get a plain text comparison; the desktop app can ask your AI client to judge it by meaning.'}
+            ? msg('The text of both documents is shared only with the AI client you connected to redcolumn, and only after you press Compare or allow its request. Without one you get a plain text comparison. You can also ask your AI client to compare two open documents.')
+            : msg('This is the web app, which has no AI client to ask. You get a plain text comparison; the desktop app can ask your AI client to judge it by meaning.')}
         </p>
         <div className="sc-actions">
           <button className="btn small primary" disabled={!valid || busy} onClick={() => void run()}>
-            {busy ? 'Reading…' : 'Compare'}
+            {busy ? msg('Reading…') : msg('Compare')}
           </button>
         </div>
       </div>
@@ -175,33 +180,35 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
   const unreported = state.result.unreported;
   return (
     <div className="semantic-compare sc-panel">
-      <h3 className="panel-subhead sc-heading">Compare documents</h3>
+      <h3 className="panel-subhead sc-heading">{msg('Compare documents')}</h3>
       <p className="sc-docs" title={`${request.oldName} → ${request.newName}`}>
         <span>{request.oldName}</span> → <span>{request.newName}</span>
       </p>
       {phase === 'ai' && (
         <div className="sc-status ai" role="status">
-          <b>AI-assisted.</b> {source} judged these by meaning. That is an opinion, not a fact: check what matters against the documents.
-          {failure ? ` It stopped early: ${failure}` : ''}
-          {unreported > 0 ? ` ${unreported} paragraph${unreported === 1 ? '' : 's'} it did not judge ${unreported === 1 ? 'was' : 'were'} compared by text instead (marked Text match).` : ''}
+          <b>{msg('AI-assisted.')}</b> {msg('{source} judged these by meaning. That is an opinion, not a fact: check what matters against the documents.', { source })}
+          {failure ? ' ' + msg('It stopped early: {failure}', { failure }) : ''}
+          {unreported > 0 ? ' ' + msg('{count, plural, one {# paragraph it did not judge was} other {# paragraphs it did not judge were}} compared by text instead (marked Text match).', { count: unreported }) : ''}
           {summary && <p className="sc-summary">{summary}</p>}
         </div>
       )}
       {phase === 'waiting' && (
         <div className="sc-status" role="status">
           {desktop() && assistantOn
-            ? `Waiting for your AI client (up to ${reportWait} minutes). Ask it to compare these in redcolumn, or copy the request for it. This plain text comparison shows meanwhile.`
+            ? msg('Waiting for your AI client (up to {reportWait} minutes). Ask it to compare these in redcolumn, or copy the request for it. This plain text comparison shows meanwhile.', { reportWait })
             : desktop()
-              ? 'No AI client is connected. Turn on the assistant in File → Preferences → MCP to have one judge this by meaning. This plain text comparison shows meanwhile.'
-              : 'This is a plain text comparison. Moved paragraphs are matched by their words.'}
+              ? msg('No AI client is connected. Turn on the assistant in File → Preferences → MCP to have one judge this by meaning. This plain text comparison shows meanwhile.')
+              : msg('This is a plain text comparison. Moved paragraphs are matched by their words.')}
         </div>
       )}
       {phase === 'fallback' && (
         <div className="sc-status warn" role="status">
-          <b>Basic text comparison.</b> {failure ? `${source ?? 'The AI client'} could not judge this: ${failure}` : `No AI client answered in ${reportWait} minutes.`} Paragraphs are matched by the words they share, so a heavily reworded one can show as removed plus added.
+          <b>{msg('Basic text comparison.')}</b>{' '}
+          {failure ? (source ? msg('{source} could not judge this: {failure}', { source, failure }) : msg('The AI client could not judge this: {failure}', { failure })) : msg('No AI client answered in {minutes} minutes.', { minutes: reportWait })}{' '}
+          {msg('Paragraphs are matched by the words they share, so a heavily reworded one can show as removed plus added.')}
         </div>
       )}
-      <div className="sc-kinds" role="group" aria-label="Show">
+      <div className="sc-kinds" role="group" aria-label={msg('Show')}>
         {KINDS.map(({ kind, label }) => (
           <label key={kind} className={`sc-kind ${kind}`}>
             <input
@@ -220,19 +227,19 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
       </div>
       <div className="sc-nav">
         <button className="btn small" disabled={!list.length} onClick={() => go(at < 0 ? -1 : at - 1)}>
-          ‹ Previous
+          {msg('‹ Previous')}
         </button>
-        <span>{at >= 0 ? `${at + 1} of ${list.length}` : `${list.length} shown`}</span>
+        <span>{at >= 0 ? msg('{current} of {total}', { current: at + 1, total: list.length }) : msg('{count} shown', { count: list.length })}</span>
         <button className="btn small" disabled={!list.length} onClick={() => go(at + 1)}>
-          Next ›
+          {msg('Next ›')}
         </button>
       </div>
       <ul className="sc-list">
-        {!list.length && <li className="sc-empty">{changes.length ? 'Nothing of the kinds ticked above.' : 'No text found to compare. Scanned pages need OCR first.'}</li>}
+        {!list.length && <li className="sc-empty">{changes.length ? msg('Nothing of the kinds ticked above.') : msg('No text found to compare. Scanned pages need OCR first.')}</li>}
         {start > 0 && (
           <li className="sc-more">
             <button className="btn small flat" onClick={() => setStart(Math.max(0, start - PAGE))}>
-              Show {Math.min(PAGE, start)} earlier of {start}
+              {msg('Show {count} earlier of {start}', { count: Math.min(PAGE, start), start })}
             </button>
           </li>
         )}
@@ -244,8 +251,8 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
                 <span className="sc-item-head">
                   <span className={`sc-kind-tag ${c.kind}`}>{KINDS.find((k) => k.kind === c.kind)!.label}</span>
                   {c.reordered && (
-                    <span className="sc-basis" title="This paragraph also changed place">
-                      moved too
+                    <span className="sc-basis" title={msg('This paragraph also changed place')}>
+                      {msg('moved too')}
                     </span>
                   )}
                   <span className={`sc-basis ${c.basis}`} title={BASIS[c.basis].title}>
@@ -254,11 +261,11 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
                 </span>
                 <span className="sc-sides">
                   <span className="sc-side old">
-                    <span className="sc-side-label">Old{c.old ? ` · p.${c.old.page}` : ''}</span>
+                    <span className="sc-side-label">{c.old ? msg('Old · p.{page}', { page: c.old.page }) : msg('Old')}</span>
                     <Side side="old" change={c} full={i === at} />
                   </span>
                   <span className="sc-side new">
-                    <span className="sc-side-label">New{c.new ? ` · p.${c.new.page}` : ''}</span>
+                    <span className="sc-side-label">{c.new ? msg('New · p.{page}', { page: c.new.page }) : msg('New')}</span>
                     <Side side="new" change={c} full={i === at} />
                   </span>
                 </span>
@@ -270,22 +277,22 @@ export function SemanticComparePanel({ docs, currentId, onRun, onGo, onSideBySid
         {list.length > limit && (
           <li className="sc-more">
             <button className="btn small flat" onClick={() => setLimit(limit + PAGE)}>
-              Show {Math.min(PAGE, list.length - limit)} more of {list.length - limit}
+              {msg('Show {count} more of {count2}', { count: Math.min(PAGE, list.length - limit), count2: list.length - limit })}
             </button>
           </li>
         )}
       </ul>
       <div className="sc-actions">
         <button className="btn small" onClick={() => onSideBySide(request.oldId, request.newId)}>
-          Show side by side
+          {msg('Show side by side')}
         </button>
         {phase !== 'ai' && desktop() && assistantOn && (
           <button className="btn small" onClick={() => void copyPrompt()}>
-            Copy request for AI
+            {msg('Copy request for AI')}
           </button>
         )}
         <button className="btn small" onClick={() => semanticCompare.clear()}>
-          New comparison
+          {msg('New comparison')}
         </button>
       </div>
     </div>

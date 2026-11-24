@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { PageOp, PdfDocument } from '@nb/pdf-core';
 import { drawMarkup, onImageLoad, type Markup, type MarkupStore } from '@nb/markup';
@@ -300,7 +301,7 @@ function Thumbnail({ doc, store, markups, page, thumbW, renderW, label, sheet, s
       className={`thumb${active ? ' active' : ''}${selected ? ' selected' : ''}${dropBefore ? ' drop-before' : ''}`}
       onClick={onClick}
       onContextMenu={editing ? undefined : onContextMenu}
-      title={editable ? `${label} — double-click the label to rename` : label}
+      title={editable ? msg('{label} — double-click the label to rename', { label }) : label}
       draggable={!editing}
       onDragStart={onDragStart}
       onDragOver={onDragOver}
@@ -313,7 +314,7 @@ function Thumbnail({ doc, store, markups, page, thumbW, renderW, label, sheet, s
           autoFocus
           defaultValue={sheet}
           placeholder="A-101"
-          aria-label="Page label"
+          aria-label={msg('Page label')}
           onFocus={(e) => e.currentTarget.select()}
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => {
@@ -428,10 +429,9 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
     return () => window.clearTimeout(timeout);
   }, [thumbW, renderW]);
 
-  if (!doc) return <p className="empty">No document open.</p>;
+  if (!doc) return <p className="empty">{msg('No document open.')}</p>;
   const count = doc.pages.length;
   const chosen = selected.length ? [...selected].sort((a, b) => a - b) : [currentPage];
-  const plural = chosen.length > 1 ? `${chosen.length} pages` : 'page';
 
   const click = (i: number, e: React.MouseEvent) => {
     if (e.shiftKey) {
@@ -491,32 +491,32 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
         <div className="sheet-actions">
           {narrow ? (
             <OverflowMenu
-              label="Pages"
+              label={msg('Pages')}
               items={[
-                { label: 'Rotate anticlockwise', title: `Rotate ${plural} anticlockwise`, disabled: busy, onClick: () => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: -1 }]) },
-                { label: 'Rotate clockwise', title: `Rotate ${plural} clockwise`, disabled: busy, onClick: () => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: 1 }]) },
-                { label: 'Delete', title: `Delete ${plural}`, disabled: busy || chosen.length >= count, onClick: deletePages },
-                { label: 'Page Label', title: `Set the label of ${plural}`, disabled: busy, onClick: () => onPageLabels(selected.length > 1 ? chosen : [currentPage]), separated: true },
-                { label: 'Insert PDF…', title: 'Insert the pages of another PDF after the selection', disabled: busy, onClick: () => fileRef.current?.click() },
-                { label: 'Bulk Scales', title: 'Review and set the scale of many pages at once', disabled: busy, onClick: () => onBulkScales(selected.length > 1 ? chosen : []), separated: true },
+                { label: msg('Rotate anticlockwise'), title: msg('{count, plural, one {Rotate the page anticlockwise} other {Rotate # pages anticlockwise}}', { count: chosen.length }), disabled: busy, onClick: () => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: -1 }]) },
+                { label: msg('Rotate clockwise'), title: msg('{count, plural, one {Rotate the page clockwise} other {Rotate # pages clockwise}}', { count: chosen.length }), disabled: busy, onClick: () => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: 1 }]) },
+                { label: msg('Delete'), title: msg('{count, plural, one {Delete the page} other {Delete # pages}}', { count: chosen.length }), disabled: busy || chosen.length >= count, onClick: deletePages },
+                { label: msg('Page Label'), title: msg('{count, plural, one {Set the page label} other {Set the labels of # pages}}', { count: chosen.length }), disabled: busy, onClick: () => onPageLabels(selected.length > 1 ? chosen : [currentPage]), separated: true },
+                { label: msg('Insert PDF…'), title: msg('Insert the pages of another PDF after the selection'), disabled: busy, onClick: () => fileRef.current?.click() },
+                { label: msg('Bulk Scales'), title: msg('Review and set the scale of many pages at once'), disabled: busy, onClick: () => onBulkScales(selected.length > 1 ? chosen : []), separated: true },
               ]}
             />
           ) : (
             <>
-              <button className="btn small" disabled={busy} title={`Rotate ${plural} anticlockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: -1 }])}>
+              <button className="btn small" disabled={busy} title={msg('{count, plural, one {Rotate the page anticlockwise} other {Rotate # pages anticlockwise}}', { count: chosen.length })} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: -1 }])}>
                 ⟲
               </button>
-              <button className="btn small" disabled={busy} title={`Rotate ${plural} clockwise`} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: 1 }])}>
+              <button className="btn small" disabled={busy} title={msg('{count, plural, one {Rotate the page clockwise} other {Rotate # pages clockwise}}', { count: chosen.length })} onClick={() => onPageOps([{ type: 'rotate', pages: chosen, quarterTurns: 1 }])}>
                 ⟳
               </button>
-              <button className="btn small" disabled={busy || chosen.length >= count} title={`Delete ${plural}`} onClick={deletePages}>
-                Delete
+              <button className="btn small" disabled={busy || chosen.length >= count} title={msg('{count, plural, one {Delete the page} other {Delete # pages}}', { count: chosen.length })} onClick={deletePages}>
+                {msg('Delete')}
               </button>
-              <button className="btn small" disabled={busy} title={`Set the label of ${plural}`} onClick={() => onPageLabels(selected.length > 1 ? chosen : [currentPage])}>
-                Page Label
+              <button className="btn small" disabled={busy} title={msg('{count, plural, one {Set the page label} other {Set the labels of # pages}}', { count: chosen.length })} onClick={() => onPageLabels(selected.length > 1 ? chosen : [currentPage])}>
+                {msg('Page Label')}
               </button>
-              <button className="btn small" disabled={busy} title="Insert the pages of another PDF after the selection" onClick={() => fileRef.current?.click()}>
-                Insert PDF…
+              <button className="btn small" disabled={busy} title={msg('Insert the pages of another PDF after the selection')} onClick={() => fileRef.current?.click()}>
+                {msg('Insert PDF…')}
               </button>
             </>
           )}
@@ -611,8 +611,8 @@ export function PagesPanel({ doc, store, view, currentPage, sheets, scales, busy
           max={THUMB_MAX}
           step={1}
           value={thumbW}
-          aria-label="Thumbnail size"
-          title="Thumbnail size"
+          aria-label={msg('Thumbnail size')}
+          title={msg('Thumbnail size')}
           onChange={(e) => setThumbW(clampThumbWidth(Number(e.target.value)))}
         />
         <span aria-hidden="true">+</span>
