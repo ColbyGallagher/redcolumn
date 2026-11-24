@@ -8247,8 +8247,8 @@ msgid "{format} · {lines, plural, one {# line} other {# lines}} · {points, plu
 msgstr "{format} · {lines, plural, one {# Linie} other {# Linien}} · {points, plural, one {# Punkt} other {# Punkte}}"
 
 #: apps/web/src/components/GeospatialPanel.tsx
-msgid "{goThere} or {bringItHere}"
-msgstr "{goThere} oder {bringItHere}"
+msgid "{goThere} or {bringItHere}."
+msgstr "{goThere} oder {bringItHere}."
 
 #: apps/web/src/components/GeospatialPanel.tsx
 msgid "{input}This sheet only"
@@ -8683,8 +8683,16 @@ msgid "{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is 
 msgstr "{column}: „{value}“ in {rows, plural, one {# Zeile} other {# Zeilen}} ist nicht Ja oder Nein."
 
 #: apps/web/src/components/ImportExcelDialog.tsx
-msgid "{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not a {kind}."
-msgstr "{column}: „{value}“ in {rows, plural, one {# Zeile} other {# Zeilen}} ist kein Wert vom Typ {kind}."
+msgid "{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not a date."
+msgstr "{column}: „{value}“ in {rows, plural, one {# Zeile} other {# Zeilen}} ist kein Datum."
+
+#: apps/web/src/components/ImportExcelDialog.tsx
+msgid "{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not a number."
+msgstr "{column}: „{value}“ in {rows, plural, one {# Zeile} other {# Zeilen}} ist keine Zahl."
+
+#: apps/web/src/components/ImportExcelDialog.tsx
+msgid "{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not a value this column takes."
+msgstr "{column}: „{value}“ in {rows, plural, one {# Zeile} other {# Zeilen}} ist kein Wert, den diese Spalte annimmt."
 
 #: apps/web/src/components/ImportExcelDialog.tsx
 msgid "{column}: “{value}” in {rows, plural, one {# row} other {# rows}} is not one of this column’s values."
