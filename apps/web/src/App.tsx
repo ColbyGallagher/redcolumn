@@ -133,6 +133,7 @@ import { HeaderFooterDialog } from './components/HeaderFooterDialog';
 import { PROCESS_ENGLISH, PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
 import { OcrDialog } from './components/OcrDialog';
 import { CompareDialog, type ComparePairing, type CompareSpec } from './components/CompareDialog';
+import type { PickerPageHandle } from './components/ComparePagePicker';
 import type { OverlayPageSpec } from './documents/overlay';
 import type { PagePair } from './compare/pairing';
 import { SlipSheetDialog, type SlipSheetSpec } from './components/SlipSheetDialog';
@@ -2836,6 +2837,58 @@ export function App() {
       }
     },
     [acquireDocument],
+  );
+
+  /** Live handle to a library page for Align Pages / Select Region (crisp zoomed tiles + Snap to Content). */
+  const openPickerPage = useCallback(
+    async (fileId: string, page: number): Promise<PickerPageHandle> => {
+      const { open, release } = await acquireDocument(fileId);
+      const index = Math.min(Math.max(0, page), open.doc.pages.length - 1);
+      const size = open.doc.pages[index]!;
+      let snapPromise: Promise<SnapIndex> | null = null;
+      return {
+        width: size.width,
+        height: size.height,
+        renderTile: async (scale, x, y, width, height, signal) => {
+          const { bitmap } = await open.doc.renderTile(index, scale, x, y, width, height, { signal, thinLines: settings.get().thinLines });
+          return bitmap;
+        },
+        snapIndex: () => {
+          if (!snapPromise) {
+            snapPromise = open.doc.geometry(index).then((g) => new SnapIndex(g.segments, undefined, g.curves));
+          }
+          return snapPromise;
+        },
+        release,
+      };
+    },
+    [acquireDocument],
+  );
+
+  /** Adds a file picked from the user's computer to the library without opening a tab, returning its ID. */
+  const importLibraryFile = useCallback(
+    async (file: File): Promise<string | null> => {
+      try {
+        const cad = isCadFile(file);
+        const image = !cad && isImageFile(file);
+        const conversion = cad ? await convertFile(file) : null;
+        const raw = image || cad ? null : await file.arrayBuffer();
+        const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
+        const name = cad ? pdfNameFor(file.name) : image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
+        const source = handleOf(file);
+        const hostId = cad ? null : hostDocumentId(tokenOf(source));
+        let stored = await saveFile(name, bytes.slice(0), hostId ?? undefined);
+        if (hostId && stored.hash !== (await contentHash(bytes))) stored = await takeHostContentsRef.current(stored, bytes.slice(0));
+        if (source && bytes === raw) await rememberHandle(stored.id, source);
+        if (conversion) cadSession.set(stored.id, conversion);
+        await refreshLibrary();
+        return stored.id;
+      } catch (err) {
+        if (isAbort(err)) return null;
+        throw err;
+      }
+    },
+    [refreshLibrary, unlockBytes],
   );
 
   /**
@@ -7427,9 +7480,11 @@ export function App() {
     // Selecting one list row selects its whole group (a Cloud+ is a cloud and a callout). That is still one comment.
     const oneGroup = !!first.groupId && ms.every((m) => m.groupId === first.groupId);
     const replyMarkup = oneGroup ? (ms.find((m) => isTextType(m.type)) ?? first) : first;
-    // A callout (alone, or with its cloud in a Cloud+) can take extra leaders.
+    // A callout (alone, or with its cloud in a Cloud+) can take extra leaders; a single text box
+    // becomes a callout when given one.
     const callouts = ms.filter((m) => m.type === 'callout');
     const callout = callouts.length === 1 ? callouts[0] : undefined;
+    const leaderTarget = callout ?? (one && first.type === 'text' ? first : undefined);
     const status = one ? first.status : null;
     const setStatus = (s: string) => {
       store.checkpoint();
@@ -7554,10 +7609,12 @@ export function App() {
             },
           ]
         : []),
-      ...(callout
+      ...(leaderTarget
         ? [
-            { label: msg('Add Leader'), disabled: ro || !!callout.locked, onClick: () => c.tools.addCalloutLeader(callout.id) } as MenuEntry,
-            ...(callout.points.length >= 6 ? [{ label: msg('Remove Last Leader'), disabled: ro || !!callout.locked, onClick: () => c.tools.removeCalloutLeader(callout.id) } as MenuEntry] : []),
+            { label: msg('Add Leader'), disabled: ro || !!leaderTarget.locked || !store.mayEdit(leaderTarget), onClick: () => c.tools.addCalloutLeader(leaderTarget.id) } as MenuEntry,
+            ...(leaderTarget.type === 'callout' && leaderTarget.points.length >= 6
+              ? [{ label: msg('Remove Last Leader'), disabled: ro || !!leaderTarget.locked || !store.mayEdit(leaderTarget), onClick: () => c.tools.removeCalloutLeader(leaderTarget.id) } as MenuEntry]
+              : []),
           ]
         : []),
       ...(one && first.attachment
@@ -11191,6 +11248,8 @@ export function App() {
           currentId={activeOpen?.file.id ?? null}
           currentPage={pageIndex}
           preview={previewPage}
+          openPage={openPickerPage}
+          onImportFile={importLibraryFile}
           onCancel={() => setCompareOpen(null)}
           onRun={(spec) => {
             setCompareOpen(null);

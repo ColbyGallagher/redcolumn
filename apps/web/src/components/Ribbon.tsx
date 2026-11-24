@@ -1672,7 +1672,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
         </button>
       ))}
       <span className="grow" />
-      <div id={SEARCH_SLOT_ID} className="rb-search-slot" />
+      {slot && <div id={SEARCH_SLOT_ID} className="rb-search-slot" />}
       <div className="rb-display">
         <button type="button" className="btn rb-display-btn" title={msg('Customize Ribbon: show or hide groups')} aria-label={msg('Customize Ribbon')} onClick={() => setCustomizing(true)}>
           {ic('M2 4h12M2 8h12M2 12h12', <><circle cx="5" cy="4" r="1.6" fill="var(--panel)" /><circle cx="11" cy="8" r="1.6" fill="var(--panel)" /><circle cx="7" cy="12" r="1.6" fill="var(--panel)" /></>)}

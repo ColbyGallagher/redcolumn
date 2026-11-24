@@ -2,10 +2,11 @@ import { msg, msgParts } from '@nb/i18n';
 import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState } from 'react';
 import type { StoredFile } from '../storage/fileStore';
+import { pickFilesToOpen } from '../storage/diskHandles';
 import { useDrawingSets } from '../storage/sets';
 import { DEFAULT_COMPARE, type CompareOptions } from '../compare/compare';
 import type { PagePair } from '../compare/pairing';
-import { ComparePagePicker, type PagePreview } from './ComparePagePicker';
+import { ComparePagePicker, type PagePreview, type PickerPageHandle } from './ComparePagePicker';
 
 export type ComparePairing = { kind: 'sheet' } | { kind: 'order' } | { kind: 'one'; oldPage: number; newPage: number } | { kind: 'list'; pairs: PagePair[] };
 
@@ -36,6 +37,10 @@ interface Props {
   currentPage: number;
   /** Renders a page for Align Pages and Select Region. */
   preview: (fileId: string, page: number) => Promise<PagePreview>;
+  /** Opens a live page handle for high-res zooming and Snap to Content in Align Pages. */
+  openPage?: (fileId: string, page: number) => Promise<PickerPageHandle>;
+  /** Adds a file picked from the user's computer to the library and returns its file ID. */
+  onImportFile?: (file: File) => Promise<string | null>;
   onRun: (spec: CompareSpec) => void;
   onCancel: () => void;
 }
@@ -56,10 +61,14 @@ function saved(): Partial<Pick<CompareSpec, 'options' | 'markup' | 'colors'>> {
  * different margin compares cleanly. Document › Overlay Pages uses the same dialog to stack the
  * two revisions in colour.
  */
-export function CompareDialog({ mode, files, openIds, currentId, currentPage, preview, onRun, onCancel }: Props) {
+export function CompareDialog({ mode, files, openIds, currentId, currentPage, preview, openPage, onImportFile, onRun, onCancel }: Props) {
   const ordered = [...files].sort((a, b) => Number(openIds.includes(b.id)) - Number(openIds.includes(a.id)));
   const [newId, setNewId] = useState(currentId ?? ordered[0]?.id ?? '');
   const [oldId, setOldId] = useState(() => ordered.find((f) => f.id !== (currentId ?? ordered[0]?.id))?.id ?? '');
+  const [browsing, setBrowsing] = useState<'old' | 'new' | null>(null);
+  const [browseError, setBrowseError] = useState<string | null>(null);
+  const browseInputRef = useRef<HTMLInputElement>(null);
+  const browseTargetRef = useRef<'old' | 'new'>('old');
   const { sets } = useDrawingSets();
   const [source, setSource] = useState<'files' | 'sets'>('files');
   const [oldSet, setOldSet] = useState(sets[0]?.id ?? '');
@@ -101,6 +110,36 @@ export function CompareDialog({ mode, files, openIds, currentId, currentPage, pr
   const set = (patch: Partial<CompareOptions>) => setOptions((o) => ({ ...o, ...patch }));
   const valid = (batch ? !!setFiles(oldSet).length && !!setFiles(newSet).length && oldSet !== newSet : !!oldId && !!newId && oldId !== newId) && (overlay || options.graphics || options.text);
 
+  const importPickedFile = async (which: 'old' | 'new', file: File) => {
+    if (!onImportFile) return;
+    setBrowseError(null);
+    setBrowsing(which);
+    try {
+      const id = await onImportFile(file);
+      if (id) {
+        if (which === 'old') setOldId(id);
+        else setNewId(id);
+      }
+    } catch (err) {
+      setBrowseError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBrowsing(null);
+    }
+  };
+
+  const browseFor = async (which: 'old' | 'new') => {
+    if (!onImportFile || browsing) return;
+    setBrowseError(null);
+    const picked = await pickFilesToOpen(false);
+    if (picked === null) {
+      browseTargetRef.current = which;
+      browseInputRef.current?.click();
+      return;
+    }
+    const file = picked[0];
+    if (file) await importPickedFile(which, file);
+  };
+
   const picker = (value: string, onChange: (id: string) => void, label: string) => (
     <select value={value} aria-label={label} onChange={(e) => onChange(e.target.value)}>
       <option value="" disabled>
@@ -109,7 +148,7 @@ export function CompareDialog({ mode, files, openIds, currentId, currentPage, pr
       {ordered.map((f) => (
         <option key={f.id} value={f.id}>
           {f.name}
-          {openIds.includes(f.id) ? ' ' + msg('(open)') : ''}
+          {openIds.includes(f.id) ? ` ${msg('(open)')}` : ''}
         </option>
       ))}
     </select>
@@ -171,8 +210,10 @@ export function CompareDialog({ mode, files, openIds, currentId, currentPage, pr
       <ComparePagePicker
         mode="points"
         preview={preview}
+        openPage={openPage}
         old={{ fileId: oldId, page: oldPage - 1 }}
         cur={{ fileId: newId, page: newPage - 1 }}
+        colors={colors}
         onCancel={() => setPicking(null)}
         onDone={(transform) => {
           set({ transform });
@@ -185,6 +226,7 @@ export function CompareDialog({ mode, files, openIds, currentId, currentPage, pr
       <ComparePagePicker
         mode="region"
         preview={preview}
+        openPage={openPage}
         cur={{ fileId: newId, page: pickPage }}
         initial={options.region ?? null}
         onCancel={() => setPicking(null)}
@@ -244,8 +286,8 @@ export function CompareDialog({ mode, files, openIds, currentId, currentPage, pr
         }}
       >
         <h3>{overlay ? msg('Overlay Pages') : msg('Compare Documents')}</h3>
-        {overlay && <p>{msg('Stacks the two revisions on one page in colour: what both have shows dark, what only one has shows in its colour. Makes a new PDF.')}</p>}
-        <div className="row">
+        {overlay && <p className="compare-intro">{msg('Stacks the two revisions on one page in colour: what both have shows dark, what only one has shows in its colour. Makes a new PDF.')}</p>}
+        <div className="row compare-source-row">
           <label className="check">
             {keyed(msgParts('{input}Two documents', { input: <input type="radio" checked={!batch} onChange={() => setSource('files')} /> }))}
           </label>
@@ -254,10 +296,11 @@ export function CompareDialog({ mode, files, openIds, currentId, currentPage, pr
           </label>
         </div>
         {batch ? (
-          <>
+          <fieldset className="compare-docs">
+            <legend>{msg('Sets')}</legend>
             {(['Old', 'New'] as const).map((which) => (
-              <label className="row" key={which}>
-                {which === 'Old' ? msg('Old set') : msg('New set')}
+              <label className="row compare-doc-row" key={which}>
+                <span className="compare-doc-label">{which === 'Old' ? msg('Old set') : msg('New set')}</span>
                 <select aria-label={which === 'Old' ? msg('Old set') : msg('New set')} value={which === 'Old' ? oldSet : newSet} onChange={(e) => (which === 'Old' ? setOldSet : setNewSet)(e.target.value)}>
                   {sets.map((x) => (
                     <option key={x.id} value={x.id}>
@@ -267,15 +310,93 @@ export function CompareDialog({ mode, files, openIds, currentId, currentPage, pr
                 </select>
               </label>
             ))}
+            <div className="row compare-swap-row">
+              <button
+                type="button"
+                className="btn compare-swap-btn"
+                disabled={!oldSet && !newSet}
+                title={msg('Swap old and new sets')}
+                onClick={() => {
+                  setOldSet(newSet);
+                  setNewSet(oldSet);
+                }}
+              >
+                {msg('⇄ Swap Old & New')}
+              </button>
+            </div>
             {oldSet === newSet && <p className="print-error">{msg('Choose two different sets.')}</p>}
             <p className="print-hint">{msg('Sheets are paired across all the files of both sets; each pair of files is {value}.', { value: overlay ? msg('overlaid into one PDF') : msg('compared and clouded') })}</p>
-          </>
+          </fieldset>
         ) : (
-          <>
-            <label className="row">{keyed(msgParts('Old revision {picker}', { picker: picker(oldId, setOldId, msg('Old revision')) }))}</label>
-            <label className="row">{keyed(msgParts('New revision {picker}', { picker: picker(newId, setNewId, msg('New revision')) }))}</label>
+          <fieldset className="compare-docs">
+            <legend>{msg('Documents')}</legend>
+            <div className="row compare-doc-row">
+              <span className="compare-doc-label">{msg('Old revision')}</span>
+              {picker(oldId, setOldId, msg('Old revision'))}
+              {onImportFile && (
+                <button
+                  type="button"
+                  className="btn compare-browse-btn"
+                  disabled={browsing !== null}
+                  title={msg('Select an old revision document from your computer')}
+                  aria-label={msg('Browse for old revision')}
+                  onClick={() => void browseFor('old')}
+                >
+                  {browsing === 'old' ? msg('Loading…') : msg('Browse…')}
+                </button>
+              )}
+            </div>
+            <div className="row compare-doc-row">
+              <span className="compare-doc-label">{msg('New revision')}</span>
+              {picker(newId, setNewId, msg('New revision'))}
+              {onImportFile && (
+                <button
+                  type="button"
+                  className="btn compare-browse-btn"
+                  disabled={browsing !== null}
+                  title={msg('Select a new revision document from your computer')}
+                  aria-label={msg('Browse for new revision')}
+                  onClick={() => void browseFor('new')}
+                >
+                  {browsing === 'new' ? msg('Loading…') : msg('Browse…')}
+                </button>
+              )}
+            </div>
+            <div className="row compare-swap-row">
+              <button
+                type="button"
+                className="btn compare-swap-btn"
+                disabled={!oldId && !newId}
+                title={msg('Swap old and new revisions')}
+                aria-label={msg('Swap old and new revisions')}
+                onClick={() => {
+                  setOldId(newId);
+                  setNewId(oldId);
+                  if (pairing === 'one') {
+                    setOldPage(newPage);
+                    setNewPage(oldPage);
+                  }
+                }}
+              >
+                {msg('⇄ Swap Old & New')}
+              </button>
+            </div>
+            {onImportFile && (
+              <input
+                ref={browseInputRef}
+                type="file"
+                accept=".pdf,image/*,.dwg,.dxf"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = '';
+                  if (file) void importPickedFile(browseTargetRef.current, file);
+                }}
+              />
+            )}
+            {browseError && <p className="print-error">{browseError}</p>}
             {oldId && oldId === newId && <p className="print-error">{msg('Choose two different documents.')}</p>}
-          </>
+          </fieldset>
         )}
         <fieldset>
           <legend>{msg('Pages')}</legend>
