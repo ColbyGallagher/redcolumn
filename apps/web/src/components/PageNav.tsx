@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 
 interface Props {
@@ -153,13 +154,13 @@ export function PageNav(p: Props) {
       <div className="pagenav-side left">
         {show('zoom') && (
           <>
-            <button className="btn flat" disabled={disabled} onClick={p.onZoomOut} title="Zoom out (−)">
+            <button className="btn flat" disabled={disabled} onClick={p.onZoomOut} title={msg('Zoom out (−)')}>
               −
             </button>
             <input
               className="zoom"
-              aria-label="Zoom"
-              title="Zoom: type a percentage and press Enter"
+              aria-label={msg('Zoom')}
+              title={msg('Zoom: type a percentage and press Enter')}
               disabled={disabled || !p.onZoomTo}
               value={zoomDraft ?? (pageCount ? `${Math.round(p.zoom * 100)}%` : '–')}
               onFocus={(e) => {
@@ -176,17 +177,17 @@ export function PageNav(p: Props) {
                 }
               }}
             />
-            <button className="btn flat" disabled={disabled} onClick={p.onZoomIn} title="Zoom in (+)">
+            <button className="btn flat" disabled={disabled} onClick={p.onZoomIn} title={msg('Zoom in (+)')}>
               +
             </button>
           </>
         )}
         {show('fit') && (
           <>
-            <button className="btn flat" disabled={disabled} onClick={p.onFit} title="Fit page (Ctrl+9)">
+            <button className="btn flat" disabled={disabled} onClick={p.onFit} title={msg('Fit page (Ctrl+9)')}>
               ⤢
             </button>
-            <button className="btn flat" disabled={disabled} onClick={p.onFitWidth} title="Fit width (Ctrl+0)">
+            <button className="btn flat" disabled={disabled} onClick={p.onFitWidth} title={msg('Fit width (Ctrl+0)')}>
               ↔
             </button>
           </>
@@ -196,20 +197,20 @@ export function PageNav(p: Props) {
             className={`btn flat${p.continuous ? ' active' : ''}`}
             disabled={disabled}
             onClick={p.onToggleContinuous}
-            title={p.continuous ? 'Continuous: scroll moves through pages (Ctrl+4 for single page)' : 'Single page: scroll zooms (Ctrl+5 for continuous)'}
+            title={p.continuous ? msg('Continuous: scroll moves through pages (Ctrl+4 for single page)') : msg('Single page: scroll zooms (Ctrl+5 for continuous)')}
           >
             {p.continuous ? '▤ Continuous' : '▢ Single'}
           </button>
         )}
         {show('layout') && p.onTool && (
           <>
-            <button className={`btn flat${p.tool === 'pan' ? ' active' : ''}`} disabled={disabled} onClick={() => p.onTool?.('pan')} title="Pan (Shift+V)" aria-label="Pan" aria-pressed={p.tool === 'pan'}>
+            <button className={`btn flat${p.tool === 'pan' ? ' active' : ''}`} disabled={disabled} onClick={() => p.onTool?.('pan')} title={msg('Pan (Shift+V)')} aria-label={msg('Pan')} aria-pressed={p.tool === 'pan'}>
               ✥
             </button>
-            <button className={`btn flat${p.tool === 'select' ? ' active' : ''}`} disabled={disabled} onClick={() => p.onTool?.('select')} title="Select (V)" aria-label="Select" aria-pressed={p.tool === 'select'}>
+            <button className={`btn flat${p.tool === 'select' ? ' active' : ''}`} disabled={disabled} onClick={() => p.onTool?.('select')} title={msg('Select (V)')} aria-label={msg('Select')} aria-pressed={p.tool === 'select'}>
               ➤
             </button>
-            <button className={`btn flat${p.tool === 'selectText' ? ' active' : ''}`} disabled={disabled} onClick={() => p.onTool?.('selectText')} title="Select text (Shift+T)" aria-label="Select text" aria-pressed={p.tool === 'selectText'}>
+            <button className={`btn flat${p.tool === 'selectText' ? ' active' : ''}`} disabled={disabled} onClick={() => p.onTool?.('selectText')} title={msg('Select text (Shift+T)')} aria-label={msg('Select text')} aria-pressed={p.tool === 'selectText'}>
               Ꭲ
             </button>
           </>
@@ -217,21 +218,21 @@ export function PageNav(p: Props) {
       </div>
       <div className="pagenav-center">
         {p.onBack && show('history') && (
-          <button className="btn flat" disabled={disabled || !p.canBack} onClick={p.onBack} title="Previous view (Alt+←)">
+          <button className="btn flat" disabled={disabled || !p.canBack} onClick={p.onBack} title={msg('Previous view (Alt+←)')}>
             ↶
           </button>
         )}
         {show('ends') && (
-          <button className="btn flat" disabled={disabled || pageIndex <= 0} onClick={p.onFirst} title="First page">
+          <button className="btn flat" disabled={disabled || pageIndex <= 0} onClick={p.onFirst} title={msg('First page')}>
             |‹
           </button>
         )}
-        <button className="btn flat" disabled={disabled || pageIndex <= 0} onClick={p.onPrev} title="Previous page (Page Up)">
+        <button className="btn flat" disabled={disabled || pageIndex <= 0} onClick={p.onPrev} title={msg('Previous page (Page Up)')}>
           ‹
         </button>
         <span className="page-field">
           <input
-            aria-label="Page"
+            aria-label={msg('Page')}
             disabled={disabled}
             placeholder="–"
             value={draft}
@@ -241,18 +242,18 @@ export function PageNav(p: Props) {
               if (e.key === 'Enter') e.currentTarget.blur();
             }}
           />
-          <span>of {pageCount || '–'}</span>
+          <span>{msg('of {count}', { count: pageCount || '–' })}</span>
         </span>
-        <button className="btn flat" disabled={disabled || pageIndex >= pageCount - 1} onClick={p.onNext} title="Next page (Page Down)">
+        <button className="btn flat" disabled={disabled || pageIndex >= pageCount - 1} onClick={p.onNext} title={msg('Next page (Page Down)')}>
           ›
         </button>
         {show('ends') && (
-          <button className="btn flat" disabled={disabled || pageIndex >= pageCount - 1} onClick={p.onLast} title="Last page">
+          <button className="btn flat" disabled={disabled || pageIndex >= pageCount - 1} onClick={p.onLast} title={msg('Last page')}>
             ›|
           </button>
         )}
         {p.onForward && show('history') && (
-          <button className="btn flat" disabled={disabled || !p.canForward} onClick={p.onForward} title="Next view (Alt+→)">
+          <button className="btn flat" disabled={disabled || !p.canForward} onClick={p.onForward} title={msg('Next view (Alt+→)')}>
             ↷
           </button>
         )}
@@ -264,7 +265,7 @@ export function PageNav(p: Props) {
           </span>
         )}
         {size && show('size') && (
-          <span className="page-size" title={`Page size ${size.long}`}>
+          <span className="page-size" title={msg('Page size {long}', { long: size.long })}>
             {size.short}
           </span>
         )}
@@ -274,8 +275,8 @@ export function PageNav(p: Props) {
             <button
               type="button"
               className={`btn flat${menuOpen ? ' active' : ''}`}
-              title="More controls (there is no room for them here)"
-              aria-label="More controls"
+              title={msg('More controls (there is no room for them here)')}
+              aria-label={msg('More controls')}
               aria-haspopup="menu"
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen((o) => !o)}
@@ -288,12 +289,12 @@ export function PageNav(p: Props) {
               <div className="pagenav-menu" role="menu">
                 {hidden.has('zoom') && (
                   <div className="pagenav-menu-row">
-                    <span className="pagenav-menu-label">Zoom</span>
-                    <button type="button" className="btn flat" disabled={disabled} onClick={p.onZoomOut} title="Zoom out (−)">
+                    <span className="pagenav-menu-label">{msg('Zoom')}</span>
+                    <button type="button" className="btn flat" disabled={disabled} onClick={p.onZoomOut} title={msg('Zoom out (−)')}>
                       −
                     </button>
                     <span className="pagenav-menu-value">{pageCount ? `${Math.round(p.zoom * 100)}%` : '–'}</span>
-                    <button type="button" className="btn flat" disabled={disabled} onClick={p.onZoomIn} title="Zoom in (+)">
+                    <button type="button" className="btn flat" disabled={disabled} onClick={p.onZoomIn} title={msg('Zoom in (+)')}>
                       +
                     </button>
                   </div>
@@ -325,7 +326,7 @@ export function PageNav(p: Props) {
                         <b>{p.sheetLabel}</b> {p.sheetTitle}
                       </span>
                     )}
-                    {hidden.has('size') && size && <span>Page size {size.long}</span>}
+                    {hidden.has('size') && size && <span>{msg('Page size {long}', { long: size.long })}</span>}
                   </div>
                 )}
               </div>

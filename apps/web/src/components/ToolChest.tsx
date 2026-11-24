@@ -1,5 +1,8 @@
+import { msg, msgParts } from '@nb/i18n';
+import { markupName } from '../i18n/names';
+import { keyed } from '../i18n/keyed';
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
-import { boundsOf, drawMarkup, isTextType, MARKUP_LABELS, onImageLoad, writeBhx, writeBlx, type Dropped, type Markup, type MarkupType, type Point } from '@nb/markup';
+import { boundsOf, drawMarkup, isTextType, onImageLoad, writeBhx, writeBlx, type Dropped, type Markup, type MarkupType, type Point } from '@nb/markup';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { importRevuFiles, isRevuLibraryFile, REVU_LIBRARY_ACCEPT } from '../toolchest/revuLibraries';
 import { revuToolSetFile, toolSetFile } from '../toolchest/toolSets';
@@ -22,7 +25,7 @@ function download(blob: Blob, name: string, ext: string) {
 
 /** `Exported Gas.blx.` and what it left out, for the panel's message line. */
 const exported = (file: string, dropped: Dropped[]) =>
-  `Exported ${file}.${dropped.length ? ` Not exported: ${dropped.map((d) => `${d.item} (${d.reason})`).join('; ')}.` : ''}`;
+  msg('Exported {file}.', { file }) + (dropped.length ? ' ' + msg('Not exported: {items}.', { items: dropped.map((d) => `${d.item} (${d.reason})`).join('; ') }) : '');
 
 /** Drag data type for a Tool Library tool dragged onto a page (the value is the tool's id). */
 export const TOOL_DRAG_TYPE = 'application/x-nb-tool';
@@ -244,24 +247,24 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
       x: e.clientX,
       y: e.clientY,
       items: [
-        { label: 'Icon View', checked: set.view !== 'detail', onClick: () => editSet(set.id, (s) => ({ ...s, view: 'icon' })) },
-        { label: 'Detail View', checked: set.view === 'detail', onClick: () => editSet(set.id, (s) => ({ ...s, view: 'detail' })) },
+        { label: msg('Icon View'), checked: set.view !== 'detail', onClick: () => editSet(set.id, (s) => ({ ...s, view: 'icon' })) },
+        { label: msg('Detail View'), checked: set.view === 'detail', onClick: () => editSet(set.id, (s) => ({ ...s, view: 'detail' })) },
         { sep: true },
-        { label: 'Add Selected Markup', disabled: !onAddSelected || isRecent, onClick: () => onAddSelected?.(set.id) },
-        { label: 'Rename…', disabled: isRecent, onClick: () => setNaming({ setId: set.id }) },
+        { label: msg('Add Selected Markup'), disabled: !onAddSelected || isRecent, onClick: () => onAddSelected?.(set.id) },
+        { label: msg('Rename…'), disabled: isRecent, onClick: () => setNaming({ setId: set.id }) },
         {
-          label: 'Scale Tools to Page Scale',
+          label: msg('Scale Tools to Page Scale'),
           checked: !!set.scaleToPage,
           disabled: isRecent,
           onClick: () => editSet(set.id, (s) => ({ ...s, scaleToPage: !s.scaleToPage || undefined })),
         },
         {
-          label: 'Export Tool Set…',
+          label: msg('Export Tool Set…'),
           disabled: !set.items.length,
           onClick: () => download(toolSetFile(set), set.name, 'json'),
         },
         {
-          label: 'Export for Revu (.btx)…',
+          label: msg('Export for Revu (.btx)…'),
           disabled: !set.items.length,
           onClick: () =>
             void revuToolSetFile(set).then(({ blob, dropped }) => {
@@ -269,17 +272,17 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
               setMessage(exported(`${set.name}.btx`, dropped));
             }),
         },
-        { label: 'Move Up', disabled: index === 0, onClick: () => moveSet(set.id, -1) },
-        { label: 'Move Down', disabled: index === ws.toolChests.length - 1, onClick: () => moveSet(set.id, 1) },
-        { label: 'Hide Tool Set', onClick: () => editSet(set.id, (s) => ({ ...s, hidden: true })) },
+        { label: msg('Move Up'), disabled: index === 0, onClick: () => moveSet(set.id, -1) },
+        { label: msg('Move Down'), disabled: index === ws.toolChests.length - 1, onClick: () => moveSet(set.id, 1) },
+        { label: msg('Hide Tool Set'), onClick: () => editSet(set.id, (s) => ({ ...s, hidden: true })) },
         { sep: true },
         isRecent
-          ? { label: 'Clear Recent Tools', disabled: !set.items.length, onClick: () => editSet(set.id, (s) => ({ ...s, items: [] })) }
+          ? { label: msg('Clear Recent Tools'), disabled: !set.items.length, onClick: () => editSet(set.id, (s) => ({ ...s, items: [] })) }
           : {
-              label: 'Delete Tool Set…',
+              label: msg('Delete Tool Set…'),
               danger: true,
               onClick: () => {
-                if (confirm(`Delete the tool set "${set.name}" and its ${set.items.length} tool(s)?`)) editSet(set.id, () => null);
+                if (confirm(msg('Delete the tool set "{name}" and its {count} tool(s)?', { name: set.name, count: set.items.length }))) editSet(set.id, () => null);
               },
             },
       ],
@@ -296,26 +299,26 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
       if (m !== item.mode) editSet(set.id, (s) => ({ ...s, items: s.items.map((i) => (i.id === item.id ? { ...i, mode: m } : i)) }));
       onUse({ ...item, mode: m }, m);
     };
-    const copyTo: MenuEntry[] = others.length ? others.map((t) => ({ label: t.name, onClick: () => moveItem(set.id, item.id, t.id) })) : [{ label: 'No other tool sets', disabled: true }];
+    const copyTo: MenuEntry[] = others.length ? others.map((t) => ({ label: t.name, onClick: () => moveItem(set.id, item.id, t.id) })) : [{ label: msg('No other tool sets'), disabled: true }];
     setMenu({
       x: e.clientX,
       y: e.clientY,
       items: [
         ...(item.markups?.length && item.type !== 'signature'
           ? [
-              { label: 'Place Copy', checked: mode === 'copy', disabled: !enabled, onClick: () => useMode('copy') },
-              { label: 'Draw with Style', checked: mode === 'style', disabled: !enabled, onClick: () => useMode('style') },
+              { label: msg('Place Copy'), checked: mode === 'copy', disabled: !enabled, onClick: () => useMode('copy') },
+              { label: msg('Draw with Style'), checked: mode === 'style', disabled: !enabled, onClick: () => useMode('style') },
             ]
-          : [{ label: 'Use Tool', disabled: !enabled, onClick: () => onUse(item) }]),
-        { label: 'Rename…', onClick: () => setNaming({ setId: set.id, itemId: item.id }) },
-        { label: set.id === RECENT_TOOLS_ID ? 'Save to Tool Set' : 'Move to Tool Set', items: copyTo },
+          : [{ label: msg('Use Tool'), disabled: !enabled, onClick: () => onUse(item) }]),
+        { label: msg('Rename…'), onClick: () => setNaming({ setId: set.id, itemId: item.id }) },
+        { label: set.id === RECENT_TOOLS_ID ? msg('Save to Tool Set') : msg('Move to Tool Set'), items: copyTo },
         {
-          label: 'Duplicate',
+          label: msg('Duplicate'),
           disabled: set.id === RECENT_TOOLS_ID,
           onClick: () => editSet(set.id, (s) => ({ ...s, items: [...s.items, { ...item, id: crypto.randomUUID(), label: `${item.label} (copy)` }] })),
         },
         { sep: true },
-        { label: 'Delete Tool', danger: true, onClick: () => editSet(set.id, (s) => ({ ...s, items: s.items.filter((i) => i.id !== item.id) })) },
+        { label: msg('Delete Tool'), danger: true, onClick: () => editSet(set.id, (s) => ({ ...s, items: s.items.filter((i) => i.id !== item.id) })) },
       ],
     });
   };
@@ -354,11 +357,11 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
       }}
     >
       <div className="toolchest-bar">
-        <button className="btn small" onClick={() => setNaming({ setId: 'new' })} title="Create a new tool set">
-          + New Tool Set
+        <button className="btn small" onClick={() => setNaming({ setId: 'new' })} title={msg('Create a new tool set')}>
+          {msg('+ New Tool Set')}
         </button>
-        <button className="btn small" onClick={() => fileRef.current?.click()} title="Import tool sets (Bluebeam® Revu® .btx, or redcolumn .json) line style sets (.blx) and hatch sets (.bhx), or drop them here">
-          Import…
+        <button className="btn small" onClick={() => fileRef.current?.click()} title={msg('Import tool sets (Bluebeam® Revu® .btx, or redcolumn .json) line style sets (.blx) and hatch sets (.bhx), or drop them here')}>
+          {msg('Import…')}
         </button>
         <input
           ref={fileRef}
@@ -379,58 +382,24 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
               setMenu({
                 x: e.clientX,
                 y: e.clientY,
-                items: hidden.map((t) => ({ label: `Show "${t.name}"`, onClick: () => editSet(t.id, (s) => ({ ...s, hidden: false })) })),
+                items: hidden.map((t) => ({ label: msg('Show "{name}"', { name: t.name }), onClick: () => editSet(t.id, (s) => ({ ...s, hidden: false })) })),
               })
             }
           >
-            {hidden.length} hidden
+            {msg('{count} hidden', { count: hidden.length })}
           </button>
         )}
       </div>
       {(ws.lineSets.length > 0 || ws.hatchSets.length > 0) && (
-        <div className="toolchest-libs" aria-label="Imported libraries">
+        <div className="toolchest-libs" aria-label={msg('Imported libraries')}>
           {ws.lineSets.map((s) => (
-            <span key={`l:${s.title}`} className="toolchest-lib" title={`${s.styles.length} line styles, in the Line style pickers`}>
-              {s.title} · lines
-              <button
-                type="button"
-                aria-label={`Export the line style set ${s.title} for Revu`}
-                title="Export for Revu (.blx)"
-                onClick={() => {
-                  const dropped: Dropped[] = [];
-                  void writeBlx(s, dropped).then((xml) => {
-                    download(new Blob([xml], { type: 'application/xml' }), s.title, 'blx');
-                    setMessage(exported(`${s.title}.blx`, dropped));
-                  });
-                }}
-              >
-                ⤓
-              </button>
-              <button type="button" aria-label={`Remove the line style set ${s.title}`} onClick={() => updateWorkspace((w) => ({ ...w, lineSets: w.lineSets.filter((x) => x !== s) }))}>
-                ×
-              </button>
+            <span key={`l:${s.title}`} className="toolchest-lib" title={msg('{count} line styles, in the Line style pickers', { count: s.styles.length })}>
+              {keyed(msgParts('{title} · lines{button}{button2}', { title: s.title, button: <button type="button" aria-label={msg('Export the line style set {title} for Revu', { title: s.title })} title={msg('Export for Revu (.blx)')} onClick={() => { const dropped: Dropped[] = []; void writeBlx(s, dropped).then((xml) => { download(new Blob([xml], { type: 'application/xml' }), s.title, 'blx'); setMessage(exported(`${s.title}.blx`, dropped)); }); }} > ⤓ </button>, button2: <button type="button" aria-label={msg('Remove the line style set {title}', { title: s.title })} onClick={() => updateWorkspace((w) => ({ ...w, lineSets: w.lineSets.filter((x) => x !== s) }))}> × </button> }))}
             </span>
           ))}
           {ws.hatchSets.map((s) => (
-            <span key={`h:${s.title}`} className="toolchest-lib" title={`${s.hatches.length} hatches, in the Hatch pickers`}>
-              {s.title} · hatches
-              <button
-                type="button"
-                aria-label={`Export the hatch set ${s.title} for Revu`}
-                title="Export for Revu (.bhx)"
-                onClick={() => {
-                  const dropped: Dropped[] = [];
-                  void writeBhx(s, dropped).then((xml) => {
-                    download(new Blob([xml], { type: 'application/xml' }), s.title, 'bhx');
-                    setMessage(exported(`${s.title}.bhx`, dropped));
-                  });
-                }}
-              >
-                ⤓
-              </button>
-              <button type="button" aria-label={`Remove the hatch set ${s.title}`} onClick={() => updateWorkspace((w) => ({ ...w, hatchSets: w.hatchSets.filter((x) => x !== s) }))}>
-                ×
-              </button>
+            <span key={`h:${s.title}`} className="toolchest-lib" title={msg('{count} hatches, in the Hatch pickers', { count: s.hatches.length })}>
+              {keyed(msgParts('{title} · hatches{button}{button2}', { title: s.title, button: <button type="button" aria-label={msg('Export the hatch set {title} for Revu', { title: s.title })} title={msg('Export for Revu (.bhx)')} onClick={() => { const dropped: Dropped[] = []; void writeBhx(s, dropped).then((xml) => { download(new Blob([xml], { type: 'application/xml' }), s.title, 'bhx'); setMessage(exported(`${s.title}.bhx`, dropped)); }); }} > ⤓ </button>, button2: <button type="button" aria-label={msg('Remove the hatch set {title}', { title: s.title })} onClick={() => updateWorkspace((w) => ({ ...w, hatchSets: w.hatchSets.filter((x) => x !== s) }))}> × </button> }))}
             </span>
           ))}
         </div>
@@ -443,7 +412,7 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
       {naming?.setId === 'new' && (
         <div className="toolset">
           <div className="toolset-head">
-            <InlineName initial="" placeholder="Tool set name" onDone={finishNaming} />
+            <InlineName initial="" placeholder={msg('Tool set name')} onDone={finishNaming} />
           </div>
         </div>
       )}
@@ -466,7 +435,7 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
           >
             <div className="toolset-head" onContextMenu={(e) => setMenuFor(e, set, index)}>
               {naming?.setId === set.id && !naming.itemId ? (
-                <InlineName initial={set.name} placeholder="Tool set name" onDone={finishNaming} />
+                <InlineName initial={set.name} placeholder={msg('Tool set name')} onDone={finishNaming} />
               ) : (
                 <>
                   <button className="toolset-toggle" aria-expanded={!set.collapsed} onClick={() => editSet(set.id, (s) => ({ ...s, collapsed: !s.collapsed }))}>
@@ -474,7 +443,7 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
                     <span className="toolset-name">{set.name}</span>
                     <span className="count">{set.items.length}</span>
                   </button>
-                  <button className="toolset-menu" title="Tool set options" onClick={(e) => setMenuFor(e, set, index)}>
+                  <button className="toolset-menu" title={msg('Tool set options')} onClick={(e) => setMenuFor(e, set, index)}>
                     ▾
                   </button>
                 </>
@@ -484,23 +453,26 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
               <div className={`toolset-items ${set.view === 'detail' ? 'detail' : 'icons'}`}>
                 {set.view === 'detail' && set.items.length > 0 && (
                   <div className="tool-head" aria-hidden="true">
-                    <span>Subject</span>
-                    <span>Comment</span>
-                    <span>Label</span>
+                    <span>{msg('Subject')}</span>
+                    <span>{msg('Comment')}</span>
+                    <span>{msg('Label')}</span>
                   </div>
                 )}
                 {set.items.map((item) => {
                   const active = presetId === item.id;
                   return naming?.itemId === item.id ? (
                     <div key={item.id} className="tool-item editing">
-                      <InlineName initial={item.label} placeholder="Tool name" onDone={finishNaming} />
+                      <InlineName initial={item.label} placeholder={msg('Tool name')} onDone={finishNaming} />
                     </div>
                   ) : (
                     <button
                       key={item.id}
                       className={`tool-item${active ? ' active' : ''}`}
                       disabled={!enabled}
-                      title={`${item.label}${item.subject && item.subject !== item.label ? ` — ${item.subject}` : ''} (${item.tool ? toolLabel(item.tool) : MARKUP_LABELS[item.type]})${item.markups?.length ? '\nClick, then click the page to place a copy — or drag it onto the page.' : ''}`}
+                      title={
+                        msg('{name} ({tool})', { name: item.subject && item.subject !== item.label ? `${item.label} — ${item.subject}` : item.label, tool: item.tool ? toolLabel(item.tool) : markupName(item.type) }) +
+                        (item.markups?.length ? '\n' + msg('Click, then click the page to place a copy — or drag it onto the page.') : '')
+                      }
                       draggable
                       onDragStart={(e) => {
                         setDragItem({ setId: set.id, itemId: item.id });
@@ -537,7 +509,7 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
                 })}
                 {!set.items.length && (
                   <p className="toolset-empty">
-                    {isRecent ? 'Tools you draw with appear here.' : 'Right-click a markup → Add to Tool Library, or drag a tool here.'}
+                    {isRecent ? msg('Tools you draw with appear here.') : msg('Right-click a markup → Add to Tool Library, or drag a tool here.')}
                   </p>
                 )}
               </div>
@@ -549,7 +521,7 @@ export function ToolChestPanel({ tool, presetId, enabled, onUse, onSetTool, onAd
         <div className="toolset-head">
           <button className="toolset-toggle" aria-expanded={standardOpen} onClick={() => setStandardOpen((o) => !o)}>
             <span className="caret">{standardOpen ? '▾' : '▸'}</span>
-            <span className="toolset-name">Standard Tools</span>
+            <span className="toolset-name">{msg('Standard Tools')}</span>
           </button>
         </div>
         {standardOpen && (

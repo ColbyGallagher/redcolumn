@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import {
   useMemo,
   useRef,
@@ -50,10 +52,10 @@ interface LayerView {
 
 type Column = "name" | "lock" | "print" | "export";
 const COLUMNS: { key: Column; label: string }[] = [
-  { key: "name", label: "Layer" },
-  { key: "lock", label: "Lock" },
-  { key: "print", label: "Print" },
-  { key: "export", label: "Export" },
+  { key: "name", get label() { return msg('Layer'); } },
+  { key: "lock", get label() { return msg('Lock'); } },
+  { key: "print", get label() { return msg('Print'); } },
+  { key: "export", get label() { return msg('Export'); } },
 ];
 const DEFAULT_WIDTHS: Record<Column, number> = {
   name: 200,
@@ -222,8 +224,8 @@ export function LayersPanel({
       className="col-resize"
       role="separator"
       aria-orientation="vertical"
-      aria-label={`Resize the ${label} column`}
-      title="Drag to resize; double-click to reset"
+      aria-label={msg('Resize the {label} column', { label })}
+      title={msg('Drag to resize; double-click to reset')}
       onPointerDown={(e) => startResize(e, key)}
       onClick={(e) => e.stopPropagation()}
       onDoubleClick={(e) => {
@@ -401,10 +403,10 @@ export function LayersPanel({
   };
 
   const addLayer = (where: "before" | "after") => {
-    void askText("Add Layer", "", {
+    void askText(msg('Add Layer'), "", {
       label:
-        "A markup layer. Move markups to it from their right-click menu › Layer.",
-      confirm: "Add",
+        msg('A markup layer. Move markups to it from their right-click menu › Layer.'),
+      confirm: msg('Add'),
     }).then((name) => {
       name = name?.trim() ?? "";
       if (!name || all.some((r) => r.key === mkKey(name!))) return;
@@ -437,39 +439,39 @@ export function LayersPanel({
 
   const layersMenu = (): MenuEntry[] => [
     {
-      label: "Reset Layers",
+      label: msg('Reset Layers'),
       onClick: () => (
         setPrefs({ ...prefs, flags: {} }),
         setHidden(fileDefaults())
       ),
     },
     {
-      label: "Show Print Layers",
+      label: msg('Show Print Layers'),
       onClick: () => showWhere((r) => !flagsOf(r).print),
     },
     {
-      label: "Show Export Layers",
+      label: msg('Show Export Layers'),
       onClick: () => showWhere((r) => !flagsOf(r).export),
     },
-    { label: "Show All Layers", onClick: () => showWhere(() => false) },
+    { label: msg('Show All Layers'), onClick: () => showWhere(() => false) },
     SEP,
     {
-      label: "Show Layers On Page Only",
+      label: msg('Show Layers On Page Only'),
       checked: pageOnly,
       onClick: () => settings.set({ layersOnPageOnly: !pageOnly }),
     },
     {
-      label: "Sort Layers Alphabetically",
+      label: msg('Sort Layers Alphabetically'),
       checked: view.sort,
       onClick: () => setView({ ...view, sort: !view.sort }),
     },
     SEP,
     {
-      label: "Dial",
+      label: msg('Dial'),
       disabled: !all.length,
       items: [
-        { label: "Next Layer", onClick: () => dial(1) },
-        { label: "Previous Layer", onClick: () => dial(-1) },
+        { label: msg('Next Layer'), onClick: () => dial(1) },
+        { label: msg('Previous Layer'), onClick: () => dial(-1) },
       ],
     },
   ];
@@ -481,19 +483,19 @@ export function LayersPanel({
       !r.count;
     return [
       {
-        label: hiddenKeys.has(r.key) ? "Show Layer" : "Hide Layer",
+        label: hiddenKeys.has(r.key) ? msg('Show Layer') : msg('Hide Layer'),
         disabled: flagsOf(r).lock,
         onClick: () => toggle(r),
       },
       {
-        label: "Show Only This Layer",
+        label: msg('Show Only This Layer'),
         onClick: () => showWhere((x) => x !== r),
       },
       ...(empty
         ? [
             SEP,
             {
-              label: "Delete Layer",
+              label: msg('Delete Layer'),
               danger: true,
               onClick: () => {
                 const name = r.key.slice(3);
@@ -535,18 +537,18 @@ export function LayersPanel({
           aria-haspopup="menu"
           onClick={(e) => open(e, layersMenu())}
         >
-          Layers <Caret />
+          {keyed(msgParts('Layers {caret}', { caret: <Caret /> }))}
         </button>
         <button
           className="layers-menu-btn"
           aria-haspopup="menu"
-          title="Add Layer"
+          title={msg('Add Layer')}
           disabled={!docKey}
           onClick={(e) =>
             open(e, [
-              { label: "Add Before…", onClick: () => addLayer("before") },
-              { label: "Add After…", onClick: () => addLayer("after") },
-              { label: "Add Child…", disabled: true },
+              { label: msg('Add Before…'), onClick: () => addLayer("before") },
+              { label: msg('Add After…'), onClick: () => addLayer("after") },
+              { label: msg('Add Child…'), disabled: true },
             ])
           }
         >
@@ -555,11 +557,11 @@ export function LayersPanel({
         <button
           className="layers-menu-btn"
           aria-haspopup="menu"
-          title="Document"
+          title={msg('Document')}
           onClick={(e) =>
             open(e, [
               {
-                label: "Show Hyperlinks",
+                label: msg('Show Hyperlinks'),
                 checked: showLinks,
                 onClick: () => onShowLinks(!showLinks),
               },
@@ -570,7 +572,7 @@ export function LayersPanel({
         </button>
         <select
           className="layers-config"
-          aria-label="Layer configuration"
+          aria-label={msg('Layer configuration')}
           value={prefs.config}
           disabled={!docKey}
           onChange={(e) => applyConfig(e.target.value)}
@@ -584,12 +586,12 @@ export function LayersPanel({
         <button
           className="layers-menu-btn"
           aria-haspopup="menu"
-          title="Configurations"
+          title={msg('Configurations')}
           disabled={!docKey}
           onClick={(e) =>
             open(e, [
               {
-                label: "Save Configuration",
+                label: msg('Save Configuration'),
                 icon: ICONS.save,
                 onClick: () =>
                   setPrefs({
@@ -604,13 +606,13 @@ export function LayersPanel({
                   }),
               },
               {
-                label: "New Configuration",
+                label: msg('New Configuration'),
                 icon: ICONS.newConfig,
                 onClick: () =>
-                  void askText("New Configuration", "", {
+                  void askText(msg('New Configuration'), "", {
                     label:
-                      "Saves which layers show, and their Lock, Print and Export settings.",
-                    confirm: "Save",
+                      msg('Saves which layers show, and their Lock, Print and Export settings.'),
+                    confirm: msg('Save'),
                   }).then((name) => {
                     name = name?.trim() ?? "";
                     if (name)
@@ -628,7 +630,7 @@ export function LayersPanel({
                   }),
               },
               {
-                label: "Delete Configuration",
+                label: msg('Delete Configuration'),
                 icon: ICONS.deleteConfig,
                 disabled: prefs.config === DEFAULT_CONFIG,
                 onClick: () => {
@@ -656,7 +658,7 @@ export function LayersPanel({
               <th className="layer-name">
                 <button
                   className="layer-twisty"
-                  aria-label={allCollapsed ? "Expand all" : "Collapse all"}
+                  aria-label={allCollapsed ? msg('Expand all') : msg('Collapse all')}
                   disabled={!parents.length}
                   onClick={() =>
                     setCollapsed(allCollapsed ? new Set() : new Set(parents))
@@ -664,8 +666,8 @@ export function LayersPanel({
                 >
                   {allCollapsed ? "+" : "−"}
                 </button>
-                Layer
-                {resizer("name", "Layer")}
+                {msg('Layer')}
+                {resizer("name", msg('Layer'))}
               </th>
               {COLUMNS.slice(1).map((c) => (
                 <th key={c.key}>
@@ -695,7 +697,7 @@ export function LayersPanel({
                     className="layer-name"
                     title={
                       r.count !== undefined
-                        ? `${r.count} markup${r.count === 1 ? "" : "s"}`
+                        ? msg('{count, plural, one {# markup} other {# markups}}', { count: r.count })
                         : undefined
                     }
                   >
@@ -707,7 +709,7 @@ export function LayersPanel({
                         <button
                           className="layer-twisty"
                           aria-label={
-                            collapsed.has(r.key) ? "Expand" : "Collapse"
+                            collapsed.has(r.key) ? msg('Expand') : msg('Collapse')
                           }
                           onClick={(e) => {
                             e.stopPropagation();
@@ -727,10 +729,10 @@ export function LayersPanel({
                         aria-label={`${hidden ? "Show" : "Hide"} ${r.name}`}
                         title={
                           locked
-                            ? "Locked: unlock to show or hide"
+                            ? msg('Locked: unlock to show or hide')
                             : hidden
-                              ? "Show"
-                              : "Hide"
+                              ? msg('Show')
+                              : msg('Hide')
                         }
                         disabled={locked}
                         onClick={(e) => {
@@ -755,10 +757,10 @@ export function LayersPanel({
         {!shown.length && (
           <p className="empty">
             {!docKey
-              ? "Open a document to see its layers."
+              ? msg('Open a document to see its layers.')
               : pageOnly && all.length
-                ? "No layers on this page."
-                : "This document has no layers. Add one, or right-click markups › Layer."}
+                ? msg('No layers on this page.')
+                : msg('This document has no layers. Add one, or right-click markups › Layer.')}
           </p>
         )}
       </div>

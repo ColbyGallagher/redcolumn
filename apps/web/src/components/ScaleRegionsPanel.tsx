@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import type { PageText } from '@nb/sheets';
 import type { Scale } from '@nb/measure';
@@ -33,57 +35,57 @@ export function ScaleRegionsPanel({ regions, drawing, pageCount, currentPage, te
   const pages = scope === 'all' ? Array.from({ length: pageCount }, (_, i) => i) : scope === 'current' ? [currentPage] : parsePageRange(range, pageCount);
 
   return (
-    <div className="label-regions" role="dialog" aria-label="Page scales from regions">
+    <div className="label-regions" role="dialog" aria-label={msg('Page scales from regions')}>
       <div className="lr-head">
-        <b>Bulk Apply Page Scale</b>
-        <button className="btn small flat" onClick={onClose} title="Close" aria-label="Close">
+        <b>{msg('Bulk Apply Page Scale')}</b>
+        <button className="btn small flat" onClick={onClose} title={msg('Close')} aria-label={msg('Close')}>
           ×
         </button>
       </div>
-      <p className="hint">Draw a box around the scale note (e.g. 1/8" = 1'-0" or 1:100). Each page gets the scale read from the same box.</p>
+      <p className="hint">{msg('Draw a box around the scale note (e.g. 1/8" = 1\'-0" or 1:100). Each page gets the scale read from the same box.')}</p>
       <button className={`btn small${drawing ? ' active' : ''}`} onClick={onDraw} disabled={readOnly}>
-        {drawing ? 'Drawing: drag a box on the page' : '+ Draw box'}
+        {drawing ? msg('Drawing: drag a box on the page') : msg('+ Draw box')}
       </button>
       <ol className="lr-list">
-        {regions.length === 0 && <li className="empty">No boxes yet.</li>}
+        {regions.length === 0 && <li className="empty">{msg('No boxes yet.')}</li>}
         {regions.map((r, i) => (
           <li key={`${r.x},${r.y},${r.w},${r.h}`}>
             <span className="lr-num">{i + 1}</span>
-            <span className="lr-text" title="Text in this box on the current page">
-              {texts ? textInRegion(words, r) || <i>no text on this page</i> : '…'}
+            <span className="lr-text" title={msg('Text in this box on the current page')}>
+              {texts ? textInRegion(words, r) || <i>{msg('no text on this page')}</i> : '…'}
             </span>
-            <button className="btn small flat" onClick={() => onChange(regions.filter((_, j) => j !== i))} title="Remove box" aria-label="Remove box">
+            <button className="btn small flat" onClick={() => onChange(regions.filter((_, j) => j !== i))} title={msg('Remove box')} aria-label={msg('Remove box')}>
               ×
             </button>
           </li>
         ))}
       </ol>
       <div className="lr-preview">
-        Page {currentPage + 1}: <b>{texts === null ? 'reading text…' : preview?.label || 'no scale found'}</b>
+        {keyed(msgParts('Page {page}: {b}', { page: currentPage + 1, b: <b>{texts === null ? msg('reading text…') : preview?.label || 'no scale found'}</b> }))}
       </div>
       <fieldset className="lr-row">
-        <legend>Pages</legend>
+        <legend>{msg('Pages')}</legend>
         <label>
-          <input type="radio" checked={scope === 'all'} onChange={() => setScope('all')} /> All ({pageCount})
+          {keyed(msgParts('{input} All ({pageCount})', { input: <input type="radio" checked={scope === 'all'} onChange={() => setScope('all')} />, pageCount }))}
         </label>
         <label>
-          <input type="radio" checked={scope === 'current'} onChange={() => setScope('current')} /> Current
+          {keyed(msgParts('{input} Current', { input: <input type="radio" checked={scope === 'current'} onChange={() => setScope('current')} /> }))}
         </label>
         <label>
           <input type="radio" checked={scope === 'range'} onChange={() => setScope('range')} />
-          <input className="lr-range" value={range} placeholder="1-5, 8" onFocus={() => setScope('range')} onChange={(e) => setRange(e.target.value)} aria-label="Page range" />
+          <input className="lr-range" value={range} placeholder="1-5, 8" onFocus={() => setScope('range')} onChange={(e) => setRange(e.target.value)} aria-label={msg('Page range')} />
         </label>
       </fieldset>
       <div className="lr-actions">
         <button className="btn small" onClick={onClose}>
-          Cancel
+          {msg('Cancel')}
         </button>
         <button
           className="btn small primary"
           disabled={readOnly || !texts || !regions.length || !pages.length}
           onClick={() => onApply(pages.map((page) => ({ page, scale: scaleFromRegions(texts![page]?.words ?? [], regions) })))}
         >
-          Apply to {pages.length} page{pages.length === 1 ? '' : 's'}
+          {msg('Apply to {count, plural, one {# page} other {# pages}}', { count: pages.length })}
         </button>
       </div>
     </div>

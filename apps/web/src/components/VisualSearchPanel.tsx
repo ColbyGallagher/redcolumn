@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useState } from 'react';
 import type { SymbolMatch } from '@nb/measure';
 import { useBelowRibbon } from './useFloatingPopup';
@@ -72,59 +74,55 @@ export function VisualSearchPanel({ pageCount, editable, onSearch, onGo, onApply
   return (
     <div className="visual-search" style={belowRibbon} onKeyDown={(e) => e.stopPropagation()}>
       <div className="vs-head">
-        <b>Symbol Search</b>
-        <button className="btn small flat" title="Close" onClick={onClose}>
+        <b>{msg('Symbol Search')}</b>
+        <button className="btn small flat" title={msg('Close')} onClick={onClose}>
           ×
         </button>
       </div>
       <label className="check">
-        <input type="checkbox" checked={allPages} disabled={pageCount < 2} onChange={(e) => setAllPages(e.target.checked)} />
-        All {pageCount} pages
+        {keyed(msgParts('{input}All {pageCount} pages', { input: <input type="checkbox" checked={allPages} disabled={pageCount < 2} onChange={(e) => setAllPages(e.target.checked)} />, pageCount }))}
       </label>
       <label className="check">
-        <input type="checkbox" checked={rotations} onChange={(e) => setRotations(e.target.checked)} />
-        Include rotated copies
+        {keyed(msgParts('{input}Include rotated copies', { input: <input type="checkbox" checked={rotations} onChange={(e) => setRotations(e.target.checked)} /> }))}
       </label>
       <label className="check">
-        <input type="checkbox" checked={scales} disabled={image} onChange={(e) => setScales(e.target.checked)} />
-        Include larger and smaller copies
+        {keyed(msgParts('{input}Include larger and smaller copies', { input: <input type="checkbox" checked={scales} disabled={image} onChange={(e) => setScales(e.target.checked)} /> }))}
       </label>
-      <label className="check" title="For scanned sheets: compares the pixels (also used when the box holds no line work)">
-        <input type="checkbox" checked={image} onChange={(e) => setImage(e.target.checked)} />
-        Match the image (scanned sheets)
+      <label className="check" title={msg('For scanned sheets: compares the pixels (also used when the box holds no line work)')}>
+        {keyed(msgParts('{input}Match the image (scanned sheets)', { input: <input type="checkbox" checked={image} onChange={(e) => setImage(e.target.checked)} /> }))}
       </label>
       <p className="vs-result">
-        {busy ? 'Searching…' : hits ? `${hits.length} found${allPages ? ` on ${pages} page${pages === 1 ? '' : 's'}` : ''}` : ''}
-        {!busy && !!hits?.length && hits[0]!.image && ' by image'}
-        {!busy && hits?.length === 0 && ' (box one whole symbol)'}
+        {busy ? msg('Searching…') : hits ? (allPages ? msg('{count} found on {pages, plural, one {# page} other {# pages}}', { count: hits.length, pages }) : msg('{count} found', { count: hits.length })) : ''}
+        {!busy && !!hits?.length && hits[0]!.image && ' ' + msg('by image')}
+        {!busy && hits?.length === 0 && ' ' + msg('(box one whole symbol)')}
       </p>
       {!!hits?.length && (
         <>
           <div className="vs-nav">
             <button className="btn small" onClick={() => go(at - 1)}>
-              ‹ Prev
+              {msg('‹ Prev')}
             </button>
             <span>
               {at + 1} / {hits.length}
             </span>
             <button className="btn small" onClick={() => go(at + 1)}>
-              Next ›
+              {msg('Next ›')}
             </button>
           </div>
           {editable && (
             <div className="vs-apply">
-              <span>Mark all as</span>
-              <button className="btn small" title="One count per page, a point on each copy" onClick={() => onApply('count', hits)}>
-                Count
+              <span>{msg('Mark all as')}</span>
+              <button className="btn small" title={msg('One count per page, a point on each copy')} onClick={() => onApply('count', hits)}>
+                {msg('Count')}
               </button>
               <button className="btn small" onClick={() => onApply('cloud', hits)}>
-                Clouds
+                {msg('Clouds')}
               </button>
               <button className="btn small" onClick={() => onApply('rect', hits)}>
-                Boxes
+                {msg('Boxes')}
               </button>
-              <button className="btn small" title="A hyperlink on every copy, all going to the same place" onClick={() => onApply('hyperlink', hits)}>
-                Hyperlinks…
+              <button className="btn small" title={msg('A hyperlink on every copy, all going to the same place')} onClick={() => onApply('hyperlink', hits)}>
+                {msg('Hyperlinks…')}
               </button>
             </div>
           )}
