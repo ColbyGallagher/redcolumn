@@ -29,6 +29,7 @@
     "@tesseract.js-data/nld": "^1.0.0",
     "@tesseract.js-data/por": "^1.0.0",
     "@tesseract.js-data/spa": "^1.0.0",
+    "dictionary-de": "^3.0.0",
     "dictionary-en": "^4.0.0",
     "dictionary-en-au": "^3.0.0",
     "dictionary-en-gb": "^3.0.0",
