@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import type { LinkStatus, StoredLink } from '@nb/markup';
 import { LINK_KINDS, type SheetInfo } from '@nb/sheets';
 import { MARK_KINDS, type TaughtMark } from '../sheets/marks';
@@ -38,17 +40,17 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
 
   const row = (l: StoredLink, from: boolean) => (
     <li key={`${from ? 'f' : 't'}${l.id}`}>
-      <button className="link-row" onClick={() => (from ? onFollow(l) : onReveal(l))} title={from ? 'Go to the target' : 'Go to the callout'}>
+      <button className="link-row" onClick={() => (from ? onFollow(l) : onReveal(l))} title={from ? msg('Go to the target') : msg('Go to the callout')}>
         <span className="num">{l.label}</span>
         <span className="name">
-          {from ? `→ ${sheetName(sheets, l.targetPage)}` : `from ${sheetName(sheets, l.pageIndex)}`}
+          {from ? `→ ${sheetName(sheets, l.targetPage)}` : msg('from {sheet}', { sheet: sheetName(sheets, l.pageIndex) })}
           {l.kind !== 'sheet' ? ` · ${LINK_KINDS[l.kind]}` : ''}
-          {l.detail && !l.targetRect ? ' (not located)' : ''}
+          {l.detail && !l.targetRect ? ' ' + msg('(not located)') : ''}
         </span>
       </button>
       {from && (
         <span className="review-actions">
-          <button className="btn small" title="Not a link — remove it" onClick={() => onStatus(l.id, 'rejected')}>
+          <button className="btn small" title={msg('Not a link — remove it')} onClick={() => onStatus(l.id, 'rejected')}>
             ✕
           </button>
         </span>
@@ -60,40 +62,39 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
     <div className="links">
       <div className="sheet-actions">
         <label className="field">
-          <input type="checkbox" checked={showLinks} onChange={(e) => onShowLinks(e.target.checked)} />
-          Show links
+          {keyed(msgParts('{input}Show links', { input: <input type="checkbox" checked={showLinks} onChange={(e) => onShowLinks(e.target.checked)} /> }))}
         </label>
         <span className="grow" />
-        <button className="btn small" disabled={busy || !editable} onClick={onTeach} title="Box a section mark, detail callout or elevation mark, then what it points to, so links are found from marks like them">
-          Teach links…
+        <button className="btn small" disabled={busy || !editable} onClick={onTeach} title={msg('Box a section mark, detail callout or elevation mark, then what it points to, so links are found from marks like them')}>
+          {msg('Teach links…')}
         </button>
-        <button className="btn small" disabled={busy} onClick={onRedetect} title="Find callouts again using the current sheet numbers">
-          Re-detect
+        <button className="btn small" disabled={busy} onClick={onRedetect} title={msg('Find callouts again using the current sheet numbers')}>
+          {msg('Re-detect')}
         </button>
       </div>
       <p className="empty">
-        {active.length} link{active.length === 1 ? '' : 's'} in this set · click a callout on the drawing to follow it, Alt+← to go back.
+        {msg('{count, plural, one {# link} other {# links}} in this set · click a callout on the drawing to follow it, Alt+← to go back.', { count: active.length })}
       </p>
       {review.length > 0 && (
         <>
-          <h3>Needs review ({review.length})</h3>
+          <h3>{msg('Needs review ({count})', { count: review.length })}</h3>
           <ul>
             {review.map((l) => (
               <li key={`r${l.id}`}>
-                <button className="link-row" onClick={() => onReveal(l)} title="Show this callout">
+                <button className="link-row" onClick={() => onReveal(l)} title={msg('Show this callout')}>
                   <span className="num">{l.label}</span>
                   <span className="name">
                     {sheetName(sheets, l.pageIndex)} → {sheetName(sheets, l.targetPage)}
-                    <span className="confidence" title={l.id.startsWith('ai-') ? `Proposed by AI${l.note ? `: ${l.note}` : ''}` : l.id.startsWith('mark-') ? 'Found from a taught mark' : 'Found from the text'}>
+                    <span className="confidence" title={l.id.startsWith('ai-') ? l.note ? msg('Proposed by AI: {note}', { note: l.note }) : msg('Proposed by AI') : l.id.startsWith('mark-') ? msg('Found from a taught mark') : msg('Found from the text')}>
                       {Math.round(l.confidence * 100)}%
                     </span>
                   </span>
                 </button>
                 <span className="review-actions">
-                  <button className="btn small" title="Keep this link" onClick={() => onStatus(l.id, 'accepted')}>
+                  <button className="btn small" title={msg('Keep this link')} onClick={() => onStatus(l.id, 'accepted')}>
                     ✓
                   </button>
-                  <button className="btn small" title="Not a link" onClick={() => onStatus(l.id, 'rejected')}>
+                  <button className="btn small" title={msg('Not a link')} onClick={() => onStatus(l.id, 'rejected')}>
                     ✕
                   </button>
                 </span>
@@ -102,13 +103,13 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
           </ul>
         </>
       )}
-      <h3>On this sheet ({here.length})</h3>
+      <h3>{msg('On this sheet ({count})', { count: here.length })}</h3>
       <ul>{here.map((l) => row(l, true))}</ul>
-      <h3>Links to this sheet ({incoming.length})</h3>
+      <h3>{msg('Links to this sheet ({count})', { count: incoming.length })}</h3>
       <ul>{incoming.map((l) => row(l, false))}</ul>
       {marks.length > 0 && (
         <>
-          <h3>Taught marks ({marks.length})</h3>
+          <h3>{msg('Taught marks ({count})', { count: marks.length })}</h3>
           <ul>
             {marks.map((m) => (
               <li key={m.id}>
@@ -120,7 +121,7 @@ export function LinksPanel({ links, sheets, currentPage, showLinks, busy, onShow
                   </span>
                 </span>
                 <span className="review-actions">
-                  <button className="btn small" title="Forget this mark" aria-label={`Forget ${m.name}`} disabled={busy} onClick={() => onForget(m.id)}>
+                  <button className="btn small" title={msg('Forget this mark')} aria-label={msg('Forget {name}', { name: m.name })} disabled={busy} onClick={() => onForget(m.id)}>
                     ✕
                   </button>
                 </span>

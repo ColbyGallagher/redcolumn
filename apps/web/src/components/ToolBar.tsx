@@ -1,4 +1,5 @@
 import { msg, msgc } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { Children, Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { HATCH_PATTERNS, isMeasureKind, TEXT_PADDING, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
@@ -17,7 +18,7 @@ import { shortcutLabel } from '../commands/shortcuts';
 import { useWorkspace } from '../workspace/profiles';
 import { useFloatingPopup } from './useFloatingPopup';
 import { ColorMenu } from './ColorMenu';
-import { commonCapabilities, distinctIdentities, identityOf, identityPatch, sharedIdentity, styleMixed, toolIdentity, type IdentityField } from '../markup/selectionFormat';
+import { commonCapabilities, distinctIdentities, identityOf, identityPatch, isCloudPlusSelection, isMixed, sharedIdentity, styleMixed, toolIdentity, type IdentityField } from '../markup/selectionFormat';
 import { saveToolBack } from '../toolchest/saveBack';
 import { useMenubarSlot } from './menubarSlot';
 import type { TakeoffAssemblyProps } from './RibbonAssembly';
@@ -198,49 +199,49 @@ export const MEASURE_GROUPS: ToolGroup[] = [
 export const MARKUP_TOOLS: ToolEntry[] = MARKUP_GROUPS.flatMap((g) => g.tools);
 export const MEASURE_TOOLS: ToolEntry[] = MEASURE_GROUPS.flatMap((g) => g.tools);
 
-const TOOL_HINTS: Partial<Record<Tool, string>> = {
-  polyline: 'click points; double-click or Enter to finish',
-  polygon: 'click vertices; click the first point, double-click or Enter to finish',
-  arc: 'click the start, a point on the curve, then the end',
-  ellipticalArc: 'drag out the ellipse; set its start and end angles in Properties',
-  polygonCloud: 'click vertices; click the first point, double-click or Enter to finish',
-  typewriter: 'click where to type',
-  stamp: 'opens the stamps; pick one, then click or drag to place it',
-  legend: 'drag a box; it lists the markups on the page with quantities and totals',
-  table: 'drag a box (or click), then choose its rows and columns; right-click for rows and columns, double-click a cell to type',
-  eraser: 'rub out parts of pen and highlighter strokes (Tools › Eraser for sizes and the whole-markup eraser)',
-  dimension: 'drag a line; type the dimension text',
-  replaceText: 'drag across the text to replace; type the new wording',
-  attachment: 'choose a file, then click to place its paperclip',
-  snapshot: 'drag a box, or click the corners of a shape (click the first corner, double-click or Enter to finish): the area is copied as a picture',
-  highlighter: 'over text, drag to mark the words; hold Ctrl to draw a free stroke, or draw where there is no text',
-  textHighlight: 'drag across text in the PDF',
-  underline: 'drag across text in the PDF',
-  strikeout: 'drag across text in the PDF',
-  squiggly: 'drag across text in the PDF',
-  callout: 'press where the arrow points, drag to where the text goes',
-  cloudPlus: 'drag a cloud; a callout for your note is added to it',
-  lasso: 'drag around markups to select them; Shift adds to the selection',
-  note: 'click to place a note, then type its comment',
-  image: 'choose a picture, then click or drag to place it',
-  calibrate: 'click two points a known distance apart',
-  polylength: 'click points; double-click or Enter to finish',
-  area: 'click vertices; click the first point, double-click or Enter to finish',
-  perimeter: 'click vertices; double-click or Enter to finish',
-  count: 'click each item; Enter to finish',
-  angle: 'click a point, the vertex, then another point',
-  diameter: 'click the two ends of a diameter',
-  radius: 'click the centre, then a point on the circle',
-  arcLength: 'click the start, a point on the arc, then the end',
-  volume: 'click the outline; set the depth in Properties',
-  space: 'click the outline of a room or zone; click the first point to finish',
-  visualSearch: 'drag a box around one symbol to find every other copy',
-  dynamicFill: 'click inside a room: its outline becomes the chosen markup',
-  redaction: 'drag over what to remove; Tools › Redaction › Apply Redactions removes it for good',
-  eraseContent: 'drag over PDF content to remove it from the page, or click corners for an outline (click the first corner to finish)',
-  cutContent: 'drag over PDF content to copy and remove it, or click corners for an outline (click the first corner to finish)',
-  cutout: 'click the hole inside the area; click the first point to finish',
-};
+const TOOL_HINTS = lazy((): Partial<Record<Tool, string>> => ({
+  polyline: msg('click points; double-click or Enter to finish'),
+  polygon: msg('click vertices; click the first point, double-click or Enter to finish'),
+  arc: msg('click the start, a point on the curve, then the end'),
+  ellipticalArc: msg('drag out the ellipse; set its start and end angles in Properties'),
+  polygonCloud: msg('click vertices; click the first point, double-click or Enter to finish'),
+  typewriter: msg('click where to type'),
+  stamp: msg('opens the stamps; pick one, then click or drag to place it'),
+  legend: msg('drag a box; it lists the markups on the page with quantities and totals'),
+  table: msg('drag a box (or click), then choose its rows and columns; right-click for rows and columns, double-click a cell to type'),
+  eraser: msg('rub out parts of pen and highlighter strokes (Tools › Eraser for sizes and the whole-markup eraser)'),
+  dimension: msg('drag a line; type the dimension text'),
+  replaceText: msg('drag across the text to replace; type the new wording'),
+  attachment: msg('choose a file, then click to place its paperclip'),
+  snapshot: msg('drag a box, or click the corners of a shape (click the first corner, double-click or Enter to finish): the area is copied as a picture'),
+  highlighter: msg('over text, drag to mark the words; hold Ctrl to draw a free stroke, or draw where there is no text'),
+  textHighlight: msg('drag across text in the PDF'),
+  underline: msg('drag across text in the PDF'),
+  strikeout: msg('drag across text in the PDF'),
+  squiggly: msg('drag across text in the PDF'),
+  callout: msg('press where the arrow points, drag to where the text goes'),
+  cloudPlus: msg('drag a cloud; a callout for your note is added to it'),
+  lasso: msg('drag around markups to select them; Shift adds to the selection'),
+  note: msg('click to place a note, then type its comment'),
+  image: msg('choose a picture, then click or drag to place it'),
+  calibrate: msg('click two points a known distance apart'),
+  polylength: msg('click points; double-click or Enter to finish'),
+  area: msg('click vertices; click the first point, double-click or Enter to finish'),
+  perimeter: msg('click vertices; double-click or Enter to finish'),
+  count: msg('click each item; Enter to finish'),
+  angle: msg('click a point, the vertex, then another point'),
+  diameter: msg('click the two ends of a diameter'),
+  radius: msg('click the centre, then a point on the circle'),
+  arcLength: msg('click the start, a point on the arc, then the end'),
+  volume: msg('click the outline; set the depth in Properties'),
+  space: msg('click the outline of a room or zone; click the first point to finish'),
+  visualSearch: msg('drag a box around one symbol to find every other copy'),
+  dynamicFill: msg('click inside a room: its outline becomes the chosen markup'),
+  redaction: msg('drag over what to remove; Tools › Redaction › Apply Redactions removes it for good'),
+  eraseContent: msg('drag over PDF content to remove it from the page, or click corners for an outline (click the first corner to finish)'),
+  cutContent: msg('drag over PDF content to copy and remove it, or click corners for an outline (click the first corner to finish)'),
+  cutout: msg('click the hole inside the area; click the first point to finish'),
+}));
 
 /** Tooltips for the text alignment buttons (functions: msg runs at render, not import). */
 const ALIGN_TITLES: Record<TextAlign, () => string> = {
@@ -334,7 +335,7 @@ export interface ToolBarProps {
 
 export function toolTitle(tool: Tool) {
   const name = toolLabel(tool);
-  const hint = TOOL_HINTS[tool];
+  const hint = TOOL_HINTS()[tool];
   const key = toolShortcut(tool);
   return `${name}${key ? ` (${key})` : ''}${hint ? ` — ${hint}` : ''}`;
 }
@@ -413,18 +414,35 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
   const sel = selection && selection.markups.length > 1 ? selection : null;
   const selTypes = sel ? new Set(sel.markups.map((m) => m.type)) : null;
   const mixedTypes = !!sel && selTypes!.size > 1;
+  // Cloud+ pairs a cloud with a callout: both when drawing and when selected, cloud and text box widths (and the text box's border & font) stay independent.
+  const cloudPlus = sel ? isCloudPlusSelection(sel.markups) : state.tool === 'cloudPlus';
+  const clouds = cloudPlus && sel ? sel.markups.filter((m) => m.type === 'cloud') : null;
+  const callouts = cloudPlus && sel ? sel.markups.filter((m) => m.type === 'callout') : null;
   const styleType = toolStyleType ?? (mixedTypes ? sel!.markups[0]!.type : null);
   const caps = mixedTypes ? commonCapabilities(selTypes!) : styleType ? styleCapabilities(styleType) : null;
   const style = mixedTypes ? sel!.markups[0]!.style : styleType ? (selectedStyle ?? (state.preset?.type === styleType && state.tool === styleType && state.preset.style ? state.preset.style : state.styles[styleType])) : null;
-  const textType = mixedTypes ? (caps!.font ? styleType : null) : toolTextType;
-  const textStyle = mixedTypes ? style : textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
-  const textCaps = textType ? (mixedTypes ? caps : styleCapabilities(textType)) : null;
+  const cloudStyle = cloudPlus ? (clouds ? clouds[0]!.style : style) : null;
+  const textType = cloudPlus ? 'callout' : mixedTypes ? (caps!.font ? styleType : null) : toolTextType;
+  const textStyle = cloudPlus ? (callouts ? callouts[0]!.style : (textMarkupStyle ?? state.styles.callout)) : mixedTypes ? style : textType ? (textMarkupStyle ?? (textType === styleType ? style : state.styles[textType])) : null;
+  const textCaps = textType ? (cloudPlus ? styleCapabilities('callout') : mixedTypes ? caps : styleCapabilities(textType)) : null;
   const mixedOf = <K extends keyof MarkupStyle>(key: K, resolve?: (v: MarkupStyle[K]) => unknown) => !!sel && styleMixed(sel.markups, key, resolve);
+  const textMarkups = cloudPlus ? callouts : sel?.markups ?? null;
+  const textMixedOf = <K extends keyof MarkupStyle>(key: K, resolve?: (v: MarkupStyle[K]) => unknown) => !!textMarkups && styleMixed(textMarkups, key, resolve);
+  const cloudWidthMixed = !!clouds && styleMixed(clouds, 'width');
+  const calloutWidthMixed = !!callouts && styleMixed(callouts, 'width');
+  const cloudFillMixed = !!clouds && styleMixed(clouds, 'fill', (v) => v ?? null);
+  const calloutFillMixed = !!callouts && styleMixed(callouts, 'fill', (v) => v ?? null);
+  const cloudFillOpacityMixed = !!clouds && styleMixed(clouds, 'fillOpacity', (v) => v ?? 1);
+  const calloutFillOpacityMixed = !!callouts && styleMixed(callouts, 'fillOpacity', (v) => v ?? 1);
+  const borderMixed = !!textMarkups && isMixed(textMarkups.map((m) => !m.style.noBox && !m.style.borderless));
   const mixedDash = mixedOf('dash', (v) => v ?? 'solid') || mixedOf('dashArray') || mixedOf('lineStyle');
   const wholeOpacity = styleType ? (mixedTypes ? [...selTypes!].every((t) => WHOLE_OPACITY_TYPES.has(t)) : WHOLE_OPACITY_TYPES.has(styleType)) : false;
-  const mixedFontSize = mixedOf('fontSize', (v) => (v === undefined ? undefined : Math.round(v)));
+  const mixedFontSize = textMixedOf('fontSize', (v) => (v === undefined ? undefined : Math.round(v)));
   const preview = (type: MarkupType, patch: Partial<MarkupStyle> | null) => {
     tools.previewStyle(patch, mixedTypes ? undefined : type);
+  };
+  const previewType = (type: MarkupType, patch: Partial<MarkupStyle> | null) => {
+    tools.previewStyle(patch, type);
   };
   // One edit to the whole selection is one undo step.
   const apply = (type: MarkupType, patch: Partial<MarkupStyle>) => {
@@ -435,6 +453,16 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
       tools.applyStyle(sel!.markups.map((m) => m.id), patch);
     } else tools.setStyle(type, patch);
   };
+  // Applies only to markups (or defaults) of `type`, even when a Cloud+ pair is selected.
+  const applyType = (type: MarkupType, patch: Partial<MarkupStyle>) => {
+    if (sel) {
+      const targets = sel.markups.filter((m) => m.type === type);
+      if (targets.length && targets.every((m) => { const cur = sel.store.get(m.id)?.style ?? m.style; return (Object.keys(patch) as (keyof MarkupStyle)[]).every((k) => JSON.stringify(cur[k] ?? null) === JSON.stringify(patch[k] ?? null)); })) return;
+    }
+    tools.setStyle(type, patch);
+  };
+  const applyText = (type: MarkupType, patch: Partial<MarkupStyle>) => (cloudPlus ? applyType(type, patch) : apply(type, patch));
+  const previewText = (type: MarkupType, patch: Partial<MarkupStyle> | null) => (cloudPlus ? previewType(type, patch) : preview(type, patch));
   const hatchActive = !!style && !!resolveHatch(style.hatch, style.hatchSpec);
   return (
     <>
@@ -471,8 +499,41 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             onChange={(c) => c && apply(styleType, { stroke: c })}
             onPreview={(c) => preview(styleType, c === undefined ? null : c ? { stroke: c } : null)}
           />
-          {/* A text box drawn without its border has no outline to give a width to. */}
-          {!(styleType === 'text' && !mixedTypes && (style.noBox || style.borderless)) && (
+          {/* Cloud+ has separate cloud and text box line widths; a borderless text box has no outline to give a width to. */}
+          {cloudPlus && cloudStyle && textStyle ? (
+            <>
+              <label className="field" title={msg('Cloud line width')}>
+                <FieldTag icon={STYLE_ICONS.width} label={msg('Cloud')} />
+                <ComboField
+                  title={msg('Cloud line width')}
+                  value={cloudWidthMixed ? undefined : cloudStyle.width}
+                  placeholder={cloudWidthMixed ? msg('Mixed') : undefined}
+                  options={WIDTHS}
+                  min={0}
+                  max={200}
+                  unit="pt"
+                  disabled={!enabled}
+                  onChange={(w) => applyType('cloud', { width: w })}
+                  onPreview={(w) => previewType('cloud', w === null ? null : { width: w })}
+                />
+              </label>
+              <label className="field" title={msg('Text box line width')}>
+                <FieldTag icon={STYLE_ICONS.width} label={msg('Text box')} />
+                <ComboField
+                  title={msg('Text box line width')}
+                  value={calloutWidthMixed ? undefined : textStyle.width}
+                  placeholder={calloutWidthMixed ? msg('Mixed') : undefined}
+                  options={WIDTHS}
+                  min={0}
+                  max={200}
+                  unit="pt"
+                  disabled={!enabled}
+                  onChange={(w) => applyType('callout', { width: w })}
+                  onPreview={(w) => previewType('callout', w === null ? null : { width: w })}
+                />
+              </label>
+            </>
+          ) : !(styleType === 'text' && !mixedTypes && (style.noBox || style.borderless)) && (
             <label className="field" title={msg('Line width')}>
               <FieldTag icon={STYLE_ICONS.width} label={msg('Width')} />
               <ComboField
@@ -489,13 +550,14 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
               />
             </label>
           )}
-          {textStyle && !mixedTypes && (textType === 'text' || textType === 'callout') && (
+          {textStyle && (!mixedTypes || cloudPlus) && (textType === 'text' || textType === 'callout') && (
             <label className="field" title={msg('Draw an outline around the text box (its fill draws either way)')}>
               <input
                 type="checkbox"
                 disabled={!enabled}
-                checked={!textStyle.noBox && !textStyle.borderless}
-                onChange={(e) => apply(textType, e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
+                checked={!borderMixed && !textStyle.noBox && !textStyle.borderless}
+                ref={(el) => { if (el) el.indeterminate = borderMixed; }}
+                onChange={(e) => applyType(textType, e.target.checked ? { noBox: undefined, borderless: undefined } : { noBox: undefined, borderless: true })}
               />
               {msg('Border')}
             </label>
@@ -552,38 +614,107 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
       )}
       {style && styleType && (
         <Cluster label={msg('Fill')}>
-          <PropLine>
-          <ColorMenu
-            label={msg('Fill color')}
-            short={msg('Fill')}
-            title={msg('Fill color: the inside of the shape')}
-            icon={STYLE_ICONS.fill}
-            value={style.fill ?? null}
-            mixed={mixedOf('fill', (v) => v ?? null)}
-            noneLabel="No fill"
-            disabled={!enabled || !caps!.fill}
-            onChange={(c) => apply(styleType, { fill: c })}
-            onPreview={(c) => preview(styleType, c === undefined ? null : { fill: c })}
-          />
-          {caps!.fill && (style.fill || (sel && sel.markups.some((m) => m.style.fill))) && (
-            <label className="field" title={msg('Opacity of the fill alone')}>
-              <FieldTag icon={STYLE_ICONS.fill} label={msg('Opacity')} />
-              <ComboField
-                title={msg('Fill opacity')}
-                integer
-                value={mixedOf('fillOpacity', (v) => v ?? 1) ? undefined : Math.round((style.fillOpacity ?? 1) * 100)}
-                placeholder={mixedOf('fillOpacity', (v) => v ?? 1) ? msg('Mixed') : undefined}
-                options={[100, 80, 60, 40, 20]}
-                min={1}
-                max={100}
-                unit="%"
-                disabled={!enabled}
-                onChange={(o) => apply(styleType, { fillOpacity: o / 100 })}
-                onPreview={(o) => preview(styleType, o === null ? null : { fillOpacity: o / 100 })}
+          {cloudPlus && cloudStyle && textStyle ? (
+            <>
+              <PropLine>
+                <ColorMenu
+                  label={msg('Cloud fill color')}
+                  short={msg('Cloud')}
+                  title={msg('Cloud fill color: the inside of the cloud')}
+                  icon={STYLE_ICONS.fill}
+                  value={cloudStyle.fill ?? null}
+                  mixed={cloudFillMixed}
+                  noneLabel={msg('No fill')}
+                  disabled={!enabled}
+                  onChange={(c) => applyType('cloud', { fill: c })}
+                  onPreview={(c) => previewType('cloud', c === undefined ? null : { fill: c })}
+                />
+                {(cloudStyle.fill || (clouds && clouds.some((m) => m.style.fill))) && (
+                  <label className="field" title={msg('Opacity of the cloud fill alone')}>
+                    <FieldTag icon={STYLE_ICONS.fill} label={msg('Opacity')} />
+                    <ComboField
+                      title={msg('Cloud fill opacity')}
+                      integer
+                      value={cloudFillOpacityMixed ? undefined : Math.round((cloudStyle.fillOpacity ?? 1) * 100)}
+                      placeholder={cloudFillOpacityMixed ? msg('Mixed') : undefined}
+                      options={[100, 80, 60, 40, 20]}
+                      min={1}
+                      max={100}
+                      unit="%"
+                      disabled={!enabled}
+                      onChange={(o) => applyType('cloud', { fillOpacity: o / 100 })}
+                      onPreview={(o) => previewType('cloud', o === null ? null : { fillOpacity: o / 100 })}
+                    />
+                  </label>
+                )}
+              </PropLine>
+              <PropLine>
+                <ColorMenu
+                  label={msg('Text box fill color')}
+                  short={msg('Text box')}
+                  title={msg('Text box fill color: the background of the text box')}
+                  icon={STYLE_ICONS.fill}
+                  value={textStyle.fill ?? null}
+                  mixed={calloutFillMixed}
+                  noneLabel={msg('No fill')}
+                  disabled={!enabled}
+                  onChange={(c) => applyType('callout', { fill: c })}
+                  onPreview={(c) => previewType('callout', c === undefined ? null : { fill: c })}
+                />
+                {(textStyle.fill || (callouts && callouts.some((m) => m.style.fill))) && (
+                  <label className="field" title={msg('Opacity of the text box fill alone')}>
+                    <FieldTag icon={STYLE_ICONS.fill} label={msg('Opacity')} />
+                    <ComboField
+                      title={msg('Text box fill opacity')}
+                      integer
+                      value={calloutFillOpacityMixed ? undefined : Math.round((textStyle.fillOpacity ?? 1) * 100)}
+                      placeholder={calloutFillOpacityMixed ? msg('Mixed') : undefined}
+                      options={[100, 80, 60, 40, 20]}
+                      min={1}
+                      max={100}
+                      unit="%"
+                      disabled={!enabled}
+                      onChange={(o) => applyType('callout', { fillOpacity: o / 100 })}
+                      onPreview={(o) => previewType('callout', o === null ? null : { fillOpacity: o / 100 })}
+                    />
+                  </label>
+                )}
+              </PropLine>
+            </>
+          ) : (
+            <PropLine>
+              <ColorMenu
+                label={msg('Fill color')}
+                short={msg('Fill')}
+                title={msg('Fill color: the inside of the shape')}
+                icon={STYLE_ICONS.fill}
+                value={style.fill ?? null}
+                mixed={mixedOf('fill', (v) => v ?? null)}
+                noneLabel={msg('No fill')}
+                disabled={!enabled || !caps!.fill}
+                onChange={(c) => apply(styleType, { fill: c })}
+                onPreview={(c) => preview(styleType, c === undefined ? null : { fill: c })}
               />
-            </label>
+              {caps!.fill && (style.fill || (sel && sel.markups.some((m) => m.style.fill))) && (
+                <label className="field" title={msg('Opacity of the fill alone')}>
+                  <FieldTag icon={STYLE_ICONS.fill} label={msg('Opacity')} />
+                  <ComboField
+                    title={msg('Fill opacity')}
+                    integer
+                    value={mixedOf('fillOpacity', (v) => v ?? 1) ? undefined : Math.round((style.fillOpacity ?? 1) * 100)}
+                    placeholder={mixedOf('fillOpacity', (v) => v ?? 1) ? msg('Mixed') : undefined}
+                    options={[100, 80, 60, 40, 20]}
+                    min={1}
+                    max={100}
+                    unit="%"
+                    disabled={!enabled}
+                    onChange={(o) => apply(styleType, { fillOpacity: o / 100 })}
+                    onPreview={(o) => preview(styleType, o === null ? null : { fillOpacity: o / 100 })}
+                  />
+                </label>
+              )}
+            </PropLine>
           )}
-          </PropLine>
         </Cluster>
       )}
       {style && styleType && (
@@ -715,10 +846,10 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
           <FontPicker
             className="font-family"
             value={textStyle.fontFamily}
-            mixed={!!mixedOf('fontFamily', (v) => v ?? 'sans')}
+            mixed={!!textMixedOf('fontFamily', (v) => v ?? 'sans')}
             disabled={!enabled}
-            onChange={(family) => apply(textType, { fontFamily: family as FontFamily })}
-            onPreview={(family) => preview(textType, family === null ? null : { fontFamily: family as FontFamily })}
+            onChange={(family) => applyText(textType, { fontFamily: family as FontFamily })}
+            onPreview={(family) => previewText(textType, family === null ? null : { fontFamily: family as FontFamily })}
           />
         </div>
       )}
@@ -735,17 +866,17 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
             max={288}
             unit="pt"
             disabled={!enabled}
-            onChange={(v) => apply(textType, { fontSize: Math.round(v) })}
-            onPreview={(v) => preview(textType, v === null ? null : { fontSize: Math.round(v) })}
+            onChange={(v) => applyText(textType, { fontSize: Math.round(v) })}
+            onPreview={(v) => previewText(textType, v === null ? null : { fontSize: Math.round(v) })}
           />
         </label>
       )}
       {textStyle && textType && textCaps!.font && (
         <span className="seg" role="group" aria-label={msg('Text style')}>
-          <FormatToggle on={!!textStyle.bold} mixed={mixedOf('bold', (v) => !!v)} disabled={!enabled} label="B" title={msg('Bold')} className="b" onChange={(v) => apply(textType, { bold: v })} />
-          <FormatToggle on={!!textStyle.italic} mixed={mixedOf('italic', (v) => !!v)} disabled={!enabled} label="I" title={msg('Italic')} className="i" onChange={(v) => apply(textType, { italic: v || undefined })} />
-          <FormatToggle on={!!textStyle.underline} mixed={mixedOf('underline', (v) => !!v)} disabled={!enabled} label="U" title={msg('Underline')} className="u" onChange={(v) => apply(textType, { underline: v || undefined })} />
-          <FormatToggle on={!!textStyle.strikethrough} mixed={mixedOf('strikethrough', (v) => !!v)} disabled={!enabled} label="S" title={msg('Strikethrough')} className="s" onChange={(v) => apply(textType, { strikethrough: v || undefined })} />
+          <FormatToggle on={!!textStyle.bold} mixed={textMixedOf('bold', (v) => !!v)} disabled={!enabled} label="B" title={msg('Bold')} className="b" onChange={(v) => applyText(textType, { bold: v })} />
+          <FormatToggle on={!!textStyle.italic} mixed={textMixedOf('italic', (v) => !!v)} disabled={!enabled} label="I" title={msg('Italic')} className="i" onChange={(v) => applyText(textType, { italic: v || undefined })} />
+          <FormatToggle on={!!textStyle.underline} mixed={textMixedOf('underline', (v) => !!v)} disabled={!enabled} label="U" title={msg('Underline')} className="u" onChange={(v) => applyText(textType, { underline: v || undefined })} />
+          <FormatToggle on={!!textStyle.strikethrough} mixed={textMixedOf('strikethrough', (v) => !!v)} disabled={!enabled} label="S" title={msg('Strikethrough')} className="s" onChange={(v) => applyText(textType, { strikethrough: v || undefined })} />
         </span>
       )}
       </PropLine>
@@ -754,21 +885,21 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
         <>
           <span className="seg" role="group" aria-label={msg('Text alignment')}>
             {(['left', 'center', 'right', 'justify'] as TextAlign[]).map((a) => (
-              <FormatToggle key={a} on={(textStyle.textAlign ?? 'left') === a} disabled={!enabled} label={ALIGN_ICONS[a]} title={ALIGN_TITLES[a]()} className="" onChange={() => apply(textType, { textAlign: a === 'left' ? undefined : a })} />
+              <FormatToggle key={a} on={(textStyle.textAlign ?? 'left') === a} disabled={!enabled} label={ALIGN_ICONS[a]} title={ALIGN_TITLES[a]()} className="" onChange={() => applyText(textType, { textAlign: a === 'left' ? undefined : a })} />
             ))}
           </span>
           <span className="seg" role="group" aria-label={msg('Vertical alignment')}>
             {(['top', 'middle', 'bottom'] as VerticalAlign[]).map((a) => (
-              <FormatToggle key={a} on={(textStyle.verticalAlign ?? 'top') === a} disabled={!enabled} label={VALIGN_ICONS[a]} title={VALIGN_TITLES[a]()} className="" onChange={() => apply(textType, { verticalAlign: a === 'top' ? undefined : a })} />
+              <FormatToggle key={a} on={(textStyle.verticalAlign ?? 'top') === a} disabled={!enabled} label={VALIGN_ICONS[a]} title={VALIGN_TITLES[a]()} className="" onChange={() => applyText(textType, { verticalAlign: a === 'top' ? undefined : a })} />
             ))}
           </span>
           <label className="field" title={msg('Line spacing')}>
             {msg('Spacing')}
-            <LineSpacing key={textType} value={textStyle.lineHeight} disabled={!enabled} onChange={(v) => apply(textType, { lineHeight: v })} />
+            <LineSpacing key={textType} value={textStyle.lineHeight} disabled={!enabled} onChange={(v) => applyText(textType, { lineHeight: v })} />
           </label>
           <label className="field" title={msg('Gap between the box edge and the text lines (measured to the line box, not the ink)')}>
             {msg('Padding')}
-            <NumberField key={textType} value={textStyle.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" disabled={!enabled} onChange={(v) => apply(textType, { textMargin: v })} />
+            <NumberField key={textType} value={textStyle.textMargin} placeholder={String(TEXT_PADDING)} min={0} max={50} step={0.5} unit="pt" disabled={!enabled} onChange={(v) => applyText(textType, { textMargin: v })} />
           </label>
         </>
       )}
@@ -1178,7 +1309,7 @@ function HatchMenu({ style, mixed, disabled, bare, onChange, onPreview }: { styl
   const { hatchSets } = useWorkspace();
   const active = !!resolveHatch(current, style.hatchSpec);
   const color = style.hatchColor ?? style.stroke;
-  const name = mixed ? msg('Mixed') : !current ? msg('None') : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS[current]) ?? msg('None'));
+  const name = mixed ? msg('Mixed') : !current ? msg('None') : (HATCH_PATTERNS.find((h) => h.value === current)?.label ?? (current.startsWith('set:') ? customHatchName(current) : LEGACY_HATCH_LABELS()[current]) ?? msg('None'));
   const patchFor = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec): Partial<MarkupStyle> =>
     value === 'none' ? { hatch: undefined, hatchSpec: undefined, hatchColor: undefined, hatchScale: undefined } : { hatch: value, hatchSpec: spec };
   const choose = (value: 'none' | HatchPattern | StoredHatch, spec?: HatchSpec) => {
@@ -1255,7 +1386,7 @@ function HatchMenu({ style, mixed, disabled, bare, onChange, onPreview }: { styl
               onClick={() => choose(current, style.hatchSpec)}
             >
               <HatchSwatch pattern={current} spec={style.hatchSpec} color={color} width={48} height={22} />
-              {current.startsWith('set:') ? customHatchName(current) : (LEGACY_HATCH_LABELS[current] ?? current)}
+              {current.startsWith('set:') ? customHatchName(current) : (LEGACY_HATCH_LABELS()[current] ?? current)}
             </button>
           )}
           {!bare && (

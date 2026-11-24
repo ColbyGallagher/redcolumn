@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { DriveAuthError } from './DriveApi';
 
 /**
@@ -31,7 +32,7 @@ function seen(): CloudProviderName[] {
 export async function firstUse(provider: CloudProviderName): Promise<void> {
   const before = seen();
   if (before.includes(provider) || !confirm) return;
-  if (!(await confirm(provider))) throw new DriveAuthError('Microsoft sign-in was cancelled.');
+  if (!(await confirm(provider))) throw new DriveAuthError(msg('Microsoft sign-in was cancelled.'));
   try {
     localStorage.setItem(KEY, JSON.stringify([...before, provider]));
   } catch {

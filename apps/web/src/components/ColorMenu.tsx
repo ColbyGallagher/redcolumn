@@ -98,7 +98,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
         type="button"
         className={`btn color-btn${open ? ' open' : ''}`}
         disabled={disabled}
-        title={mixed ? `${title ?? label} (mixed)` : (title ?? label)}
+        title={mixed ? msg('{name} (mixed)', { name: title ?? label }) : (title ?? label)}
         aria-label={label}
         data-mixed={mixed || undefined}
         aria-expanded={open}
@@ -143,7 +143,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
           </div>
           {custom.length > 0 && (
             <>
-              <div className="color-pop-title">Custom</div>
+              <div className="color-pop-title">{msg('Custom')}</div>
               <div className="color-grid">
                 {custom.map((c) => (
                   <button
@@ -173,8 +173,8 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
             </>
           )}
           <label className="color-more">
-            <input ref={native} type="color" aria-label={`${label}: more colors`} value={value ?? fallback ?? '#ffffff'} onChange={(e) => onChange(e.target.value)} />
-            More colors…
+            <input ref={native} type="color" aria-label={msg('{label}: more colors', { label })} value={value ?? fallback ?? '#ffffff'} onChange={(e) => onChange(e.target.value)} />
+            {msg('More colors…')}
           </label>
           <form
             className="color-hex"
@@ -188,7 +188,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
           >
             <input
               type="text"
-              aria-label={`${label}: hex`}
+              aria-label={msg('{label}: hex', { label })}
               placeholder="#rrggbb"
               spellCheck={false}
               value={hex}
@@ -196,7 +196,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
               onChange={(e) => setHex(e.target.value)}
             />
             <button type="submit" className="btn" disabled={!typed}>
-              Add
+              {msg('Add')}
             </button>
           </form>
         </div>,

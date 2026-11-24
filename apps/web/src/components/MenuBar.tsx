@@ -254,29 +254,35 @@ export function updateButton(update: UpdateState | null | undefined): { label: s
 }
 
 /**
- * The top bar: the redcolumn mark opens one menu that holds the search box, every menu (File, Edit,
- * View… as flyouts), Autosave, updates and Install. The toolbar (ribbon tabs, or the simplified row)
- * fills the rest of the row.
+ * The top bar: by default the redcolumn mark opens one menu holding File, Edit, View… as flyouts
+ * and the toolbar (ribbon tabs or simplified row) shares the row. With Preferences › Interface ›
+ * Display › Show Menu Bar on, the menus sit directly across the top bar and the toolbar sits below.
  */
 export function MenuBar({ commands, author, onAuthorChange, recents, profiles, activeProfileId, hiddenPanels, panels, stamps, update, on }: MenuBarProps) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState<'brand' | MenuId | null>(null);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const brand = useRef<HTMLDivElement>(null);
+  const menusRef = useRef<HTMLDivElement>(null);
   const feedback = useRef<HTMLDivElement>(null);
   const installed = isStandalone();
   const updateBtn = updateButton(update);
-  const autosave = useSettings().autosave;
+  const { autosave, showMenuBar } = useSettings();
   const commandList = useMemo(() => [...commands.values()], [commands]);
   const searchSlot = useSearchSlot();
   const search = <MenuSearch commands={commandList} onOpenSetting={on.openSetting} />;
 
   useEffect(() => {
+    setOpen(null);
+  }, [showMenuBar]);
+
+  useEffect(() => {
     if (!open) return;
+    const container = open === 'brand' ? brand.current : menusRef.current;
     const close = (e: MouseEvent) => {
-      if (!brand.current?.contains(e.target as Node)) setOpen(false);
+      if (!container?.contains(e.target as Node)) setOpen(null);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setOpen(false);
+      if (e.key === 'Escape') setOpen(null);
     };
     document.addEventListener('mousedown', close);
     document.addEventListener('keydown', onKey);
@@ -303,7 +309,7 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
   }, [feedbackOpen]);
 
   const run = (fn: () => void) => () => {
-    setOpen(false);
+    setOpen(null);
     fn();
   };
 
@@ -744,92 +750,150 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
     }
   };
 
-  return (
-    <div className="menubar" role="menubar">
-      <div className={`menu brand-menu${open ? ' open' : ''}`} ref={brand}>
-        <button
-          type="button"
-          className="brand-mark"
-          role="menuitem"
-          aria-haspopup="true"
-          aria-expanded={open}
-          aria-label={msg('redcolumn menu')}
-          title={updateBtn ? msg('redcolumn menu: {update}', { update: updateBtn.label }) : msg('redcolumn menu: File, Edit, View, search and more')}
-          onClick={() => setOpen(!open)}
-        >
-          <img className="brand-col" src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" draggable={false} />
-          <span className="brand-word">
-            {/* The product name: never translated. */}
-            <b>red</b>column
-          </span>
-          <span className="brand-caret" aria-hidden="true">
-            ▾
-          </span>
-          {updateBtn && !updateBtn.busy && <span className="brand-badge" aria-hidden="true" />}
-        </button>
-        {open && (
-          <div className="menu-drop brand-drop" role="menu">
-            {menus().map(({ id, label }) => (
-              <Submenu key={id} label={label}>
-                {menu(id)}
-              </Submenu>
-            ))}
-            <Sep />
-            <Item
-              label={msg('Autosave')}
-              checked={autosave}
-              onClick={() => settings.set({ autosave: !autosave })}
-            />
-            {updateBtn && <Item label={updateBtn.label} disabled={updateBtn.busy} onClick={on.update && run(on.update)} />}
-            {!installed && <Item label={msg('Install App…')} onClick={run(on.install)} />}
-          </div>
-        )}
-      </div>
-      <div id={MENUBAR_SLOT_ID} className="menubar-slot" />
-      {searchSlot ? createPortal(search, searchSlot) : search}
-      <div className={`menu feedback-menu${feedbackOpen ? ' open' : ''}`} ref={feedback}>
-        <button
-          type="button"
-          className="menubar-icon-btn feedback-btn"
-          aria-haspopup="true"
-          aria-expanded={feedbackOpen}
-          aria-label={msg('Feedback')}
-          title={msg('Report a bug, suggest a feature or sponsor redcolumn')}
-          onClick={() => setFeedbackOpen(!feedbackOpen)}
-        >
-          <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-            <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" d="M2.5 3h11v7.5H8L5 13.5v-3H2.5z" />
-          </svg>
-          <span className="feedback-label">{msg('Feedback')}</span>
-          <span className="brand-caret" aria-hidden="true">
-            ▾
-          </span>
-        </button>
-        {feedbackOpen && (
-          <div className="menu-drop feedback-drop" role="menu">
-            {feedbackItems().map(([id, label]) => {
-              const c = commands.get(id);
-              return c && !c.managed ? <Item key={id} label={label} disabled={!c.enabled} onClick={() => { setFeedbackOpen(false); c.run(); }} /> : null;
-            })}
-          </div>
-        )}
-      </div>
+  const feedbackEl = (
+    <div className={`menu feedback-menu${feedbackOpen ? ' open' : ''}`} ref={feedback}>
       <button
         type="button"
-        role="switch"
-        className={`menubar-icon-btn autosave-btn${autosave ? ' on' : ''}`}
-        aria-checked={autosave}
-        aria-label={msg('Autosave')}
-        title={autosave ? msg('Autosave is on: changes are saved to the file a few seconds after you make them. Click to turn off.') : msg('Autosave is off. Click to save changes to the file in the background.')}
-        onClick={() => settings.set({ autosave: !autosave })}
+        className="menubar-icon-btn feedback-btn"
+        aria-haspopup="true"
+        aria-expanded={feedbackOpen}
+        aria-label={msg('Feedback')}
+        title={msg('Report a bug, suggest a feature or sponsor redcolumn')}
+        onClick={() => setFeedbackOpen(!feedbackOpen)}
       >
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-          <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" d="M2.5 2.5h8l3 3v8h-11z M5 2.5v3.5h5V2.5 M5 13.5V9.5h6v4" />
+          <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" d="M2.5 3h11v7.5H8L5 13.5v-3H2.5z" />
         </svg>
-        <span className="switch-track" aria-hidden="true">
-          <span className="switch-thumb" />
+        <span className="feedback-label">{msg('Feedback')}</span>
+        <span className="brand-caret" aria-hidden="true">
+          ▾
         </span>
       </button>
+      {feedbackOpen && (
+        <div className="menu-drop feedback-drop" role="menu">
+          {feedbackItems().map(([id, label]) => {
+            const c = commands.get(id);
+            return c && !c.managed ? <Item key={id} label={label} disabled={!c.enabled} onClick={() => { setFeedbackOpen(false); c.run(); }} /> : null;
+          })}
+        </div>
+      )}
+    </div>
+  );
+
+  const autosaveEl = (
+    <button
+      type="button"
+      role="switch"
+      className={`menubar-icon-btn autosave-btn${autosave ? ' on' : ''}`}
+      aria-checked={autosave}
+      aria-label={msg('Autosave')}
+      title={autosave ? msg('Autosave is on: changes are saved to the file a few seconds after you make them. Click to turn off.') : msg('Autosave is off. Click to save changes to the file in the background.')}
+      onClick={() => settings.set({ autosave: !autosave })}
+    >
+      <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" d="M2.5 2.5h8l3 3v8h-11z M5 2.5v3.5h5V2.5 M5 13.5V9.5h6v4" />
+      </svg>
+      <span className="switch-track" aria-hidden="true">
+        <span className="switch-thumb" />
+      </span>
+    </button>
+  );
+
+  return (
+    <div className={`menubar${showMenuBar ? ' classic' : ''}`} role="menubar">
+      {showMenuBar ? (
+        <>
+          <span className="brand-mark brand-static" aria-hidden="true">
+            <img className="brand-col" src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" draggable={false} />
+            <span className="brand-word">
+              {/* The product name: never translated. */}
+              <b>red</b>column
+            </span>
+          </span>
+          <div className="menubar-menus" ref={menusRef}>
+            {menus().map(({ id, label }) => (
+              <div key={id} className={`menu${open === id ? ' open' : ''}`}>
+                <button
+                  type="button"
+                  className="menu-title"
+                  role="menuitem"
+                  aria-haspopup="true"
+                  aria-expanded={open === id}
+                  onClick={() => setOpen(open === id ? null : id)}
+                  onMouseEnter={() => {
+                    if (open && open !== 'brand') setOpen(id);
+                  }}
+                >
+                  {label}
+                </button>
+                {open === id && (
+                  <div className="menu-drop" role="menu">
+                    {menu(id)}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <span className="grow" />
+          {search}
+          {feedbackEl}
+          {autosaveEl}
+          {updateBtn && (
+            <button type="button" className={`update-app-btn${updateBtn.busy ? ' busy' : ''}`} title={updateBtn.title} disabled={updateBtn.busy} onClick={on.update}>
+              <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+                <path fill="none" stroke="currentColor" strokeWidth="1.8" d="M8 13V4m-3.5 3.5L8 4l3.5 3.5M3 2h10" />
+              </svg>
+              {updateBtn.label}
+            </button>
+          )}
+        </>
+      ) : (
+        <>
+          <div className={`menu brand-menu${open === 'brand' ? ' open' : ''}`} ref={brand}>
+            <button
+              type="button"
+              className="brand-mark"
+              role="menuitem"
+              aria-haspopup="true"
+              aria-expanded={open === 'brand'}
+              aria-label={msg('redcolumn menu')}
+              title={updateBtn ? msg('redcolumn menu: {update}', { update: updateBtn.label }) : msg('redcolumn menu: File, Edit, View, search and more')}
+              onClick={() => setOpen(open === 'brand' ? null : 'brand')}
+            >
+              <img className="brand-col" src={`${import.meta.env.BASE_URL}icon-192.png`} alt="" draggable={false} />
+              <span className="brand-word">
+                {/* The product name: never translated. */}
+                <b>red</b>column
+              </span>
+              <span className="brand-caret" aria-hidden="true">
+                ▾
+              </span>
+              {updateBtn && !updateBtn.busy && <span className="brand-badge" aria-hidden="true" />}
+            </button>
+            {open === 'brand' && (
+              <div className="menu-drop brand-drop" role="menu">
+                {menus().map(({ id, label }) => (
+                  <Submenu key={id} label={label}>
+                    {menu(id)}
+                  </Submenu>
+                ))}
+                <Sep />
+                <Item
+                  label={msg('Autosave')}
+                  checked={autosave}
+                  onClick={() => settings.set({ autosave: !autosave })}
+                />
+                {updateBtn && <Item label={updateBtn.label} disabled={updateBtn.busy} onClick={on.update && run(on.update)} />}
+                {!installed && <Item label={msg('Install App…')} onClick={run(on.install)} />}
+              </div>
+            )}
+          </div>
+          <div id={MENUBAR_SLOT_ID} className="menubar-slot" />
+          {searchSlot ? createPortal(search, searchSlot) : search}
+          {feedbackEl}
+          {autosaveEl}
+        </>
+      )}
     </div>
   );
 }

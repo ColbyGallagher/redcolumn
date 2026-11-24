@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useState } from 'react';
 import { clampLines, MAX_TABLE_LINES } from '@nb/markup';
 
@@ -32,21 +33,21 @@ export function TableDialog({ onApply, onCancel }: Props) {
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Table</h3>
-        <p>Click a cell to select it and double-click to type in it. Drag the lines to resize, drag across cells and right-click to merge them, or right-click to insert or delete rows and columns.</p>
+        <h3>{msg('Table')}</h3>
+        <p>{msg('Click a cell to select it and double-click to type in it. Drag the lines to resize, drag across cells and right-click to merge them, or right-click to insert or delete rows and columns.')}</p>
         <div className="form-grid">
-          <label htmlFor="table-rows">Rows</label>
+          <label htmlFor="table-rows">{msg('Rows')}</label>
           <input id="table-rows" type="number" inputMode="numeric" min={1} max={MAX_TABLE_LINES} value={rows} onChange={(e) => setRows(e.target.value)} aria-invalid={!valid(rows)} autoFocus onFocus={(e) => e.currentTarget.select()} />
-          <label htmlFor="table-cols">Columns</label>
+          <label htmlFor="table-cols">{msg('Columns')}</label>
           <input id="table-cols" type="number" inputMode="numeric" min={1} max={MAX_TABLE_LINES} value={columns} onChange={(e) => setColumns(e.target.value)} aria-invalid={!valid(columns)} onFocus={(e) => e.currentTarget.select()} />
         </div>
-        <p className="pref-hint">Up to {MAX_TABLE_LINES} of each.</p>
+        <p className="pref-hint">{msg('Up to {mAX_TABLE_LINES} of each.', { mAX_TABLE_LINES: MAX_TABLE_LINES })}</p>
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!ok}>
-            Add Table
+            {msg('Add Table')}
           </button>
         </div>
       </form>

@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useSettings, type Settings } from '../settings/settings';
 import type { StoredFile } from '../storage/fileStore';
@@ -25,7 +27,7 @@ const BUILT_IN_TAGS = ['Revision Number', 'Discipline', 'Sheet Type'];
 function listOptions(set: DrawingSet, prefs: Settings, library: readonly StoredFile[]): Partial<SetListOptions> {
   const autoMark = (name: string) => prefs.setTags.find((t) => t.name === name)?.autoMark ?? true;
   return {
-    fileName: (id) => library.find((f) => f.id === id)?.name ?? 'Missing file',
+    fileName: (id) => library.find((f) => f.id === id)?.name ?? msg('Missing file'),
     addedAt: (id) => library.find((f) => f.id === id)?.addedAt ?? 0,
     categories: prefs.setCategories,
     template: prefs.setTemplates[set.template ?? prefs.setDefaultTemplate] ?? null,
@@ -65,7 +67,7 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
   const previewTimer = useRef(0);
   const panel = useRef<HTMLDivElement>(null);
   const following = useRef(new Set<string>());
-  const nameOf = (id: string) => library.find((f) => f.id === id)?.name ?? 'Missing file';
+  const nameOf = (id: string) => library.find((f) => f.id === id)?.name ?? msg('Missing file');
   const q = filter.trim().toLowerCase();
   const matches = (s: SetSheet) => !q || `${s.number ?? ''} ${s.title ?? ''} ${s.fileName} ${Object.values(s.tags).join(' ')}`.toLowerCase().includes(q);
   const toggle = (key: string) => setOpened((o) => (o.has(key) ? new Set([...o].filter((k) => k !== key)) : new Set([...o, key])));
@@ -139,12 +141,17 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
               e.preventDefault();
               setTagging(tagging === tagKey ? null : tagKey);
             }}
-            title={`${s.fileName}, page ${s.page + 1}${s.revision !== null ? ` · revision ${s.tags['Revision Number'] ?? s.revision}` : ''}${s.superseded ? ' (superseded)' : ''}. Right-click to edit its tags.`}
+            title={[
+              msg('{file}, page {page}', { file: s.fileName, page: s.page + 1 }),
+              s.revision !== null ? ' · ' + msg('revision {revision}', { revision: s.tags['Revision Number'] ?? s.revision }) : '',
+              s.superseded ? ' ' + msg('(superseded)') : '',
+              '. ' + msg('Right-click to edit its tags.'),
+            ].join('')}
           >
             <span className="num">{num}</span>
             <span className="name">{name}</span>
           </button>
-          <button className="btn small flat set-tag-btn" title="Tags" onClick={() => setTagging(tagging === tagKey ? null : tagKey)}>
+          <button className="btn small flat set-tag-btn" title={msg('Tags')} onClick={() => setTagging(tagging === tagKey ? null : tagKey)}>
             #
           </button>
         </div>
@@ -178,7 +185,7 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
         })}
         <div className="row">
           <button className="btn small" onClick={() => setTagging(null)}>
-            Done
+            {msg('Done')}
           </button>
         </div>
       </div>
@@ -200,7 +207,7 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
         const open = opened.has(key);
         rows.push(
           <li key={key} className="set-file-row">
-            <button className="sheet" onClick={() => toggle(key)} title={open ? 'Hide its pages' : 'Show its pages'}>
+            <button className="sheet" onClick={() => toggle(key)} title={open ? msg('Hide its pages') : msg('Show its pages')}>
               <span className="num">{open ? '▾' : '▸'}</span>
               <span className="name">
                 {s.fileName} <span className="badge">{pages.length}</span>
@@ -224,7 +231,7 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
     return (
       <>
         <button className="btn small flat set-stack" onClick={() => toggle(key)}>
-          {open ? '▾' : '▸'} {s.previous.length} earlier revision{s.previous.length === 1 ? '' : 's'}
+          {open ? '▾' : '▸'} {msg('{count, plural, one {# earlier revision} other {# earlier revisions}}', { count: s.previous.length })}
         </button>
         {open && <ul className="sheets set-sheets">{s.previous.map((p) => sheetRow(set, p, null, true))}</ul>}
       </>
@@ -243,9 +250,9 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
             setNewTemplate(prefs.setDefaultTemplate);
           }}
         >
-          New Set…
+          {msg('New Set…')}
         </button>
-        <input className="sets-filter" type="search" placeholder="Filter sheets" value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
+        <input className="sets-filter" type="search" placeholder={msg('Filter sheets')} value={filter} onChange={(e) => setFilter(e.target.value)} onKeyDown={(e) => e.stopPropagation()} />
       </div>
       {creating && (
         <form
@@ -253,7 +260,7 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
           onSubmit={(e) => {
             e.preventDefault();
             if (!creating.length) return;
-            const id = drawingSets.create(newName.trim() || 'New Set', creating, newTemplate);
+            const id = drawingSets.create(newName.trim() || msg('New Set'), creating, newTemplate);
             setCreating(null);
             setNewName('');
             if (unindexed(drawingSets.get().find((s) => s.id === id)!, drawingSets.index()).length) onIndex(creating.filter((f) => !index[f]));
@@ -263,17 +270,10 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
             if (e.key === 'Escape') setCreating(null);
           }}
         >
-          <input autoFocus placeholder="Set name" value={newName} onChange={(e) => setNewName(e.target.value)} />
+          <input autoFocus placeholder={msg('Set name')} value={newName} onChange={(e) => setNewName(e.target.value)} />
           {prefs.setPromptTemplate && (
             <label className="row">
-              Template
-              <select value={newTemplate} onChange={(e) => setNewTemplate(e.target.value)}>
-                {templates.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
+              {keyed(msgParts('Template{select}', { select: <select value={newTemplate} onChange={(e) => setNewTemplate(e.target.value)}> {templates.map((t) => ( <option key={t} value={t}> {t} </option> ))} </select> }))}
             </label>
           )}
           <div className="set-files">
@@ -286,15 +286,15 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
           </div>
           <div className="row">
             <button type="button" className="btn small" onClick={() => setCreating(null)}>
-              Cancel
+              {msg('Cancel')}
             </button>
             <button type="submit" className="btn small primary" disabled={!creating.length}>
-              Create
+              {msg('Create')}
             </button>
           </div>
         </form>
       )}
-      {!sets.length && !creating && <p className="empty">A set shows many drawing files as one list of sheets, by discipline and sheet number. Each file keeps its own markups.</p>}
+      {!sets.length && !creating && <p className="empty">{msg('A set shows many drawing files as one list of sheets, by discipline and sheet number. Each file keeps its own markups.')}</p>}
       {sets.map((set) => {
         const list = setSheets(set, index, listOptions(set, prefs, library));
         const missing = unindexed(set, index);
@@ -303,7 +303,7 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
         return (
           <section key={set.id} className="drawing-set">
             <div className="set-head">
-              <button className="btn small flat caret" onClick={() => drawingSets.toggle(set.id)} aria-label={set.collapsed ? 'Expand' : 'Collapse'}>
+              <button className="btn small flat caret" onClick={() => drawingSets.toggle(set.id)} aria-label={set.collapsed ? msg('Expand') : msg('Collapse')}>
                 {set.collapsed ? '▸' : '▾'}
               </button>
               {renaming === set.id ? (
@@ -315,42 +315,30 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
                   }}
                 />
               ) : (
-                <b onDoubleClick={() => setRenaming(set.id)} title="Double-click to rename">
+                <b onDoubleClick={() => setRenaming(set.id)} title={msg('Double-click to rename')}>
                   {set.name}
                 </b>
               )}
               <span className="badge">{list.length}</span>
               <span className="spacer" />
-              <button className="btn small flat" title="Previous sheet in the set" disabled={!list.length} onClick={() => step(list, -1)}>
+              <button className="btn small flat" title={msg('Previous sheet in the set')} disabled={!list.length} onClick={() => step(list, -1)}>
                 ‹
               </button>
-              <button className="btn small flat" title="Next sheet in the set" disabled={!list.length} onClick={() => step(list, 1)}>
+              <button className="btn small flat" title={msg('Next sheet in the set')} disabled={!list.length} onClick={() => step(list, 1)}>
                 ›
               </button>
-              <button className={`btn small flat${editing === set.id ? ' active' : ''}`} title="Files and categories" onClick={() => setEditing(editing === set.id ? null : set.id)}>
+              <button className={`btn small flat${editing === set.id ? ' active' : ''}`} title={msg('Files and categories')} onClick={() => setEditing(editing === set.id ? null : set.id)}>
                 ⚙
               </button>
             </div>
             {editing === set.id && (
               <div className="set-edit" onKeyDown={(e) => e.stopPropagation()}>
                 <label className="row">
-                  Order
-                  <select value={set.sort} onChange={(e) => drawingSets.setSort(set.id, e.target.value as DrawingSet['sort'])}>
-                    <option value="auto">As in Preferences › Sets</option>
-                    <option value="sheet">By sheet number</option>
-                    <option value="files">In file order</option>
-                  </select>
+                  {keyed(msgParts('Order{select}', { select: <select value={set.sort} onChange={(e) => drawingSets.setSort(set.id, e.target.value as DrawingSet['sort'])}> <option value="auto">{msg('As in Preferences › Sets')}</option> <option value="sheet">{msg('By sheet number')}</option> <option value="files">{msg('In file order')}</option> </select> }))}
                 </label>
                 {prefs.setCategories === 'auto' && (
                   <label className="row">
-                    Template
-                    <select value={set.template ?? prefs.setDefaultTemplate} onChange={(e) => drawingSets.setTemplate(set.id, e.target.value)}>
-                      {templates.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </select>
+                    {keyed(msgParts('Template{select}', { select: <select value={set.template ?? prefs.setDefaultTemplate} onChange={(e) => drawingSets.setTemplate(set.id, e.target.value)}> {templates.map((t) => ( <option key={t} value={t}> {t} </option> ))} </select> }))}
                   </label>
                 )}
                 <datalist id={`cats-${set.id}`}>
@@ -367,18 +355,18 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
                       {prefs.setCategories !== 'none' && (
                         <input
                           list={`cats-${set.id}`}
-                          placeholder={prefs.setCategories === 'auto' ? 'Category if not matched' : 'Category'}
+                          placeholder={prefs.setCategories === 'auto' ? msg('Category if not matched') : msg('Category')}
                           defaultValue={e.category ?? ''}
                           onBlur={(ev) => drawingSets.setCategory(set.id, e.fileId, ev.target.value)}
                         />
                       )}
-                      <button className="btn small flat" disabled={i === 0} title="Move up" onClick={() => drawingSets.moveFile(set.id, e.fileId, -1)}>
+                      <button className="btn small flat" disabled={i === 0} title={msg('Move up')} onClick={() => drawingSets.moveFile(set.id, e.fileId, -1)}>
                         ↑
                       </button>
-                      <button className="btn small flat" disabled={i === set.entries.length - 1} title="Move down" onClick={() => drawingSets.moveFile(set.id, e.fileId, 1)}>
+                      <button className="btn small flat" disabled={i === set.entries.length - 1} title={msg('Move down')} onClick={() => drawingSets.moveFile(set.id, e.fileId, 1)}>
                         ↓
                       </button>
-                      <button className="btn small flat" title="Remove from the set" onClick={() => drawingSets.removeFile(set.id, e.fileId)}>
+                      <button className="btn small flat" title={msg('Remove from the set')} onClick={() => drawingSets.removeFile(set.id, e.fileId)}>
                         ×
                       </button>
                     </li>
@@ -387,14 +375,14 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
                 <div className="row">
                   <select
                     value=""
-                    aria-label="Add a file"
+                    aria-label={msg('Add a file')}
                     onChange={(ev) => {
                       if (!ev.target.value) return;
                       drawingSets.addFiles(set.id, [ev.target.value]);
                       if (!index[ev.target.value]) onIndex([ev.target.value]);
                     }}
                   >
-                    <option value="">Add a file…</option>
+                    <option value="">{msg('Add a file…')}</option>
                     {library
                       .filter((f) => !set.entries.some((e) => e.fileId === f.id))
                       .map((f) => (
@@ -403,16 +391,16 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
                         </option>
                       ))}
                   </select>
-                  <button className="btn small" disabled={indexing} title="Read every file's sheet numbers again" onClick={() => onIndex(set.entries.map((e) => e.fileId))}>
-                    Re-read sheets
+                  <button className="btn small" disabled={indexing} title={msg('Read every file\'s sheet numbers again')} onClick={() => onIndex(set.entries.map((e) => e.fileId))}>
+                    {msg('Re-read sheets')}
                   </button>
                   <button
                     className="btn small flat"
                     onClick={() => {
-                      if (confirm(`Delete the set "${set.name}"? Its files stay on the device.`)) drawingSets.remove(set.id);
+                      if (confirm(msg('Delete the set "{name}"? Its files stay on the device.', { name: set.name }))) drawingSets.remove(set.id);
                     }}
                   >
-                    Delete set
+                    {msg('Delete set')}
                   </button>
                 </div>
               </div>
@@ -421,15 +409,15 @@ export function SetsPanel({ library, current, onOpenSheet, onIndex, indexing, on
               <>
                 {missing.length > 0 && (
                   <p className="empty">
-                    {missing.length} file{missing.length === 1 ? '' : 's'} not read yet.{' '}
+                    {msg('{count, plural, one {# file} other {# files}} not read yet.', { count: missing.length })}{' '}
                     <button className="btn small" disabled={indexing} onClick={() => onIndex(missing)}>
-                      {indexing ? 'Reading…' : 'Read sheets'}
+                      {indexing ? msg('Reading…') : msg('Read sheets')}
                     </button>
                   </p>
                 )}
                 <ul className="sheets set-sheets">
                   {sheetList(set, shown)}
-                  {q && !shown.length && <li className="empty">No sheets match.</li>}
+                  {q && !shown.length && <li className="empty">{msg('No sheets match.')}</li>}
                 </ul>
               </>
             )}

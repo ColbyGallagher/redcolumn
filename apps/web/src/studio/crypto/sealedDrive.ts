@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import type { DriveApi, DriveFile, DriveProps, LinkOptions } from '../drive/DriveApi';
 import { readLocal, writeLocal } from '../local';
 import { aesKey, fromB64url, isSealed, newKeyBytes, SEALED_JSON_KEY, seal, sealedJsonBytes, toB64url, unseal } from './keys';
@@ -12,7 +13,7 @@ import { aesKey, fromB64url, isSealed, newKeyBytes, SEALED_JSON_KEY, seal, seale
 
 export class ProjectLockedError extends Error {
   constructor() {
-    super('This Project is encrypted, and the link you opened is missing its key (the part after #). Ask the owner for the full Project link.');
+    super(msg('This Project is encrypted, and the link you opened is missing its key (the part after #). Ask the owner for the full Project link.'));
   }
 }
 

@@ -1,3 +1,5 @@
+import { msg } from '@nb/i18n';
+import { countShapeName } from '../i18n/names';
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { COUNT_SHAPE_OPTIONS, documentCountSymbols, sameCountSymbol, type CountShape, type CountSymbol, type Markup, type MarkupStyle } from '@nb/markup';
@@ -50,12 +52,12 @@ export function CountSymbolSelect({ style, markups, onChange, onPreview, mixed, 
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [];
     if (value === 'custom' && currentSymbol && !mixed) {
-      out.push({ value: 'custom', label: currentSymbol.name || 'Custom', symbol: currentSymbol });
+      out.push({ value: 'custom', label: currentSymbol.name || msg('Custom'), symbol: currentSymbol });
     }
-    COUNT_SHAPE_OPTIONS.forEach((opt) => out.push({ value: `shape:${opt.value}`, label: opt.label, shape: opt.value }));
-    inDocument.forEach((s, i) => out.push({ value: `doc:${i}`, label: s.name || 'Custom', symbol: s, group: 'In this document' }));
-    saved.forEach((s, i) => out.push({ value: `saved:${i}`, label: s.name, symbol: s, group: 'Saved symbols' }));
-    out.push({ value: 'manage', label: 'Manage symbols…', group: 'Actions' });
+    COUNT_SHAPE_OPTIONS.forEach((opt) => out.push({ value: `shape:${opt.value}`, label: countShapeName(opt.value), shape: opt.value }));
+    inDocument.forEach((s, i) => out.push({ value: `doc:${i}`, label: s.name || msg('Custom'), symbol: s, group: msg('In this document') }));
+    saved.forEach((s, i) => out.push({ value: `saved:${i}`, label: s.name, symbol: s, group: msg('Saved symbols') }));
+    out.push({ value: 'manage', label: msg('Manage symbols…'), group: msg('Actions') });
     return out;
   }, [value, currentSymbol, mixed, inDocument, saved]);
 
@@ -191,7 +193,7 @@ export function CountSymbolSelect({ style, markups, onChange, onPreview, mixed, 
         ref={buttonRef}
         type="button"
         role="combobox"
-        aria-label="Marker shape"
+        aria-label={msg('Marker shape')}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}
@@ -202,11 +204,11 @@ export function CountSymbolSelect({ style, markups, onChange, onPreview, mixed, 
         onKeyDown={onKeyDown}
       >
         {mixed ? (
-          <span className="ls-name">Mixed</span>
+          <span className="ls-name">{msg('Mixed')}</span>
         ) : (
           <>
             <CountSymbolSwatch shape={shown?.shape ?? style.countShape ?? 'circle'} symbol={shown?.symbol ?? currentSymbol} style={swatchStyle} size={16} />
-            <span className="ls-name">{shown?.label ?? 'Circle'}</span>
+            <span className="ls-name">{shown?.label ?? msg('Circle')}</span>
           </>
         )}
       </button>
@@ -216,7 +218,7 @@ export function CountSymbolSelect({ style, markups, onChange, onPreview, mixed, 
             ref={listRef}
             id={listId}
             role="listbox"
-            aria-label="Marker shape"
+            aria-label={msg('Marker shape')}
             className="ls-list"
             style={{ left: box.left, top: box.top, bottom: box.bottom, width: box.width, maxHeight: box.maxHeight }}
             onMouseLeave={() => onPreview?.(null)}

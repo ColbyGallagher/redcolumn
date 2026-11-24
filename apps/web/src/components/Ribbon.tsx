@@ -18,6 +18,7 @@ import { loadEstimatingLibrary } from '../assemblies/estimatingLibrary';
 import { StampMenu } from './StampsDialog';
 import { RibbonAssembly } from './RibbonAssembly';
 import { MARKUP_GROUPS, MARKUP_TOOLS, MarkupFields, MEASURE_GROUPS, MEASURE_TOOLS, StyleControls, toolTitle, type ToolBarProps, type UnitsScaleProps } from './ToolBar';
+import { flowShapeName, lengthUnitName } from '../i18n/names';
 
 /** A 16 × 16 line icon for a ribbon button, drawn in the text colour. */
 function ic(d: string, extra?: ReactNode): ReactNode {
@@ -739,7 +740,7 @@ function ChangeShape() {
         {!value && <option value="">{selected.length ? msg('Mixed') : msg('Select a shape')}</option>}
         {FLOW_SHAPES.map((f) => (
           <option key={f.kind} value={f.kind}>
-            {f.label}
+            {flowShapeName(f.kind)}
           </option>
         ))}
       </select>
@@ -781,8 +782,8 @@ function TemplatesMenu() {
     if (!t) return;
     const r = el.getBoundingClientRect();
     const lib = loadEstimatingLibrary().templates.filter((x) => !t.document.some((d) => d.id === x.id));
-    const entry = (x: TakeoffTemplate, suffix = ''): MenuEntry => ({
-      label: `${x.name}${suffix}`,
+    const entry = (x: TakeoffTemplate, library = false): MenuEntry => ({
+      label: library ? msg('{name} (library)', { name: x.name }) : x.name,
       checked: armed === x.id,
       disabled: !toolbar.enabled,
       onClick: () => {
@@ -792,7 +793,7 @@ function TemplatesMenu() {
     });
     const items: MenuEntry[] = [
       ...t.document.map((x) => entry(x)),
-      ...(lib.length ? [SEP, ...lib.map((x) => entry(x, ` ${msg('(library)')}`))] : []),
+      ...(lib.length ? [SEP, ...lib.map((x) => entry(x, true))] : []),
       ...(!t.document.length && !lib.length ? [{ label: msg('No templates yet: right-click a measurement › Save as Template'), disabled: true }] : []),
       SEP,
       {
@@ -900,7 +901,6 @@ function SlopePicker() {
 }
 
 
-const LENGTH_NAMES: Record<LengthUnit, string> = { mm: 'Millimetres (mm)', cm: 'Centimetres (cm)', m: 'Metres (m)', km: 'Kilometres (km)', in: 'Inches (in)', ft: 'Feet (ft)', yd: 'Yards (yd)', mi: 'Miles (mi)' };
 
 /**
  * Markup Format › Units & Scale: the measuring units (the Preferences › Units settings, so there is one
@@ -932,7 +932,7 @@ function UnitsScale({ scale, disabled, onPreset, onCustom, onUnitsChanged }: Uni
               <select aria-label={msg('Length unit')} value={prefs.lengthUnit} disabled={disabled} onChange={(e) => change({ lengthUnit: e.target.value as LengthUnit })}>
                 {DEFAULT_UNIT_CHOICES[prefs.unitSystem].length.map((u) => (
                   <option key={u} value={u}>
-                    {LENGTH_NAMES[u]}
+                    {lengthUnitName(u)}
                   </option>
                 ))}
               </select>
@@ -1814,7 +1814,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
         </button>
       ))}
       <span className="grow" />
-      <div id={SEARCH_SLOT_ID} className="rb-search-slot" />
+      {slot && <div id={SEARCH_SLOT_ID} className="rb-search-slot" />}
       <div className="rb-display">
         <button type="button" className="btn rb-display-btn" title={msg('Customize Ribbon: show or hide groups')} aria-label={msg('Customize Ribbon')} onClick={() => setCustomizing(true)}>
           {ic('M2 4h12M2 8h12M2 12h12', <><circle cx="5" cy="4" r="1.6" fill="var(--panel)" /><circle cx="11" cy="8" r="1.6" fill="var(--panel)" /><circle cx="7" cy="12" r="1.6" fill="var(--panel)" /></>)}

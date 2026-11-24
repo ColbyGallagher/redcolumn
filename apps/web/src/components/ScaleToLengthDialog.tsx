@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import { unitsFor, useSettings } from '../settings/settings';
 import { formatLength, METERS_PER_UNIT, parseLength, type LengthUnit, type Scale } from '@nb/measure';
@@ -47,20 +49,20 @@ export function ScaleToLengthDialog({ points, scale, onScale, onPick, onCancel }
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Scale to length</h3>
+        <h3>{msg('Scale to length')}</h3>
         <p>
-          The two points are <strong>{formatLength(current, scale)}</strong> apart. How far apart should they be?
+          {keyed(msgParts('The two points are {strong} apart. How far apart should they be?', { strong: <strong>{formatLength(current, scale)}</strong> }))}
         </p>
         <div className="row">
           <input
             autoFocus
-            aria-label="New length"
+            aria-label={msg('New length')}
             value={text}
-            placeholder={unit === 'ft' ? `e.g. 25 or 25'-6"` : 'e.g. 12.5'}
+            placeholder={unit === 'ft' ? msg('e.g. 25 or 25\'-6"') : 'e.g. 12.5'}
             onChange={(e) => setText(e.target.value)}
             aria-invalid={text !== '' && value === null}
           />
-          <select aria-label="Unit" value={unit} onChange={(e) => setUnit(e.target.value as LengthUnit)}>
+          <select aria-label={msg('Unit')} value={unit} onChange={(e) => setUnit(e.target.value as LengthUnit)}>
             {unitsFor(system, UNITS, unit).map((u) => (
               <option key={u} value={u}>
                 {u}
@@ -68,16 +70,16 @@ export function ScaleToLengthDialog({ points, scale, onScale, onPick, onCancel }
             ))}
           </select>
         </div>
-        <p className="scale-note">{factor ? `Scales by ×${+factor.toFixed(4)}.` : 'Lengths are at the page’s scale.'}</p>
+        <p className="scale-note">{factor ? msg('Scales by ×{value}.', { value: +factor.toFixed(4) }) : msg('Lengths are at the page’s scale.')}</p>
         <div className="actions">
-          <button type="button" className="btn" title="Pick two points on the page that are the length the reference should be (e.g. a known dimension on the drawing)" onClick={onPick}>
-            Pick on page…
+          <button type="button" className="btn" title={msg('Pick two points on the page that are the length the reference should be (e.g. a known dimension on the drawing)')} onClick={onPick}>
+            {msg('Pick on page…')}
           </button>
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!factor}>
-            Scale
+            {msg('Scale')}
           </button>
         </div>
       </form>
