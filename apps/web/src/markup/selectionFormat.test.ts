@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TYPE_INFO, type MarkupType } from '@nb/markup';
-import { commonCapabilities, FOLLOW_START, followFormat, isMixed, styleMixed, type FormatFollow } from './selectionFormat.ts';
+import { commonCapabilities, FOLLOW_START, followFormat, isCloudPlusSelection, isMixed, styleMixed, type FormatFollow } from './selectionFormat.ts';
 
 test('a mixed selection shares only the fields every type has', () => {
   // An area and a count both fill and label with a font; only the area hatches and dashes.
@@ -40,6 +40,15 @@ test('values are mixed only when they differ', () => {
   assert.equal(styleMixed([s(), s('dashed')], 'dash', (d) => d ?? 'solid'), true);
   assert.equal(styleMixed([s(), s()], 'dash'), false);
   assert.equal(styleMixed([s(undefined), s('dashed')], 'width'), false);
+});
+
+test('Cloud+ selection matches clouds paired with callouts only', () => {
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'callout' }]), true);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'callout' }, { type: 'cloud' }, { type: 'callout' }]), true);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }]), false);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'cloud' }]), false);
+  assert.equal(isCloudPlusSelection([{ type: 'callout' }, { type: 'callout' }]), false);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'callout' }, { type: 'rect' }]), false);
 });
 
 const select = (s: FormatFollow, key: string, extra: { contextual?: boolean; busy?: boolean } = {}) => followFormat(s, { type: 'selection', key, contextual: true, busy: false, ...extra });
