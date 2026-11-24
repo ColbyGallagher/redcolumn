@@ -198,49 +198,49 @@ export const MEASURE_GROUPS: ToolGroup[] = [
 export const MARKUP_TOOLS: ToolEntry[] = MARKUP_GROUPS.flatMap((g) => g.tools);
 export const MEASURE_TOOLS: ToolEntry[] = MEASURE_GROUPS.flatMap((g) => g.tools);
 
-const TOOL_HINTS: Partial<Record<Tool, string>> = {
-  polyline: 'click points; double-click or Enter to finish',
-  polygon: 'click vertices; click the first point, double-click or Enter to finish',
-  arc: 'click the start, a point on the curve, then the end',
-  ellipticalArc: 'drag out the ellipse; set its start and end angles in Properties',
-  polygonCloud: 'click vertices; click the first point, double-click or Enter to finish',
-  typewriter: 'click where to type',
-  stamp: 'opens the stamps; pick one, then click or drag to place it',
-  legend: 'drag a box; it lists the markups on the page with quantities and totals',
-  table: 'drag a box (or click), then choose its rows and columns; right-click for rows and columns, double-click a cell to type',
-  eraser: 'rub out parts of pen and highlighter strokes (Tools › Eraser for sizes and the whole-markup eraser)',
-  dimension: 'drag a line; type the dimension text',
-  replaceText: 'drag across the text to replace; type the new wording',
-  attachment: 'choose a file, then click to place its paperclip',
-  snapshot: 'drag a box, or click the corners of a shape (click the first corner, double-click or Enter to finish): the area is copied as a picture',
-  highlighter: 'over text, drag to mark the words; hold Ctrl to draw a free stroke, or draw where there is no text',
-  textHighlight: 'drag across text in the PDF',
-  underline: 'drag across text in the PDF',
-  strikeout: 'drag across text in the PDF',
-  squiggly: 'drag across text in the PDF',
-  callout: 'press where the arrow points, drag to where the text goes',
-  cloudPlus: 'drag a cloud; a callout for your note is added to it',
-  lasso: 'drag around markups to select them; Shift adds to the selection',
-  note: 'click to place a note, then type its comment',
-  image: 'choose a picture, then click or drag to place it',
-  calibrate: 'click two points a known distance apart',
-  polylength: 'click points; double-click or Enter to finish',
-  area: 'click vertices; click the first point, double-click or Enter to finish',
-  perimeter: 'click vertices; double-click or Enter to finish',
-  count: 'click each item; Enter to finish',
-  angle: 'click a point, the vertex, then another point',
-  diameter: 'click the two ends of a diameter',
-  radius: 'click the centre, then a point on the circle',
-  arcLength: 'click the start, a point on the arc, then the end',
-  volume: 'click the outline; set the depth in Properties',
-  space: 'click the outline of a room or zone; click the first point to finish',
-  visualSearch: 'drag a box around one symbol to find every other copy',
-  dynamicFill: 'click inside a room: its outline becomes the chosen markup',
-  redaction: 'drag over what to remove; Tools › Redaction › Apply Redactions removes it for good',
-  eraseContent: 'drag over PDF content to remove it from the page, or click corners for an outline (click the first corner to finish)',
-  cutContent: 'drag over PDF content to copy and remove it, or click corners for an outline (click the first corner to finish)',
-  cutout: 'click the hole inside the area; click the first point to finish',
-};
+const TOOL_HINTS = (): Partial<Record<Tool, string>> => ({
+  polyline: msg('click points; double-click or Enter to finish'),
+  polygon: msg('click vertices; click the first point, double-click or Enter to finish'),
+  arc: msg('click the start, a point on the curve, then the end'),
+  ellipticalArc: msg('drag out the ellipse; set its start and end angles in Properties'),
+  polygonCloud: msg('click vertices; click the first point, double-click or Enter to finish'),
+  typewriter: msg('click where to type'),
+  stamp: msg('opens the stamps; pick one, then click or drag to place it'),
+  legend: msg('drag a box; it lists the markups on the page with quantities and totals'),
+  table: msg('drag a box (or click), then choose its rows and columns; right-click for rows and columns, double-click a cell to type'),
+  eraser: msg('rub out parts of pen and highlighter strokes (Tools › Eraser for sizes and the whole-markup eraser)'),
+  dimension: msg('drag a line; type the dimension text'),
+  replaceText: msg('drag across the text to replace; type the new wording'),
+  attachment: msg('choose a file, then click to place its paperclip'),
+  snapshot: msg('drag a box, or click the corners of a shape (click the first corner, double-click or Enter to finish): the area is copied as a picture'),
+  highlighter: msg('over text, drag to mark the words; hold Ctrl to draw a free stroke, or draw where there is no text'),
+  textHighlight: msg('drag across text in the PDF'),
+  underline: msg('drag across text in the PDF'),
+  strikeout: msg('drag across text in the PDF'),
+  squiggly: msg('drag across text in the PDF'),
+  callout: msg('press where the arrow points, drag to where the text goes'),
+  cloudPlus: msg('drag a cloud; a callout for your note is added to it'),
+  lasso: msg('drag around markups to select them; Shift adds to the selection'),
+  note: msg('click to place a note, then type its comment'),
+  image: msg('choose a picture, then click or drag to place it'),
+  calibrate: msg('click two points a known distance apart'),
+  polylength: msg('click points; double-click or Enter to finish'),
+  area: msg('click vertices; click the first point, double-click or Enter to finish'),
+  perimeter: msg('click vertices; double-click or Enter to finish'),
+  count: msg('click each item; Enter to finish'),
+  angle: msg('click a point, the vertex, then another point'),
+  diameter: msg('click the two ends of a diameter'),
+  radius: msg('click the centre, then a point on the circle'),
+  arcLength: msg('click the start, a point on the arc, then the end'),
+  volume: msg('click the outline; set the depth in Properties'),
+  space: msg('click the outline of a room or zone; click the first point to finish'),
+  visualSearch: msg('drag a box around one symbol to find every other copy'),
+  dynamicFill: msg('click inside a room: its outline becomes the chosen markup'),
+  redaction: msg('drag over what to remove; Tools › Redaction › Apply Redactions removes it for good'),
+  eraseContent: msg('drag over PDF content to remove it from the page, or click corners for an outline (click the first corner to finish)'),
+  cutContent: msg('drag over PDF content to copy and remove it, or click corners for an outline (click the first corner to finish)'),
+  cutout: msg('click the hole inside the area; click the first point to finish'),
+});
 
 /** Tooltips for the text alignment buttons (functions: msg runs at render, not import). */
 const ALIGN_TITLES: Record<TextAlign, () => string> = {
@@ -334,7 +334,7 @@ export interface ToolBarProps {
 
 export function toolTitle(tool: Tool) {
   const name = toolLabel(tool);
-  const hint = TOOL_HINTS[tool];
+  const hint = TOOL_HINTS()[tool];
   const key = toolShortcut(tool);
   return `${name}${key ? ` (${key})` : ''}${hint ? ` — ${hint}` : ''}`;
 }
@@ -623,7 +623,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
                   icon={STYLE_ICONS.fill}
                   value={cloudStyle.fill ?? null}
                   mixed={cloudFillMixed}
-                  noneLabel="No fill"
+                  noneLabel={msg('No fill')}
                   disabled={!enabled}
                   onChange={(c) => applyType('cloud', { fill: c })}
                   onPreview={(c) => previewType('cloud', c === undefined ? null : { fill: c })}
@@ -655,7 +655,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
                   icon={STYLE_ICONS.fill}
                   value={textStyle.fill ?? null}
                   mixed={calloutFillMixed}
-                  noneLabel="No fill"
+                  noneLabel={msg('No fill')}
                   disabled={!enabled}
                   onChange={(c) => applyType('callout', { fill: c })}
                   onPreview={(c) => previewType('callout', c === undefined ? null : { fill: c })}
@@ -689,7 +689,7 @@ export function StyleControls({ tools, state, styleType: toolStyleType, textType
                 icon={STYLE_ICONS.fill}
                 value={style.fill ?? null}
                 mixed={mixedOf('fill', (v) => v ?? null)}
-                noneLabel="No fill"
+                noneLabel={msg('No fill')}
                 disabled={!enabled || !caps!.fill}
                 onChange={(c) => apply(styleType, { fill: c })}
                 onPreview={(c) => preview(styleType, c === undefined ? null : { fill: c })}

@@ -143,7 +143,7 @@ import type { SignatureCheck } from './documents/pdfSign';
 import { FormsPanel, type NewFieldType } from './components/FormsPanel';
 import { FieldEditor } from './components/FieldEditor';
 import type { FieldChanges, FormField, FormModel } from './documents/forms';
-import { BatchDialog, BATCH_LABELS, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
+import { BatchDialog, BATCH_ENGLISH, batchLabel, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
 import { drawingSets, type SetSheet, type SheetIndex } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
@@ -3686,12 +3686,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
    */
   const runBatch = useCallback(
     async (spec: BatchSpec, onResult: (r: BatchResult) => void) => {
-      const label = BATCH_LABELS[spec.command.kind];
-      const note = spec.keepRevisions ? `Before Bulk ${label}` : undefined;
+      const label = batchLabel(spec.command.kind);
+      // Revision notes are kept in English: they are stored with the file, and stepLabel reads them back.
+      const note = spec.keepRevisions ? `Before Bulk ${BATCH_ENGLISH[spec.command.kind]}` : undefined;
       const nameOf = (id: string) => library.find((f) => f.id === id)?.name ?? id;
       const fail = (fileId: string, err: unknown) => onResult({ fileId, name: nameOf(fileId), ok: false, message: err instanceof Error ? err.message : String(err) });
       try {
-        await runJob(`Bulk ${label}`, async (ctx) => {
+        await runJob(msg('Bulk {operation}', { operation: label }), async (ctx) => {
           const { signal, progress } = ctx;
           const cancelled = () => {
             if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -4628,28 +4629,38 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     try {
       await Promise.all(sessionsRef.current.map((s) => s.saveLocally?.()));
     } catch {
-      setError('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing.');
+      setError(msg('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing or restarting.'));
       return false;
     }
     return true;
   }, [activateTab, settleUnsaved]);
 
   /**
-   * Restarts the app (Preferences › Language), after the same questions closing the window asks
-   * (the desktop app has no browser prompt on reload). A second click while asking does nothing.
+   * Leaves the app (the desktop window closing, or Restart Now) once `settleBeforeLeaving` allows it.
+   * One guard covers both, so a close request while Restart Now is asking (or the reverse) does not
+   * ask about the same documents twice.
    */
-  const restarting = useRef(false);
-  const restartApp = useCallback(async () => {
-    if (restarting.current) return;
-    restarting.current = true;
-    try {
-      if (await settleBeforeLeaving()) location.reload();
-    } catch (e) {
-      setError(`Could not restart: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      restarting.current = false;
-    }
-  }, [settleBeforeLeaving]);
+  const leaving = useRef(false);
+  const leaveApp = useCallback(
+    async (go: () => void, failed: (error: string) => string) => {
+      if (leaving.current) return;
+      leaving.current = true;
+      try {
+        if (await settleBeforeLeaving()) go();
+      } catch (e) {
+        setError(failed(e instanceof Error ? e.message : String(e)));
+      } finally {
+        leaving.current = false;
+      }
+    },
+    [settleBeforeLeaving],
+  );
+
+  /**
+   * Restarts the app (Preferences › Language), after the same questions closing the window asks
+   * (the desktop app has no browser prompt on reload).
+   */
+  const restartApp = useCallback(() => leaveApp(() => location.reload(), (error) => msg('Could not restart: {error}', { error })), [leaveApp]);
 
   // The desktop app asks before its window closes while documents have unsaved changes: the page
   // reports whether any do, and on a close request asks about each one, showing it first.
@@ -4703,19 +4714,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   useEffect(() => {
     const host = desktop();
     if (!host?.onCloseRequest) return;
-    let asking = false;
-    return host.onCloseRequest(() => {
-      if (asking) return;
-      asking = true;
-      void (async () => {
-        try {
-          if (await settleBeforeLeaving()) host.closeWindow?.();
-        } finally {
-          asking = false;
-        }
-      })();
-    });
-  }, [settleBeforeLeaving]);
+    return host.onCloseRequest(() => void leaveApp(() => host.closeWindow?.(), (error) => msg('Could not close the window: {error}', { error })));
+  }, [leaveApp]);
 
   /** Closes tabs one after another, stopping when the person cancels one. */
   const requestCloseTabs = useCallback(
@@ -12306,7 +12306,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onClose={() => setLibraryOpen(false)}
         />
       )}
-      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} onRestart={() => void restartApp()} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
+      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} onRestart={restartApp} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
           documentColumns={activeOpen ? columnSet : null}

@@ -36,7 +36,7 @@ test('rotation fields read decimal commas', () => {
   assert.ok(en.ok && Math.abs(en.degrees - 45.5) < 1e-9);
 });
 
-test('stored number fields read the JavaScript way, and show in the chosen format', async () => {
+test('number fields read the JavaScript way and show in the chosen format; text fields read as typed', async () => {
   const { cellsFor, customKey } = await import('../columns/listColumns');
   const columns = [
     { id: 'n', name: 'Count', type: 'number' as const, decimals: 3 },
@@ -44,7 +44,7 @@ test('stored number fields read the JavaScript way, and show in the chosen forma
   ];
   const markup = {
     id: 'm1', type: 'rect', pageIndex: 0, points: [[0, 0], [10, 10]], style: { stroke: '#000', fill: 'none', width: 1, opacity: 1 },
-    status: 'none', author: 'me', createdAt: 0, modifiedAt: 0, fields: { n: '1.125', t: '2.5' },
+    status: 'none', author: 'me', createdAt: 0, modifiedAt: 0, fields: { n: '1.125', t: '2,5' },
   } as never;
   const ctx = { scaleOf: () => ({ metersPerPoint: 1, unit: 'm', feetInches: false, precision: 2, label: '' }), sheets: {}, statuses: [], columns } as never;
   inLocale('de-DE', () => {
