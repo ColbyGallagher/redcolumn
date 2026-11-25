@@ -46,10 +46,10 @@ function ocrAssets(): Plugin {
   };
 }
 
-/** Spell checking's dictionaries (Hunspell files from npm), served at spell/en-US.aff, spell/de-DE.dic and so on. */
+/** Spell checking's dictionaries (Hunspell files from npm), served at spell/en-US.aff, spell/fr-FR.dic and so on. */
 function spellAssets(): Plugin {
   const files: Record<string, string> = {};
-  for (const [code, pkg] of [['en-US', 'dictionary-en'], ['en-GB', 'dictionary-en-gb'], ['en-AU', 'dictionary-en-au'], ['de-DE', 'dictionary-de']]) {
+  for (const [code, pkg] of [['en-US', 'dictionary-en'], ['en-GB', 'dictionary-en-gb'], ['en-AU', 'dictionary-en-au'], ['de-DE', 'dictionary-de'], ['fr-FR', 'dictionary-fr']]) {
     const dir = dirname(require.resolve(pkg!));
     files[`${code}.aff`] = `${dir}/index.aff`;
     files[`${code}.dic`] = `${dir}/index.dic`;
