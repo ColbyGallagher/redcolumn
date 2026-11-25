@@ -18,7 +18,7 @@ interface NbCommand {
 interface Window {
   __nb: {
     /** The right pane's viewer, while the view is split. */
-    viewerB: { pageSize(pageIndex: number): { width: number; height: number } | null } | null;
+    viewerB: { pageSize(pageIndex: number): { width: number; height: number } | null; currentPageIndex: number } | null;
     viewer: {
       currentPageIndex: number;
       pageToClient(p: [number, number], pageIndex: number): [number, number];
