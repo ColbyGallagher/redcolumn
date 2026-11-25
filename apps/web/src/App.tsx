@@ -2458,11 +2458,11 @@ export function App() {
     const mirror = pendingMirror.current;
     pendingMirror.current = false;
     if (mirror && openRef.current) {
-      // One document in both panes (one markup store, two views). The views are independent (own page,
-      // zoom and pan); Synchronise in the View menu ties them together.
+      // One document in both panes (one markup store, two views). Views start independent unless
+      // Preferences › Document says to synchronise them; Synchronise in the View menu toggles it anytime.
       mirrorRef.current = true;
       showInPane('b', openRef.current, true);
-      setSync(null);
+      setSync(settings.get().syncSplitView ? 'document' : null);
       setActivePane('a');
     }
   }, [ctlB, openStored, showInPane]);
@@ -7198,7 +7198,8 @@ export function App() {
   /** One pane's row of document tabs: click to bring forward, × or middle-click to close. */
   const docTabs = (pane: Pane) => {
     // A mirrored right pane shows its document's tab too (it has none of its own in the list).
-    const tabs = pane === 'b' ? (mirrorRef.current && openB ? [openB] : tabsB) : tabsA;
+    const mirrored = pane === 'b' && mirrorRef.current && !!openB;
+    const tabs = pane === 'b' ? (mirrored ? [openB] : tabsB) : tabsA;
     const front = pane === 'b' ? openB : open;
     return (
       <DocTabStrip
@@ -7250,7 +7251,7 @@ export function App() {
               title={session ? msg('{name} · Live Session {value}', { name: t.file.name, value: sessionName ?? session.sessionId }) : t.file.name}
               onClick={() => activateTab(pane, t)}
               onContextMenu={(e) => showMenu(e, tabMenu(pane, t))}
-              draggable
+              draggable={!mirrored}
               onDragStart={(e) => {
                 e.dataTransfer.setData(TAB_DRAG_TYPE, JSON.stringify({ pane, id: t.file.id }));
                 e.dataTransfer.effectAllowed = 'move';
@@ -7962,11 +7963,14 @@ export function App() {
       setSplit(true);
       return;
     }
+    // A mirrored document is already shown in both panes: nothing to move.
+    if (mirrorRef.current && (from === 'b' || t === openBRef.current)) return;
     const rest = (from === 'b' ? tabsBRef.current : tabsARef.current).filter((x) => x !== t);
     const front = from === 'b' ? openBRef.current : openRef.current;
     setTabs(from, rest);
     if (front === t) showInPane(from, rest[0] ?? null);
-    setTabs(to, [...(to === 'b' ? tabsBRef.current : tabsARef.current), t]);
+    const dest = to === 'b' ? tabsBRef.current : tabsARef.current;
+    if (!dest.includes(t)) setTabs(to, [...dest, t]);
     activateTab(to, t);
     if (from === 'b' && !rest.length) setSplit(false);
   };
@@ -8076,7 +8080,8 @@ export function App() {
 
   /** Right-click on a document tab: close, save, add to a session, show where it lives, move pane. */
   const tabMenu = (pane: Pane, t: OpenFile): MenuEntry[] => {
-    const tabs = pane === 'b' ? tabsB : tabsA;
+    const mirrored = pane === 'b' && mirrorRef.current;
+    const tabs = mirrored ? [t] : pane === 'b' ? tabsB : tabsA;
     const idx = tabs.indexOf(t);
     const sessionDoc = studioDocOf(t.file.id);
     const snap = sessionDoc ? snapshots.find((s) => s.meta.id === sessionDoc.sessionId) : null;
@@ -8136,7 +8141,11 @@ export function App() {
         : { label: msg('Show in File Access'), onClick: () => { showPanel('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
       { label: msg('Copy File Name'), onClick: () => void navigator.clipboard?.writeText(t.file.name) },
       SEP,
-      { label: pane === 'a' ? (split ? msg('Move to Right Pane') : msg('Open in Split View')) : msg('Move to Left Pane'), onClick: () => moveTab(pane, t) },
+      {
+        label: pane === 'a' ? (split ? msg('Move to Right Pane') : msg('Open in Split View')) : msg('Move to Left Pane'),
+        disabled: mirrorRef.current && (pane === 'b' || t === openBRef.current),
+        onClick: () => moveTab(pane, t),
+      },
     ];
   };
 
