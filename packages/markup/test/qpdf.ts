@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
-import { rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -53,9 +52,10 @@ export function assertValidPdf(bytes: Uint8Array, label?: string, options?: Qpdf
     return false;
   }
 
-  const file = path.join(os.tmpdir(), `rc-qpdf-${process.pid}-${randomUUID()}.pdf`);
-  writeFileSync(file, bytes);
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'rc-qpdf-'));
+  const file = path.join(dir, 'check.pdf');
   try {
+    writeFileSync(file, bytes, { mode: 0o600 });
     const result = spawnSync(binary, [...args, file], {
       encoding: 'utf8',
       windowsHide: true,
@@ -94,6 +94,6 @@ export function assertValidPdf(bytes: Uint8Array, label?: string, options?: Qpdf
       `qpdf --check failed (${reason})${formatDiagnostics(label, stdout, stderr)}`,
     );
   } finally {
-    rmSync(file, { force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 }
