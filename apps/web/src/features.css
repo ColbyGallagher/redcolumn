@@ -3266,6 +3266,23 @@
   border-bottom: 1px solid var(--border);
 }
 
+.bookmarks-panel .bookmark-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bookmarks-panel .bookmark-filter input {
+  flex: 1;
+  min-width: 0;
+}
+
+.bookmarks-panel .bookmark-filter-clear {
+  flex: none;
+}
+
 .bookmark-tree li {
   display: flex;
   align-items: center;
@@ -3280,6 +3297,10 @@
 .bookmark-tree .bookmark {
   grid-template-columns: 1fr;
   padding: 4px 6px;
+}
+
+.bookmark-tree .bookmark.ancestor {
+  opacity: 0.58;
 }
 
 .bookmark.current .name {
@@ -6389,8 +6410,90 @@ tr.hidden-markup td {
   width: 100%;
 }
 
-.asm-items td:first-child input {
+.asm-items td.asm-item-name input {
   width: 130px;
+}
+
+.drag-col {
+  width: 22px;
+  padding: 0;
+}
+
+.drag-handle-cell {
+  width: 22px;
+  padding: 0 2px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 24px;
+  color: var(--muted);
+  cursor: grab;
+  opacity: 0.55;
+  user-select: none;
+  border-radius: 3px;
+}
+
+.drag-handle:hover:not(.disabled) {
+  opacity: 1;
+  color: var(--text);
+  background: var(--hover);
+}
+
+.drag-handle:active:not(.disabled) {
+  cursor: grabbing;
+}
+
+.drag-handle.disabled {
+  cursor: default;
+  opacity: 0.2;
+}
+
+.col-row .drag-handle.list-grip {
+  width: 14px;
+  height: 18px;
+  flex: none;
+}
+
+.columns-list li[draggable='true'] {
+  cursor: grab;
+}
+
+.columns-list li[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.columns-list li.dragging,
+.asm-table tr.dragging {
+  opacity: 0.45;
+}
+
+.columns-list li.drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.columns-list li.drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.asm-table tr.drop-before > td {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.asm-table tr.drop-after > td {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.asm-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 .asm-formula {

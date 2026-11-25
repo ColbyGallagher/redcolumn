@@ -295,6 +295,8 @@ export interface Settings {
   pageLayout: 'auto' | 'single' | 'continuous' | 'sideBySide' | 'continuousSideBySide';
   /** Highest zoom the view allows, in percent. */
   maxZoom: number;
+  /** Splitting a single document into two panes starts with Synchronise Document switched on. */
+  syncSplitView: boolean;
   /**
    * Sheets slow to draw (hundreds of thousands of hatch lines, clipped hatches): offer to draw them
    * from an optimised copy, do it without asking, or leave them be. The file itself never changes.
@@ -523,6 +525,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autosave: false,
   pageLayout: 'auto',
   maxZoom: 6400,
+  syncSplitView: false,
   optimiseDrawings: 'ask',
   singlePageWheel: 'zoom',
   continuousWheel: 'scroll',

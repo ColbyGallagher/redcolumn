@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { Assembly, TakeoffTemplate } from '@nb/markup';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { loadEstimatingLibrary, writeEstimatingLibrary } from '../assemblies/estimatingLibrary';
+import { reorderById, sortAlphabetically } from '../assemblies/ordering';
+import { DragHandle, SortButton, useDragReorder } from './ReorderControls';
 
 interface Props {
   /** The document's templates. */
@@ -43,6 +45,11 @@ export function TemplatesDialog({ initial, assemblies, readOnly, onSave, onUse, 
     writeEstimatingLibrary(next);
   };
   const what = (t: TakeoffTemplate) => [toolLabel(t.tool as Tool), t.preset.subject && `“${t.preset.subject}”`, t.preset.layer && `layer ${t.preset.layer}`].filter(Boolean).join(', ');
+  const tplDrag = useDragReorder(
+    list.map((t) => t.id),
+    readOnly,
+    (from, to, pos) => setList((l) => reorderById(l, from, to, pos)),
+  );
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
@@ -53,9 +60,14 @@ export function TemplatesDialog({ initial, assemblies, readOnly, onSave, onUse, 
         <p className="hint-text asm-intro">
           {msg('A template is a measuring tool set up for one kind of takeoff: its subject, layer, style, slope and depth, and an assembly with its inputs. Pick one from Takeoff › Templates to arm the tool; each measurement it places gets the assembly. Make one by right-clicking a measurement › Save as Template.')}
         </p>
+        <div className="row est-toolbar">
+          <span className="grow" />
+          <SortButton items={list} getName={(t) => t.name} disabled={readOnly} noun={msg('templates')} onSort={(dir) => setList((l) => sortAlphabetically(l, (t) => t.name, dir))} />
+        </div>
         <table className="asm-table est-table" aria-label={msg('Templates in this document')}>
           <thead>
             <tr>
+              <th className="drag-col" />
               <th>{msg('Name')}</th>
               <th>{msg('Tool')}</th>
               <th>{msg('Assembly')}</th>
@@ -64,7 +76,10 @@ export function TemplatesDialog({ initial, assemblies, readOnly, onSave, onUse, 
           </thead>
           <tbody>
             {list.map((t) => (
-              <tr key={t.id}>
+              <tr key={t.id} className={tplDrag.rowClass(t.id)} {...tplDrag.targetProps(t.id)}>
+                <td className="drag-handle-cell">
+                  <DragHandle disabled={readOnly} label={msg('Drag to reorder {name}', { name: t.name || msg('template') })} onDragStart={(e) => tplDrag.start(t.id, e)} onDragEnd={tplDrag.end} />
+                </td>
                 <td>
                   <input aria-label={msg('Template name')} value={t.name} disabled={readOnly} style={{ width: 200 }} aria-invalid={!t.name.trim()} onChange={(e) => setList((l) => l.map((x) => (x.id === t.id ? { ...x, name: e.target.value } : x)))} />
                 </td>
@@ -85,7 +100,7 @@ export function TemplatesDialog({ initial, assemblies, readOnly, onSave, onUse, 
             ))}
             {!list.length && (
               <tr>
-                <td colSpan={4} className="empty">
+                <td colSpan={5} className="empty">
                   {msg('No templates in this document yet.')}
                 </td>
               </tr>
