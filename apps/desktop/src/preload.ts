@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 
 import type { ManagedPolicy } from './policy';
 
-const info = ipcRenderer.sendSync('desktop:info') as { nativeFiles: boolean; printMode: 'viewer' | 'verb' | 'images'; policy: ManagedPolicy };
+const info = ipcRenderer.sendSync('desktop:info') as { nativeFiles: boolean; printMode: 'viewer' | 'verb' | 'images'; policy: ManagedPolicy; systemLocale: string };
 
 function unsubscribe(channel: string, listener: (...args: unknown[]) => void) {
   ipcRenderer.removeListener(channel, listener);
@@ -25,6 +25,7 @@ if (process.platform === 'win32') window.addEventListener('DOMContentLoaded', ()
 
 contextBridge.exposeInMainWorld('redcolumn', {
   isDesktop: true,
+  platform: process.platform,
   nativeFiles: info.nativeFiles,
   printMode: info.printMode,
   // The organisation's policy (policy.ts), read by the main process at startup. The main process
@@ -44,6 +45,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
   readToken: async (token: string) => new Uint8Array(await call<Uint8Array>('paths:read', token)),
   writeToken: (token: string, data: Uint8Array) => call('paths:write', token, data),
   showInFolder: (token: string) => call('paths:show', token),
+  revealFile: (token: string) => call<boolean>('file:reveal', token),
   tokenExists: (token: string) => call('paths:exists', token),
   forgetToken: (token: string) => call('paths:forget', token),
   takeLaunchFiles: () => call('launch:take'),
@@ -120,6 +122,10 @@ contextBridge.exposeInMainWorld('redcolumn', {
     return bytes ? new Uint8Array(bytes) : null;
   },
   setUnsavedChanges: (on: boolean) => ipcRenderer.send('window:unsaved', on === true),
+  // The system's regional format (Windows: Region › Regional format), for Number Format: Match the system.
+  systemLocale: info.systemLocale,
+  // Translations of the text the main process shows, sent once the page has chosen its language.
+  setInterfaceStrings: (strings: Record<string, string>) => ipcRenderer.send('ui:strings', strings),
   setTitleBarSymbols: (color: string) => ipcRenderer.send('window:theme-symbols', color),
   onCloseRequest(cb: () => void) {
     const listener = () => cb();

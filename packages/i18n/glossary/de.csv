@@ -1,0 +1,154 @@
+english,german,note
+Accepted,Angenommen,markup status
+Add,Hinzufügen,
+Align,Ausrichten,
+Angle,Winkel,
+Annotation,Anmerkung,PDF annotation in general; a redcolumn markup is Markierung
+Arc,Bogen,
+Area,Fläche,measurement
+Arrow,Pfeil,
+Assembly,Baugruppe,takeoff assembly: a reusable set of items priced together
+Attachment,Anhang,
+Author,Autor,markup list column
+Batch,Stapel,batch processing (Stapelverarbeitung)
+Bookmark,Lesezeichen,
+Calibrate,Kalibrieren,set a drawing's scale from a known length
+Callout,Hinweis,text box with a leader line
+Cancel,Abbrechen,button
+Cancelled,Storniert,markup status
+Chainage,Stationierung,distance along a road alignment; a single value is a Station
+Check box,Kontrollkästchen,
+Clear,Löschen,
+Close,Schließen,
+Cloud,Wolke,revision cloud markup
+Column,Spalte,
+Comment,Kommentar,
+Compare Documents,Dokumente vergleichen,
+Completed,Abgeschlossen,markup status
+Copy,Kopieren,
+Count,Zählung,count markup / count measurement; a number of things is Anzahl
+Crop,Zuschneiden,
+Cut,Ausschneiden,clipboard; earthworks cut is Abtrag
+Cut and fill,Abtrag und Auftrag,earthworks
+Dash,Strich,line dash pattern
+Delete,Löschen,
+Depth,Tiefe,
+Desktop app,Desktop-App,
+Dimension,Bemaßung,
+Document,Dokument,also the ribbon tab
+Drawing,Zeichnung,a sheet of a drawing set
+Drawing set,Plansatz,
+Drawing standard,Zeichnungsstandard,per-client detection rules
+Edit,Bearbeiten,menu and verb
+Ellipse,Ellipse,
+Eraser,Radierer,
+Estimate,Kalkulation,
+Estimating,Kalkulation,
+Export,Exportieren,
+Fill,Füllung,shape fill; earthworks fill is Auftrag
+Fill color,Füllfarbe,
+Flatten,Reduzieren,burn markups into page content
+Folder,Ordner,
+Font,Schriftart,
+Font size,Schriftgröße,
+Form field,Formularfeld,
+Formula,Formel,
+Grid,Raster,
+Hatch,Schraffur,
+Height,Höhe,
+Help,Hilfe,menu
+Highlight,Hervorheben,markup tool
+Home,Start,ribbon tab
+Hyperlink,Hyperlink,
+Image,Bild,
+Import,Importieren,
+Insert,Einfügen,pages or objects
+Item,Position,takeoff/estimating line item
+Layer,Ebene,
+Layout,Layout,
+Legend,Legende,
+Length,Länge,
+Line,Linie,
+Line style,Linienstil,
+Line width,Linienstärke,
+Live Session,Live-Sitzung,shared real-time review
+Markup,Markierung,a redcolumn annotation; plural Markierungen
+Markups list,Markierungsliste,
+Match line,Anschlusslinie,
+Measure,Messen,verb; a measurement is Messung
+Measurement,Messung,
+Modify,Ändern,ribbon tab
+Note,Notiz,
+OCR,Texterkennung (OCR),
+Opacity,Deckkraft,
+Open,Öffnen,
+Overlay,Überlagern,compare by overlaying
+Page,Seite,
+Panel,Bereich,side panel
+Paste,Einfügen,clipboard
+Pen,Stift,
+Perimeter,Umfang,
+Plan,Plan,
+Polygon,Polygon,
+Polyline,Polylinie,
+Preferences,Einstellungen,
+Print,Drucken,
+Project,Projekt,
+Properties,Eigenschaften,
+Quantity,Menge,
+Rectangle,Rechteck,
+Redact,Schwärzen,
+Redaction,Schwärzung,
+Redo,Wiederholen,
+Rejected,Abgelehnt,markup status
+Rename,Umbenennen,
+Replace,Ersetzen,
+Report,Bericht,
+Restart,Neu starten,
+Revision,Revision,
+Ribbon,Menüband,
+Rotate,Drehen,
+Save,Speichern,
+Save As,Speichern unter,
+Scale,Maßstab,drawing scale
+Search,Suchen,
+Select,Auswählen,
+Selection,Auswahl,
+Settings,Einstellungen,
+Sheet,Blatt,
+Signature,Signatur,digital signature; a handwritten one is Unterschrift
+Slope,Neigung,
+Snap,Fang,snapping to geometry
+Space,Raum,named area on a plan
+Spell check,Rechtschreibprüfung,
+Stamp,Stempel,
+Status,Status,
+Status bar,Statusleiste,
+Stitch,Zusammenfügen,joining sheets into one view
+Studio,Studio,keep as name
+Subject,Betreff,markup list column (data value stays English)
+Symbol,Symbol,
+Tab,Registerkarte,ribbon tab
+Takeoff,Mengenermittlung,also the ribbon tab
+Template,Vorlage,
+Text box,Textfeld,
+Thumbnails,Miniaturansichten,
+Title block,Schriftfeld,
+Tool,Werkzeug,
+Tool Chest,Werkzeugkasten,
+Toolbar,Symbolleiste,
+Tools,Werkzeuge,menu
+Total,Gesamt,
+Undo,Rückgängig,
+Unit,Einheit,
+Unit price,Einheitspreis,
+Vertex,Scheitelpunkt,
+View,Ansicht,menu and ribbon tab
+Viewport,Ansichtsfenster,
+Volume,Volumen,
+Width,Breite,
+Window,Fenster,menu
+Zoom,Zoom,
+File,Datei,menu
+Address,"Sie, formal",always address the user with Sie
+Ctrl,Ctrl,keyboard keys stay as printed in the app's shortcut lists

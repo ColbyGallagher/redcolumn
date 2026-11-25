@@ -93,12 +93,12 @@ export function CloseOutDialog({ docName, sheets, templates, templateId, onTempl
                         <td className="num">{c.itemNo ?? ''}</td>
                         <td className="comment-text">
                           {c.text || msg('(no comment text)')}
-                          {c.replies > 0 && <span className="hint-text"> · {c.replies === 1 ? '1 reply' : `${c.replies} replies`}</span>}
+                          {c.replies > 0 && <span className="hint-text"> · {msg('{count, plural, one {# reply} other {# replies}}', { count: c.replies })}</span>}
                         </td>
                         <td>{c.raisedRev ? msg('Raised at {raisedRev}', { raisedRev: c.raisedRev }) : ''}</td>
                         <td colSpan={2}>
                           {c.statusName}
-                          {c.closed && c.status !== 'none' ? ' (closed)' : ''}
+                          {c.closed && c.status !== 'none' ? ' ' + msg('(closed)') : ''}
                         </td>
                       </tr>
                     ))}

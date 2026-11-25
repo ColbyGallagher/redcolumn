@@ -21,7 +21,26 @@ export function assistantNodePath(dir: string, platform: NodeJS.Platform = proce
  * and the executable starts a second copy of the app. Clients then run the Node binary shipped
  * beside the script.
  */
-export function mcpLaunch(execPath: string, script: string, nodePath?: string): McpLaunch {
-  if (nodePath) return { command: nodePath, args: [script], env: {} };
-  return { command: execPath, args: [script], env: { ELECTRON_RUN_AS_NODE: '1' } };
+export function mcpLaunch(execPath: string, script: string, nodePath?: string, compact?: boolean): McpLaunch {
+  const args = compact ? [script, '--compact'] : [script];
+  if (nodePath) return { command: nodePath, args, env: {} };
+  return { command: execPath, args, env: { ELECTRON_RUN_AS_NODE: '1' } };
+}
+
+export interface ParsedMcpCliArgs {
+  compact: boolean;
+  error?: string;
+}
+
+/** Parses CLI flags passed to `mcp-cli`. Unknown flags are rejected so typos fail fast. */
+export function parseMcpCliArgs(argv: readonly string[]): ParsedMcpCliArgs {
+  let compact = false;
+  for (const arg of argv) {
+    if (arg === '--compact') {
+      compact = true;
+    } else {
+      return { compact: false, error: `Unknown argument: ${arg}\nUsage: mcp-cli [--compact]` };
+    }
+  }
+  return { compact };
 }

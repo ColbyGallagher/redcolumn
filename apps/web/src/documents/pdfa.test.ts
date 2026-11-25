@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import fontkit from '@pdf-lib/fontkit';
 import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFRawStream, StandardFonts } from 'pdf-lib';
 import { archiveAsPdfA, pdfaPart, srgbProfile } from './pdfa.ts';
+import { assertValidPdf } from '@nb/markup/test/qpdf';
 
 test('the sRGB profile is a well-formed ICC display profile', () => {
   const p = srgbProfile();
@@ -33,6 +34,7 @@ test('archiving adds the output intent, PDF/A metadata and file ID, and fixes an
   page.node.set(PDFName.of('Annots'), doc.context.obj([square(doc, 0), square(doc, 2), attachment]));
   doc.catalog.set(PDFName.of('OpenAction'), doc.context.obj({ S: 'JavaScript', JS: 'app.alert(1)' }));
   const { bytes, changes, blocking } = await archiveAsPdfA(await doc.save(), 'Test');
+  assertValidPdf(bytes, 'archiveAsPdfA basic');
   const out = await PDFDocument.load(bytes);
   assert.deepEqual(blocking, []);
   assert.equal(new TextDecoder().decode(bytes.subarray(0, 8)), '%PDF-1.7');
@@ -58,6 +60,7 @@ test('a file with fonts it does not embed, or annotations without appearances, i
   page.drawText('Hello', { font: await doc.embedFont(StandardFonts.Helvetica) });
   page.node.set(PDFName.of('Annots'), doc.context.obj([doc.context.obj({ Type: 'Annot', Subtype: 'Square', Rect: [10, 10, 50, 50], F: 4 })]));
   const { bytes, blocking } = await archiveAsPdfA(await doc.save(), 'Test');
+  assertValidPdf(bytes, 'archiveAsPdfA blocked');
   assert.ok(blocking.some((b) => /does not embed: Helvetica/.test(b)));
   assert.ok(blocking.some((b) => /no appearance/.test(b)));
   assert.equal(await pdfaPart(bytes), null);
@@ -72,6 +75,7 @@ test('fonts only used by the OCR text layer, and embedded fonts, pass', async ()
   const sans = await doc.embedFont(await readFile(new URL('../../public/fonts/LiberationSans-Regular.ttf', import.meta.url)));
   page.drawText('Hello', { font: sans });
   const { bytes, blocking } = await archiveAsPdfA(await doc.save(), 'Test');
+  assertValidPdf(bytes, 'archiveAsPdfA embedded fonts + OCR');
   assert.deepEqual(blocking, []);
   assert.equal(await pdfaPart(bytes), 'PDF/A-2b');
 });
@@ -90,7 +94,9 @@ test('markups exported with their fonts embedded archive as valid PDF/A, without
     return d.embedFont(await readFile(new URL(`../../public/fonts/${files[name]}`, import.meta.url)));
   };
   const exported = await exportWithAnnotations((await doc.save()).buffer as ArrayBuffer, markups, { embedFont });
+  assertValidPdf(exported, 'exportWithAnnotations embedded fonts');
   const { bytes, blocking } = await archiveAsPdfA(exported, 'Test');
+  assertValidPdf(bytes, 'archiveAsPdfA exported markups');
   assert.deepEqual(blocking, []);
   assert.equal(await pdfaPart(bytes), 'PDF/A-2b');
   // With the standard fonts instead, the same markups are blocked.

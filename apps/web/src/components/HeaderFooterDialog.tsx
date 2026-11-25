@@ -171,7 +171,7 @@ export function HeaderFooterDialog({ mode, pageCount, currentPage, hasExisting, 
             {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={(!batch && !pages?.length) || empty || busy}>
-            {busy ? msg('Working…') : batch ? 'OK' : msg('Apply')}
+            {busy ? msg('Working…') : batch ? msg('OK') : msg('Apply')}
           </button>
         </div>
       </form>

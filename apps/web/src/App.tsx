@@ -1513,6 +1513,9 @@ export function App() {
   const [blankPdf, setBlankPdf] = useState<'new' | 'blank' | null>(null);
   const [combineOpen, setCombineOpen] = useState(false);
   const [docPropsOpen, setDocPropsOpen] = useState(false);
+  /** Recently closed file- or library-backed tabs (LIFO, max 20) for Reopen Closed Tab (Ctrl+Shift+T). */
+  const [closedTabs, setClosedTabs] = useState<{ name: string; libraryId: string; desktopToken: string | null; pageIndex: number }[]>([]);
+  const closedTabsRef = useRef<{ name: string; libraryId: string; desktopToken: string | null; pageIndex: number }[]>([]);
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
@@ -4221,7 +4224,7 @@ export function App() {
         })
         .catch((err) => {
           if (rethrow) throw err;
-          setError(`${what} failed: ${err instanceof Error ? err.message : String(err)}`);
+          setError(msg('{what} failed: {error}', { what, error: err instanceof Error ? err.message : String(err) }));
           return false;
         });
       // The queue carries on after a failure.
@@ -4590,12 +4593,36 @@ export function App() {
    * the right pane has some, the right pane's tabs move across and the split closes.
    */
   const closeTab = useCallback(
-    (pane: Pane, fileId: string) => {
+    (pane: Pane, fileId: string, recordClosed = true) => {
       pane = tabPaneOf(pane);
       const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
       const idx = tabs.findIndex((t) => t.file.id === fileId);
       if (idx < 0) return;
       const closing = tabs[idx]!;
+      // A model in front counts too, so closing it brings the next tab forward.
+      const front = frontTabOf(pane);
+      if (recordClosed) {
+        const desktopToken = fileLocationToken(closing.file.id);
+        const isBlankUnsaved = closing.file.name === 'Untitled.pdf' && !desktopToken && !hasFileLocation(closing.file.id);
+        if (!studioDocOf(closing.file.id) && !isBlankUnsaved && (desktopToken || (closing.file.id && closing.file.hash))) {
+          const viewer = pane === 'b' ? ctlB?.viewer : ctl?.viewer;
+          const lastPage =
+            front === closing && viewer
+              ? viewer.currentPageIndex
+              : (savedViews.current.get(closing.file.id)?.pageIndex ?? 0);
+          const entry = {
+            name: closing.file.name,
+            libraryId: closing.file.id,
+            desktopToken,
+            pageIndex: Math.max(0, lastPage),
+          };
+          setClosedTabs((prev) => {
+            const next = [...prev.filter((x) => x.libraryId !== entry.libraryId), entry].slice(-20);
+            closedTabsRef.current = next;
+            return next;
+          });
+        }
+      }
       const rest = tabs.filter((_, i) => i !== idx);
       setTabs(pane, rest);
       // The mirrored right pane follows the left pane's next tab; with none, the mirror and the split end.
@@ -4604,7 +4631,6 @@ export function App() {
         setSplit(false);
         setActivePane('a');
       }
-      const front = frontTabOf(pane);
       if (front === closing) {
         const next = rest[Math.min(idx, rest.length - 1)] ?? null;
         if (next) showInPane(pane, next);
@@ -4628,8 +4654,73 @@ export function App() {
       }
       disposeOpen(closing);
     },
-    [setTabs, showInPane],
+    [setTabs, showInPane, ctl, ctlB],
   );
+
+  /** Pops the most recently closed file- or library-backed tab and reopens it, restoring its last page. */
+  const reopenClosedTab = useCallback(async () => {
+    const stack = closedTabsRef.current;
+    if (!stack.length) return;
+    const entry = stack[stack.length - 1]!;
+    const next = stack.slice(0, -1);
+    closedTabsRef.current = next;
+    setClosedTabs(next);
+
+    const targetPane: Pane = split && activePaneRef.current === 'b' ? 'b' : 'a';
+    const restorePage = (fileId: string, page: number) => {
+      if (page <= 0) return;
+      const tab = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === fileId);
+      if (!tab || page >= tab.doc.pages.length) return;
+      const isB = tabsBRef.current.some((t) => t.file.id === fileId);
+      (isB ? ctlB?.viewer : ctl?.viewer)?.goToPage(page);
+    };
+
+    for (const p of ['a', 'b'] as const) {
+      const existing = (p === 'b' ? tabsBRef.current : tabsARef.current).find((t) => t.file.id === entry.libraryId);
+      if (existing) {
+        activateTab(p, existing);
+        restorePage(entry.libraryId, entry.pageIndex);
+        return;
+      }
+    }
+
+    try {
+      const files = await listFiles();
+      const file = files.find((f) => f.id === entry.libraryId);
+      if (file) {
+        if (await movedAway(file.id)) {
+          setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+          return;
+        }
+        const bytes = await readFile(file.hash);
+        await openStored(file, bytes, targetPane);
+        await touchFile(file.id);
+        void refreshLibrary();
+        restorePage(file.id, entry.pageIndex);
+        return;
+      }
+
+      const host = desktop();
+      if (entry.desktopToken && host) {
+        const exists = host.tokenExists ? await host.tokenExists(entry.desktopToken) : true;
+        if (!exists) {
+          setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+          return;
+        }
+        const raw = await host.readToken(entry.desktopToken);
+        const bytes = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
+        const stored = await saveFile(entry.name, bytes.slice(0));
+        await openStored(stored, bytes, targetPane);
+        void refreshLibrary();
+        restorePage(stored.id, entry.pageIndex);
+        return;
+      }
+
+      setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+    } catch {
+      setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+    }
+  }, [split, ctl, ctlB, activateTab, openStored, refreshLibrary]);
 
   /**
    * Puts a document's markups back to what its file holds: undoes what was done since it matched
@@ -8087,7 +8178,7 @@ export function App() {
       // Its changes live on in the new window, so closing here must not ask about them or keep them for recovery.
       rememberUnsaved(new Map([[t.file.id, false]]));
       markSaved(t);
-      closeTab(pane, t.file.id);
+      closeTab(pane, t.file.id, false);
     } catch (err) {
       setError(msg('Could not move the document: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
@@ -8110,6 +8201,7 @@ export function App() {
       { label: msg('Close All'), onClick: () => closeMany(tabs) },
       { label: msg('Close All But This'), disabled: tabs.length < 2, onClick: () => closeMany(tabs.filter((x) => x !== t)) },
       { label: msg('Close Tabs to the Right'), disabled: idx === tabs.length - 1, onClick: () => closeMany(tabs.slice(idx + 1)) },
+      { label: msg('Reopen Closed Tab'), shortcut: 'Ctrl+Shift+T', disabled: closedTabs.length === 0, onClick: () => void reopenClosedTab() },
     ];
     // A 3D model has no markups to save or share, so its menu only closes it or shows where it lives.
     if (t.kind === 'model')
@@ -8136,10 +8228,14 @@ export function App() {
             onClick: () => void detachTab(pane, t),
           }]
         : []),
-      ...(desktop()
+      ...(desktop() && locationTick >= 0 && hasFileLocation(t.file.id)
         ? [{
-            label: msg('Open File Location'),
-            disabled: locationTick < 0 || !hasFileLocation(t.file.id),
+            label: (() => {
+              const p = desktop()?.platform ?? (typeof navigator !== 'undefined' ? navigator.platform || navigator.userAgent : '');
+              if (/win/i.test(p)) return msg('Reveal in Explorer');
+              if (/mac|darwin/i.test(p)) return msg('Reveal in Finder');
+              return msg('Show in File Manager');
+            })(),
             onClick: () => void revealFileLocation(t.file.id).then((ok) => {
               if (!ok) setError(msg('That file is not in a folder on this computer. It may have been moved, renamed or deleted.'));
             }),
@@ -8794,6 +8890,7 @@ export function App() {
     close: closeDocument,
     closeAll: () =>
       void requestCloseTabs((['b', 'a'] as const).flatMap((pane) => (pane === 'b' ? tabsBRef.current : tabsARef.current).map((t) => ({ pane, fileId: t.file.id })))),
+    reopenClosedTab: () => void reopenClosedTab(),
     saveAll: () =>
       void (async () => {
         for (const t of pdfTabs([...tabsARef.current, ...tabsBRef.current])) {
@@ -9554,7 +9651,8 @@ export function App() {
       }
       setPublishFor(null);
     } catch (err) {
-      setError(`${req.kind === 'pdf' ? 'Publish' : 'Export'} failed: ${err instanceof Error ? err.message : String(err)}`);
+      const error = err instanceof Error ? err.message : String(err);
+      setError(req.kind === 'pdf' ? msg('Publish failed: {error}', { error }) : msg('Export failed: {error}', { error }));
     } finally {
       job.end();
     }
@@ -9618,6 +9716,7 @@ export function App() {
     tool: toolsState.tool,
     settings: prefs,
     openTabCount: (tabPaneOf(pane) === 'b' ? tabsB : tabsA).length,
+    hasClosedTabs: closedTabs.length > 0,
     leftTab,
     rightTab,
     bottomTab,
@@ -11787,7 +11886,7 @@ export function App() {
           stamp={stampToFill}
           author={author}
           title={stampToFill.name}
-          applyLabel="Place"
+          applyLabel={msg('Place')}
           onCancel={() => setStampToFill(null)}
           onApply={(values) => {
             setStampToFill(null);
@@ -11806,8 +11905,8 @@ export function App() {
               stamp={{ name: m.subject ?? 'Stamp', ...formStamp(m.stamp)! }}
               author={form.placed.user}
               initial={form.values}
-              title={m.subject ?? 'Stamp'}
-              applyLabel="Update"
+              title={m.subject ?? msg('Stamp')}
+              applyLabel={msg('Update')}
               onCancel={() => setStampEdit(null)}
               onApply={(values) => {
                 setStampEdit(null);

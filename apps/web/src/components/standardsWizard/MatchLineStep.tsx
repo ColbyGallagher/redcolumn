@@ -122,7 +122,7 @@ export function MatchLineStep(p: Props) {
         {box && says && (
           <div className="sw-result">
             <p className="sw-read">
-              {keyed(msgParts('Reads: {strong}', { strong: <strong>{says.text || 'no text'}</strong> }))}
+              {keyed(msgParts('Reads: {strong}', { strong: <strong>{says.text || msg('no text')}</strong> }))}
             </p>
             <p className={`sw-verdict ${says.sheet !== null ? 'good' : 'some'}`}>
               {says.sheet !== null ? msg('Names {sheet}.', { sheet: numbers[says.sheet] ?? msg('sheet {number}', { number: says.sheet + 1 }) }) : msg('It names no drawing in this set: go to the adjoining sheet yourself.')}

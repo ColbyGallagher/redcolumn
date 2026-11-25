@@ -60,7 +60,7 @@ export function ReviewFindings({ store, me, findings, pageLabel, onShowSource }:
           <div className="tp-actions">
             <span className="hint-text grow">
               {f.source}, {when(f.createdAt)}
-              {f.decided ? ` · ${STATUS()[f.status].toLowerCase()} by ${f.decided.by}` : ''}
+              {f.decided ? ' ' + msg('· {status} by {by}', { status: STATUS()[f.status].toLowerCase(), by: f.decided.by }) : ''}
             </span>
             {f.status === 'open' ? (
               <>

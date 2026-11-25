@@ -8,6 +8,7 @@ import { markupShape } from './geometry.ts';
 import { readPdfExtras } from './pdfExtras.ts';
 import { MarkupStore } from './store.ts';
 import type { Markup } from './model.ts';
+import { assertValidPdf } from '../test/qpdf.ts';
 
 const text = (s: string) => PDFHexString.fromText(s);
 
@@ -102,6 +103,7 @@ test('Bluebeam measurements import with their scale, cutouts, columns, reply, st
 
 async function saved(bytes: Uint8Array, markups: Markup[], columns: ReturnType<typeof importColumns>) {
   const out = await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, markups, { imported: { 0: [0, 1, 2] }, importedSpaces: { 0: [0] }, columns });
+  assertValidPdf(out, 'bluebeam saved markups');
   const doc = await PDFDocument.load(out);
   const annots = doc.getPage(0).node.Annots()!;
   return { doc, annots, dicts: annots.asArray().map((r) => doc.context.lookup(r, PDFDict)) };
@@ -208,7 +210,9 @@ test('edited Bluebeam counts keep one annotation per item, and checkmark changes
   const { bytes, result } = await importedShapes();
   const options = { imported: { 0: [0, 1, 2, 3, 4, 5, 6] } };
   // Unchanged: every annotation exactly as it was.
-  const same = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, result.markups, options));
+  const sameBytes = await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, result.markups, options);
+  assertValidPdf(sameBytes, 'bluebeam unchanged shapes');
+  const same = await PDFDocument.load(sameBytes);
   const before = await PDFDocument.load(bytes);
   const dicts = (d: PDFDocument) => d.getPage(0).node.Annots()!.asArray().map((r) => d.context.lookup(r, PDFDict));
   assert.deepEqual(dicts(same).map((d) => d.toString()), dicts(before).map((d) => d.toString()));
@@ -217,7 +221,9 @@ test('edited Bluebeam counts keep one annotation per item, and checkmark changes
   const edited = result.markups.map((m): Markup =>
     m.type === 'count' ? { ...m, points: [...m.points, [320, 195]], checked: false } : m.type === 'ellipticalArc' ? { ...m, points: m.points.map(([x, y]) => [x + 10, y] as [number, number]) } : m,
   );
-  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, edited, options));
+  const outBytes = await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, edited, options);
+  assertValidPdf(outBytes, 'bluebeam edited counts');
+  const out = await PDFDocument.load(outBytes);
   const after = dicts(out);
   const str = (d: PDFDict, k: string) => d.lookupMaybe(PDFName.of(k), PDFString, PDFHexString)?.decodeText();
   const items = after.filter((d) => d.lookupMaybe(PDFName.of('IT'), PDFName)?.decodeText() === 'PolygonCount');
@@ -305,11 +311,15 @@ test('saving keeps deleted Bluebeam columns and their values, and writes custom 
   const before = await PDFDocument.load(bytes);
   const catalog = (d: PDFDocument) => d.catalog.lookup(PDFName.of('BSIAnnotColumns'), PDFArray).toString();
   // Unchanged: the column list exactly as it was (option lists still by reference).
-  const same = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, result.markups, options));
+  const sameBytes = await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, result.markups, options);
+  assertValidPdf(sameBytes, 'bluebeam unchanged columns');
+  const same = await PDFDocument.load(sameBytes);
   assert.equal(catalog(same), catalog(before));
 
   const edited = result.markups.map((m) => ({ ...m, status: '1.0 open', fields: { ...m.fields, 'bluebeam:Priority': 'High' } }));
-  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, edited, options));
+  const outBytes = await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, edited, options);
+  assertValidPdf(outBytes, 'bluebeam edited columns and statuses');
+  const out = await PDFDocument.load(outBytes);
   assert.equal(catalog(out), catalog(before));
   const dicts = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict));
   const str = (d: PDFDict, k: string) => d.lookupMaybe(PDFName.of(k), PDFString, PDFHexString)?.decodeText();
@@ -341,7 +351,9 @@ test('status changes made here are saved as state annotations with who and when;
   MarkupStore.author = '';
   const m = store.get(result.markups[0]!.id)!;
   assert.deepEqual(m.statusHistory?.slice(-1).map((c) => [c.state, c.model, c.author, c.nm]), [['1.0 Open', 'BSI_SET', 'Julie Smit', undefined]]);
-  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [m], { imported: { 0: [0, 1, 2, 3] }, columns, statuses }));
+  const outBytes = await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [m], { imported: { 0: [0, 1, 2, 3] }, columns, statuses });
+  assertValidPdf(outBytes, 'bluebeam status history');
+  const out = await PDFDocument.load(outBytes);
   const dicts = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict));
   const str = (d: PDFDict, k: string) => d.lookupMaybe(PDFName.of(k), PDFString, PDFHexString)?.decodeText();
   const states = dicts.filter((d) => str(d, 'StateModel'));
@@ -373,7 +385,9 @@ test("Bluebeam callouts: the text box where Revu draws it (/RD's insets read Rev
   assert.equal(b!.style.width, 1, 'the leader still draws');
 
   // Saved again, its box's top and bottom insets are equal, so every reader puts it in the same place.
-  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [{ ...b!, pdfAnnot: undefined, id: 'new' }], {}));
+  const outBytes = await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [{ ...b!, pdfAnnot: undefined, id: 'new' }], {});
+  assertValidPdf(outBytes, 'bluebeam callout');
+  const out = await PDFDocument.load(outBytes);
   const saved = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict)).find((d) => d.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() === 'new')!;
   const rd = saved.lookup(PDFName.of('RD'), PDFArray).asArray().map((n) => (n as PDFNumber).asNumber());
   assert.ok(Math.abs(rd[1]! - rd[3]!) < 1e-6, `RD ${rd}`);
@@ -433,7 +447,9 @@ test("Bluebeam's turned text box (/Rotation, clockwise) imports as an upright bo
   assert.deepEqual(centre(m90!), [254.9, 103.5]);
 
   // Saved again, it carries /Rotation for the other tool.
-  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [{ ...m315!, pdfAnnot: undefined, id: 'new' }], {}));
+  const outBytes = await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [{ ...m315!, pdfAnnot: undefined, id: 'new' }], {});
+  assertValidPdf(outBytes, 'bluebeam rotated text box');
+  const out = await PDFDocument.load(outBytes);
   const saved = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict)).find((d) => d.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() === 'new')!;
   assert.equal(saved.lookup(PDFName.of('Rotation'), PDFNumber).asNumber(), 315);
 });
@@ -465,7 +481,9 @@ test("another tool's file attachment shows its own appearance (icon and file nam
   assert.deepEqual(markupShape(m).map((p) => p.stroke), [false]);
 
   const moved = { ...m, points: m.points.map(([x, y]) => [x + 10, y] as [number, number]) };
-  const out = await PDFDocument.load(await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [moved], { imported: { 0: [0] } }));
+  const outBytes = await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [moved], { imported: { 0: [0] } });
+  assertValidPdf(outBytes, 'bluebeam moved file attachment');
+  const out = await PDFDocument.load(outBytes);
   const d = out.context.lookup(out.getPage(0).node.Annots()!.get(0), PDFDict);
   assert.equal(d.get(PDFName.of('Subtype'))?.toString(), '/FileAttachment');
   assert.equal(d.lookup(PDFName.of('AP'), PDFDict).get(PDFName.of('N'))?.toString(), ap.toString());
