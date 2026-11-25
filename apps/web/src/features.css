@@ -3266,6 +3266,23 @@
   border-bottom: 1px solid var(--border);
 }
 
+.bookmarks-panel .bookmark-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bookmarks-panel .bookmark-filter input {
+  flex: 1;
+  min-width: 0;
+}
+
+.bookmarks-panel .bookmark-filter-clear {
+  flex: none;
+}
+
 .bookmark-tree li {
   display: flex;
   align-items: center;
@@ -3280,6 +3297,10 @@
 .bookmark-tree .bookmark {
   grid-template-columns: 1fr;
   padding: 4px 6px;
+}
+
+.bookmark-tree .bookmark.ancestor {
+  opacity: 0.58;
 }
 
 .bookmark.current .name {

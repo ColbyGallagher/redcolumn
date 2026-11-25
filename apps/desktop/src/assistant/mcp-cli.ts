@@ -1,3 +1,4 @@
+import { parseMcpCliArgs } from './argv';
 import { callAssistant } from './client';
 import { endpointFile } from './endpoint';
 import { attachStdio } from './stdio';
@@ -7,7 +8,13 @@ import { attachStdio } from './stdio';
  * assistant is on. Packaged builds start this with the bundled Node binary. Development starts it
  * by running Electron as Node. Either way the process is a console program and stdin arrives.
  */
-const mcp = attachStdio(process.stdin, process.stdout, (method, params) => callAssistant(endpointFile(), method, params));
+const parsed = parseMcpCliArgs(process.argv.slice(2));
+if (parsed.error) {
+  process.stderr.write(parsed.error + '\n');
+  process.exit(2);
+}
+
+const mcp = attachStdio(process.stdin, process.stdout, (method, params) => callAssistant(endpointFile(), method, params), { compact: parsed.compact });
 const exit = () => process.exit(0);
 process.stdin.on('mcp-idle', exit);
 process.stdin.on('end', () => mcp.closeWhenDrained());

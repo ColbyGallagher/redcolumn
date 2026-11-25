@@ -488,6 +488,22 @@ test('a development launch still passes ELECTRON_RUN_AS_NODE through', () => {
   assert.match(clients[3]!.copy, /\[mcp_servers\.redcolumn\.env\]\nELECTRON_RUN_AS_NODE = "1"/);
 });
 
+test('compact mode appends --compact to every client snippet and install link', () => {
+  const launch = { command: 'C:\\Program Files\\redcolumn\\resources\\assistant\\node.exe', args: ['C:\\Program Files\\redcolumn\\resources\\assistant\\mcp-cli.js'], env: {} };
+  const clients = clientSetups(launch, 'win', { compact: true });
+  for (const client of clients) {
+    assert.match(client.copy, /--compact/);
+  }
+  assert.match(clients[2]!.copy, /--compact$/);
+  assert.match(clients[3]!.copy, /args = \[".*mcp-cli\.js", "--compact"\]/);
+  const cursor = new URL(clients[4]!.href!);
+  const cursorConfig = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(cursor.searchParams.get('config') ?? ''), (c) => c.charCodeAt(0)))) as { args: string[] };
+  assert.deepEqual(cursorConfig.args, [...launch.args, '--compact']);
+  const vscode = new URL(clients[0]!.href!);
+  const vscodeConfig = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(decodeURIComponent(vscode.searchParams.get('config') ?? '')), (c) => c.charCodeAt(0)))) as { args: string[] };
+  assert.deepEqual(vscodeConfig.args, [...launch.args, '--compact']);
+});
+
 test('an AI client proposes takeoff assemblies; they wait for a person, and the drawing is unchanged', async () => {
   const drawing = await doc('A-101.pdf', true);
   drawing.store.setAssemblies([{ id: 'wall', name: 'Stud Wall', variables: [{ name: 'Spacing', value: 16 }], items: [{ id: 'studs', name: 'Studs', unit: 'ea', formula: '[Length] / [Spacing] + 1', roundUp: true }] }]);

@@ -58,6 +58,7 @@ export interface CommandActions {
   combine: () => void;
   close: () => void;
   closeAll: () => void;
+  reopenClosedTab: () => void;
   saveAll: () => void;
   revert: () => void;
   publish: (mode: 'pdf' | 'images') => void;
@@ -352,6 +353,8 @@ export interface CommandState {
   settings: Settings;
   /** Tabs in the active pane, for next and previous document. */
   openTabCount: number;
+  /** Whether there is a recently closed tab that can be reopened. */
+  hasClosedTabs?: boolean;
   leftTab: string;
   rightTab: string;
   bottomTab: string;
@@ -420,6 +423,7 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.combine', 'File', msg('Combine…'), a.combine),
     cmd('file.close', 'File', msg('Close'), a.close, doc),
     cmd('file.closeAll', 'File', msg('Close All'), a.closeAll, doc),
+    cmd('tab.reopenClosed', 'File', msg('Reopen Closed Tab'), a.reopenClosedTab, !!s.hasClosedTabs),
     cmd('file.save', 'File', msg('Save'), a.save, doc && s.canSaveCopy),
     cmd('file.saveAs', 'File', msg('Save As…'), a.saveAs, doc && s.canSaveCopy),
     cmd('file.saveAll', 'File', msg('Save All'), a.saveAll, doc && s.canSaveCopy),
