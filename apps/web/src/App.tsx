@@ -1855,8 +1855,9 @@ export function App() {
         return new SnapIndex(g.segments, undefined, g.curves);
       });
       c.tools.setTextSource((pageIndex) => packed.doc.text(pageIndex));
-      c.viewer.setDocument(packed.doc);
       const view = savedViews.current.get(packed.file.id);
+      // View rotation belongs to each document: one not shown before starts unrotated.
+      c.viewer.setDocument(packed.doc, view?.rotation ?? 0);
       // A stitched view's camera only makes sense with its stitch layout, so just return to its page.
       if (view?.mode === 'stitch') c.viewer.goToPage(view.pageIndex);
       else if (view) c.viewer.setView(view);
