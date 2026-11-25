@@ -348,7 +348,7 @@ export interface Settings {
   /** Check Spelling also checks words in capitals (often abbreviations on drawings). */
   spellUpperCase: boolean;
   /** Dictionary Check Spelling uses. */
-  dictionary: 'en-AU' | 'en-GB' | 'en-US' | 'de-DE';
+  dictionary: 'en-AU' | 'en-GB' | 'en-US' | 'de-DE' | 'fr-FR';
   // Interface › Markups List
   /** Selecting a markup in the list zooms to fit it (otherwise the view only goes to its page). */
   zoomFitSelected: boolean;
