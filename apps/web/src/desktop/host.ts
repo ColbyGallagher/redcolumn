@@ -83,6 +83,8 @@ export interface UpdateState {
 
 export interface RedcolumnDesktop {
   isDesktop: true;
+  /** OS platform reported by Electron (`win32`, `darwin`, `linux`, …). */
+  platform?: string;
   /** Open and Save As use native dialogs so the main process can remember the path. */
   nativeFiles: boolean;
   printMode: PrintMode;
@@ -95,6 +97,8 @@ export interface RedcolumnDesktop {
   readToken(token: string): Promise<Uint8Array>;
   writeToken(token: string, data: Uint8Array): Promise<boolean>;
   showInFolder(token: string): Promise<boolean>;
+  /** Reveals a token-scoped file in Explorer / Finder / the file manager. */
+  revealFile?(token: string): Promise<boolean>;
   /** False when the file has been moved, renamed or deleted since. Absent in desktop apps from before the check. */
   tokenExists?(token: string): Promise<boolean>;
   /** Drops a remembered path, for a document removed from this device. */

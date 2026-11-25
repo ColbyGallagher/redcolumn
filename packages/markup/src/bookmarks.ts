@@ -63,6 +63,45 @@ export function flattenBookmarks(tree: readonly Bookmark[], depth = 0): { bookma
   return tree.flatMap((b) => [{ bookmark: b, depth }, ...flattenBookmarks(b.children, depth + 1)]);
 }
 
+export interface FilteredBookmarkRow {
+  bookmark: Bookmark;
+  depth: number;
+  matched: boolean;
+}
+
+/**
+ * Filters a bookmark tree by case-insensitive substring match against `bookmark.title` (and
+ * `pageLabel(bookmark.pageIndex)` when `pageLabel` is provided and `bookmark.pageIndex !== null`).
+ * Preserves every ancestor of a matching node (with `matched: false` if the ancestor itself did
+ * not match) so the folder hierarchy remains visible.
+ */
+export function filterBookmarkRows(
+  bookmarks: readonly Bookmark[],
+  query: string,
+  pageLabel?: (pageIndex: number) => string,
+): FilteredBookmarkRow[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return flattenBookmarks(bookmarks).map((row) => ({ ...row, matched: true }));
+  const walk = (nodes: readonly Bookmark[], depth: number): FilteredBookmarkRow[] => {
+    const out: FilteredBookmarkRow[] = [];
+    for (const bookmark of nodes) {
+      const titleMatch = bookmark.title.toLowerCase().includes(q);
+      const pageMatch =
+        !!pageLabel &&
+        bookmark.pageIndex !== null &&
+        bookmark.pageIndex !== undefined &&
+        pageLabel(bookmark.pageIndex).toLowerCase().includes(q);
+      const matched = titleMatch || pageMatch;
+      const children = walk(bookmark.children, depth + 1);
+      if (matched || children.length > 0) {
+        out.push({ bookmark, depth, matched }, ...children);
+      }
+    }
+    return out;
+  };
+  return walk(bookmarks, 0);
+}
+
 /** A copy of the tree with `fn` applied to the children array of `parentId` (null: the top level). */
 function editChildren(tree: readonly Bookmark[], parentId: string | null, fn: (children: Bookmark[]) => Bookmark[]): Bookmark[] {
   if (parentId === null) return fn([...tree]);

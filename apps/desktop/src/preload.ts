@@ -25,6 +25,7 @@ if (process.platform === 'win32') window.addEventListener('DOMContentLoaded', ()
 
 contextBridge.exposeInMainWorld('redcolumn', {
   isDesktop: true,
+  platform: process.platform,
   nativeFiles: info.nativeFiles,
   printMode: info.printMode,
   // The organisation's policy (policy.ts), read by the main process at startup. The main process
@@ -44,6 +45,7 @@ contextBridge.exposeInMainWorld('redcolumn', {
   readToken: async (token: string) => new Uint8Array(await call<Uint8Array>('paths:read', token)),
   writeToken: (token: string, data: Uint8Array) => call('paths:write', token, data),
   showInFolder: (token: string) => call('paths:show', token),
+  revealFile: (token: string) => call<boolean>('file:reveal', token),
   tokenExists: (token: string) => call('paths:exists', token),
   forgetToken: (token: string) => call('paths:forget', token),
   takeLaunchFiles: () => call('launch:take'),
