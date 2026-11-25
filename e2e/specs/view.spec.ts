@@ -61,6 +61,20 @@ test.describe('view', () => {
     expect(await app.pageInfo(1)).toMatchObject({ width: 1224, height: 792 });
   });
 
+  test('rotate view (Ctrl+Shift+Plus) turns only the document in front', async ({ app }) => {
+    await app.open('plan-rev1.pdf');
+    await app.page.keyboard.press('Control+Shift+Equal');
+    await expect.poll(async () => (await app.view()).rotation).toBe(1);
+    const tabs = app.page.getByRole('tablist', { name: 'Documents', exact: true }).getByRole('tab');
+    // The other open document is not turned with it.
+    await tabs.filter({ hasText: /^plan\.pdf/ }).click();
+    await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toMatch(/^plan\.pdf/);
+    expect((await app.view()).rotation).toBe(0);
+    // And the turned one is still turned when it comes back to the front.
+    await tabs.filter({ hasText: /^plan-rev1/ }).click();
+    await expect.poll(async () => (await app.view()).rotation).toBe(1);
+  });
+
   test('page navigation', async ({ app }) => {
     expect(await page(app)).toBe(1);
     expect((await app.command('view.prevPage')).enabled).toBe(false);

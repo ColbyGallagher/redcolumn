@@ -66,7 +66,7 @@ test('matching the user’s languages', () => {
   const ptBR: LocaleInfo = { code: 'pt-BR', name: 'Português', english: 'Portuguese', dir: 'ltr', status: 'preview', scripts: ['Latn'] };
   const all = [...LOCALES, de, ptBR];
   assert.equal(matchLocale(['de-AT', 'en'], all), 'de');
-  assert.equal(matchLocale(['fr-FR', 'de'], all), 'de');
+  assert.equal(matchLocale(['es-ES', 'de'], all), 'de');
   assert.equal(matchLocale(['pt-PT'], all), 'pt-BR');
   assert.equal(matchLocale(['ja'], all), 'en');
   assert.equal(matchLocale(['ar'], all), 'en', 'pseudo-locales never match by language');
