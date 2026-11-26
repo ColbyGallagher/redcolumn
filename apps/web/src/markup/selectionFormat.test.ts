@@ -130,4 +130,6 @@ test('the Depth field is for selections of volumes only, and reads Mixed where t
   assert.deepEqual(sharedDepth([volume(2), volume(2)]), { meters: 2, mixed: false });
   assert.deepEqual(sharedDepth([volume(), volume()]), { meters: undefined, mixed: false });
   assert.deepEqual(sharedDepth([volume(2), volume()]), { meters: undefined, mixed: true });
+  // 3 ft and 36 in come to metres a last float digit apart: still one depth.
+  assert.equal(sharedDepth([volume(3 * 0.3048), volume(36 * 0.0254)])!.mixed, false);
 });

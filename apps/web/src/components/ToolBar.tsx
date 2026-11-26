@@ -18,7 +18,7 @@ import { shortcutLabel } from '../commands/shortcuts';
 import { useWorkspace } from '../workspace/profiles';
 import { useFloatingPopup } from './useFloatingPopup';
 import { ColorMenu } from './ColorMenu';
-import { commonCapabilities, distinctIdentities, identityOf, identityPatch, isCloudPlusSelection, isMixed, sharedDepth, sharedIdentity, styleMixed, toolIdentity, type IdentityField } from '../markup/selectionFormat';
+import { commonCapabilities, distinctIdentities, identityOf, identityPatch, isCloudPlusSelection, isMixed, sameDepth, sharedDepth, sharedIdentity, styleMixed, toolIdentity, type IdentityField } from '../markup/selectionFormat';
 import { saveToolBack } from '../toolchest/saveBack';
 import { useMenubarSlot } from './menubarSlot';
 import type { TakeoffAssemblyProps } from './RibbonAssembly';
@@ -1002,7 +1002,7 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
       return;
     }
     const meters = length * METERS_PER_UNIT[depthScale.unit] || undefined;
-    const targets = depthTargets.filter((m) => Math.abs((m.depth ?? 0) - (meters ?? 0)) > 1e-9);
+    const targets = depthTargets.filter((m) => !sameDepth(m.depth, meters));
     if (!targets.length) {
       input.value = depthText;
       return;
