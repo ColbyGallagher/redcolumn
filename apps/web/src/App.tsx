@@ -7,7 +7,7 @@ import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canBeCountSymbol, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds, symbolFromMarkups } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { actionTarget, boundsOf, isAiDraft, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, turnedTo, boundsOf, isAiDraft, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -476,7 +476,7 @@ function turnMarkups(store: MarkupStore, ms: readonly Markup[], degrees: number,
     for (const m of ms) {
       if (m.locked || !store.mayEdit(m)) continue;
       const next = ((((absolute ? 0 : (m.rotation ?? 0)) + degrees) % 360) + 360) % 360;
-      store.update(m.id, { rotation: next || undefined });
+      store.update(m.id, turnedTo(m, next));
     }
   });
 }
@@ -1518,6 +1518,9 @@ export function App() {
   const [blankPdf, setBlankPdf] = useState<'new' | 'blank' | null>(null);
   const [combineOpen, setCombineOpen] = useState(false);
   const [docPropsOpen, setDocPropsOpen] = useState(false);
+  /** Recently closed file- or library-backed tabs (LIFO, max 20) for Reopen Closed Tab (Ctrl+Shift+T). */
+  const [closedTabs, setClosedTabs] = useState<{ name: string; libraryId: string; desktopToken: string | null; pageIndex: number }[]>([]);
+  const closedTabsRef = useRef<{ name: string; libraryId: string; desktopToken: string | null; pageIndex: number }[]>([]);
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
@@ -1873,8 +1876,9 @@ export function App() {
         return new SnapIndex(g.segments, undefined, g.curves);
       });
       c.tools.setTextSource((pageIndex) => packed.doc.text(pageIndex));
-      c.viewer.setDocument(packed.doc);
       const view = savedViews.current.get(packed.file.id);
+      // View rotation belongs to each document: one not shown before starts unrotated.
+      c.viewer.setDocument(packed.doc, view?.rotation ?? 0);
       // A stitched view's camera only makes sense with its stitch layout, so just return to its page.
       if (view?.mode === 'stitch') c.viewer.goToPage(view.pageIndex);
       else if (view) c.viewer.setView(view);
@@ -2488,10 +2492,11 @@ export function App() {
     const mirror = pendingMirror.current;
     pendingMirror.current = false;
     if (mirror && openRef.current) {
-      // One document in both panes (one markup store, two views), kept in step.
+      // One document in both panes (one markup store, two views). Views start independent unless
+      // Preferences › Document says to synchronise them; Synchronise in the View menu toggles it anytime.
       mirrorRef.current = true;
       showInPane('b', openRef.current, true);
-      setSync('document');
+      setSync(settings.get().syncSplitView ? 'document' : null);
       setActivePane('a');
     }
   }, [ctlB, openStored, showInPane]);
@@ -4231,7 +4236,7 @@ export function App() {
         })
         .catch((err) => {
           if (rethrow) throw err;
-          setError(`${what} failed: ${err instanceof Error ? err.message : String(err)}`);
+          setError(msg('{what} failed: {error}', { what, error: err instanceof Error ? err.message : String(err) }));
           return false;
         });
       // The queue carries on after a failure.
@@ -4600,12 +4605,36 @@ export function App() {
    * the right pane has some, the right pane's tabs move across and the split closes.
    */
   const closeTab = useCallback(
-    (pane: Pane, fileId: string) => {
+    (pane: Pane, fileId: string, recordClosed = true) => {
       pane = tabPaneOf(pane);
       const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
       const idx = tabs.findIndex((t) => t.file.id === fileId);
       if (idx < 0) return;
       const closing = tabs[idx]!;
+      // A model in front counts too, so closing it brings the next tab forward.
+      const front = frontTabOf(pane);
+      if (recordClosed) {
+        const desktopToken = fileLocationToken(closing.file.id);
+        const isBlankUnsaved = closing.file.name === 'Untitled.pdf' && !desktopToken && !hasFileLocation(closing.file.id);
+        if (!studioDocOf(closing.file.id) && !isBlankUnsaved && (desktopToken || (closing.file.id && closing.file.hash))) {
+          const viewer = pane === 'b' ? ctlB?.viewer : ctl?.viewer;
+          const lastPage =
+            front === closing && viewer
+              ? viewer.currentPageIndex
+              : (savedViews.current.get(closing.file.id)?.pageIndex ?? 0);
+          const entry = {
+            name: closing.file.name,
+            libraryId: closing.file.id,
+            desktopToken,
+            pageIndex: Math.max(0, lastPage),
+          };
+          setClosedTabs((prev) => {
+            const next = [...prev.filter((x) => x.libraryId !== entry.libraryId), entry].slice(-20);
+            closedTabsRef.current = next;
+            return next;
+          });
+        }
+      }
       const rest = tabs.filter((_, i) => i !== idx);
       setTabs(pane, rest);
       // The mirrored right pane follows the left pane's next tab; with none, the mirror and the split end.
@@ -4614,7 +4643,6 @@ export function App() {
         setSplit(false);
         setActivePane('a');
       }
-      const front = frontTabOf(pane);
       if (front === closing) {
         const next = rest[Math.min(idx, rest.length - 1)] ?? null;
         if (next) showInPane(pane, next);
@@ -4638,8 +4666,73 @@ export function App() {
       }
       disposeOpen(closing);
     },
-    [setTabs, showInPane],
+    [setTabs, showInPane, ctl, ctlB],
   );
+
+  /** Pops the most recently closed file- or library-backed tab and reopens it, restoring its last page. */
+  const reopenClosedTab = useCallback(async () => {
+    const stack = closedTabsRef.current;
+    if (!stack.length) return;
+    const entry = stack[stack.length - 1]!;
+    const next = stack.slice(0, -1);
+    closedTabsRef.current = next;
+    setClosedTabs(next);
+
+    const targetPane: Pane = split && activePaneRef.current === 'b' ? 'b' : 'a';
+    const restorePage = (fileId: string, page: number) => {
+      if (page <= 0) return;
+      const tab = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === fileId);
+      if (!tab || page >= tab.doc.pages.length) return;
+      const isB = tabsBRef.current.some((t) => t.file.id === fileId);
+      (isB ? ctlB?.viewer : ctl?.viewer)?.goToPage(page);
+    };
+
+    for (const p of ['a', 'b'] as const) {
+      const existing = (p === 'b' ? tabsBRef.current : tabsARef.current).find((t) => t.file.id === entry.libraryId);
+      if (existing) {
+        activateTab(p, existing);
+        restorePage(entry.libraryId, entry.pageIndex);
+        return;
+      }
+    }
+
+    try {
+      const files = await listFiles();
+      const file = files.find((f) => f.id === entry.libraryId);
+      if (file) {
+        if (await movedAway(file.id)) {
+          setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+          return;
+        }
+        const bytes = await readFile(file.hash);
+        await openStored(file, bytes, targetPane);
+        await touchFile(file.id);
+        void refreshLibrary();
+        restorePage(file.id, entry.pageIndex);
+        return;
+      }
+
+      const host = desktop();
+      if (entry.desktopToken && host) {
+        const exists = host.tokenExists ? await host.tokenExists(entry.desktopToken) : true;
+        if (!exists) {
+          setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+          return;
+        }
+        const raw = await host.readToken(entry.desktopToken);
+        const bytes = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
+        const stored = await saveFile(entry.name, bytes.slice(0));
+        await openStored(stored, bytes, targetPane);
+        void refreshLibrary();
+        restorePage(stored.id, entry.pageIndex);
+        return;
+      }
+
+      setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+    } catch {
+      setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+    }
+  }, [split, ctl, ctlB, activateTab, openStored, refreshLibrary]);
 
   /**
    * Puts a document's markups back to what its file holds: undoes what was done since it matched
@@ -7227,7 +7320,9 @@ export function App() {
 
   /** One pane's row of document tabs: click to bring forward, × or middle-click to close. */
   const docTabs = (pane: Pane) => {
-    const tabs = pane === 'b' ? tabsB : tabsA;
+    // A mirrored right pane shows its document's tab too (it has none of its own in the list).
+    const mirrored = pane === 'b' && mirrorRef.current && !!openB;
+    const tabs = pane === 'b' ? (mirrored ? [openB] : tabsB) : tabsA;
     const front: OpenTab | null = pane === 'b' ? openB ?? modelB : open ?? modelA;
     return (
       <DocTabStrip
@@ -7279,7 +7374,7 @@ export function App() {
               title={session ? msg('{name} · Live Session {value}', { name: t.file.name, value: sessionName ?? session.sessionId }) : t.file.name}
               onClick={() => activateTab(pane, t)}
               onContextMenu={(e) => showMenu(e, tabMenu(pane, t))}
-              draggable
+              draggable={!mirrored}
               onDragStart={(e) => {
                 e.dataTransfer.setData(TAB_DRAG_TYPE, JSON.stringify({ pane, id: t.file.id }));
                 e.dataTransfer.effectAllowed = 'move';
@@ -7991,11 +8086,14 @@ export function App() {
       setSplit(true);
       return;
     }
+    // A mirrored document is already shown in both panes: nothing to move.
+    if (mirrorRef.current && (from === 'b' || t === openBRef.current)) return;
     const rest = (from === 'b' ? tabsBRef.current : tabsARef.current).filter((x) => x !== t);
     const front = from === 'b' ? openBRef.current : openRef.current;
     setTabs(from, rest);
     if (front === t) showInPane(from, rest[0] ?? null);
-    setTabs(to, [...(to === 'b' ? tabsBRef.current : tabsARef.current), t]);
+    const dest = to === 'b' ? tabsBRef.current : tabsARef.current;
+    if (!dest.includes(t)) setTabs(to, [...dest, t]);
     activateTab(to, t);
     if (from === 'b' && !rest.length) setSplit(false);
   };
@@ -8098,7 +8196,7 @@ export function App() {
       // Its changes live on in the new window, so closing here must not ask about them or keep them for recovery.
       rememberUnsaved(new Map([[t.file.id, false]]));
       markSaved(t);
-      closeTab(pane, t.file.id);
+      closeTab(pane, t.file.id, false);
     } catch (err) {
       setError(msg('Could not move the document: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
@@ -8106,7 +8204,8 @@ export function App() {
 
   /** Right-click on a document tab: close, save, add to a session, show where it lives, move pane. */
   const tabMenu = (pane: Pane, t: OpenTab): MenuEntry[] => {
-    const tabs = pane === 'b' ? tabsB : tabsA;
+    const mirrored = pane === 'b' && mirrorRef.current;
+    const tabs = mirrored ? [t] : pane === 'b' ? tabsB : tabsA;
     const idx = tabs.indexOf(t);
     const sessionDoc = studioDocOf(t.file.id);
     const snap = sessionDoc ? snapshots.find((s) => s.meta.id === sessionDoc.sessionId) : null;
@@ -8121,6 +8220,7 @@ export function App() {
       { label: msg('Close All'), onClick: () => closeMany(tabs) },
       { label: msg('Close All But This'), disabled: tabs.length < 2, onClick: () => closeMany(tabs.filter((x) => x !== t)) },
       { label: msg('Close Tabs to the Right'), disabled: idx === tabs.length - 1, onClick: () => closeMany(tabs.slice(idx + 1)) },
+      { label: msg('Reopen Closed Tab'), shortcut: 'Ctrl+Shift+T', disabled: closedTabs.length === 0, onClick: () => void reopenClosedTab() },
     ];
     // A 3D model has no markups to save or share, so its menu only closes it or shows where it lives.
     if (t.kind === 'model')
@@ -8147,10 +8247,14 @@ export function App() {
             onClick: () => void detachTab(pane, t),
           }]
         : []),
-      ...(desktop()
+      ...(desktop() && locationTick >= 0 && hasFileLocation(t.file.id)
         ? [{
-            label: msg('Open File Location'),
-            disabled: locationTick < 0 || !hasFileLocation(t.file.id),
+            label: (() => {
+              const p = desktop()?.platform ?? (typeof navigator !== 'undefined' ? navigator.platform || navigator.userAgent : '');
+              if (/win/i.test(p)) return msg('Reveal in Explorer');
+              if (/mac|darwin/i.test(p)) return msg('Reveal in Finder');
+              return msg('Show in File Manager');
+            })(),
             onClick: () => void revealFileLocation(t.file.id).then((ok) => {
               if (!ok) setError(msg('That file is not in a folder on this computer. It may have been moved, renamed or deleted.'));
             }),
@@ -8183,7 +8287,11 @@ export function App() {
         : { label: msg('Show in File Access'), onClick: () => { showPanel('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
       { label: msg('Copy File Name'), onClick: () => void navigator.clipboard?.writeText(t.file.name) },
       SEP,
-      { label: pane === 'a' ? (split ? msg('Move to Right Pane') : msg('Open in Split View')) : msg('Move to Left Pane'), onClick: () => moveTab(pane, t) },
+      {
+        label: pane === 'a' ? (split ? msg('Move to Right Pane') : msg('Open in Split View')) : msg('Move to Left Pane'),
+        disabled: mirrorRef.current && (pane === 'b' || t === openBRef.current),
+        onClick: () => moveTab(pane, t),
+      },
     ];
   };
 
@@ -8826,6 +8934,7 @@ export function App() {
     close: closeDocument,
     closeAll: () =>
       void requestCloseTabs((['b', 'a'] as const).flatMap((pane) => (pane === 'b' ? tabsBRef.current : tabsARef.current).map((t) => ({ pane, fileId: t.file.id })))),
+    reopenClosedTab: () => void reopenClosedTab(),
     saveAll: () =>
       void (async () => {
         for (const t of pdfTabs([...tabsARef.current, ...tabsBRef.current])) {
@@ -9587,7 +9696,8 @@ export function App() {
       }
       setPublishFor(null);
     } catch (err) {
-      setError(`${req.kind === 'pdf' ? 'Publish' : 'Export'} failed: ${err instanceof Error ? err.message : String(err)}`);
+      const error = err instanceof Error ? err.message : String(err);
+      setError(req.kind === 'pdf' ? msg('Publish failed: {error}', { error }) : msg('Export failed: {error}', { error }));
     } finally {
       job.end();
     }
@@ -9653,6 +9763,7 @@ export function App() {
     tool: toolsState.tool,
     settings: prefs,
     openTabCount: (tabPaneOf(pane) === 'b' ? tabsB : tabsA).length,
+    hasClosedTabs: closedTabs.length > 0,
     leftTab,
     rightTab,
     bottomTab,
@@ -11836,7 +11947,7 @@ export function App() {
           stamp={stampToFill}
           author={author}
           title={stampToFill.name}
-          applyLabel="Place"
+          applyLabel={msg('Place')}
           onCancel={() => setStampToFill(null)}
           onApply={(values) => {
             setStampToFill(null);
@@ -11855,8 +11966,8 @@ export function App() {
               stamp={{ name: m.subject ?? 'Stamp', ...formStamp(m.stamp)! }}
               author={form.placed.user}
               initial={form.values}
-              title={m.subject ?? 'Stamp'}
-              applyLabel="Update"
+              title={m.subject ?? msg('Stamp')}
+              applyLabel={msg('Update')}
               onCancel={() => setStampEdit(null)}
               onApply={(values) => {
                 setStampEdit(null);

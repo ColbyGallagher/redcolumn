@@ -1001,7 +1001,7 @@ function listAssemblies(docs: readonly AssistantDocument[], params: unknown) {
       name: a.name,
       ...(a.description ? { description: a.description } : {}),
       variables: a.variables,
-      items: a.items.map((i) => ({ name: i.name, unit: i.unit, formula: i.formula, ...(i.waste ? { waste: i.waste } : {}), ...(i.roundUp ? { roundUp: true } : {}), ...(i.roundUp && i.roundTo ? { roundTo: i.roundTo } : {}) })),
+      items: a.items.map((i) => ({ name: i.name, unit: i.unit, formula: i.formula, ...(i.waste ? { waste: i.waste } : {}), ...(i.roundUp ? { roundUp: true } : {}), ...(i.roundUp && i.roundTo ? { roundTo: i.roundTo } : {}), ...(i.roundUp && i.roundEach ? { roundEach: true } : {}) })),
     })),
     formulaNames: MEASURED_NAMES.map((n) => n.name),
   };

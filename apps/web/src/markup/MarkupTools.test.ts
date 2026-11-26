@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { METERS_PER_UNIT, measureValue, pathLengthArcs, polygonAreaArcs } from '@nb/measure';
-import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
+import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, rotatePoint, rotationCentre, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import { frameRect, groupFrame, groupHandles } from './groupBox';
@@ -2148,7 +2148,7 @@ test('addCalloutLeader turns a text box into a callout and undoes cleanly', asyn
   await h.store.destroy();
 });
 
-test('addCalloutLeader on a text box clears rotation, updates default subject, and preserves borderless look', async () => {
+test('addCalloutLeader on a text box keeps its turn, updates default subject, and preserves borderless look', async () => {
   const h = await setup();
   const tb = put(h, 'text', [[320, 140], [200, 100]], {
     text: 'Note',
@@ -2161,7 +2161,10 @@ test('addCalloutLeader on a text box clears rotation, updates default subject, a
   click(h.tools, [120, 120]);
   const after = h.store.get(tb.id)!;
   assert.equal(after.type, 'callout');
-  assert.equal(after.rotation, undefined);
+  // A callout turns like the text box did: its box keeps the turn and the tip lands where it was clicked.
+  assert.equal(after.rotation, 30);
+  const tip = rotatePoint(after.points[0]!, rotationCentre(after), 30);
+  assert.ok(Math.hypot(tip[0] - 120, tip[1] - 120) < 1e-6);
   assert.equal(after.subject, 'Callout');
   assert.equal(after.style.width, DEFAULT_STYLES.callout.width);
   assert.equal(after.style.borderless, true);
@@ -2174,6 +2177,25 @@ test('addCalloutLeader on a text box clears rotation, updates default subject, a
   click(h.tools, [50, 220]);
   assert.equal(h.store.get(locked.id)!.type, 'text');
 
+  await h.store.destroy();
+});
+
+test('turning a callout turns its text box; the tip stays put, and dragging the turned box leaves it there too', async () => {
+  const h = await setup();
+  const c = put(h, 'callout', [[40, 200], [180, 120], [200, 100], [300, 140]], { text: 'Note' });
+  const shown = (m: Markup, p: Point) => (m.rotation ? rotatePoint(p, rotationCentre(m), m.rotation) : p);
+  const near = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
+  h.tools.select([c.id]);
+  h.tools.setRotation(90);
+  let m = h.store.get(c.id)!;
+  assert.equal(m.rotation, 90);
+  assert.ok(near(shown(m, m.points[0]!), [40, 200]), 'the tip stays where it points');
+  assert.ok(near(rotationCentre(m), [250, 120]), 'the box turns about its middle');
+  // The turned box is 40 wide and 100 tall about (250, 120): grabbing it below its middle moves it alone.
+  drag(h.tools, [250, 160], [270, 170]);
+  m = h.store.get(c.id)!;
+  assert.ok(near(rotationCentre(m), [270, 130]), 'the box moved');
+  assert.ok(near(shown(m, m.points[0]!), [40, 200]), 'the tip did not');
   await h.store.destroy();
 });
 

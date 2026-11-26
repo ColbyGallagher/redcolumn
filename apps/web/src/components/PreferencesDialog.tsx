@@ -453,6 +453,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['continuousSideBySide', msg('Continuous Side by Side')],
         ])}
         {num('maxZoom', msg('Maximum Zoom'), { min: 400, max: 12800, step: 100, unit: '%' })}
+        <C>{check('syncSplitView', msg('Synchronise Panes When Splitting a Single Document'))}</C>
         {select('optimiseDrawings', msg('Optimise Slow Drawings'), [
           ['ask', msg('Ask when a sheet is slow to draw')],
           ['always', msg('Always, without asking')],
@@ -999,6 +1000,8 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             ['en-AU', 'English (Australia)'],
             ['en-GB', 'English (UK)'],
             ['en-US', 'English (US)'],
+            ['de-DE', 'Deutsch'],
+            ['fr-FR', 'Français'],
           ])}
         </Grid>
         <div className="pref-table" role="listbox" aria-label={msg('Custom Words')}>

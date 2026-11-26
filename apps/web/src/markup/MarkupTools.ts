@@ -95,6 +95,8 @@ import {
   scaledAbout,
   rotatePoint,
   rotationCentre,
+  calloutLeadersKept,
+  turnedTo,
   transformMarkup,
   type Affine as MarkupAffine,
   type Rect,
@@ -1700,7 +1702,7 @@ export class MarkupTools implements ViewerOverlay {
     const store = this.store;
     store.checkpoint();
     store.batch(() => {
-      for (const m of ms) store.update(m.id, { rotation: rotation || undefined });
+      for (const m of ms) store.update(m.id, turnedTo(m, rotation));
     });
   }
 
@@ -3474,7 +3476,8 @@ export class MarkupTools implements ViewerOverlay {
     // A callout's text box drags on its own, leaving the arrow tip where it points.
     if (hit.type === 'callout' && !this.frozen(hit) && !e.shiftKey && !this.store.readOnly && hit.points.length >= 4) {
       const box = boundsOf(hit.points.slice(2, 4));
-      if (p[0] >= box.x && p[0] <= box.x + box.w && p[1] >= box.y && p[1] <= box.y + box.h) {
+      const [ux, uy] = unrotate(hit, p);
+      if (ux >= box.x && ux <= box.x + box.w && uy >= box.y && uy <= box.y + box.h) {
         // The whole group (a Cloud+'s cloud and callout) is selected, but only the text box moves.
         if (!this.state.selected.has(hit.id)) this.select(this.withGroups([hit.id]));
         this.setGesture({ kind: 'calloutBox', id: hit.id, start: p, dx: 0, dy: 0 });
@@ -3914,7 +3917,7 @@ export class MarkupTools implements ViewerOverlay {
       } else if (g.drill) this.selectOnly([g.drill]);
     } else if (g.kind === 'calloutBox') {
       const m = this.store.get(g.id);
-      if (m && (g.dx || g.dy)) this.store.update(g.id, { points: calloutBoxMoved(m.points, g.dx, g.dy, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex)) });
+      if (m && (g.dx || g.dy)) this.store.update(g.id, { points: calloutBoxMoved(m, g.dx, g.dy, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex)) });
     } else if (g.kind === 'handle') {
       const m = this.store.get(g.id);
       if (m?.type === 'connector') {
@@ -3929,7 +3932,7 @@ export class MarkupTools implements ViewerOverlay {
       if (m) this.setBends(m, moveSegment(g.route, g.mid, g.to, g.start));
     } else if (g.kind === 'rotate') {
       const m = this.store.get(g.id);
-      if (m) this.store.update(g.id, { rotation: g.angle || undefined });
+      if (m) this.store.update(g.id, turnedTo(m, g.angle));
     } else if (g.kind === 'label' || g.kind === 'labelRotate') {
       const m = this.store.get(g.id);
       if (m) this.store.update(g.id, { style: labelStyled(m, g) });
@@ -5211,7 +5214,7 @@ export class MarkupTools implements ViewerOverlay {
   private ownPreview(m: Markup): Markup {
     const g = this.gesture;
     if (g?.kind === 'move' && !g.copy && this.state.selected.has(m.id) && !this.frozen(m)) return { ...m, ...moved(m, g.dx, g.dy) };
-    if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m.points, g.dx, g.dy, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex)) };
+    if (g?.kind === 'calloutBox' && g.id === m.id) return { ...m, points: calloutBoxMoved(m, g.dx, g.dy, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex)) };
     if (g?.kind === 'calloutLeader' && g.id === m.id && g.tip) {
       const patch = withCalloutLeader(m, g.tip, CALLOUT_LANDING_PX / this.viewer.zoomFor(m.pageIndex));
       if (patch) return { ...m, ...patch };
@@ -5223,7 +5226,7 @@ export class MarkupTools implements ViewerOverlay {
     }
     if (g?.kind === 'bend' && g.id === m.id) return { ...m, bulges: withBulge(m, g.segment, g.bulge) };
     if (g?.kind === 'segment' && g.id === m.id) return this.withBends(m, moveSegment(g.route, g.mid, g.to, g.start));
-    if (g?.kind === 'rotate' && g.id === m.id) return { ...m, rotation: g.angle };
+    if (g?.kind === 'rotate' && g.id === m.id) return { ...m, ...turnedTo(m, g.angle) };
     if (g?.kind === 'groupXform' && g.ids.includes(m.id)) return { ...m, ...transformMarkup(m, g.t) };
     if (g?.kind === 'scaleRef' && g.ids.includes(m.id)) {
       const factor = scaleFactor(g);
@@ -5254,6 +5257,8 @@ function canAddLeader(m: Pick<Markup, 'type' | 'points'>): boolean {
 function withCalloutLeader(m: Markup, tip: Point, landing: number): Partial<Markup> | null {
   if (!canAddLeader(m)) return null;
   const box = contentBox(m);
+  // A turned box keeps its turn: the new tip is stored in its own frame, so it lands where it was clicked.
+  tip = unrotate(m, tip);
   const knee = calloutKneeForSide(calloutSideForPoint(tip, box), box, landing);
   if (m.type === 'callout') return { points: [...m.points, tip, knee] };
   const style =
@@ -5263,7 +5268,6 @@ function withCalloutLeader(m: Markup, tip: Point, landing: number): Partial<Mark
   return {
     type: 'callout',
     points: [tip, knee, [box.x, box.y], [box.x + box.w, box.y + box.h]],
-    ...(m.rotation ? { rotation: undefined } : {}),
     ...(m.subject === TYPE_INFO.text.label ? { subject: TYPE_INFO.callout.label } : {}),
     ...(style ? { style } : {}),
   };
@@ -5485,6 +5489,23 @@ function midpoints(m: Markup): { index: number; at: Point }[] {
  */
 function handleEdit(m: Markup, index: number, point: Point, defaultLanding = CALLOUT_LANDING_PX, linkedIndices?: readonly number[]): Point[] {
   const points = [...m.points];
+  if (m.type === 'callout' && points.length >= 4 && m.rotation) {
+    // A turned callout: the edit in its box's own frame (the pointer turned back first).
+    const c0 = rotationCentre(m);
+    const edited = handleEdit({ ...m, rotation: 0 }, index, rotatePoint(point, c0, -m.rotation), defaultLanding, linkedIndices);
+    if (!(index === 2 || index === 3 || index >= points.length)) return edited;
+    // A box handle: the handle across from it stays where it was on the page, and so do the leaders.
+    const n = points.length;
+    const bi = index === 2 ? 0 : index === 3 ? 1 : index - n + 2;
+    const opposite = BOX_OPPOSITE[bi]!;
+    const across = handlePositions({ ...m, points: edited, rotation: 0 })[opposite < 2 ? 2 + opposite : n + opposite - 2]!;
+    const anchor = rotatePoint(across, c0, m.rotation);
+    const c1 = rotationCentre({ type: m.type, points: edited });
+    const off = rotatePoint(across, c1, m.rotation);
+    const [dx, dy] = [anchor[0] - off[0], anchor[1] - off[1]];
+    const shifted = edited.map((q, i): Point => (i === 2 || i === 3 ? [q[0] + dx, q[1] + dy] : q));
+    return calloutLeadersKept(m, shifted);
+  }
   if (m.type === 'callout' && points.length >= 4) {
     // Box corner or edge-midpoint handle (indices 2, 3, or appended beyond m.points).
     if (index === 2 || index === 3 || index >= points.length) {
@@ -5589,8 +5610,12 @@ function cornerKeepingAspect(m: Markup, index: number, point: Point): Point {
 }
 
 /** A callout's points with everything but the arrow tips (the knee and the box) moved by (dx, dy). */
-function calloutBoxMoved(points: readonly Point[], dx: number, dy: number, defaultLanding = CALLOUT_LANDING_PX): Point[] {
-  const next = points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy]));
+function calloutBoxMoved(m: Pick<Markup, 'type' | 'points' | 'rotation'>, dx: number, dy: number, defaultLanding = CALLOUT_LANDING_PX): Point[] {
+  const moved = m.points.map((q, i): Point => (isCalloutTip(i) ? q : [q[0] + dx, q[1] + dy]));
+  // A turned callout's points are in its box's frame, which moved with the box: its tips are put back
+  // where they were on the page (the knees and box move by (dx, dy) on the page either way).
+  const kept = m.rotation ? calloutLeadersKept(m, moved) : moved;
+  const next = moved.map((q, i) => (isCalloutTip(i) ? kept[i]! : q));
   if (next.length < 4) return next;
   const box = boundsOf(next.slice(2, 4));
   next[1] = calloutRelocateKneeForTip(next[0]!, next[1]!, box, defaultLanding);

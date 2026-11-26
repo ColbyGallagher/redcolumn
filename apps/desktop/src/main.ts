@@ -1,3 +1,4 @@
+import { setStrings, t } from './i18n';
 import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, screen, session, shell, utilityProcess } from 'electron';
 import { randomBytes } from 'node:crypto';
@@ -21,6 +22,7 @@ import { LINK_SCHEME } from './links';
 import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
 import { SystemFonts, systemFontDirs } from './fonts';
 import { RevuSettings, revuSettingsRoot } from './revuSettings';
+import { revealFileByToken } from './reveal';
 import { pkiRequest } from './pki';
 import { TokenClient } from './token-ipc';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
@@ -124,12 +126,16 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
   const auth = new DesktopAuth(app.getPath('userData'));
 
   ipcMain.on('desktop:info', (event) => {
-    event.returnValue = { nativeFiles: NATIVE_OPEN_SAVE, printMode: PRINT_MODE, policy };
+    event.returnValue = { nativeFiles: NATIVE_OPEN_SAVE, printMode: PRINT_MODE, policy, systemLocale: app.getSystemLocale() };
   });
   await restoreLastDir(path.join(app.getPath('userData'), 'last-dir.json'));
   windowStateStore = new WindowStateStore(path.join(app.getPath('userData'), 'window-state.json'));
   await windowStateStore.load();
   registerPathIpc(allowlist, (contents) => windows.get(contents)?.launches ?? null, () => mainWindow);
+  ipcMain.handle('file:reveal', async (event, token: unknown): Promise<boolean> => {
+    if (!windows.has(event.sender) || !fromApp(event)) return false;
+    return revealFileByToken(allowlist, token, (resolvedPath) => shell.showItemInFolder(resolvedPath));
+  });
   // Every handler below answers the app's own page only: not help windows, not blob previews.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown) => {
     ipcMain.handle(channel, (event, ...args) => {
@@ -215,10 +221,10 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
   handle('token:modules', () => tokens.modules());
   handle('token:add-module', async () => {
     const options: Electron.OpenDialogOptions = {
-      title: 'Choose the card’s PKCS#11 driver',
+      title: t('Choose the card’s PKCS#11 driver'),
       defaultPath: startDir(),
       properties: ['openFile'],
-      filters: [{ name: 'PKCS#11 driver', extensions: process.platform === 'win32' ? ['dll'] : process.platform === 'darwin' ? ['dylib', 'so'] : ['so'] }],
+      filters: [{ name: t('PKCS#11 driver'), extensions: process.platform === 'win32' ? ['dll'] : process.platform === 'darwin' ? ['dylib', 'so'] : ['so'] }],
     };
     const win = mainWindow;
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
@@ -256,10 +262,10 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
   handle('folder:pick', async (purpose) => {
     const win = mainWindow;
     const titles: Record<string, string> = {
-      open: 'Open a Project folder',
-      create: 'Choose where the Project folder goes',
-      'session-open': 'Open a Live Session folder',
-      'session-create': 'Choose a shared folder for the Live Session',
+      open: t('Open a Project folder'),
+      create: t('Choose where the Project folder goes'),
+      'session-open': t('Open a Live Session folder'),
+      'session-create': t('Choose a shared folder for the Live Session'),
     };
     const options = { title: titles[String(purpose)] ?? titles.create!, defaultPath: startDir(), properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
@@ -292,7 +298,7 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
     handle('excel:pick', async (suggestedName) => {
       const win = mainWindow;
       const name = `${str(suggestedName).replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Markups'}.xlsx`;
-      const options = { title: 'Choose where the Excel workbook goes', defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const options = { title: t('Choose where the Excel workbook goes'), defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: t('Excel Workbook'), extensions: ['xlsx'] }] };
       const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
       if (result.canceled || !result.filePath) return null;
       const filePath = /\.xlsx$/i.test(result.filePath) ? result.filePath : `${result.filePath}.xlsx`;
@@ -307,7 +313,7 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
     // place the rows, and Excel fills a copy in. The client's file itself is only ever read.
     handle('excel:pick-source', async () => {
       const win = mainWindow;
-      const options = { title: 'Choose the client’s register file', properties: ['openFile' as const], filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const options = { title: t('Choose the client’s register file'), properties: ['openFile' as const], filters: [{ name: t('Excel Workbook'), extensions: ['xlsx'] }] };
       const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
       const filePath = result.filePaths[0];
       if (result.canceled || !filePath || !/\.xlsx$/i.test(filePath)) return null;
@@ -322,7 +328,7 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
       const request = checkFill(fill);
       const win = mainWindow;
       const name = `${str(suggestedName).replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Comment register'}.xlsx`;
-      const options = { title: 'Save the filled-in register', defaultPath: path.join(path.dirname(source), name), filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const options = { title: t('Save the filled-in register'), defaultPath: path.join(path.dirname(source), name), filters: [{ name: t('Excel Workbook'), extensions: ['xlsx'] }] };
       const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
       if (result.canceled || !result.filePath) return null;
       const filePath = /\.xlsx$/i.test(result.filePath) ? result.filePath : `${result.filePath}.xlsx`;
@@ -388,6 +394,11 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
     quitting = true;
   });
 
+  // The page's translations of the text the main process shows (dialog titles and the like).
+  ipcMain.on('ui:strings', (event, strings) => {
+    if (!windows.get(event.sender) || !fromApp(event)) return;
+    setStrings(strings);
+  });
   // Unsaved changes: the page says whether it has any; closing the window then asks the page first.
   ipcMain.on('window:unsaved', (event, on) => {
     const state = windows.get(event.sender);

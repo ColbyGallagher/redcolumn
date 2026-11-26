@@ -33,5 +33,17 @@ export function resolveNumberFormat(choice: unknown, systemLocale: string): stri
 
 /** The system's formatting locale (the browser's, or on the desktop the operating system's). */
 export function systemNumberLocale(): string {
-  return Intl.DateTimeFormat().resolvedOptions().locale || 'en-US';
+  // The desktop app passes the system's regional format: Windows keeps it apart from the display language.
+  const raw = typeof window === 'undefined' ? undefined : window.redcolumn?.systemLocale;
+  return usableLocale(raw) ?? (Intl.DateTimeFormat().resolvedOptions().locale || 'en-US');
+}
+
+/** A locale tag the number formats accept, from what the system reports (Linux and macOS may give en_US, C or a @ modifier). */
+export function usableLocale(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !raw) return null;
+  try {
+    return Intl.NumberFormat.supportedLocalesOf([raw.split(/[.@]/)[0]!.replace(/_/g, '-')])[0] ?? null;
+  } catch {
+    return null;
+  }
 }

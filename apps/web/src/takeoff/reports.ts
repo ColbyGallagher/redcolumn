@@ -3,7 +3,7 @@ import { lazy } from '../i18n/lazy';
 import { isMeasureKind, ITEM_CATEGORIES, markupLabel, MARKUP_LABELS, measureProps, reviewedOnly, type Assembly, type Item, type Markup } from '@nb/markup';
 import type { ReportColumn, ReportRow, ReportTable } from '@nb/markup/report';
 import { areaUnitOf, DEFAULT_SCALE, formatSlope, measureDetails, measureValue, METERS_PER_UNIT, quantityOf, scaleEquation, slopeApplies, slopeIsFlat, toDisplayQuantity, type Scale } from '@nb/measure';
-import { ceilTo, markupQuantities, roundStep, type ItemQuantity } from '../assemblies/quantities';
+import { addRounded, emptyRoundedSum, markupQuantities, orderedQuantity, roundedTotal, type ItemQuantity, type RoundedSum } from '../assemblies/quantities';
 import { cellsFor, type CellContext } from '../columns/listColumns';
 
 /**
@@ -98,7 +98,7 @@ interface Bucket {
   net: number;
   gross: number;
   measurements: number;
-  step: number;
+  order: RoundedSum;
   costs: Set<number>;
   costSum: number;
   wastes: Set<number>;
@@ -121,7 +121,7 @@ function addTo(buckets: Map<string, Bucket>, key: string, r: ItemQuantity, catal
       net: 0,
       gross: 0,
       measurements: 0,
-      step: 0,
+      order: emptyRoundedSum(),
       costs: new Set(),
       costSum: 0,
       wastes: new Set(),
@@ -133,16 +133,16 @@ function addTo(buckets: Map<string, Bucket>, key: string, r: ItemQuantity, catal
   b.net += r.base;
   b.gross += r.quantity;
   b.wastes.add(r.item.waste ?? 0);
-  if (r.item.roundUp) b.step = Math.max(b.step, roundStep(r.item));
+  addRounded(b.order, r);
   if (r.item.unitCost !== undefined) {
     b.costs.add(r.item.unitCost);
-    b.costSum += r.quantity * r.item.unitCost;
+    b.costSum += orderedQuantity(r) * r.item.unitCost;
   }
 }
 
-/** A bucket as a row: the order quantity rounds up once, on the total; one unit cost prices the order, several price each contribution. */
+/** A bucket as a row: the order quantity rounds up once, on the total (each measurement first, for items that round each); one unit cost prices the order, several price each contribution. */
 function bucketRow(b: Bucket): ReportRow & { cost: number | null } {
-  const order = b.step > 0 ? ceilTo(b.gross, b.step) : b.gross;
+  const order = roundedTotal(b.order);
   const unitCost = b.costs.size === 1 ? [...b.costs][0]! : null;
   const cost = unitCost !== null ? order * unitCost : b.costs.size ? b.costSum : null;
   // One waste for every contribution reads as that percentage; mixed ones as what they came to.

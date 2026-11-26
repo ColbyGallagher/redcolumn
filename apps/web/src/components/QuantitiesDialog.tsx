@@ -77,7 +77,7 @@ export function QuantitiesDialog({ markups, assemblies, ctx, pageLabel, onManage
                   <th className="num" title={msg('Measurements that contributed')}>{msg('Meas.')}</th>
                   <th className="num" title={msg('Before waste')}>{msg('Measured')}</th>
                   <th className="num">{msg('With waste')}</th>
-                  <th className="num" title={msg('With waste, rounded up on the total where the item rounds')}>{msg('Total')}</th>
+                  <th className="num" title={msg('With waste, rounded up on the total where the item rounds (each measurement first where it rounds each)')}>{msg('Total')}</th>
                   <th className="num">{msg('Unit cost')}</th>
                   <th className="num">{msg('Cost')}</th>
                 </tr>

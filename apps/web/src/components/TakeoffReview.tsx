@@ -513,12 +513,12 @@ function DraftDetail({ item: i, store, assemblies, ctx, readOnly, onShow }: Item
             {assemblies.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
-                {a.id === m.ai?.original.assemblyId ? ' (AI)' : ''}
+                {a.id === m.ai?.original.assemblyId ? ' ' + msg('(AI)') : ''}
               </option>
             ))}
           </select>
         ) : (
-          <b>{assembly?.name ?? 'none'}</b>
+          <b>{assembly?.name ?? msg('none')}</b>
         )}
       </div>
       <ItemsTable items={items} expected={m.ai?.expected} />
@@ -546,12 +546,12 @@ function AssemblyDetail({ item: i, p, assemblies, ctx, edit, onEdit }: ItemProps
             {assemblies.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
-                {a.id === p.assemblyId ? ' (proposed)' : ''}
+                {a.id === p.assemblyId ? ' ' + msg('(proposed)') : ''}
               </option>
             ))}
           </select>
         ) : (
-          <b>{assembly?.name ?? 'deleted assembly'}</b>
+          <b>{assembly?.name ?? msg('deleted assembly')}</b>
         )}
         {assemblyId !== p.assemblyId && <span className="warn">{msg('changed from {value}', { value: proposed?.name ?? msg('the proposal') })}</span>}
       </div>

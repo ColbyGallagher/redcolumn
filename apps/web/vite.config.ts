@@ -81,10 +81,10 @@ function chunkFileNames(chunk: { moduleIds?: readonly string[] }) {
   return chunk.moduleIds?.length && chunk.moduleIds.every((id) => MODEL3D_CODE.test(id)) ? 'model3d/[name]-[hash].js' : 'assets/[name]-[hash].js';
 }
 
-/** Spell checking's English dictionaries (Hunspell files from npm), served at spell/en-US.aff, spell/en-GB.dic and so on. */
+/** Spell checking's dictionaries (Hunspell files from npm), served at spell/en-US.aff, spell/fr-FR.dic and so on. */
 function spellAssets(): Plugin {
   const files: Record<string, string> = {};
-  for (const [code, pkg] of [['en-US', 'dictionary-en'], ['en-GB', 'dictionary-en-gb'], ['en-AU', 'dictionary-en-au']]) {
+  for (const [code, pkg] of [['en-US', 'dictionary-en'], ['en-GB', 'dictionary-en-gb'], ['en-AU', 'dictionary-en-au'], ['de-DE', 'dictionary-de'], ['fr-FR', 'dictionary-fr']]) {
     const dir = dirname(require.resolve(pkg!));
     files[`${code}.aff`] = `${dir}/index.aff`;
     files[`${code}.dic`] = `${dir}/index.dic`;
@@ -239,6 +239,8 @@ export default defineConfig({
   // pre-bundling in development would move.
   optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
   build: {
+    // dist/.vite/manifest.json: the chunk graph scripts/check-bundle.mjs reads.
+    manifest: true,
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('index.html', import.meta.url)),

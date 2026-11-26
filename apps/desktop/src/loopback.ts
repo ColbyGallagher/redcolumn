@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import { createServer, type Server } from 'node:http';
 
 /** A tenant is a GUID, a domain, or one of the named audiences. Nothing else goes in the URL. */
@@ -43,7 +44,7 @@ export function listenForCode(state: string, timeoutMs = 180_000): Promise<CodeL
       const error = url.searchParams.get('error');
       const code = url.searchParams.get('code');
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(`<!doctype html><meta charset="utf-8"><title>redcolumn</title><p>${error || !code ? 'Sign-in did not finish.' : 'Sign-in complete.'} You can close this window and return to redcolumn.</p>`);
+      res.end(`<!doctype html><meta charset="utf-8"><title>redcolumn</title><p>${escapeHtml(`${error || !code ? t('Sign-in did not finish.') : t('Sign-in complete.')} ${t('You can close this window and return to redcolumn.')}`)}</p>`);
       if (error || !code) finish(error === 'access_denied' ? new SignInClosed() : new Error('Sign-in did not finish.'));
       else finish(null, code);
     });
@@ -75,4 +76,9 @@ function promiseWithResolvers<T>(): { promise: Promise<T>; resolve: (v: T) => vo
   // A listener that is closed before anyone awaits the code must not crash the main process.
   promise.catch(() => undefined);
   return { promise, resolve, reject };
+}
+
+/** Text for the sign-in page's HTML (a translation could hold < or &). */
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 }

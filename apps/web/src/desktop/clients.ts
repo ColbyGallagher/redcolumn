@@ -37,13 +37,18 @@ export function claudeConfigPath(platform: 'win' | 'mac' | 'other'): string {
   return 'Claude Desktop → Settings → Developer → Edit Config';
 }
 
+export interface ClientSetupOptions {
+  compact?: boolean;
+}
+
 /** One install action per client. Each starts the Node program shipped with this installation. */
-export function clientSetups(launch: AssistantLaunch, platform: 'win' | 'mac' | 'other'): ClientSetup[] {
+export function clientSetups(launch: AssistantLaunch, platform: 'win' | 'mac' | 'other', options?: ClientSetupOptions): ClientSetup[] {
+  const launchArgs = options?.compact && !launch.args.includes('--compact') ? [...launch.args, '--compact'] : launch.args;
   const command = quote(launch.command);
-  const args = launch.args.map(quote).join(' ');
+  const args = launchArgs.map(quote).join(' ');
   const server = {
     command: launch.command,
-    args: launch.args,
+    args: launchArgs,
     ...(Object.keys(launch.env).length > 0 ? { env: launch.env } : {}),
   };
   const cursorConfig = server;
@@ -52,7 +57,7 @@ export function clientSetups(launch: AssistantLaunch, platform: 'win' | 'mac' | 
   const copilot = { servers: { redcolumn: vscodeConfig } };
   const envLines = Object.entries(launch.env).map(([key, value]) => `${key} = ${toml(value)}`).join('\n');
   const envTable = envLines ? `\n\n[mcp_servers.redcolumn.env]\n${envLines}` : '';
-  const tomlBlock = `[mcp_servers.redcolumn]\ncommand = ${toml(launch.command)}\nargs = [${launch.args.map(toml).join(', ')}]${envTable}`;
+  const tomlBlock = `[mcp_servers.redcolumn]\ncommand = ${toml(launch.command)}\nargs = [${launchArgs.map(toml).join(', ')}]${envTable}`;
   const envFlags = Object.entries(launch.env).map(([key, value]) => `--env ${key}=${quote(value)}`).join(' ');
   const envPrefix = envFlags ? `${envFlags} ` : '';
   return [

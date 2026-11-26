@@ -3,6 +3,8 @@ import { useMemo, useState } from 'react';
 import { ITEM_CATEGORIES, listCost, recordLabel, type Item, type ItemCategory, type ProductList } from '@nb/markup';
 import { formatNumber } from '../columns/listColumns';
 import { addToLibrary, loadEstimatingLibrary } from '../assemblies/estimatingLibrary';
+import { reorderById, sortAlphabetically } from '../assemblies/ordering';
+import { DragHandle, SortButton, useDragReorder } from './ReorderControls';
 
 interface Props {
   initial: readonly Item[];
@@ -62,6 +64,11 @@ export function ItemsDialog({ initial, productLists, readOnly, usage, onSave, on
   const [message, setMessage] = useState('');
   const [library, setLibrary] = useState(loadEstimatingLibrary);
   const shown = items.filter((i) => !filter || i.category === filter);
+  const itemDrag = useDragReorder(
+    shown.map((i) => i.id),
+    readOnly,
+    (from, to, pos) => setItems((l) => reorderById(l, from, to, pos)),
+  );
   const patch = (id: string, p: Partial<Item>) => setItems((l) => l.map((i) => (i.id === id ? { ...i, ...p } : i)));
   const names = useMemo(() => {
     const seen = new Map<string, number>();
@@ -101,6 +108,7 @@ export function ItemsDialog({ initial, productLists, readOnly, usage, onSave, on
             </select>
           </label>
           <span className="grow" />
+          <SortButton items={items} getName={(i) => i.name} disabled={readOnly} noun={msg('items')} onSort={(dir) => setItems((l) => sortAlphabetically(l, (i) => i.name, dir))} />
           <button type="button" className="btn small" disabled={readOnly} onClick={() => setItems((l) => [...l, newItem(filter || 'material', l)])}>
             {msg('+ Item')}
           </button>
@@ -135,6 +143,7 @@ export function ItemsDialog({ initial, productLists, readOnly, usage, onSave, on
           <table className="asm-table est-table">
             <thead>
               <tr>
+                <th className="drag-col" />
                 <th>{msg('Item no.')}</th>
                 <th>{msg('Name')}</th>
                 <th>{msg('Category')}</th>
@@ -155,7 +164,10 @@ export function ItemsDialog({ initial, productLists, readOnly, usage, onSave, on
                 const priced = listCost(i, lists);
                 const err = problem(i);
                 return (
-                  <tr key={i.id} data-item={i.name}>
+                  <tr key={i.id} data-item={i.name} className={itemDrag.rowClass(i.id)} {...itemDrag.targetProps(i.id)}>
+                    <td className="drag-handle-cell">
+                      <DragHandle disabled={readOnly} label={msg('Drag to reorder {name}', { name: i.name || msg('item') })} onDragStart={(e) => itemDrag.start(i.id, e)} onDragEnd={itemDrag.end} />
+                    </td>
                     <td>
                       <input aria-label={msg('Item number')} value={i.itemNo ?? ''} disabled={readOnly} style={{ width: 70 }} onChange={(e) => patch(i.id, { itemNo: e.target.value || undefined })} />
                     </td>
@@ -197,8 +209,14 @@ export function ItemsDialog({ initial, productLists, readOnly, usage, onSave, on
                     </td>
                     <td>
                       <div className="asm-round">
-                        <input type="checkbox" aria-label={msg('Item round up')} checked={!!i.roundUp} disabled={readOnly} onChange={(e) => patch(i.id, { roundUp: e.target.checked || undefined, ...(e.target.checked ? {} : { roundTo: undefined }) })} />
+                        <input type="checkbox" aria-label={msg('Item round up')} checked={!!i.roundUp} disabled={readOnly} onChange={(e) => patch(i.id, { roundUp: e.target.checked || undefined, ...(e.target.checked ? {} : { roundTo: undefined, roundEach: undefined }) })} />
                         {i.roundUp && <NumberCell label={msg('Item round up to nearest')} value={i.roundTo} placeholder="1" width={44} onChange={(n) => patch(i.id, { roundTo: n !== undefined && n > 0 && n !== 1 ? n : undefined })} />}
+                        {i.roundUp && (
+                          <label className="asm-round-each" title={msg('Round each measurement up before adding them up, rather than the total once: four 14 ft runs of pipe sold in 8 ft lengths need 16 ft each, as offcuts cannot be joined.')}>
+                            <input type="checkbox" aria-label={msg('Item round up each measurement')} checked={!!i.roundEach} disabled={readOnly} onChange={(e) => patch(i.id, { roundEach: e.target.checked || undefined })} />
+                            {msg('each')}
+                          </label>
+                        )}
                       </div>
                     </td>
                     <td>
@@ -245,7 +263,7 @@ export function ItemsDialog({ initial, productLists, readOnly, usage, onSave, on
               })}
               {!shown.length && (
                 <tr>
-                  <td colSpan={12} className="empty">
+                  <td colSpan={13} className="empty">
                     {items.length ? msg('No items in this category.') : msg('No items yet. Add one, or bring them in with Assemblies › Import.')}
                   </td>
                 </tr>
