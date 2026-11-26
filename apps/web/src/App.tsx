@@ -9022,7 +9022,7 @@ export function App() {
     if (!found || !controls) return;
     activateTab(found.pane, found.tab);
     void controls.findAt(grid[0], grid[1]).then((hit) => {
-      if (!hit) setNotice('Nothing in the model at that place on the map.');
+      if (!hit) setNotice(msg('Nothing in the model at that place on the map.'));
     });
   };
 
