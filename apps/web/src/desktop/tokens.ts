@@ -132,5 +132,6 @@ export function mimeFor(name: string): string {
   if (/\.webp$/i.test(name)) return 'image/webp';
   if (/\.dwg$/i.test(name)) return 'image/vnd.dwg';
   if (/\.dxf$/i.test(name)) return 'image/vnd.dxf';
+  if (/\.ifc$/i.test(name)) return 'application/x-step';
   return 'application/pdf';
 }

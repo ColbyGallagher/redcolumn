@@ -1,0 +1,26 @@
+{
+  "name": "@nb/model3d",
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --test --experimental-strip-types src/*.test.ts"
+  },
+  "dependencies": {
+    "@nb/measure": "workspace:*",
+    "@thatopen/components": "3.6.0",
+    "@thatopen/components-front": "3.6.1",
+    "@thatopen/fragments": "3.6.1",
+    "camera-controls": "3.1.2",
+    "three": "^0.182.0",
+    "web-ifc": "0.0.80"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "@types/three": "~0.182.0",
+    "typescript": "5.9.3"
+  }
+}

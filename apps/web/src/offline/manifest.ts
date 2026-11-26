@@ -45,8 +45,8 @@ export function buildManifest(base: string, screenshots: ManifestScreenshot[] = 
       { name: 'New PDF', short_name: 'New', description: 'Start a new blank PDF', url: `${base}?action=new`, icons: [{ src: at('icon-192.png'), sizes: '192x192', type: 'image/png' }] },
     ],
     screenshots,
-    // Installed on a desktop, redcolumn is offered for PDFs in the file manager (read with launchQueue).
-    file_handlers: [{ action: base, accept: { 'application/pdf': ['.pdf'] } }],
+    // Installed on a desktop, redcolumn is offered for PDFs and IFC models in the file manager (read with launchQueue).
+    file_handlers: [{ action: base, accept: { 'application/pdf': ['.pdf'], 'application/x-step': ['.ifc'] } }],
     // A new launch (a file, a shortcut) goes to the window already open rather than a second one.
     launch_handler: { client_mode: ['focus-existing', 'auto'] },
     // On phones, PDFs can be shared to redcolumn from other apps.

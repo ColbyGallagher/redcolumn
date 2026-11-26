@@ -46,6 +46,41 @@ function ocrAssets(): Plugin {
   };
 }
 
+/**
+ * The 3D viewer's own files (issue #191): the fragments worker, which holds loaded models, and
+ * web-ifc's wasm, which reads IFC files. Served from model3d/ rather than a CDN, in development and
+ * in the build. web-ifc finds its wasm by file name in that folder, so the names stay fixed.
+ */
+function model3dAssets(): Plugin {
+  const pkg = dirname(require.resolve('@nb/model3d/package.json'));
+  const from = (id: string) => require.resolve(id, { paths: [pkg] });
+  const files: Record<string, string> = {
+    'fragments-worker.mjs': from('@thatopen/fragments/worker'),
+    'web-ifc.wasm': from('web-ifc/web-ifc.wasm'),
+  };
+  return {
+    name: 'model3d-assets',
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const name = req.url?.split('?')[0]?.match(/\/model3d\/([^/]+)$/)?.[1];
+        const file = name ? files[name] : undefined;
+        if (!file) return next();
+        res.setHeader('Content-Type', name!.endsWith('.mjs') ? 'text/javascript' : 'application/wasm');
+        res.end(readFileSync(file));
+      });
+    },
+    generateBundle() {
+      for (const [name, file] of Object.entries(files)) this.emitFile({ type: 'asset', fileName: `model3d/${name}`, source: readFileSync(file) });
+    },
+  };
+}
+
+/** The 3D viewer's code (three.js, That Open, web-ifc and @nb/model3d), which goes in model3d/ so the offline copy can leave it out. */
+const MODEL3D_CODE = /\/(three|@thatopen|web-ifc|camera-controls|three-mesh-bvh|packages\/model3d)\//;
+function chunkFileNames(chunk: { moduleIds?: readonly string[] }) {
+  return chunk.moduleIds?.length && chunk.moduleIds.every((id) => MODEL3D_CODE.test(id)) ? 'model3d/[name]-[hash].js' : 'assets/[name]-[hash].js';
+}
+
 /** Spell checking's dictionaries (Hunspell files from npm), served at spell/en-US.aff, spell/fr-FR.dic and so on. */
 function spellAssets(): Plugin {
   const files: Record<string, string> = {};
@@ -144,6 +179,7 @@ export default defineConfig({
     react(),
     ocrAssets(),
     spellAssets(),
+    model3dAssets(),
     poCatalogs(),
     landingPage(),
     securityMeta(),
@@ -159,7 +195,8 @@ export default defineConfig({
         // OCR's engine and data (about 11 MB) load when OCR is first used, not with the app; they
         // are cached then (below), or ahead of time from Preferences › Offline. The help's
         // screenshots and tool animations are cached as they are first viewed.
-        globIgnores: ['ocr/**', 'screenshots/**', 'help/img/**', 'help/gif/**'],
+        // The 3D viewer (several MB) loads when a model is first opened and is cached then (below).
+        globIgnores: ['ocr/**', 'model3d/**', 'screenshots/**', 'help/img/**', 'help/gif/**'],
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         // msal-redirect.html receives Microsoft sign-in results in its query string, which the
         // precache would not match; let it load from the network rather than fall back to the app.
@@ -171,6 +208,12 @@ export default defineConfig({
             urlPattern: ({ url }) => /\/ocr\/[^/]+$/.test(url.pathname),
             handler: 'CacheFirst',
             options: { cacheName: 'nb-ocr', cacheableResponse: { statuses: [200] } },
+          },
+          {
+            // The 3D viewer's code, worker and wasm, once a model has been opened.
+            urlPattern: ({ url }) => /\/model3d\/[^/]+$/.test(url.pathname),
+            handler: 'CacheFirst',
+            options: { cacheName: 'nb-model3d', cacheableResponse: { statuses: [200] } },
           },
           {
             // Help screenshots and the tool animations the hover previews show: from the cache,
@@ -191,17 +234,20 @@ export default defineConfig({
       },
     }),
   ],
-  worker: { format: 'es' },
+  worker: { format: 'es', rollupOptions: { output: { chunkFileNames, entryFileNames: (c) => (MODEL3D_CODE.test(c.facadeModuleId ?? '') ? 'model3d/[name]-[hash].js' : 'assets/[name]-[hash].js') } } },
   // SQLite (the search index, src/search/index) finds its .wasm next to its own module, which
   // pre-bundling in development would move.
   optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
   build: {
+    // dist/.vite/manifest.json: the chunk graph scripts/check-bundle.mjs reads.
+    manifest: true,
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('index.html', import.meta.url)),
         // The page Microsoft sign-in popups return to (see src/studio/drive/onedrive.ts).
         'msal-redirect': fileURLToPath(new URL('msal-redirect.html', import.meta.url)),
       },
+      output: { chunkFileNames },
     },
   },
 });

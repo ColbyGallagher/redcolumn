@@ -31,7 +31,7 @@ test('the manifest is installable: id, scope, PNG and maskable icons, shortcuts,
   assert.deepEqual(sizes('maskable'), ['192x192', '512x512']);
   assert.ok(m.icons.every((i) => i.src.startsWith('/redcolumn/')));
   assert.deepEqual(m.shortcuts.map((s) => s.url), ['/redcolumn/?action=open', '/redcolumn/?action=new']);
-  assert.deepEqual(m.file_handlers, [{ action: '/redcolumn/', accept: { 'application/pdf': ['.pdf'] } }]);
+  assert.deepEqual(m.file_handlers, [{ action: '/redcolumn/', accept: { 'application/pdf': ['.pdf'], 'application/x-step': ['.ifc'] } }]);
   assert.equal(m.share_target.action, '/redcolumn/share-target');
   assert.equal(m.share_target.method, 'POST');
   assert.equal(m.share_target.enctype, 'multipart/form-data');

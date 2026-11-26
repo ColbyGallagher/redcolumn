@@ -1,5 +1,7 @@
 import { msg } from '@nb/i18n';
 import { BATCH_KINDS, batchLabel, type BatchKind } from '../components/BatchDialog';
+import type { ModelAction, ModelState } from '@nb/model3d';
+import { model3dCommands } from './model3dCommands';
 import { desktop } from '../desktop/host';
 import { applyCommandPolicy } from './commandPolicy';
 import type { Settings } from '../settings/settings';
@@ -276,6 +278,8 @@ export interface CommandActions {
   connectShapes: () => void;
   /** Diagram: how connectors bend (new ones and the selected ones). */
   connectorRoute: (route: 'elbow' | 'straight') => void;
+  /** Runs a 3D view action on the model in front. */
+  model3d: (action: ModelAction) => void;
 }
 
 /** The state commands depend on. */
@@ -377,6 +381,10 @@ export interface CommandState {
   canSaveTemplate: boolean;
   /** Why Cutout is disabled with the selection as it is, for its tooltip. */
   cutoutHint?: string;
+  /** A 3D model is the tab in front (loaded or not). */
+  modelOpen?: boolean;
+  /** The 3D view of the model in front, once it has loaded. */
+  model3d?: ModelState | null;
 }
 
 /** Panels opened by Bluebeam's Alt+ shortcuts. `markups` and `links` sit on the bottom. */
@@ -421,8 +429,8 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('file.newFromTemplate', 'File', msg('New PDF from Template…'), a.newFromTemplate, s.templateCount > 0),
     cmd('file.open', 'File', msg('Open…'), a.open),
     cmd('file.combine', 'File', msg('Combine…'), a.combine),
-    cmd('file.close', 'File', msg('Close'), a.close, doc),
-    cmd('file.closeAll', 'File', msg('Close All'), a.closeAll, doc),
+    cmd('file.close', 'File', msg('Close'), a.close, doc || !!s.modelOpen),
+    cmd('file.closeAll', 'File', msg('Close All'), a.closeAll, doc || !!s.modelOpen),
     cmd('tab.reopenClosed', 'File', msg('Reopen Closed Tab'), a.reopenClosedTab, !!s.hasClosedTabs),
     cmd('file.save', 'File', msg('Save'), a.save, doc && s.canSaveCopy),
     cmd('file.saveAs', 'File', msg('Save As…'), a.saveAs, doc && s.canSaveCopy),
@@ -700,5 +708,6 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('help.sponsor', 'Help', msg('Sponsor'), () => a.help('sponsor')),
     cmd('help.community', 'Help', msg('redcolumn Community'), () => a.help('community')),
     cmd('help.logs', 'Help', msg('Send Log Files'), () => a.help('logs')),
+    ...model3dCommands(a.model3d, s.model3d ?? null),
   ].map(applyCommandPolicy);
 }

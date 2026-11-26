@@ -188,6 +188,9 @@ import { imageToPdf, isImageFile } from './documents/imagePdf';
 import { pdfNameFor, type CadOptions } from './cad/client';
 import type { CadFile } from './cad/convert';
 import { CAD_ACCEPT, isCadFile } from './cad/files';
+import { MODEL_ACCEPT, isModelFile } from './model3d/files';
+import { openModelView } from './model3d/host';
+import { ModelStage } from './model3d/ModelStage';
 import { convertAsJob, convertFile } from './cad/open';
 import { cadSession, useCadConversion } from './cad/session';
 import { CadConvertDialog } from './components/CadConvertDialog';
@@ -263,18 +266,13 @@ import { consumeLaunchFiles, parseLaunch, stripLaunchQuery, takeSharedFiles } fr
 import { addBusyCheck } from './offline/updates';
 import { runningJobs } from './jobs/jobs';
 import { pickSplitPartner, touchRecent } from './splitPartner';
+import { pdfOf, pdfTabs, type OpenFile, type OpenModel, type OpenTab } from './documents/openTabs';
 import { fontExport, markupsUseNamedFonts, missingFontsNotice, setFontNoticeSink, afterFontNotice } from './fonts/fontNotices';
 
 interface Controllers {
   engine: PdfEngine;
   viewer: TileViewer;
   tools: MarkupTools;
-}
-
-interface OpenFile {
-  file: StoredFile;
-  doc: PdfDocument;
-  store: MarkupStore;
 }
 
 /** What each open document looked like when it was opened or last saved, to tell if it has unsaved changes. */
@@ -326,7 +324,9 @@ const recoveredOnOpen = new Set<string>();
 const recoveredKept = new Set<string>();
 /** Documents that arrived from another window with changes not yet saved to their file. */
 const movedDirty = new Set<string>();
-function hasUnsavedChanges(t: OpenFile) {
+function hasUnsavedChanges(t: OpenTab) {
+  // A 3D model is only viewed here, never changed, so it has nothing to save.
+  if (t.kind === 'model') return false;
   let base = savedState.get(t.store);
   if (!base) {
     if (movedDirty.has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
@@ -393,11 +393,12 @@ function rememberUnsaved(changes: Map<string, boolean>) {
 }
 
 /** A tab's file name, followed by * when the document has changes that are not saved to its file. */
-function TabName({ t, saved }: { t: OpenFile; saved: number }) {
+function TabName({ t, saved }: { t: OpenTab; saved: number }) {
   void saved;
+  const store = pdfOf(t)?.store;
   useSyncExternalStore(
-    (l) => t.store.subscribe(l),
-    () => t.store.editCount,
+    (l) => store?.subscribe(l) ?? (() => {}),
+    () => store?.editCount ?? 0,
   );
   const cut = useSettings().tabTruncation;
   const name = t.file.name;
@@ -979,15 +980,20 @@ export function App() {
   const openRef = useRef<OpenFile | null>(null);
   const [openB, setOpenB] = useState<OpenFile | null>(null);
   const openBRef = useRef<OpenFile | null>(null);
+  /** The 3D model tab in front of each pane, when a model rather than a PDF is in front (`open`/`openB` is then null). */
+  const [modelA, setModelA] = useState<OpenModel | null>(null);
+  const modelARef = useRef<OpenModel | null>(null);
+  const [modelB, setModelB] = useState<OpenModel | null>(null);
+  const modelBRef = useRef<OpenModel | null>(null);
   /** Every document open in each pane, shown as tabs; `open`/`openB` is the one in front. */
-  const [tabsA, setTabsA] = useState<OpenFile[]>([]);
+  const [tabsA, setTabsA] = useState<OpenTab[]>([]);
   /** Counts Projects opened, so what depends on the open Projects runs again. */
   const [projectsOpened, setProjectsOpened] = useState(0);
-  const tabsARef = useRef<OpenFile[]>([]);
+  const tabsARef = useRef<OpenTab[]>([]);
   /** Documents an autosave is writing right now, so one is never written twice at once. */
   const autosaving = useRef(new Set<string>());
-  const [tabsB, setTabsB] = useState<OpenFile[]>([]);
-  const tabsBRef = useRef<OpenFile[]>([]);
+  const [tabsB, setTabsB] = useState<OpenTab[]>([]);
+  const tabsBRef = useRef<OpenTab[]>([]);
   /** Where each tab was scrolled to, restored when it comes back to the front. */
   const savedViews = useRef(new Map<string, ViewState>());
   const [library, setLibrary] = useState<StoredFile[]>([]);
@@ -1431,7 +1437,7 @@ export function App() {
   }, []);
   /** A library file or a tab waiting for the right pane to exist (Open in Split View, Move to Right Pane). */
   const pendingSplitStored = useRef<{ file: StoredFile; bytes: ArrayBuffer } | null>(null);
-  const pendingMove = useRef<OpenFile | null>(null);
+  const pendingMove = useRef<OpenTab | null>(null);
   /** Split View with one file open: once the right pane exists, show the front document in it too. */
   const pendingMirror = useRef(false);
   /**
@@ -1443,7 +1449,7 @@ export function App() {
   const splitOrigin = useRef<{ id: string; index: number } | null>(null);
   /** Documents most recently shown first, for choosing the other side of a split. */
   const recentOpenIds = useRef<string[]>([]);
-  const moveTabRef = useRef<(from: Pane, t: OpenFile) => void>(() => {});
+  const moveTabRef = useRef<(from: Pane, t: OpenTab) => void>(() => {});
   const canvasMenuRef = useRef<(e: MouseEvent, pane: Pane) => void>(() => {});
   /** Where the pointer last was over a page, for pasting at the cursor. */
   const lastPointer = useRef<{ x: number; y: number; viewer: TileViewer } | null>(null);
@@ -1721,7 +1727,7 @@ export function App() {
     setCtl({ engine, viewer, tools });
     // A renderer that crashes or stops answering is replaced, and the open documents reopened in it
     // from the copies kept on this device (markups live outside the renderer and are untouched).
-    const tabOf = (doc: PdfDocument) => [...tabsARef.current, ...tabsBRef.current].find((t) => t.doc === doc);
+    const tabOf = (doc: PdfDocument) => pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.doc === doc);
     const supervisor = new EngineSupervisor<PdfDocument>(engine, {
       bytesFor: async (doc) => {
         const tab = tabOf(doc);
@@ -1792,7 +1798,7 @@ export function App() {
   /** The pane whose tab list holds a pane's documents: a mirrored right pane has no tabs, its document's tab is in the left pane. */
   const tabPaneOf = (pane: Pane): Pane => (pane === 'b' && mirrorRef.current ? 'a' : pane);
 
-  const setTabs = useCallback((pane: Pane, tabs: OpenFile[]) => {
+  const setTabs = useCallback((pane: Pane, tabs: OpenTab[]) => {
     (pane === 'b' ? tabsBRef : tabsARef).current = tabs;
     (pane === 'b' ? setTabsB : setTabsA)(tabs);
   }, []);
@@ -1817,19 +1823,32 @@ export function App() {
     (pane === 'b' ? openBRef : openRef).current = packed;
     (pane === 'b' ? setOpenB : setOpen)(packed);
   }, []);
+  /** The pane's front 3D model, in its ref and its state. */
+  const setFrontModel = useCallback((pane: Pane, model: OpenModel | null) => {
+    (pane === 'b' ? modelBRef : modelARef).current = model;
+    (pane === 'b' ? setModelB : setModelA)(model);
+  }, []);
+  /** The tab in front of a pane, whether a PDF or a 3D model. */
+  const frontTabOf = (pane: Pane): OpenTab | null => (pane === 'b' ? openBRef.current ?? modelBRef.current : openRef.current ?? modelARef.current);
 
   /** Puts a document (or nothing) in front in a pane, remembering where the previous one was scrolled. */
   const showInPane = useCallback(
-    (pane: Pane, packed: OpenFile | null, follow = false) => {
+    (pane: Pane, tab: OpenTab | null, follow = false) => {
       const c = pane === 'b' ? ctlB : ctl;
       const cur = openRefOf(pane).current;
+      const curModel = (pane === 'b' ? modelBRef : modelARef).current;
       // A mirrored right pane's view is not what the left pane saved for the same document.
       const mirrored = pane === 'b' && mirrorRef.current;
-      if (cur === packed) return;
+      if ((cur ?? curModel) === tab) return;
+      // A 3D model takes the pane instead of a PDF; the PDF viewer is left empty behind it.
+      const packed = pdfOf(tab);
+      const model = tab?.kind === 'model' ? tab : null;
       if (pane === 'b' && !follow) mirrorRef.current = false;
-      if (packed) recentOpenIds.current = touchRecent(recentOpenIds.current, packed.file.id);
+      if (tab) recentOpenIds.current = touchRecent(recentOpenIds.current, tab.file.id);
       if (cur && c && !mirrored) savedViews.current.set(cur.file.id, c.viewer.getView());
+      // Mirroring shows the left pane's PDF on the right too; a model is not mirrored.
       if (pane === 'a' && mirrorRef.current && packed && ctlB) showInPane('b', packed, true);
+      setFrontModel(pane, model);
       setFront(pane, packed);
       if (pane === 'a') {
         // Per-document state of the front document.
@@ -1868,7 +1887,7 @@ export function App() {
 
   /** Brings a tab to the front of its pane. */
   const activateTab = useCallback(
-    (pane: Pane, packed: OpenFile) => {
+    (pane: Pane, packed: OpenTab) => {
       if (pane === 'b') setSplit(true);
       setActivePane(pane);
       showInPane(pane, packed);
@@ -1876,8 +1895,12 @@ export function App() {
     [showInPane],
   );
 
-  const disposeOpen = (o: OpenFile) => {
+  const disposeOpen = (o: OpenTab) => {
     savedViews.current.delete(o.file.id);
+    if (o.kind === 'model') {
+      o.view.dispose();
+      return;
+    }
     void o.doc.close();
     void o.store.destroy();
     releaseFor(o.store);
@@ -1899,6 +1922,16 @@ export function App() {
       }
       const pane: Pane = target === 'b' && ctlB ? 'b' : 'a';
       setError(null);
+      // The new tab goes just after the one in front.
+      const insert = (tab: OpenTab) => {
+        const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
+        const front = frontTabOf(pane);
+        const at = front ? tabs.indexOf(front) + 1 : tabs.length;
+        setTabs(pane, [...tabs.slice(0, at), tab, ...tabs.slice(at)]);
+        activateTab(pane, tab);
+      };
+      // A 3D model (Experimental) opens in the 3D viewer, which loads only now.
+      if (isModelFile(file)) return insert({ kind: 'model', file, view: openModelView(file, bytes) });
       const [doc, store] = await Promise.all([ctl.engine.open(bytes), MarkupStore.open(file.id)]);
       // Session documents sync their markups with everyone else in their session.
       const sessionDoc = studioDocOf(file.id);
@@ -1923,13 +1956,7 @@ export function App() {
       // Not shared documents: one person's profile would become everyone's.
       if (template && !sessionDoc && !linkOf(file.id) && !store.readOnly && !store.hasColumnSet()) store.setColumnSet(template);
       await hideImported(doc, store);
-      const packed = { file, doc, store };
-      // The new tab goes just after the one in front.
-      const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
-      const front = pane === 'b' ? openBRef.current : openRef.current;
-      const at = front ? tabs.indexOf(front) + 1 : tabs.length;
-      setTabs(pane, [...tabs.slice(0, at), packed, ...tabs.slice(at)]);
-      activateTab(pane, packed);
+      insert({ file, doc, store });
       if (pane === 'a' && settings.get().showThumbnailsOnOpen) {
         // Off (the default), the side panel stays as the user left it. On: stay on Sessions, Sets or Search
         // when opening from them (or joining from an invite link). On narrow screens the panel covers the
@@ -2225,7 +2252,8 @@ export function App() {
           const image = !cad && isImageFile(file);
           const conversion = cad ? await convertFile(file) : null;
           const raw = image || cad ? null : await file.arrayBuffer();
-          const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
+          // IFC models are kept as they are, for the 3D viewer.
+          const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : isModelFile(file) ? raw! : await unlockBytes(raw!, file.name);
           const name = cad ? pdfNameFor(file.name) : image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
           // A document moved from another window with no file of its own has nowhere to save back to.
           const moved = movedFiles.get(file);
@@ -2299,7 +2327,7 @@ export function App() {
   useEffect(() => {
     if (!restoredTabs.current) return;
     try {
-      const ids = (tabs: OpenFile[]) => tabs.filter((t) => !studioDocOf(t.file.id)).map((t) => t.file.id);
+      const ids = (tabs: OpenTab[]) => tabs.filter((t) => !studioDocOf(t.file.id)).map((t) => t.file.id);
       localStorage.setItem('nb.openTabs', JSON.stringify({ a: ids(tabsA), b: ids(tabsB) }));
     } catch {
       // Not remembered.
@@ -2312,7 +2340,7 @@ export function App() {
       setCombineOpen(false);
       const job = startJob(`Combine · ${name}`, PAGES_JOB);
       try {
-        const tabs = [...tabsARef.current, ...tabsBRef.current];
+        const tabs = pdfTabs([...tabsARef.current, ...tabsBRef.current]);
         const parts: ArrayBuffer[] = [];
         for (const src of sources) {
           if (src.kind === 'open') {
@@ -2614,8 +2642,8 @@ export function App() {
       try {
         for (;;) {
           const want = wanted.get(store)!;
-          const inA = tabsARef.current.find((t) => t.store === store);
-          const tab = inA ?? tabsBRef.current.find((t) => t.store === store);
+          const inA = pdfTabs(tabsARef.current).find((t) => t.store === store);
+          const tab = inA ?? pdfTabs(tabsBRef.current).find((t) => t.store === store);
           if (!tab || tab.file.hash === want) break;
           const bytes = await readFile(want);
           const file = await replaceFileContent(tab.file.id, bytes);
@@ -2781,7 +2809,7 @@ export function App() {
   const acquireDocument = useCallback(
     async (fileId: string): Promise<{ open: OpenFile; release: () => void }> => {
       if (!ctl) throw new Error(msg('The PDF engine is not ready'));
-      const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
+      const tab = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === fileId);
       if (tab) return { open: tab, release: () => {} };
       const file = (await listFiles()).find((f) => f.id === fileId);
       if (!file) throw new Error(msg('That document is no longer in the library'));
@@ -3481,8 +3509,8 @@ export function App() {
       try {
         await keepRevision(fileId, `Before restoring the version of ${new Date(r.savedAt).toLocaleString()}`);
         const bytes = await readFile(r.hash);
-        const inA = tabsARef.current.find((t) => t.file.id === fileId);
-        const inB = tabsBRef.current.find((t) => t.file.id === fileId);
+        const inA = pdfTabs(tabsARef.current).find((t) => t.file.id === fileId);
+        const inB = pdfTabs(tabsBRef.current).find((t) => t.file.id === fileId);
         const tab = inA ?? inB;
         if (tab) {
           await swapDocument(tab, !inA, bytes, () => {
@@ -3560,7 +3588,7 @@ export function App() {
       // Preferences › Sets › Open Documents (Open Edited Documents, when the one in front has unsaved
       // changes): in place, a sheet of the same set opens instead of the document in front.
       const pane = activePaneRef.current;
-      const front = pane === 'b' ? openBRef.current : openRef.current;
+      const front = frontTabOf(pane);
       const prefs = settings.get();
       const alreadyOpen = [...tabsARef.current, ...tabsBRef.current].some((t) => t.file.id === fileId);
       const sameSet = !!front && drawingSets.get().some((s) => s.entries.some((e) => e.fileId === front.file.id) && s.entries.some((e) => e.fileId === fileId));
@@ -3726,7 +3754,7 @@ export function App() {
   const openDocSearchHit = async (hit: DocHit, sameDoc: DocHit[], file?: File) => {
     const front = (activePaneRef.current === 'b' ? openBRef.current : openRef.current)?.file.id;
     if (front !== hit.docId) {
-      const known = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === hit.docId)?.file ?? library.find((f) => f.id === hit.docId);
+      const known = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === hit.docId)?.file ?? library.find((f) => f.id === hit.docId);
       if (known) await openFromLibrary(known);
       else if (file) await openNewFile(file, split && activePaneRef.current === 'b' ? 'b' : 'a');
       else return setError(msg('That file is no longer in the library.'));
@@ -4188,7 +4216,7 @@ export function App() {
     (fileId: string, what: string, edit: (bytes: ArrayBuffer) => Promise<Uint8Array | { bytes: Uint8Array; model: FormModel }>, revisionNote?: string, rethrow = false): Promise<boolean> => {
       const run = formQueue.current
         .then(async () => {
-          const cur = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
+          const cur = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === fileId);
           if (!cur) return false;
           if (studioDocOf(fileId)) throw new Error(msg('A Live Session document is shared with others, so it cannot be changed here.'));
           return runJob(
@@ -4545,8 +4573,8 @@ export function App() {
   useEffect(() => {
     if (!autosave) return;
     const docs: { pane: Pane; t: OpenFile }[] = [
-      ...tabsA.map((t) => ({ pane: 'a' as const, t })),
-      ...tabsB.map((t) => ({ pane: 'b' as const, t })),
+      ...pdfTabs(tabsA).map((t) => ({ pane: 'a' as const, t })),
+      ...pdfTabs(tabsB).map((t) => ({ pane: 'b' as const, t })),
     ].filter(({ t }) => !studioDocOf(t.file.id));
     let timer: ReturnType<typeof setTimeout> | undefined;
     const run = () => {
@@ -4581,7 +4609,8 @@ export function App() {
       const idx = tabs.findIndex((t) => t.file.id === fileId);
       if (idx < 0) return;
       const closing = tabs[idx]!;
-      const front = pane === 'b' ? openBRef.current : openRef.current;
+      // A model in front counts too, so closing it brings the next tab forward.
+      const front = frontTabOf(pane);
       if (recordClosed) {
         const desktopToken = fileLocationToken(closing.file.id);
         const isBlankUnsaved = closing.file.name === 'Untitled.pdf' && !desktopToken && !hasFileLocation(closing.file.id);
@@ -4621,7 +4650,7 @@ export function App() {
           setActivePane('a');
         } else if (tabsBRef.current.length) {
           const moved = tabsBRef.current;
-          const bFront = openBRef.current ?? moved[0]!;
+          const bFront = frontTabOf('b') ?? moved[0]!;
           setTabs('b', []);
           showInPane('b', null);
           setTabs('a', moved);
@@ -4650,7 +4679,7 @@ export function App() {
     const targetPane: Pane = split && activePaneRef.current === 'b' ? 'b' : 'a';
     const restorePage = (fileId: string, page: number) => {
       if (page <= 0) return;
-      const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
+      const tab = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === fileId);
       if (!tab || page >= tab.doc.pages.length) return;
       const isB = tabsBRef.current.some((t) => t.file.id === fileId);
       (isB ? ctlB?.viewer : ctl?.viewer)?.goToPage(page);
@@ -4727,7 +4756,7 @@ export function App() {
    */
   const settleUnsaved = useCallback(
     async (pane: Pane, fileId: string): Promise<boolean> => {
-      const find = () => (pane === 'b' ? tabsBRef.current : tabsARef.current).find((x) => x.file.id === fileId);
+      const find = () => pdfTabs(pane === 'b' ? tabsBRef.current : tabsARef.current).find((x) => x.file.id === fileId);
       const t = find();
       if (!t || studioDocOf(fileId) || !hasUnsavedChanges(t)) return true;
       const choice = await askSaveChanges(t.file.name);
@@ -4812,7 +4841,7 @@ export function App() {
   useEffect(() => {
     const host = desktop();
     if (!host?.setUnsavedChanges) return;
-    const stores = [...tabsA, ...tabsB];
+    const stores = pdfTabs([...tabsA, ...tabsB]);
     let last: boolean | null = null;
     const report = () => {
       const on = stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t)) || sessions.some((s) => {
@@ -4829,7 +4858,7 @@ export function App() {
   // (the browser shows its own Leave / Reload site? prompt). The desktop app asks above instead.
   useEffect(() => {
     if (desktop()) return;
-    const stores = [...tabsA, ...tabsB];
+    const stores = pdfTabs([...tabsA, ...tabsB]);
     const warn = (e: BeforeUnloadEvent) => {
       if (!stores.some((t) => !studioDocOf(t.file.id) && hasUnsavedChanges(t)) && !sessions.some((s) => ['saving', 'error'].includes(s.getSnapshot().localSave ?? ''))) return;
       e.preventDefault();
@@ -4850,7 +4879,7 @@ export function App() {
       }
       return;
     }
-    const docs = [...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id));
+    const docs = pdfTabs([...tabsA, ...tabsB]).filter((t) => !studioDocOf(t.file.id));
     const report = () => rememberUnsaved(new Map(docs.map((t) => [t.file.id, hasUnsavedChanges(t)])));
     report();
     const offs = docs.map((t) => t.store.subscribe(report));
@@ -4890,8 +4919,8 @@ export function App() {
 
   /** Closes the tab in front of the active pane. */
   const closeDocument = useCallback(() => {
-    const pane: Pane = activePaneRef.current === 'b' && openBRef.current ? 'b' : 'a';
-    const front = pane === 'b' ? openBRef.current : openRef.current;
+    const pane: Pane = activePaneRef.current === 'b' && frontTabOf('b') ? 'b' : 'a';
+    const front = frontTabOf(pane);
     if (front) void requestCloseTab(pane, front.file.id);
     else if (pane === 'a' && split) unsplit();
   }, [requestCloseTab, unsplit, split]);
@@ -5026,7 +5055,7 @@ export function App() {
   const documentSourceBytes = useCallback(
     async (d: DocumentSource): Promise<{ bytes: ArrayBuffer; seed: Uint8Array | null }> => {
       if (d.kind === 'upload') return { bytes: await d.file.arrayBuffer(), seed: null };
-      const open = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === d.fileId);
+      const open = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === d.fileId);
       if (open) return { bytes: await readFile(open.file.hash), seed: Y.encodeStateAsUpdate(open.store.doc) };
       const stored = library.find((f) => f.id === d.fileId);
       if (!stored) throw new Error(msg('{name} is no longer in the library.', { name: d.name }));
@@ -5137,7 +5166,7 @@ export function App() {
    */
   const withSessionMarkups = useCallback(async <T,>(session: CollabSession, docId: string, use: (store: MarkupStore) => T): Promise<Awaited<T>> => {
     const fileId = studioFileId(session.id, docId);
-    const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
+    const tab = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === fileId);
     if (tab) return await use(tab.store);
     const store = await MarkupStore.open(fileId);
     try {
@@ -5335,7 +5364,7 @@ export function App() {
         step(msg('Sending {name} back to your library', { name: d.name }));
         const bytes = await session.fetchDocument(d.id);
         const chosen = await withSessionMarkups(session, d.id, (store) => store.all().filter((m) => choice.authors.includes(m.author)));
-        const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === back.fileId);
+        const tab = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === back.fileId);
         const held = tab ? null : await acquireDocument(back.fileId);
         const target: OpenFile = tab ?? held!.open;
         try {
@@ -5374,8 +5403,8 @@ export function App() {
         const version = d.version ?? 1;
         if (loaded === undefined || loaded >= version) continue;
         loadedVersions.current.set(fileId, version);
-        const inA = tabsARef.current.find((t) => t.file.id === fileId);
-        const tab = inA ?? tabsBRef.current.find((t) => t.file.id === fileId);
+        const inA = pdfTabs(tabsARef.current).find((t) => t.file.id === fileId);
+        const tab = inA ?? pdfTabs(tabsBRef.current).find((t) => t.file.id === fileId);
         const session = sessionById(snap.meta.id);
         if (!tab || !session) continue;
         void session
@@ -5420,7 +5449,7 @@ export function App() {
       const fileId = studioFileId(sessionId, docId);
       let pane: Pane | null = null;
       for (const p of ['a', 'b'] as const) {
-        const tab = (p === 'b' ? tabsBRef.current : tabsARef.current).find((t) => t.file.id === fileId);
+        const tab = pdfTabs(p === 'b' ? tabsBRef.current : tabsARef.current).find((t) => t.file.id === fileId);
         if (tab) {
           activateTab(p, tab);
           pane = p;
@@ -5459,7 +5488,7 @@ export function App() {
             return null;
           });
           if (!got) return void (await openFromLibrary(stored));
-          const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === copyId);
+          const tab = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === copyId);
           const held = tab ? null : await acquireDocument(copyId);
           const target: OpenFile = tab ?? held!.open;
           try {
@@ -5524,7 +5553,7 @@ export function App() {
   useEffect(
     () =>
       onProjectOpened((project) => {
-        for (const tab of [...tabsARef.current, ...tabsBRef.current]) {
+        for (const tab of pdfTabs([...tabsARef.current, ...tabsBRef.current])) {
           const link = linkOf(tab.file.id);
           if (link?.projectId === project.id) void project.attachMarkups(link.fileId, tab.store).catch((err: unknown) => console.warn('Project markups:', err));
         }
@@ -6033,7 +6062,7 @@ export function App() {
   }, [tabsA, tabsB]);
 
   /** The open document a preview belongs to. */
-  const previewFile = (fileId: string) => [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
+  const previewFile = (fileId: string) => pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === fileId);
 
   const renderPreviewRef = useRef<(id: string, width: number, height: number, view?: PreviewView) => Promise<PreviewDrawing | null>>(async () => null);
   renderPreviewRef.current = async (id, width, height, asked) => {
@@ -6264,7 +6293,8 @@ export function App() {
   const currentStitch = stitchGroups.find((g) => g.placements.some((p) => p.pageIndex === pageIndex)) ?? null;
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
-  const activeOpen = paneB && openB ? openB : open;
+  // A model in front of the right pane makes it active too: PDF commands then have no document, rather than acting on the left pane's.
+  const activeOpen = paneB && (openB || modelB) ? openB : open;
   /** The drawing the active PDF was converted from in this visit, if any. */
   const activeCad = useCadConversion(activeOpen?.file.id);
   // Review Sheet Scales rows: worked out only while the panel is open, and only when pages, sheets or scales change.
@@ -6327,7 +6357,7 @@ export function App() {
       if (t === openB) return statsB?.pageIndex ?? savedViews.current.get(t.file.id)?.pageIndex ?? 0;
       return savedViews.current.get(t.file.id)?.pageIndex ?? 0;
     };
-    return [...tabsA, ...tabsB].map((t) => ({
+    return pdfTabs([...tabsA, ...tabsB]).map((t) => ({
       id: t.file.id,
       name: t.file.name,
       pageCount: t.doc.pages.length,
@@ -7260,7 +7290,7 @@ export function App() {
    * one open, it is shown on both sides with the views synchronised.
    */
   const startSplit = () => {
-    const front = openRef.current;
+    const front = frontTabOf('a');
     if (split || !front) return;
     const tabs = tabsARef.current;
     const partnerId = pickSplitPartner(tabs.map((t) => t.file.id), front.file.id, recentOpenIds.current);
@@ -7291,7 +7321,7 @@ export function App() {
     // A mirrored right pane shows its document's tab too (it has none of its own in the list).
     const mirrored = pane === 'b' && mirrorRef.current && !!openB;
     const tabs = pane === 'b' ? (mirrored ? [openB] : tabsB) : tabsA;
-    const front = pane === 'b' ? openB : open;
+    const front: OpenTab | null = pane === 'b' ? openB ?? modelB : open ?? modelA;
     return (
       <DocTabStrip
         label={pane === 'b' ? msg('Right pane documents') : msg('Documents')}
@@ -8047,7 +8077,7 @@ export function App() {
   };
 
   /** Moves a tab to the other pane, splitting the view first if needed. */
-  const moveTab = (from: Pane, t: OpenFile) => {
+  const moveTab = (from: Pane, t: OpenTab) => {
     const to: Pane = from === 'a' ? 'b' : 'a';
     if (to === 'b' && !ctlB) {
       pendingMove.current = t;
@@ -8073,11 +8103,11 @@ export function App() {
     const newFile = files.find((f) => f.id === newId);
     const oldFile = files.find((f) => f.id === oldId);
     if (!newFile || !oldFile) return;
-    const newInB = tabsBRef.current.find((t) => t.file.id === newId);
+    const newInB = pdfTabs(tabsBRef.current).find((t) => t.file.id === newId);
     if (newInB) moveTab('b', newInB);
     else await openFromLibrary(newFile, 'a');
-    const oldInA = tabsARef.current.find((t) => t.file.id === oldId);
-    const oldInB = tabsBRef.current.find((t) => t.file.id === oldId);
+    const oldInA = pdfTabs(tabsARef.current).find((t) => t.file.id === oldId);
+    const oldInB = pdfTabs(tabsBRef.current).find((t) => t.file.id === oldId);
     if (oldInA) moveTab('a', oldInA);
     else if (oldInB) activateTab('b', oldInB);
     else {
@@ -8151,10 +8181,11 @@ export function App() {
    * yet, goes as it stands now (markups included) and stays unsaved there; a saved one is simply
    * opened from its file.
    */
-  const detachTab = async (pane: Pane, t: OpenFile) => {
+  const detachTab = async (pane: Pane, t: OpenTab) => {
     const host = desktop();
     if (!host?.detachDocument) return;
     if (studioDocOf(t.file.id)) return setError(msg('A Live Session document stays in the window it was opened in.'));
+    if (t.kind === 'model') return setError(msg('A 3D model stays in the window it was opened in.'));
     try {
       const token = fileLocationToken(t.file.id);
       const dirty = hasUnsavedChanges(t);
@@ -8170,24 +8201,41 @@ export function App() {
   };
 
   /** Right-click on a document tab: close, save, add to a session, show where it lives, move pane. */
-  const tabMenu = (pane: Pane, t: OpenFile): MenuEntry[] => {
+  const tabMenu = (pane: Pane, t: OpenTab): MenuEntry[] => {
     const mirrored = pane === 'b' && mirrorRef.current;
     const tabs = mirrored ? [t] : pane === 'b' ? tabsB : tabsA;
     const idx = tabs.indexOf(t);
     const sessionDoc = studioDocOf(t.file.id);
     const snap = sessionDoc ? snapshots.find((s) => s.meta.id === sessionDoc.sessionId) : null;
-    const closeMany = (which: OpenFile[]) => void requestCloseTabs(which.map((x) => ({ pane, fileId: x.file.id })));
+    const closeMany = (which: OpenTab[]) => void requestCloseTabs(which.map((x) => ({ pane, fileId: x.file.id })));
     const withTab = (fn: () => void) => () => {
       activateTab(pane, t);
       fn();
     };
     const addable = sessions.filter((s) => s.canAddDocuments);
-    return [
+    const closing: MenuEntry[] = [
       { label: msg('Close'), onClick: () => void requestCloseTab(pane, t.file.id) },
       { label: msg('Close All'), onClick: () => closeMany(tabs) },
       { label: msg('Close All But This'), disabled: tabs.length < 2, onClick: () => closeMany(tabs.filter((x) => x !== t)) },
       { label: msg('Close Tabs to the Right'), disabled: idx === tabs.length - 1, onClick: () => closeMany(tabs.slice(idx + 1)) },
       { label: msg('Reopen Closed Tab'), shortcut: 'Ctrl+Shift+T', disabled: closedTabs.length === 0, onClick: () => void reopenClosedTab() },
+    ];
+    // A 3D model has no markups to save or share, so its menu only closes it or shows where it lives.
+    if (t.kind === 'model')
+      return [
+        ...closing,
+        ...(desktop()
+          ? [SEP, {
+              label: msg('Open File Location'),
+              disabled: locationTick < 0 || !hasFileLocation(t.file.id),
+              onClick: () => void revealFileLocation(t.file.id).then((ok) => {
+                if (!ok) setError(msg('That file is not in a folder on this computer. It may have been moved, renamed or deleted.'));
+              }),
+            }]
+          : []),
+      ];
+    return [
+      ...closing,
       SEP,
       { label: msg('Save'), shortcut: 'Ctrl+S', onClick: withTab(() => void saveDocument(false)) },
       { label: msg('Save As…'), shortcut: 'Ctrl+Shift+S', onClick: withTab(() => void saveDocument(true)) },
@@ -8547,6 +8595,8 @@ export function App() {
   };
 
   /** The recent files list (File › Open Recent, File Access › Recents); `locationTick` keeps it current as disk locations load. */
+  /** The library's PDFs: what PDF tools (Compare, Batch, Slip Sheet, Search) can work on, without 3D models. */
+  const pdfLibrary = useMemo(() => library.filter((f) => !isModelFile(f)), [library]);
   const recentList = (templates = true) => recentFiles(library, { count: prefs.recentCount, days: prefs.recentDays, locationOf: locationTick >= 0 ? fileLocationToken : undefined, templates });
 
   /** Right-click on a library file (File Access). */
@@ -8854,6 +8904,13 @@ export function App() {
     activeTools?.setTool('stamp', { stamp: s, once: !settings.get().toolChestSticky });
   };
 
+  /** The 3D model in front of the active pane, and its view's state once loaded (the 3D ribbon tab and commands follow it). */
+  const activeModel = paneB && (openB || modelB) ? modelB : modelA;
+  const model3dState = useSyncExternalStore(
+    useCallback((l: () => void) => activeModel?.view.subscribe(l) ?? (() => {}), [activeModel]),
+    () => activeModel?.view.controls()?.state() ?? null,
+  );
+
   const commandActions: CommandActions = {
     open: () => openFromDisk(),
     newFromTemplate: () => void newFromTemplate(),
@@ -8866,7 +8923,7 @@ export function App() {
     reopenClosedTab: () => void reopenClosedTab(),
     saveAll: () =>
       void (async () => {
-        for (const t of [...tabsARef.current, ...tabsBRef.current]) {
+        for (const t of pdfTabs([...tabsARef.current, ...tabsBRef.current])) {
           try {
             const out = await annotatedBytes(t);
             download(t.file.name.replace(/\.pdf$/i, '') + ' (markups).pdf', new Blob([out as BlobPart], { type: 'application/pdf' }));
@@ -9286,6 +9343,7 @@ export function App() {
       if (activeTools && !activeTools.connectSelected()) setNotice(msg('The selected shapes are already connected.'));
     },
     connectorRoute: (route) => activeTools?.setConnectorRoute(route),
+    model3d: (action) => activeModel?.view.controls()?.run(action),
   };
   /** A new document that is a copy of a template document (its markups too), under `name`. */
   const copyTemplate = async (choice: StoredFile, name: string) => {
@@ -9632,6 +9690,8 @@ export function App() {
   };
 
   const commands = buildCommands(commandActions, {
+    modelOpen: !!activeModel,
+    model3d: model3dState,
     hasDocument: !!activeOpen,
     editable: !!activeOpen && !activeReadOnly,
     pagesEditable: !!activeOpen && pageCount > 0 && !busyPages,
@@ -9821,12 +9881,13 @@ export function App() {
             focusToken={searchFocus}
             sheets={sheets}
             sources={(scope) => {
-              const tabs = [...tabsA, ...tabsB];
+              const tabs = pdfTabs([...tabsA, ...tabsB]);
               const fromTab = (o: OpenFile, page?: number) => openSource(o, formModels[o.file.hash], page);
               if (scope === 'document') return activeOpen ? [fromTab(activeOpen)] : [];
               if (scope === 'page') return activeOpen ? [fromTab(activeOpen, pageIndex)] : [];
               if (scope === 'open') return tabs.map((o) => fromTab(o));
               return recentList(false)
+                .filter((f) => !isModelFile(f))
                 .map((f) => {
                   const tab = tabs.find((t) => t.file.id === f.id);
                   return tab ? fromTab(tab) : librarySource(f);
@@ -10509,7 +10570,7 @@ export function App() {
       <input
         ref={openFileRef}
         type="file"
-        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT},${MODEL_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -10521,7 +10582,7 @@ export function App() {
       <input
         ref={insertFileRef}
         type="file"
-        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT},${MODEL_ACCEPT}`}
         hidden
         onChange={async (e) => {
           const file = e.target.files?.[0];
@@ -10534,7 +10595,7 @@ export function App() {
       <input
         ref={bulkInsertFileRef}
         type="file"
-        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
+        accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT},${MODEL_ACCEPT}`}
         multiple
         hidden
         onChange={(e) => {
@@ -10626,7 +10687,7 @@ export function App() {
         };
         const displayMenu = <ToolbarDisplayMenu commands={commandMap} />;
         return ws.toolbarStyle === 'ribbon' ? (
-          <Ribbon commands={commandMap} toolbar={toolbarProps} collapsed={ws.ribbonCollapsed} onCollapsedChange={(ribbonCollapsed) => updateWorkspace((w) => ({ ...w, ribbonCollapsed }))} displayMenu={displayMenu} />
+          <Ribbon commands={commandMap} toolbar={toolbarProps} collapsed={ws.ribbonCollapsed} onCollapsedChange={(ribbonCollapsed) => updateWorkspace((w) => ({ ...w, ribbonCollapsed }))} displayMenu={displayMenu} model3d={activeModel ? { views: model3dState?.views ?? [], openView: model3dState?.openView ?? null, run: (a) => activeModel.view.controls()?.run(a) } : null} />
         ) : (
           <ToolBar {...toolbarProps} toolbarMenu={displayMenu} />
         );
@@ -10670,6 +10731,7 @@ export function App() {
                 }}
               >
                 <canvas ref={canvasRef} />
+                {modelA && <ModelStage view={modelA.view} />}
                 {toolsStateA.sketch && open && ctl && (
                   <SketchBar
                     sketch={toolsStateA.sketch}
@@ -10691,7 +10753,7 @@ export function App() {
                     onCancel={() => ctl.tools.cancel()}
                   />
                 )}
-                {!open && (
+                {!open && !modelA && (
                   <StartScreen
                     launchOpen={launchOpen}
                     onOpen={() => openFromDisk()}
@@ -10794,7 +10856,8 @@ export function App() {
                     }}
                   >
                     <canvas ref={canvasBRef} />
-                    {!openB && <div className="hint">{msg('Drop a PDF here or File → Open Recent')}</div>}
+                    {modelB && <ModelStage view={modelB.view} />}
+                    {!openB && !modelB && <div className="hint">{msg('Drop a PDF here or File → Open Recent')}</div>}
                     {openB?.store.readOnly && <div className="readonly-banner">{readOnlyReason(openB, snapshots)}</div>}
                     {openB && recoveredOnOpen.has(openB.file.id) && !recoveredKept.has(openB.file.id) && hasUnsavedChanges(openB) && (
                       <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(openB.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(openB)} />
@@ -10858,14 +10921,14 @@ export function App() {
           )}
           {applyStitch && activeOpen && (
             <ApplyStitchingDialog
-              documents={[activeOpen, ...[...tabsA, ...tabsB].filter((t, i, all) => t.file.id !== activeOpen.file.id && all.findIndex((x) => x.file.id === t.file.id) === i)].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length, readOnly: t.store.readOnly, label: (i: number) => pageLabelFor(t, i), size: (i: number) => t.doc.pages[i]!, stitch: () => t.store.manualStitch() }))}
+              documents={[activeOpen, ...pdfTabs([...tabsA, ...tabsB]).filter((t, i, all) => t.file.id !== activeOpen.file.id && all.findIndex((x) => x.file.id === t.file.id) === i)].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length, readOnly: t.store.readOnly, label: (i: number) => pageLabelFor(t, i), size: (i: number) => t.doc.pages[i]!, stitch: () => t.store.manualStitch() }))}
               onApply={(targetId, pairs, tol, options) => {
-                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId) ?? activeOpen;
+                const target = pdfTabs([...tabsA, ...tabsB]).find((t) => t.file.id === targetId) ?? activeOpen;
                 return applyStitching(activeOpen, target, pairs, tol, options);
               }}
               onShow={(targetId, page) => {
                 setApplyStitch(false);
-                const target = [...tabsA, ...tabsB].find((t) => t.file.id === targetId);
+                const target = pdfTabs([...tabsA, ...tabsB]).find((t) => t.file.id === targetId);
                 if (!target || target.file.id !== activeOpen.file.id) return setNotice(msg('Switch to {value} to see its stitched sheets.', { value: target?.file.name ?? msg('that document') }));
                 const group = mergeStitch(target.store.stitchGroups(), withViewportRegions(target.store.manualStitch(), target.store.allViewports())).find((g) => g.placements.some((p) => p.pageIndex === page));
                 if (group) openStitch(group, page);
@@ -11177,7 +11240,7 @@ export function App() {
       )}
       {combineOpen && (
         <CombineDialog
-          open={[...tabsA, ...tabsB].filter((t, i, all) => all.findIndex((x) => x.file.id === t.file.id) === i).map((t) => ({ id: t.file.id, name: t.file.name }))}
+          open={pdfTabs([...tabsA, ...tabsB]).filter((t, i, all) => all.findIndex((x) => x.file.id === t.file.id) === i).map((t) => ({ id: t.file.id, name: t.file.name }))}
           onCancel={() => setCombineOpen(false)}
           onCombine={(sources, name) => void combineDocuments(sources, name)}
         />
@@ -11352,7 +11415,7 @@ export function App() {
       {compareOpen && (
         <CompareDialog
           mode={compareOpen}
-          files={library}
+          files={pdfLibrary}
           openIds={[...tabsA, ...tabsB].map((t) => t.file.id)}
           currentId={activeOpen?.file.id ?? null}
           currentPage={pageIndex}
@@ -11538,7 +11601,7 @@ export function App() {
       {batchOpen && (
         <BatchDialog
           initial={batchOpen}
-          files={library}
+          files={pdfLibrary}
           sets={drawingSets.get()}
           groups={fileGroups.get()}
           selected={activeOpen && !studioDocOf(activeOpen.file.id) ? [activeOpen.file.id] : []}
@@ -11552,7 +11615,7 @@ export function App() {
       {slipSheetOpen && activeOpen && (
         <SlipSheetDialog
           targetName={activeOpen.file.name}
-          files={library.filter((f) => f.id !== activeOpen.file.id)}
+          files={pdfLibrary.filter((f) => f.id !== activeOpen.file.id)}
           closed={(() => {
             const template = closeOutTemplateOf(activeOpen.store);
             const ids = closedStatuses(template);
@@ -12276,7 +12339,7 @@ export function App() {
           markups={activeOpen ? markups : []}
           ctx={cellContext}
           customColumns={activeOpen ? columnSet.columns : []}
-          openFiles={[...tabsA, ...tabsB].map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length }))}
+          openFiles={pdfTabs([...tabsA, ...tabsB]).map((t) => ({ id: t.file.id, name: t.file.name, pageCount: t.doc.pages.length }))}
           library={library.map((f) => ({ id: f.id, name: f.name }))}
           busy={exportBusy}
           initialFilters={prefs.excludeFilteredOnExport ? listFilters : {}}
