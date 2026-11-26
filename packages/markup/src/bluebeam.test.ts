@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString } from 'pdf-lib';
+import { degrees, PDFArray, PDFDict, PDFDocument, PDFHexString, PDFName, PDFNumber, PDFRef, PDFString } from 'pdf-lib';
 import { importColumns, importStatuses, parseDefaultStyle, scaleFromMeasure } from './bluebeam.ts';
 import { exportWithAnnotations } from './export.ts';
 import { importAnnotations, type ImportableAnnotation } from './import.ts';
 import { markupShape } from './geometry.ts';
 import { readPdfExtras } from './pdfExtras.ts';
 import { MarkupStore } from './store.ts';
-import type { Markup } from './model.ts';
+import { rotatePoint, rotationCentre, type Markup } from './model.ts';
 import { assertValidPdf } from '../test/qpdf.ts';
 
 const text = (s: string) => PDFHexString.fromText(s);
@@ -452,6 +452,120 @@ test("Bluebeam's turned text box (/Rotation, clockwise) imports as an upright bo
   const out = await PDFDocument.load(outBytes);
   const saved = out.getPage(0).node.Annots()!.asArray().map((r) => out.context.lookup(r, PDFDict)).find((d) => d.lookupMaybe(PDFName.of('NM'), PDFString, PDFHexString)?.decodeText() === 'new')!;
   assert.equal(saved.lookup(PDFName.of('Rotation'), PDFNumber).asNumber(), 315);
+});
+
+test('#459: on a sheet turned 90°, Bluebeam turned rectangles keep their turn and upright-set text boxes are not turned twice', async () => {
+  // The reported file's sheet and markups as Revu wrote them (author and wording made up): an A0
+  // sheet with /Rotate 90, two turned rectangles, and text boxes Revu set upright on the turned sheet
+  // (/Rotate 90 on the annotation, its /BBox in user space and its content counter-turned).
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([2384, 3370]);
+  page.setRotation(degrees(90));
+  const ctx = doc.context;
+  const ap = (bbox: number[], matrix: number[], ops: string) => ctx.register(ctx.stream(ops, { Type: 'XObject', Subtype: 'Form', BBox: bbox, Matrix: matrix }));
+  const square = (name: string, rotation: number, rect: number[], bbox: number[], matrix: number[], re: number[]) =>
+    ctx.register(ctx.obj({
+      Type: 'Annot', Subtype: 'Square', Subj: text('Rectangle'), T: text('Pat'), NM: text(name), F: 4, C: [1, 0, 1], IC: [1, 0, 1], FillOpacity: 0.7, RD: [1, 1, 1, 1],
+      BS: { W: 2, S: 'S', Type: 'Border' }, Rotation: rotation, Rect: rect, AP: { N: ap(bbox, matrix, `1 0 1 RG 2 w 1 0 1 rg ${re.join(' ')} re B`) },
+    }));
+  const ds = 'font: Helvetica 5pt; text-align:left; margin:0pt; line-height:5.75pt; color:#FF00FF';
+  const textBox = (name: string, words: string, rotation: number, rect: number[], bbox: number[], matrix: number[]) =>
+    ctx.register(ctx.obj({
+      Type: 'Annot', Subtype: 'FreeText', Subj: text('Text Box'), T: text('Pat'), NM: text(name), F: 4, C: [1, 1, 1], Contents: text(words), DA: text('1 0 1 rg /Helv 5 Tf'), DS: text(ds),
+      BS: { W: 0.5, S: 'S', Type: 'Border' }, Rotation: rotation, Rotate: 90, Rect: rect, AP: { N: ap(bbox, matrix, `q 0 1 -1 0 0 0 cm 1 1 1 rg 1 0 1 RG 0.5 w Q`) },
+    }));
+  const r60 = square('R60', 60, [427.7071, 761.8246, 553.1931, 873.1714], [456.764, 764.4974, 524.1364, 870.4987], [0.4999999, -0.8660254, 0.8660254, 0.4999999, -890.4561, 71.66678], [458.764, 766.4974, 63.37231, 102.0013]);
+  const r330 = square('R330', 330, [639.8082, 1118.462, 751.155, 1243.948], [661.7954, 1128.205, 729.1677, 1234.206], [0.8660254, 0.5, -0.5, 0.8660254, 43.97137, -1307.952], [663.7954, 1130.205, 63.37231, 102.0013]);
+  const t45 = textBox('T45', 'Duct A', 45, [576.0616, 964.7899, 616.4551, 1005.183], [592.2583, 960.4241, 600.2583, 1009.549], [0.7071066, -0.7071069, 0.7071069, 0.7071066, -1097.912, -254.6754]);
+  const t270 = textBox('T270', 'Duct B', 270, [461.0917, 1071.086, 519.9417, 1079.086], [486.5167, 1045.661, 494.5167, 1104.511], [0, 1, -1, 0, 1104.511, -486.5167]);
+  const refs = [r60, r330, t45, t270];
+  page.node.set(PDFName.of('Annots'), ctx.obj(refs));
+  const bytes = await doc.save();
+  const extras = (await readPdfExtras(bytes))!;
+  const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 0, author: '', intent: '', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null, contents: '' };
+  const subtypes = ['Square', 'Square', 'FreeText', 'FreeText'];
+  const { markups } = importAnnotations(0, refs.map((r, index) => ({ ...base, index, objectNumber: r.objectNumber, subtype: subtypes[index]! })), () => null, extras);
+  const [m60, m330, m45, m270] = markups;
+  const round = (v: number) => Math.round(v * 10) / 10;
+  const size = (m: Markup) => [Math.abs(m.points[1]![0] - m.points[0]![0]), Math.abs(m.points[1]![1] - m.points[0]![1])].map(round);
+  const centre = (m: Markup) => [(m.points[0]![0] + m.points[1]![0]) / 2, (m.points[0]![1] + m.points[1]![1]) / 2].map(round);
+
+  // Rectangles: the box before turning (its /BBox less /RD), turned by /Rotation plus the sheet's 90°,
+  // which is the turn the appearance's /Matrix draws on the shown sheet.
+  assert.equal(m60!.type, 'rect');
+  assert.equal(m60!.rotation, 150);
+  assert.deepEqual(size(m60!), [65.4, 104]);
+  assert.deepEqual(centre(m60!), [817.5, 490.5]);
+  assert.equal(m330!.rotation, 60);
+  assert.deepEqual(size(m330!), [65.4, 104]);
+
+  // Text boxes: Revu already set them upright on the sheet, so the sheet's turn does not add again.
+  assert.equal(m45!.type, 'text');
+  assert.equal(m45!.rotation, 45);
+  assert.equal(m270!.rotation, 270);
+  // Wider than tall the way the words run: the user-space /BBox is 8 × 49, less the 0.25 border inset.
+  assert.deepEqual(size(m45!), [48.6, 7.5]);
+  assert.deepEqual(size(m270!), [58.3, 7.5]);
+  assert.deepEqual(centre(m45!), [985, 596.3]);
+});
+
+test('#459: text Revu turned with its sheet (no /Rotate of its own) reads the way the sheet turned it', async () => {
+  // As Revu leaves them when a sheet is turned without setting its text upright: the text box,
+  // typewriter and flag keep their user-space /Rect and appearance, so they turn with the sheet.
+  // A turned ellipse turns by its /Rotation plus the sheet's turn, as the rectangle does.
+  const build = async (turn: number) => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([595.2756, 841.8898]);
+    page.setRotation(degrees(turn));
+    const ctx = doc.context;
+    const ds = 'font: Helvetica 12pt; text-align:left; margin:3pt; line-height:13.8pt; color:#FF0000';
+    const form = (bbox: number[]) => ({ N: ctx.register(ctx.stream('q Q', { Type: 'XObject', Subtype: 'Form', BBox: bbox, Matrix: [1, 0, 0, 1, 0, 0] })) });
+    const free = (name: string, extra: Record<string, unknown>, rect: number[]) =>
+      ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'FreeText', NM: text(name), Contents: text('WORDS'), DA: text('1 0 0 rg /Helv 12 Tf'), DS: text(ds), C: [], BS: { W: 0, S: 'S' }, Rect: rect, AP: form(rect), ...extra }));
+    const box = free('TEXT', {}, [100, 700, 200, 720]);
+    const typed = free('TYPED', { IT: 'FreeTextTypeWriter' }, [100, 600, 180, 634]);
+    const flag = free('FLAG', { Subj: text('Flag'), RD: [14.5, 5.5, 5.5, 5.5] }, [356.6935, 503.9723, 520.6935, 532.9723]);
+    const ellipse = ctx.register(ctx.obj({ Type: 'Annot', Subtype: 'Circle', NM: text('OVAL'), C: [0, 0, 1], BS: { W: 1, S: 'S' }, RD: [0.5, 0.5, 0.5, 0.5], Rotation: 30, Rect: [300, 300, 380, 360], AP: form([310, 300, 370, 360]) }));
+    const refs = [box, typed, flag, ellipse];
+    page.node.set(PDFName.of('Annots'), ctx.obj(refs));
+    const bytes = await doc.save();
+    const extras = (await readPdfExtras(bytes))!;
+    const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 0, author: '', intent: '', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null, contents: '' };
+    const kinds = [['FreeText', ''], ['FreeText', 'FreeTextTypeWriter'], ['FreeText', ''], ['Circle', '']] as const;
+    return importAnnotations(0, refs.map((r, index) => ({ ...base, index, objectNumber: r.objectNumber, subtype: kinds[index]![0], intent: kinds[index]![1] })), () => null, extras).markups;
+  };
+  const round = (v: number) => Math.round(v * 10) / 10;
+  const size = (m: Markup) => [Math.abs(m.points[1]![0] - m.points[0]![0]), Math.abs(m.points[1]![1] - m.points[0]![1])].map(round);
+  // Where the flag's whole box lands once turned about its text, as the page shows it.
+  const flagCentre = (m: Markup) => {
+    const [p, q] = m.points as [[number, number], [number, number]];
+    return rotatePoint([(p[0] + q[0]) / 2, (p[1] + q[1]) / 2], rotationCentre(m), m.rotation ?? 0).map(round);
+  };
+
+  const upright = await build(0);
+  assert.deepEqual(upright.map((m) => m.rotation ?? 0), [0, 0, 0, 30]);
+
+  const [t90, w90, f90, e90] = await build(90);
+  assert.equal(t90!.rotation, 90);
+  // The box before turning keeps the text's own width and height (100 × 20), about the same centre.
+  assert.deepEqual(size(t90!), [100, 20]);
+  assert.equal(w90!.type, 'typewriter');
+  assert.equal(w90!.rotation, 90);
+  assert.deepEqual(size(w90!), [80, 34]);
+  assert.equal(f90!.type, 'flagLabel');
+  assert.equal(f90!.rotation, 90);
+  assert.deepEqual(size(f90!), [153, 18]);
+  // The flag's middle stays at its /Rect's middle on the page.
+  assert.deepEqual(flagCentre(f90!), [518.5, 438.7]);
+  assert.equal(e90!.type, 'ellipse');
+  assert.equal(e90!.rotation, 120);
+  assert.deepEqual(size(e90!), [59, 59]);
+
+  const [t180, w180, f180] = await build(180);
+  assert.equal(t180!.rotation, 180);
+  assert.equal(w180!.rotation, 180);
+  assert.equal(f180!.rotation, 180);
+  assert.deepEqual(flagCentre(f180!), [156.6, 518.5]);
 });
 
 test("another tool's file attachment shows its own appearance (icon and file name), and keeps it when moved", async () => {
