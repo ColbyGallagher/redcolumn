@@ -2,11 +2,11 @@ import { msg, msgParts } from '@nb/i18n';
 import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
-import { checkAction, checkFilter, describeRuleAction, describeRuleFilter, toolRuns, type GroupingTool, type MarkupStore } from '@nb/markup';
+import { checkAction, checkFilter, describeRuleAction, describeRuleFilter, toolRuns, type AiReviewFacet, type GroupingTool, type MarkupDocument } from '@nb/markup';
 import { runToolOn, toolLibrary, useToolLibrary } from '../takeoff/toolLibrary';
 
 interface Props {
-  store: MarkupStore;
+  store: MarkupDocument & AiReviewFacet;
   me: string;
   documentName: string;
   onMessage: (text: string) => void;

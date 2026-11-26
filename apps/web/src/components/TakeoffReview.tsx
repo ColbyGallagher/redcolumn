@@ -2,7 +2,7 @@ import { msg, msgParts } from '@nb/i18n';
 import { lazy } from '../i18n/lazy';
 import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
-import { LOW_CONFIDENCE, MARKUP_LABELS, type Assembly, type Markup, type MarkupStore, type SourceRef } from '@nb/markup';
+import { LOW_CONFIDENCE, MARKUP_LABELS, type Assembly, type Markup, type MarkupDocument, type TakeoffFacet, type AiReviewFacet, type SourceRef } from '@nb/markup';
 import { itemQuantities } from '../assemblies/quantities';
 import { approveProposals, takeoffProposals, type ApprovalEdit, type TakeoffProposal } from '../assemblies/proposals';
 import { approveCountProposal, countProposals } from '../assemblies/countProposals';
@@ -18,7 +18,7 @@ import type { ReviewFinding } from '@nb/markup';
 import { approveDrafts, clearDecided, rejectDrafts, reopenDrafts, reviewItems, waitingCount, type ReviewItem, type ReviewState } from '../takeoff/aiReview';
 
 interface Props {
-  store: MarkupStore;
+  store: MarkupDocument & TakeoffFacet & AiReviewFacet;
   /** Who approves: the name markups are authored under. */
   me: string;
   ctx: CellContext;
@@ -344,7 +344,7 @@ interface ItemProps {
   open: boolean;
   picked: boolean;
   readOnly: boolean;
-  store: MarkupStore;
+  store: MarkupDocument & TakeoffFacet & AiReviewFacet;
   assemblies: readonly Assembly[];
   ctx: CellContext;
   edit: ApprovalEdit;

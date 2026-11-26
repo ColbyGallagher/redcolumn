@@ -1,7 +1,7 @@
 import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { Assembly, Markup, MarkupStore } from '@nb/markup';
+import type { Assembly, Markup, MarkupDocument } from '@nb/markup';
 import { appliesTo, takesAssembly } from '../assemblies/assemblyChoice';
 import { AssemblyInputFields, useAssemblyChoice } from './AssemblyInputs';
 import type { MeasureDefaults } from './MeasurementsPanel';
@@ -22,7 +22,7 @@ export interface TakeoffAssemblyProps {
  * are the running tool's, for selected ones each measurement's own inputs (unset ones fall back to
  * the assembly's defaults). The Measurements panel edits the same choice.
  */
-export function RibbonAssembly({ info, selection, enabled }: { info: TakeoffAssemblyProps | null | undefined; selection: { markups: readonly Markup[]; store: MarkupStore } | null | undefined; enabled: boolean }) {
+export function RibbonAssembly({ info, selection, enabled }: { info: TakeoffAssemblyProps | null | undefined; selection: { markups: readonly Markup[]; store: MarkupDocument } | null | undefined; enabled: boolean }) {
   const chosen = (selection?.markups ?? []).filter(takesAssembly);
   const store = selection?.store ?? null;
   const mayEdit = !!info && (chosen.length ? !!store && chosen.every((m) => store.mayEdit(m)) : enabled);

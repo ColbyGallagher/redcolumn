@@ -2,7 +2,7 @@ import { msg, msgParts } from '@nb/i18n';
 import { markupName } from '../i18n/names';
 import { keyed } from '../i18n/keyed';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
-import { isAiDraft, isMeasureKind, measureKindOf, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
+import { isAiDraft, isMeasureKind, measureKindOf, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupDocument, type Reply } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, type MeasureKind, type Scale } from '@nb/measure';
 import type { SheetInfo } from '@nb/sheets';
 import {
@@ -29,7 +29,7 @@ import { markupTypeIcon } from './ToolBar';
 
 interface Props {
   markups: Markup[];
-  store: MarkupStore | null;
+  store: MarkupDocument | null;
   /** The scale each markup is measured at. */
   scaleOf: (m: Markup) => Scale;
   sheets: Readonly<Record<number, SheetInfo>>;

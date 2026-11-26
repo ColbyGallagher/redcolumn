@@ -1,14 +1,14 @@
 import { msg, msgParts } from '@nb/i18n';
 import { keyed } from '../i18n/keyed';
 import { useState, type KeyboardEvent } from 'react';
-import { boundsOf, circleBox, polarPoint, resizedBox, segmentPolar, withSegment, type Markup, type MarkupStore, type Point } from '@nb/markup';
+import { boundsOf, circleBox, polarPoint, resizedBox, segmentPolar, withSegment, type Markup, type MarkupDocument, type Point } from '@nb/markup';
 import { formatLength, METERS_PER_UNIT, pageLengthFor, parseLength, realLengthAlong, type Scale } from '@nb/measure';
 
 interface Props {
   markup: Markup;
   /** The scale the shape is measured at (its viewport's, else its page's). */
   scale: Scale;
-  store: MarkupStore;
+  store: MarkupDocument;
   readOnly: boolean;
 }
 

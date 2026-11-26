@@ -1,7 +1,7 @@
 import { msg, msgParts } from '@nb/i18n';
 import { keyed } from '../i18n/keyed';
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
-import type { MarkupStore, Point, StoredStitchGroup } from '@nb/markup';
+import type { MarkupDocument, GeoFacet, Point, StoredStitchGroup } from '@nb/markup';
 import { crsById, PROJECTED_CRS, type GeoRegion } from '@nb/measure';
 import { apply } from '@nb/stitch';
 import type { MarkupTools } from '../markup/MarkupTools';
@@ -39,7 +39,7 @@ const DEFAULT_CRS = 'EPSG:7856';
 interface Props {
   /** Identifies the document (for keeping the panel's state). */
   docKey: string | null;
-  store: MarkupStore | null;
+  store: (MarkupDocument & GeoFacet) | null;
   tools: MarkupTools | null;
   handlers: MutableRefObject<GeoHandlers | null>;
   pageIndex: number;

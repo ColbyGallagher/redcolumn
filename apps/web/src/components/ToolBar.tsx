@@ -2,7 +2,7 @@ import { msg, msgc } from '@nb/i18n';
 import { lazy } from '../i18n/lazy';
 import { Children, Fragment, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { HATCH_PATTERNS, isMeasureKind, TEXT_PADDING, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
+import { HATCH_PATTERNS, isMeasureKind, TEXT_PADDING, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupDocument, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
 import { ALIGN_ICONS, LineSpacing, NumberField, VALIGN_ICONS } from './PropertiesPanel';
 import { formatLength, METERS_PER_UNIT, parseLength, type Scale } from '@nb/measure';
 import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
@@ -303,9 +303,9 @@ export interface ToolBarProps {
   selectedStyle?: MarkupStyle;
   cloudBubble: { value: number | undefined } | null;
   /** Draw to Scale: the selected shape whose sizes the toolbar edits. */
-  geometry: { markup: Markup; scale: Scale; store: MarkupStore; readOnly: boolean } | null;
+  geometry: { markup: Markup; scale: Scale; store: MarkupDocument; readOnly: boolean } | null;
   /** The selected markups (select mode, two or more), whose shared style the Format tab edits together. */
-  selection?: { markups: readonly Markup[]; store: MarkupStore } | null;
+  selection?: { markups: readonly Markup[]; store: MarkupDocument } | null;
   enabled: boolean;
   /**
    * The Markup Format tab's Units & Scale group: set while a measure tool is active or measurements are

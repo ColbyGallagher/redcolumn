@@ -76,8 +76,9 @@ import {
   type Geometry,
   type Alignment,
   type Axis,
+  type LinkFacet,
   type Markup,
-  type MarkupStore,
+  type MarkupDocument,
   type MarkupStyle,
   type MarkupType,
   type Point,
@@ -619,7 +620,7 @@ function clickSpec(tool: Tool): { min: number; fixed?: number; closes?: boolean 
  * so each gesture is a single undo step and a single sync update.
  */
 export class MarkupTools implements ViewerOverlay {
-  private store: MarkupStore | null = null;
+  private store: (MarkupDocument & LinkFacet) | null = null;
   private unsubscribe: (() => void) | null = null;
   private gesture: Gesture | null = null;
   /** Transient live-preview style patch while hovering options in a style dropdown (never committed to the store). */
@@ -867,7 +868,7 @@ export class MarkupTools implements ViewerOverlay {
     this.refreshSketch();
   }
 
-  setStore(store: MarkupStore | null) {
+  setStore(store: (MarkupDocument & LinkFacet) | null) {
     this.unsubscribe?.();
     this.store = store;
     this.setGesture(null);
@@ -1489,7 +1490,7 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /** Whether these tools are editing this drawing (the one on screen in their pane). */
-  owns(store: MarkupStore): boolean {
+  owns(store: MarkupDocument): boolean {
     return this.store === store;
   }
 
@@ -2125,7 +2126,7 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /** Keeps a resumed markup's gesture in step with the store (undo takes points off; deleting it ends the resume). */
-  private syncResumed(store: MarkupStore) {
+  private syncResumed(store: MarkupDocument & LinkFacet) {
     const g = this.gesture;
     if (g?.kind !== 'multi' || !g.resume) return;
     const m = store.get(g.resume.id);
@@ -4898,7 +4899,7 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /** A CAD edit made as one undo step, then the tool carries on (`again`) or hands back to Select. */
-  private commitCad(store: MarkupStore, c: CadSession, done: CadChanges, r: { select: string[]; again: boolean; picks?: CadPick[] }) {
+  private commitCad(store: MarkupDocument & LinkFacet, c: CadSession, done: CadChanges, r: { select: string[]; again: boolean; picks?: CadPick[] }) {
     const { update, add, remove } = done;
     store.checkpoint();
     store.batch(() => {
@@ -4928,7 +4929,7 @@ export class MarkupTools implements ViewerOverlay {
    * turned over (a delete, a drag, an undo, someone else's edit), or the tool was put down, nothing is
    * made.
    */
-  private async commitMirroredPictures(store: MarkupStore, c: CadSession, done: CadChanges, r: { select: string[]; again: boolean; picks?: CadPick[] }, sources: readonly string[]) {
+  private async commitMirroredPictures(store: MarkupDocument & LinkFacet, c: CadSession, done: CadChanges, r: { select: string[]; again: boolean; picks?: CadPick[] }, sources: readonly string[]) {
     const patches = new Map(done.update);
     const added = new Map(done.add.map((m) => [m.id, m]));
     // What the mirrored markups looked like when the mirror was worked out: the selection it was worked

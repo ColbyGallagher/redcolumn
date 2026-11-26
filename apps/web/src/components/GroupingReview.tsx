@@ -1,12 +1,12 @@
 import { msg } from '@nb/i18n';
 import { lazy } from '../i18n/lazy';
 import { useState } from 'react';
-import { LOW_CONFIDENCE, MARKUP_LABELS, type GroupingProposal, type GroupingStatus, type Markup, type MarkupStore, type ReviewFinding, type SourceRef } from '@nb/markup';
+import { LOW_CONFIDENCE, MARKUP_LABELS, type GroupingProposal, type GroupingStatus, type Markup, type MarkupDocument, type AiReviewFacet, type ReviewFinding, type SourceRef } from '@nb/markup';
 import { ReviewFindings } from './ReviewFindings';
 import { acceptGrouping, deleteGrouping, editGrouping, groupValues, ownsColumn, regroup, rejectGrouping, reopenGrouping } from '../takeoff/groupingColumns';
 
 interface Props {
-  store: MarkupStore;
+  store: MarkupDocument & AiReviewFacet;
   me: string;
   /** Waiting ones only, or all with decisions. */
   waitingOnly: boolean;

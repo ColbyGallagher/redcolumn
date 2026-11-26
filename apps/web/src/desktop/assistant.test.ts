@@ -24,7 +24,7 @@ function markup(partial: Partial<Markup> & Pick<Markup, 'id' | 'type'>): Markup 
   };
 }
 
-async function doc(name: string, active: boolean): Promise<AssistantDocument> {
+async function doc(name: string, active: boolean): Promise<AssistantDocument & { store: MarkupStore }> {
   const store = await MarkupStore.open(`assistant-${name}-${Math.random()}`, { persist: false });
   store.add(markup({ id: 'door', type: 'length', text: 'D1', subject: 'Door', comment: 'check', seq: 1 }));
   store.setDetectedSheets([[0, { number: 'A-101', title: 'Floor plan', discipline: null, scaleText: null, revision: null, source: 'manual', confidence: 1 }]]);

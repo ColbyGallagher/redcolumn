@@ -1,11 +1,11 @@
 import { msg } from '@nb/i18n';
 import { lazy } from '../i18n/lazy';
-import type { MarkupStore, ReviewFinding, SourceRef } from '@nb/markup';
+import type { AiReviewFacet, MarkupDocument, ReviewFinding, SourceRef } from '@nb/markup';
 import { formatNumber } from '../columns/listColumns';
 import { decideFindings, FINDING_KIND_LABEL } from '../takeoff/reviewPass';
 
 interface Props {
-  store: MarkupStore;
+  store: MarkupDocument & AiReviewFacet;
   me: string;
   findings: readonly ReviewFinding[];
   pageLabel: (pageIndex: number) => string;

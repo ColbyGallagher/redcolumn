@@ -19,6 +19,7 @@ import { orphanedLinks, planPortalSync, relinkPlan, remapPortals, sanitizePortal
 /** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
 export const IMPORT_VERSION = 2;
 import { gluedTo, relinkCopies, routeConnector } from './flowchart';
+import type { AiReviewFacet, FileStepFacet, GeoFacet, ImportFacet, LinkFacet, MarkupDocument, PortalFacet, StitchFacet, TakeoffFacet, UndoResult } from './document';
 
 /**
  * `auto`: detected with high confidence and active. `review`: detected with low confidence; active
@@ -157,7 +158,7 @@ const NO_PORTALS: Portal[] = [];
  * merge cleanly once a sync provider is attached. Each markup is stored whole under its id;
  * concurrent edits to the same markup resolve last-writer-wins, edits to different markups merge.
  */
-export class MarkupStore {
+export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet, PortalFacet, LinkFacet, StitchFacet, GeoFacet, ImportFacet, FileStepFacet {
   /** Who is making changes here (Preferences › name): recorded with each status change. */
   static author = '';
   /** Called after a new markup is added here (not on an edit, an import or a remote change). */
@@ -221,6 +222,11 @@ export class MarkupStore {
   private hasConnectors = false;
 
   readonly fileHash: string;
+
+  /** The document's key: its file's hash. */
+  get key(): string {
+    return this.fileHash;
+  }
 
   private constructor(fileHash: string, persist: boolean) {
     this.fileHash = fileHash;
@@ -1519,9 +1525,9 @@ export class MarkupStore {
     this.undoManager.stopCapturing();
   }
 
-  undo() {
-    if (this.locked) return;
-    this.undoManager.undo();
+  undo(): UndoResult {
+    if (this.locked) return { ok: false, reason: 'forbidden' };
+    return this.undoManager.undo() ? { ok: true } : { ok: false, reason: 'nothing' };
   }
 
   /** What can be undone, newest first: each step's description and when it was made. */
@@ -1537,9 +1543,9 @@ export class MarkupStore {
     for (let i = 0; i < steps && this.undoManager.undoStack.length; i++) this.undoManager.undo();
   }
 
-  redo() {
-    if (this.locked) return;
-    this.undoManager.redo();
+  redo(): UndoResult {
+    if (this.locked) return { ok: false, reason: 'forbidden' };
+    return this.undoManager.redo() ? { ok: true } : { ok: false, reason: 'nothing' };
   }
 
   async destroy() {

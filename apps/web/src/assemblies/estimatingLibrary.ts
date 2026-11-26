@@ -1,4 +1,4 @@
-import { EMPTY_ESTIMATING, mergeAssemblies, mergeEstimating, referencedRecords, sanitizeEstimating, type Assembly, type Estimating, type EstimatingFile, type MarkupStore } from '@nb/markup';
+import { EMPTY_ESTIMATING, mergeAssemblies, mergeEstimating, referencedRecords, sanitizeEstimating, type Assembly, type Estimating, type EstimatingFile, type MarkupDocument, type TakeoffFacet } from '@nb/markup';
 import { loadLibrary, writeLibrary } from './library';
 
 /**
@@ -38,7 +38,7 @@ export function addToLibrary(incoming: Partial<EstimatingFile>): boolean {
 }
 
 /** The document's estimating records as one file's contents. */
-export function documentFile(store: MarkupStore): EstimatingFile {
+export function documentFile(store: MarkupDocument & TakeoffFacet): EstimatingFile {
   return { assemblies: store.assemblies(), ...store.estimating() };
 }
 
@@ -46,7 +46,7 @@ export function documentFile(store: MarkupStore): EstimatingFile {
  * Copies into the document the records `assemblyIds` and `itemIds` need from `from` that it lacks
  * (by id): the assemblies, the items they link to and those items' product lists. One undo step.
  */
-export function copyIntoDocument(store: MarkupStore, from: EstimatingFile, assemblyIds: Iterable<string>, itemIds: Iterable<string> = []) {
+export function copyIntoDocument(store: MarkupDocument & TakeoffFacet, from: EstimatingFile, assemblyIds: Iterable<string>, itemIds: Iterable<string> = []) {
   const need = referencedRecords(from, assemblyIds, itemIds);
   const doc = documentFile(store);
   const missing = <T extends { id: string }>(list: readonly T[], have: readonly T[]) => list.filter((x) => !have.some((h) => h.id === x.id));

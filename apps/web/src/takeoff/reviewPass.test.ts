@@ -6,7 +6,7 @@ import { assistantCall, type AssistantDocument } from '../desktop/assistant.ts';
 import { clearDecided, rejectDrafts, waitingCount } from './aiReview.ts';
 import { decideFindings, findingsByItem, requestReviewPass, setReviewPassEnabled } from './reviewPass.ts';
 
-async function drawing(): Promise<AssistantDocument> {
+async function drawing(): Promise<AssistantDocument & { store: MarkupStore }> {
   const store = await MarkupStore.open(`review-pass-${Math.random()}`, { persist: false });
   store.setScale([0, 1], parseScaleText('1:100')!);
   return { id: 'd', name: 'C-101.pdf', pageCount: 2, pageIndex: 0, active: true, store, pageSize: () => ({ width: 842, height: 595 }) };

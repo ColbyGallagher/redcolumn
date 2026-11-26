@@ -116,7 +116,7 @@ async function findSymbolMatches(docs: readonly AssistantDocument[], params: unk
   }
   all.sort((a, b) => a.pageIndex - b.pageIndex || (b.score ?? 0) - (a.score ?? 0));
   const kept = all.slice(0, limit);
-  const ids = rememberMatches(doc.store.fileHash, kept);
+  const ids = rememberMatches(doc.store.key, kept);
   return {
     document: doc.name,
     engine,
@@ -146,7 +146,7 @@ function proposeCounts(docs: readonly AssistantDocument[], params: unknown) {
     try {
       let match: CountMatch;
       if (typeof item === 'string') {
-        const found = recalledMatch(doc.store.fileHash, item);
+        const found = recalledMatch(doc.store.key, item);
         if (!found) throw new Error(`${item} is not a match from find_symbol_matches in this session. Search again`);
         match = found;
       } else {

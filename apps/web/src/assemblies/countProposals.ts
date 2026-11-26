@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { DEFAULT_STYLES, type CountMatch, type CountProposal, type Markup, type MarkupStore } from '@nb/markup';
+import { DEFAULT_STYLES, type CountMatch, type CountProposal, type Markup, type MarkupDocument, type AiReviewFacet } from '@nb/markup';
 import { centreOf, countsFromHits } from '../search/countFromHits';
 
 /**
@@ -17,41 +17,41 @@ export type CountProposalState = 'pending' | 'approved' | 'rejected';
 
 /** Count proposals by document (`MarkupStore.aiReview`). AI clients add them; a person's decisions are undoable edits. */
 export const countProposals = {
-  list(store: MarkupStore): CountProposal[] {
+  list(store: MarkupDocument & AiReviewFacet): CountProposal[] {
     return store.aiReview().counts;
   },
 
-  add(store: MarkupStore, proposal: CountProposal) {
+  add(store: MarkupDocument & AiReviewFacet, proposal: CountProposal) {
     store.changeAiReview({ counts: [proposal] }, true);
   },
 
-  update(store: MarkupStore, id: string, patch: (p: CountProposal) => CountProposal) {
+  update(store: MarkupDocument & AiReviewFacet, id: string, patch: (p: CountProposal) => CountProposal) {
     const p = this.list(store).find((x) => x.id === id);
     if (p) store.changeAiReview({ counts: [patch(p)] });
   },
 
-  reject(store: MarkupStore, id: string, by: string) {
+  reject(store: MarkupDocument & AiReviewFacet, id: string, by: string) {
     this.update(store, id, (p) => ({ ...p, rejected: { by, at: Date.now() } }));
   },
 
-  reopen(store: MarkupStore, id: string) {
+  reopen(store: MarkupDocument & AiReviewFacet, id: string) {
     this.update(store, id, ({ rejected: _r, ...p }) => p);
   },
 
   /** Forgets decided proposals. */
-  clearDecided(store: MarkupStore) {
+  clearDecided(store: MarkupDocument & AiReviewFacet) {
     store.changeAiReview({ remove: { counts: this.list(store).filter((p) => countStateOf(p, store) !== 'pending').map((p) => p.id) } });
   },
 };
 
 const NONE: CountProposal[] = [];
 const noop = () => () => {};
-export function useCountProposals(store: MarkupStore | null): CountProposal[] {
+export function useCountProposals(store: (MarkupDocument & AiReviewFacet) | null): CountProposal[] {
   return useSyncExternalStore(store ? (l) => store.subscribe(l) : noop, () => (store ? store.aiReview().counts : NONE));
 }
 
 /** Approved while its Count markups are on the drawing (an undo makes it pending again). */
-export function countStateOf(p: CountProposal, store: MarkupStore): CountProposalState {
+export function countStateOf(p: CountProposal, store: MarkupDocument & AiReviewFacet): CountProposalState {
   if (p.placed && p.placed.markupIds.length && p.placed.markupIds.every((id) => store.get(id))) return 'approved';
   return p.rejected ? 'rejected' : 'pending';
 }
@@ -61,7 +61,7 @@ export function countStateOf(p: CountProposal, store: MarkupStore): CountProposa
  * step. `skip` are indexes into `p.matches` the person turned off. Returns the number placed, or
  * 0 when nothing could be (read-only drawing, or every match turned off).
  */
-export function approveCountProposal(store: MarkupStore, p: CountProposal, by: string, skip: ReadonlySet<number> = new Set()): number {
+export function approveCountProposal(store: MarkupDocument & AiReviewFacet, p: CountProposal, by: string, skip: ReadonlySet<number> = new Set()): number {
   if (store.readOnly) return 0;
   const hits = p.matches.flatMap((m, i) => (skip.has(i) ? [] : [{ pageIndex: m.pageIndex, point: centreOf(m.rect) }]));
   if (!hits.length) return 0;
