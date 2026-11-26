@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 /**
  * End-to-end encryption and signing for Live Sessions, in the browser with WebCrypto
  * (docs/SECURITY-HARDENING.md, phase 5). Nothing here talks to a server.
@@ -88,7 +89,7 @@ export async function seal(key: CryptoKey, epoch: number, plain: Uint8Array): Pr
 }
 
 export async function unseal(key: CryptoKey, sealed: Uint8Array): Promise<Uint8Array> {
-  if (!isSealed(sealed)) throw new Error('Not an encrypted file.');
+  if (!isSealed(sealed)) throw new Error(msg('Not an encrypted file.'));
   const head = sealed.subarray(0, 8);
   const iv = sealed.subarray(8, HEADER);
   return new Uint8Array(await subtle().decrypt({ name: 'AES-GCM', iv: buf(iv), additionalData: buf(head) }, key, buf(sealed.subarray(HEADER))));

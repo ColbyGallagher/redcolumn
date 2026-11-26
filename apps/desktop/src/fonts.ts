@@ -117,9 +117,12 @@ async function readFace(fh: fs.FileHandle, size: number, base: number): Promise<
   const name = await readTable(fh, size, dir.tables.get('name'), 1 << 20);
   if (!name) return null;
   const names = readNames(name);
-  const family = names.get(16) ?? names.get(1);
+  // Name IDs 1 & 2 follow the 4-style RIBBI model (Regular/Bold/Italic/Bold Italic), keeping
+  // width and weight subfamilies like "Arial Narrow" and "Arial Black" as separate selectable
+  // families instead of collapsing them under "Arial" (ID 16).
+  const family = names.get(1) ?? names.get(16);
   if (!family) return null;
-  let style = names.get(17) ?? names.get(2) ?? 'Regular';
+  let style = names.get(2) ?? names.get(17) ?? 'Regular';
   const os2 = await readTable(fh, size, dir.tables.get('OS/2'), 1 << 16);
   const head = await readTable(fh, size, dir.tables.get('head'), 1 << 10);
   let bold = /\bbold\b/i.test(style);

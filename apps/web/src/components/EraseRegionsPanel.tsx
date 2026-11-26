@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState } from 'react';
 import type { PageText } from '@nb/sheets';
 import { parsePageRange, textInRegion, type Region } from '../sheets/regions';
@@ -78,25 +80,25 @@ export function EraseRegionsPanel({ regions, drawing, pageCount, currentPage, te
   const onPage = (r: Region) => (ref && here ? regionOnPage(r, ref, here) : r);
 
   return (
-    <div className="label-regions" role="dialog" aria-label="Bulk redact">
+    <div className="label-regions" role="dialog" aria-label={msg('Bulk redact')}>
       <div className="lr-head">
-        <b>Bulk Redact</b>
-        <button className="btn small flat" onClick={onClose} title="Close" aria-label="Close">
+        <b>{msg('Bulk Redact')}</b>
+        <button className="btn small flat" onClick={onClose} title={msg('Close')} aria-label={msg('Close')}>
           ×
         </button>
       </div>
-      <p className="hint">Draw a box over the header, footer or side text, or find text that repeats at the same place. What is inside the boxes is removed from every chosen page.</p>
+      <p className="hint">{msg('Draw a box over the header, footer or side text, or find text that repeats at the same place. What is inside the boxes is removed from every chosen page.')}</p>
       <div className="lr-row">
         <button className={`btn small${drawing ? ' active' : ''}`} onClick={onDraw} disabled={readOnly}>
-          {drawing ? 'Drawing: drag a box on the page' : '+ Draw box'}
+          {drawing ? msg('Drawing: drag a box on the page') : msg('+ Draw box')}
         </button>
-        <button className="btn small" onClick={detect} disabled={readOnly || !texts || pages.length < 2} title="Look for text at the same place near the edges of most chosen pages">
-          Find repeated text
+        <button className="btn small" onClick={detect} disabled={readOnly || !texts || pages.length < 2} title={msg('Look for text at the same place near the edges of most chosen pages')}>
+          {msg('Find repeated text')}
         </button>
       </div>
-      {found === 0 && <p className="hint">No text repeats at the same place on most of the chosen pages.</p>}
+      {found === 0 && <p className="hint">{msg('No text repeats at the same place on most of the chosen pages.')}</p>}
       <ol className="lr-list">
-        {regions.length === 0 && <li className="empty">No boxes yet.</li>}
+        {regions.length === 0 && <li className="empty">{msg('No boxes yet.')}</li>}
         {regions.map((r, i) => {
           const name = names.get(key(r));
           const count = texts && ref ? pagesWithText(texts, pages, r, ref).length : null;
@@ -104,14 +106,14 @@ export function EraseRegionsPanel({ regions, drawing, pageCount, currentPage, te
           return (
             <li key={key(r)}>
               <span className="lr-num">{i + 1}</span>
-              <span className="lr-text" title={`${name ? `${name}. ` : ''}Text in this box on page ${currentPage + 1}`}>
+              <span className="lr-text" title={(name ? `${name}. ` : '') + msg('Text in this box on page {page}', { page: currentPage + 1 })}>
                 {name && <b>{name}: </b>}
-                {text === null ? '…' : text || <i>no text on this page</i>}
+                {text === null ? '…' : text || <i>{msg('no text on this page')}</i>}
               </span>
-              <span className="lr-count" title="Chosen pages with text in this box">
+              <span className="lr-count" title={msg('Chosen pages with text in this box')}>
                 {count === null ? '' : `${count}/${pages.length}`}
               </span>
-              <button className="btn small flat" onClick={() => onChange(regions.filter((_, j) => j !== i))} title="Remove box" aria-label="Remove box">
+              <button className="btn small flat" onClick={() => onChange(regions.filter((_, j) => j !== i))} title={msg('Remove box')} aria-label={msg('Remove box')}>
                 ×
               </button>
             </li>
@@ -119,60 +121,56 @@ export function EraseRegionsPanel({ regions, drawing, pageCount, currentPage, te
         })}
       </ol>
       <fieldset className="lr-row">
-        <legend>Remove</legend>
-        <label title="Lines, shapes and pictures in the boxes are left as they are">
-          <input type="radio" checked={textOnly} onChange={() => setTextOnly(true)} /> Text only
+        <legend>{msg('Remove')}</legend>
+        <label title={msg('Lines, shapes and pictures in the boxes are left as they are')}>
+          {keyed(msgParts('{input} Text only', { input: <input type="radio" checked={textOnly} onChange={() => setTextOnly(true)} /> }))}
         </label>
-        <label title="Text, lines and shapes wholly inside, and the parts of pictures inside">
-          <input type="radio" checked={!textOnly} onChange={() => setTextOnly(false)} /> Everything
+        <label title={msg('Text, lines and shapes wholly inside, and the parts of pictures inside')}>
+          {keyed(msgParts('{input} Everything', { input: <input type="radio" checked={!textOnly} onChange={() => setTextOnly(false)} /> }))}
         </label>
       </fieldset>
       <fieldset className="lr-row">
-        <legend>Then</legend>
+        <legend>{msg('Then')}</legend>
         <label>
-          <input type="radio" checked={!cover} onChange={() => setCover(false)} /> Leave blank
+          {keyed(msgParts('{input} Leave blank', { input: <input type="radio" checked={!cover} onChange={() => setCover(false)} /> }))}
         </label>
         <label>
-          <input type="radio" checked={cover} onChange={() => setCover(true)} /> Cover with
-          <input type="color" value={fill} aria-label="Cover colour" onChange={(e) => {
-              setFill(e.target.value);
-              setCover(true);
-            }}
-          />
+          {keyed(msgParts('{input} Cover with{input2}', { input: <input type="radio" checked={cover} onChange={() => setCover(true)} />, input2: <input type="color" value={fill} aria-label={msg('Cover colour')} onChange={(e) => { setFill(e.target.value); setCover(true); }} /> }))}
         </label>
       </fieldset>
       <label className="lr-row">
-        <input type="checkbox" checked={removeMarkups} onChange={(e) => setRemoveMarkups(e.target.checked)} />
-        Also delete markups inside the boxes
+        {keyed(msgParts('{input}Also delete markups inside the boxes', { input: <input type="checkbox" checked={removeMarkups} onChange={(e) => setRemoveMarkups(e.target.checked)} /> }))}
       </label>
       <fieldset className="lr-row">
-        <legend>Pages</legend>
+        <legend>{msg('Pages')}</legend>
         <label>
-          <input type="radio" checked={scope === 'all'} onChange={() => setScope('all')} /> All ({pageCount})
+          {keyed(msgParts('{input} All ({pageCount})', { input: <input type="radio" checked={scope === 'all'} onChange={() => setScope('all')} />, pageCount }))}
         </label>
         <label>
-          <input type="radio" checked={scope === 'odd'} onChange={() => setScope('odd')} /> Odd
+          {keyed(msgParts('{input} Odd', { input: <input type="radio" checked={scope === 'odd'} onChange={() => setScope('odd')} /> }))}
         </label>
         <label>
-          <input type="radio" checked={scope === 'even'} onChange={() => setScope('even')} /> Even
+          {keyed(msgParts('{input} Even', { input: <input type="radio" checked={scope === 'even'} onChange={() => setScope('even')} /> }))}
         </label>
         <label>
           <input type="radio" checked={scope === 'range'} onChange={() => setScope('range')} />
-          <input className="lr-range" value={range} placeholder="1-5, 8" onFocus={() => setScope('range')} onChange={(e) => setRange(e.target.value)} aria-label="Page range" />
+          <input className="lr-range" value={range} placeholder="1-5, 8" onFocus={() => setScope('range')} onChange={(e) => setRange(e.target.value)} aria-label={msg('Page range')} />
         </label>
       </fieldset>
       <div className="lr-preview">
         {regions.length && pages.length ? (
           <>
-            {regions.length} box{regions.length === 1 ? '' : 'es'} on {pages.length > 1 ? `pages ${rangeText(pages)}` : `page ${pages[0]! + 1}`}. Undo with Ctrl+Z.
+            {pages.length > 1
+              ? msg('{boxes, plural, one {# box} other {# boxes}} on pages {pages}. Undo with Ctrl+Z.', { boxes: regions.length, pages: rangeText(pages) })
+              : msg('{boxes, plural, one {# box} other {# boxes}} on page {page}. Undo with Ctrl+Z.', { boxes: regions.length, page: pages[0]! + 1 })}
           </>
         ) : (
-          'Add a box and choose the pages.'
+          msg('Add a box and choose the pages.')
         )}
       </div>
       <div className="lr-actions">
         <button className="btn small" onClick={onClose}>
-          Cancel
+          {msg('Cancel')}
         </button>
         <button
           className="btn small primary danger"
@@ -189,7 +187,7 @@ export function EraseRegionsPanel({ regions, drawing, pageCount, currentPage, te
             })
           }
         >
-          Redact {pages.length} page{pages.length === 1 ? '' : 's'}
+          {msg('Redact {count, plural, one {# page} other {# pages}}', { count: pages.length })}
         </button>
       </div>
     </div>

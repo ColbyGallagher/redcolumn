@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import { unitsFor, useSettings } from '../settings/settings';
 import { parseLength, type LengthUnit, type Scale } from '@nb/measure';
@@ -51,20 +53,18 @@ export function CalibrateDialog({ delta, current, pageCount, defaultAllPages, vi
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>{viewportName ? `Calibrate viewport “${viewportName}”` : 'Calibrate scale'}</h3>
+        <h3>{viewportName ? msg('Calibrate viewport “{viewportName}”', { viewportName }) : msg('Calibrate scale')}</h3>
         {separate && (
-          <fieldset className="row" aria-label="Axis to calibrate">
+          <fieldset className="row" aria-label={msg('Axis to calibrate')}>
             <label className="check">
-              <input type="radio" name="calibrate-axis" checked={axis === 'x'} onChange={() => setAxis('x')} />
-              Horizontal (X)
+              {keyed(msgParts('{input}Horizontal (X)', { input: <input type="radio" name="calibrate-axis" checked={axis === 'x'} onChange={() => setAxis('x')} /> }))}
             </label>
             <label className="check">
-              <input type="radio" name="calibrate-axis" checked={axis === 'y'} onChange={() => setAxis('y')} />
-              Vertical (Y)
+              {keyed(msgParts('{input}Vertical (Y)', { input: <input type="radio" name="calibrate-axis" checked={axis === 'y'} onChange={() => setAxis('y')} /> }))}
             </label>
           </fieldset>
         )}
-        <p>{separate ? `How long is the ${axis === 'x' ? 'horizontal' : 'vertical'} extent of the line you drew in reality?` : 'How long is the line you drew in reality?'}</p>
+        <p>{separate ? msg('How long is the {value} extent of the line you drew in reality?', { value: axis === 'x' ? msg('horizontal') : msg('vertical') }) : msg('How long is the line you drew in reality?')}</p>
         {lineError && (
           <p role="alert" className="error">
             {lineError}
@@ -74,7 +74,7 @@ export function CalibrateDialog({ delta, current, pageCount, defaultAllPages, vi
           <input
             autoFocus
             value={text}
-            placeholder={unit === 'ft' || unit === 'in' ? `e.g. 25 or 25'-6"` : `e.g. 12.5, 300mm or 25'-6"`}
+            placeholder={unit === 'ft' || unit === 'in' ? msg('e.g. 25 or 25\'-6"') : msg('e.g. 12.5, 300mm or 25\'-6"')}
             onChange={(e) => setText(e.target.value)}
             aria-invalid={text !== '' && value === null}
           />
@@ -88,16 +88,15 @@ export function CalibrateDialog({ delta, current, pageCount, defaultAllPages, vi
         </div>
         {pageCount > 1 && !viewportName && (
           <label className="check">
-            <input type="checkbox" checked={allPages} onChange={(e) => setAllPages(e.target.checked)} />
-            Apply to all {pageCount} pages
+            {keyed(msgParts('{input}Apply to all {pageCount} pages', { input: <input type="checkbox" checked={allPages} onChange={(e) => setAllPages(e.target.checked)} />, pageCount }))}
           </label>
         )}
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!outcome || 'error' in outcome}>
-            Set scale
+            {msg('Set scale')}
           </button>
         </div>
       </form>

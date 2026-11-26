@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useLayoutEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { applySpanStyle, autoFormatList, autoSizedPoints, backspaceList, baseTextStyle, contentBox, continueList, cssFont, layoutRuns, normalizeSpans, rangeHasFlag, shiftList, shiftSpans, textBlockShift, textLineHeight, textPadding, textColor, toggleList, toggleSpanFlag, type ListKind, type Markup, type MarkupStore, type Point, type SpanFlag, type StyledMeasure, type TextEdit, type TextSpan } from '@nb/markup';
 import { readDom, readSelection, renderRuns, setSelection, type RichState } from './richEditorDom';
@@ -57,21 +58,21 @@ function typewriterBox(m: Markup, text: string, spans: TextSpan[]): [Point, Poin
 const FORMAT_KEYS: Record<string, SpanFlag | undefined> = { b: 'bold', i: 'italic', u: 'underline' };
 
 const FORMAT_BUTTONS: { flag: SpanFlag; label: string; title: string }[] = [
-  { flag: 'bold', label: 'B', title: 'Bold (Ctrl+B)' },
-  { flag: 'italic', label: 'I', title: 'Italic (Ctrl+I)' },
-  { flag: 'underline', label: 'U', title: 'Underline (Ctrl+U)' },
-  { flag: 'strikethrough', label: 'S', title: 'Strikethrough (Ctrl+Shift+X)' },
+  { flag: 'bold', get label() { return msg('B'); }, get title() { return msg('Bold (Ctrl+B)'); } },
+  { flag: 'italic', get label() { return msg('I'); }, get title() { return msg('Italic (Ctrl+I)'); } },
+  { flag: 'underline', get label() { return msg('U'); }, get title() { return msg('Underline (Ctrl+U)'); } },
+  { flag: 'strikethrough', get label() { return msg('S'); }, get title() { return msg('Strikethrough (Ctrl+Shift+X)'); } },
 ];
 
 /** Colours offered for selected words; the last (undefined) goes back to the markup's own colour. */
 const SWATCHES = ['#000000', '#d92d20', '#e8710a', '#0b8043', '#1a73e8', '#9334e6'];
 
 const LIST_BUTTONS: { kind: ListKind; label: string; title: string }[] = [
-  { kind: 'bullet', label: '•', title: 'Bulleted list (Ctrl+Shift+8)' },
-  { kind: 'number', label: '1.', title: 'Numbered list (Ctrl+Shift+7)' },
-  { kind: 'letter', label: 'a.', title: 'Lettered list' },
-  { kind: 'roman', label: 'i.', title: 'Roman numeral list' },
-  { kind: 'check', label: '☐', title: 'Checklist (Ctrl+Shift+9)' },
+  { kind: 'bullet', get label() { return msg('•'); }, get title() { return msg('Bulleted list (Ctrl+Shift+8)'); } },
+  { kind: 'number', get label() { return msg('1.'); }, get title() { return msg('Numbered list (Ctrl+Shift+7)'); } },
+  { kind: 'letter', get label() { return msg('a.'); }, get title() { return msg('Lettered list'); } },
+  { kind: 'roman', get label() { return msg('i.'); }, get title() { return msg('Roman numeral list'); } },
+  { kind: 'check', get label() { return msg('☐'); }, get title() { return msg('Checklist (Ctrl+Shift+9)'); } },
 ];
 
 /** Whether a #rrggbb color is light enough that it cannot be read on white. */
@@ -360,18 +361,18 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
 
   return (
     <>
-      <div className="text-editor-bar" style={{ left: x0, top: barTop }} role="toolbar" aria-label="Text formatting" onMouseDown={(e) => e.preventDefault()}>
+      <div className="text-editor-bar" style={{ left: x0, top: barTop }} role="toolbar" aria-label={msg('Text formatting')} onMouseDown={(e) => e.preventDefault()}>
         {FORMAT_BUTTONS.map((b) => (
           <button key={b.flag} type="button" className={`fmt fmt-${b.flag}`} title={b.title} aria-label={b.title} aria-pressed={pressed[b.flag]} onClick={() => format(b.flag)}>
             {b.label}
           </button>
         ))}
         {SWATCHES.map((c) => (
-          <button key={c} type="button" className="swatch-button" title={`Text colour ${c}`} aria-label={`Text colour ${c}`} onClick={() => colorize(c)}>
+          <button key={c} type="button" className="swatch-button" title={msg('Text colour {c}', { c })} aria-label={msg('Text colour {c}', { c })} onClick={() => colorize(c)}>
             <span style={{ background: c }} />
           </button>
         ))}
-        <button type="button" title="Text colour: as the markup" aria-label="Automatic text colour" onClick={() => colorize(undefined)}>
+        <button type="button" title={msg('Text colour: as the markup')} aria-label={msg('Automatic text colour')} onClick={() => colorize(undefined)}>
           A
         </button>
         <span className="sep" />
@@ -381,10 +382,10 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
           </button>
         ))}
         <span className="sep" />
-        <button type="button" title="Decrease list level (Shift+Tab)" aria-label="Decrease list level" onClick={() => edit((t, a, z) => shiftList(t, a, z, -1))}>
+        <button type="button" title={msg('Decrease list level (Shift+Tab)')} aria-label={msg('Decrease list level')} onClick={() => edit((t, a, z) => shiftList(t, a, z, -1))}>
           ⇤
         </button>
-        <button type="button" title="Increase list level (Tab)" aria-label="Increase list level" onClick={() => edit((t, a, z) => shiftList(t, a, z, 1))}>
+        <button type="button" title={msg('Increase list level (Tab)')} aria-label={msg('Increase list level')} onClick={() => edit((t, a, z) => shiftList(t, a, z, 1))}>
           ⇥
         </button>
       </div>

@@ -1,3 +1,6 @@
+import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import type { StoredFile } from '../storage/fileStore';
 import type { DrawingSet } from '../storage/sets';
@@ -68,7 +71,8 @@ export interface BatchResult {
   message: string;
 }
 
-export const BATCH_LABELS: Record<BatchKind, string> = {
+/** The bulk operations in English, in menu order: revision notes are stored in English. */
+export const BATCH_ENGLISH: Record<BatchKind, string> = {
   flatten: 'Flatten',
   unflatten: 'Unflatten',
   reduce: 'Reduce File Size',
@@ -88,35 +92,62 @@ export const BATCH_LABELS: Record<BatchKind, string> = {
   pageLabels: 'Page Labels (AutoMark)',
 };
 
-const HINTS: Record<BatchKind, string> = {
-  flatten: 'Burns each file’s markups into its pages. Links stay interactive.',
-  unflatten: 'Brings back markups flattened with recovery on.',
-  reduce: 'Drops unused objects and packs each file more tightly.',
-  repair: 'Reads each file and writes a clean copy.',
-  colour: 'Turns each file’s vector content grey or black.',
-  ocr: 'Makes the scanned pages of each file searchable (pages that already have text are skipped).',
-  removeHeaderFooter: 'Removes headers, footers and page numbers added here.',
-  summary: 'One report of every markup in the files, with the file each is in: a CSV table, XML, or a PDF summary.',
-  stamp: 'Places a stamp from your library on the pages of each file, as a markup (dynamic fields such as {File} and {Page} are filled in per page).',
-  headerFooter: 'Adds headers and footers (page numbers, Bates numbers, file name, date) to every page of each file.',
-  crop: 'Crops every page of each file by the same margins; markups stay where they were on the drawing.',
-  pageSetup: 'Resizes every page of each file to one paper size (landscape pages stay landscape).',
-  split: 'Splits each file into parts, downloaded together as one ZIP file.',
-  pageLabels: 'Reads each file’s sheet numbers from its title blocks (where not already known) and writes them into the file as page labels, which other PDF readers show too.',
-  sign: 'Signs each file with a Digital ID (certifying it if asked), with an optional seal or signature picture and a trusted time stamp.',
-  print: 'Prints the files one after another, in the order listed, through one print dialog.',
-  link: 'Finds sheet and detail references across the files and links them to the sheets in the other files. Links within a file are found when it is opened.',
-};
+/** The bulk operations, in menu order. */
+export const BATCH_KINDS = Object.keys(BATCH_ENGLISH) as BatchKind[];
+
+/** A bulk operation's name. */
+export function batchLabel(kind: BatchKind): string {
+  const labels: Record<BatchKind, string> = {
+    flatten: msg('Flatten'),
+    unflatten: msg('Unflatten'),
+    reduce: msg('Reduce File Size'),
+    repair: msg('Repair'),
+    colour: msg('Colour Processing'),
+    ocr: msg('OCR'),
+    removeHeaderFooter: msg('Remove Headers & Footers'),
+    summary: msg('Markup Summary'),
+    print: msg('Print'),
+    link: msg('Auto-Link Sheets'),
+    stamp: msg('Apply Stamp'),
+    headerFooter: msg('Headers & Footers'),
+    crop: msg('Crop Pages'),
+    pageSetup: msg('Page Setup'),
+    split: msg('Split'),
+    sign: msg('Sign & Seal'),
+    pageLabels: msg('Page Labels (AutoMark)'),
+  };
+  return labels[kind];
+}
+
+const HINTS = lazy((): Record<BatchKind, string> => ({
+  flatten: msg('Burns each file’s markups into its pages. Links stay interactive.'),
+  unflatten: msg('Brings back markups flattened with recovery on.'),
+  reduce: msg('Drops unused objects and packs each file more tightly.'),
+  repair: msg('Reads each file and writes a clean copy.'),
+  colour: msg('Turns each file’s vector content grey or black.'),
+  ocr: msg('Makes the scanned pages of each file searchable (pages that already have text are skipped).'),
+  removeHeaderFooter: msg('Removes headers, footers and page numbers added here.'),
+  summary: msg('One report of every markup in the files, with the file each is in: a CSV table, XML, or a PDF summary.'),
+  stamp: msg('Places a stamp from your library on the pages of each file, as a markup (dynamic fields such as \'{\'File\'}\' and \'{\'Page\'}\' are filled in per page).'),
+  headerFooter: msg('Adds headers and footers (page numbers, Bates numbers, file name, date) to every page of each file.'),
+  crop: msg('Crops every page of each file by the same margins; markups stay where they were on the drawing.'),
+  pageSetup: msg('Resizes every page of each file to one paper size (landscape pages stay landscape).'),
+  split: msg('Splits each file into parts, downloaded together as one ZIP file.'),
+  pageLabels: msg('Reads each file’s sheet numbers from its title blocks (where not already known) and writes them into the file as page labels, which other PDF readers show too.'),
+  sign: msg('Signs each file with a Digital ID (certifying it if asked), with an optional seal or signature picture and a trusted time stamp.'),
+  print: msg('Prints the files one after another, in the order listed, through one print dialog.'),
+  link: msg('Finds sheet and detail references across the files and links them to the sheets in the other files. Links within a file are found when it is opened.'),
+}));
 
 /** Commands that write the files (and so can keep revisions). */
 const WRITES: ReadonlySet<BatchKind> = new Set(['flatten', 'unflatten', 'reduce', 'repair', 'colour', 'ocr', 'removeHeaderFooter', 'headerFooter', 'crop', 'pageSetup', 'sign', 'pageLabels']);
 
-const CORNERS: [Corner, string][] = [
-  ['topLeft', 'Top left'],
-  ['topRight', 'Top right'],
-  ['bottomLeft', 'Bottom left'],
-  ['bottomRight', 'Bottom right'],
-];
+const CORNERS = lazy((): [Corner, string][] => [
+  ['topLeft', msg('Top left')],
+  ['topRight', msg('Top right')],
+  ['bottomLeft', msg('Bottom left')],
+  ['bottomRight', msg('Bottom right')],
+]);
 
 interface Props {
   initial: BatchKind;
@@ -156,7 +187,7 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
   const [paper, setPaper] = useState(PAGE_SIZES.find((p) => p.id === 'tabloid')!.id);
   const [fit, setFit] = useState(true);
   const [split, setSplit] = useState<SplitSpec>(DEFAULT_SPLIT);
-  const [sign, setSign] = useState<Omit<BatchSign, 'timestampUrl' | 'ltv'>>({ idId: ids[0]?.id ?? '', password: (ids[0] && !ids[0].token && recalledPassword(ids[0].id)) || '', reason: 'I am approving this document', location: '', certify: 0, imageId: null, placement: 'bottomRight', page: 'first' });
+  const [sign, setSign] = useState<Omit<BatchSign, 'timestampUrl' | 'ltv'>>({ idId: ids[0]?.id ?? '', password: (ids[0] && !ids[0].token && recalledPassword(ids[0].id)) || '', reason: msg('I am approving this document'), location: '', certify: 0, imageId: null, placement: 'bottomRight', page: 'first' });
   const [tsa, setTsa] = useState(savedTsa);
   const [ltv, setLtv] = useState(savedLtv);
   const [keepRevisions, setKeepRevisions] = useState(true);
@@ -242,11 +273,11 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
           void onRun({ command: command(), fileIds: ordered, keepRevisions }, (r) => setResults((list) => [...(list ?? []), r])).finally(() => setRunning(false));
         }}
       >
-        <h3>Bulk · {BATCH_LABELS[kind]}</h3>
+        <h3>{msg('Bulk · {operation}', { operation: batchLabel(kind) })}</h3>
         {results ? (
           <>
             <p>
-              {running ? `Working… ${results.length} of ${ordered.length}` : `Done: ${results.filter((r) => r.ok).length} succeeded${results.some((r) => !r.ok) ? `, ${results.filter((r) => !r.ok).length} failed` : ''}.`}
+              {running ? msg('Working… {count} of {count2}', { count: results.length, count2: ordered.length }) : msg('Done: {count} succeeded{value}.', { count: results.filter((r) => r.ok).length, value: results.some((r) => !r.ok) ? msg(', {count} failed', { count: results.filter((r) => !r.ok).length }) : '' })}
             </p>
             <ul className="batch-results">
               {results.map((r, i) => (
@@ -259,79 +290,76 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
             <div className="actions">
               <span className="spacer" />
               <button type="button" className="btn primary" disabled={running} onClick={onClose}>
-                Close
+                {msg('Close')}
               </button>
             </div>
           </>
         ) : (
           <>
             <label className="row">
-              Command
+              {msg('Command')}
               <select value={kind} onChange={(e) => setKind(e.target.value as BatchKind)}>
-                {(Object.keys(BATCH_LABELS) as BatchKind[]).map((k) => (
+                {BATCH_KINDS.map((k) => (
                   <option key={k} value={k}>
-                    {BATCH_LABELS[k]}
+                    {batchLabel(k)}
                   </option>
                 ))}
               </select>
             </label>
-            <p className="print-hint">{HINTS[kind]}</p>
+            <p className="print-hint">{HINTS()[kind]}</p>
             {kind === 'flatten' && (
               <label className="check">
-                <input type="checkbox" checked={recovery} onChange={(e) => setRecovery(e.target.checked)} />
-                Allow markup recovery (Unflatten brings them back)
+                {keyed(msgParts('{input}Allow markup recovery (Unflatten brings them back)', { input: <input type="checkbox" checked={recovery} onChange={(e) => setRecovery(e.target.checked)} /> }))}
               </label>
             )}
             {kind === 'reduce' && (
               <label className="check">
-                <input type="checkbox" checked={recompress} onChange={(e) => setRecompress(e.target.checked)} />
-                Recompress JPEG pictures at quality
-                <input type="number" min={0.3} max={0.95} step={0.05} value={quality} disabled={!recompress} style={{ width: 64 }} onChange={(e) => setQuality(Math.min(0.95, Math.max(0.3, Number(e.target.value) || 0.7)))} />
+                {keyed(msgParts('{input}Recompress JPEG pictures at quality{input2}', { input: <input type="checkbox" checked={recompress} onChange={(e) => setRecompress(e.target.checked)} />, input2: <input type="number" min={0.3} max={0.95} step={0.05} value={quality} disabled={!recompress} style={{ width: 64 }} onChange={(e) => setQuality(Math.min(0.95, Math.max(0.3, Number(e.target.value) || 0.7)))} /> }))}
               </label>
             )}
             {kind === 'colour' && (
               <label className="row">
-                Convert to
+                {msg('Convert to')}
                 <select value={mode} onChange={(e) => setMode(e.target.value as 'grayscale' | 'black')}>
-                  <option value="grayscale">Greyscale</option>
-                  <option value="black">Black (everything but white)</option>
+                  <option value="grayscale">{msg('Greyscale')}</option>
+                  <option value="black">{msg('Black (everything but white)')}</option>
                 </select>
               </label>
             )}
             {kind === 'print' && (
               <label className="row">
-                Print
+                {msg('Print')}
                 <select value={printContent} onChange={(e) => setPrintContent(e.target.value as 'all' | 'document' | 'markups')}>
-                  <option value="all">Document and markups</option>
-                  <option value="document">Document only</option>
-                  <option value="markups">Markups only</option>
+                  <option value="all">{msg('Document and markups')}</option>
+                  <option value="document">{msg('Document only')}</option>
+                  <option value="markups">{msg('Markups only')}</option>
                 </select>
               </label>
             )}
             {kind === 'ocr' && (
               <label className="row">
-                Resolution
+                {msg('Resolution')}
                 <select value={dpi} onChange={(e) => setDpi(Number(e.target.value))}>
-                  <option value={150}>150 dpi</option>
-                  <option value={200}>200 dpi</option>
-                  <option value={300}>300 dpi</option>
+                  <option value={150}>{msg('150 dpi')}</option>
+                  <option value={200}>{msg('200 dpi')}</option>
+                  <option value={300}>{msg('300 dpi')}</option>
                 </select>
               </label>
             )}
             {kind === 'summary' && (
               <label className="row">
-                Format
+                {msg('Format')}
                 <select value={format} onChange={(e) => setFormat(e.target.value as 'csv' | 'xml' | 'pdf')}>
-                  <option value="csv">CSV (spreadsheet)</option>
-                  <option value="xml">XML</option>
-                  <option value="pdf">PDF summary</option>
+                  <option value="csv">{msg('CSV (spreadsheet)')}</option>
+                  <option value="xml">{msg('XML')}</option>
+                  <option value="pdf">{msg('PDF summary')}</option>
                 </select>
               </label>
             )}
             {kind === 'stamp' && (
               <>
                 <label className="row">
-                  Stamp
+                  {msg('Stamp')}
                   <select value={stamp.stampId} onChange={(e) => setStamp({ ...stamp, stampId: e.target.value })}>
                     {stamps.map((s) => (
                       <option key={s.id} value={s.id}>
@@ -341,40 +369,38 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                   </select>
                 </label>
                 <label className="row">
-                  At
+                  {msg('At')}
                   <select value={stamp.position} onChange={(e) => setStamp({ ...stamp, position: e.target.value as Corner | 'center' })}>
-                    {CORNERS.map(([v, l]) => (
+                    {CORNERS().map(([v, l]) => (
                       <option key={v} value={v}>
                         {l}
                       </option>
                     ))}
-                    <option value="center">Centre</option>
+                    <option value="center">{msg('Centre')}</option>
                   </select>
-                  on
+                  {msg('on')}
                   <select value={stamp.pages} onChange={(e) => setStamp({ ...stamp, pages: e.target.value as 'all' | 'first' | 'last' })}>
-                    <option value="first">the first page</option>
-                    <option value="last">the last page</option>
-                    <option value="all">every page</option>
+                    <option value="first">{msg('the first page')}</option>
+                    <option value="last">{msg('the last page')}</option>
+                    <option value="all">{msg('every page')}</option>
                   </select>
                 </label>
                 <label className="row">
-                  Width
-                  <input type="number" min={36} max={1000} value={stamp.width} style={{ width: 72 }} onChange={(e) => setStamp({ ...stamp, width: Math.min(1000, Math.max(36, Number(e.target.value) || 180)) })} />
-                  pt
+                  {keyed(msgParts('Width{input}pt', { input: <input type="number" min={36} max={1000} value={stamp.width} style={{ width: 72 }} onChange={(e) => setStamp({ ...stamp, width: Math.min(1000, Math.max(36, Number(e.target.value) || 180)) })} /> }))}
                 </label>
               </>
             )}
             {kind === 'headerFooter' && (
               <div className="row">
                 <button type="button" className="btn" onClick={() => setHfOpen(true)}>
-                  {hf ? 'Change…' : 'Set up…'}
+                  {hf ? msg('Change…') : msg('Set up…')}
                 </button>
                 <span className="print-hint">
                   {hf
                     ? Object.values(hf.text)
                         .filter((t) => t?.trim())
                         .join(' · ')
-                    : 'Choose what goes in the headers and footers.'}
+                    : msg('Choose what goes in the headers and footers.')}
                 </span>
               </div>
             )}
@@ -386,13 +412,13 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                     <input type="number" min={0} step={0.125} value={margins[side]} style={{ width: 60 }} onChange={(e) => setMargins({ ...margins, [side]: Math.max(0, Number(e.target.value) || 0) })} />
                   </label>
                 ))}
-                <span>in</span>
+                <span>{msg('in')}</span>
               </div>
             )}
             {kind === 'pageSetup' && (
               <>
                 <label className="row">
-                  Paper
+                  {msg('Paper')}
                   <select value={paper} onChange={(e) => setPaper(e.target.value)}>
                     {PAGE_SIZES.map((p) => (
                       <option key={p.id} value={p.id}>
@@ -402,18 +428,17 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                   </select>
                 </label>
                 <label className="check">
-                  <input type="checkbox" checked={fit} onChange={(e) => setFit(e.target.checked)} />
-                  Scale the content to fit (else keep its size, centred)
+                  {keyed(msgParts('{input}Scale the content to fit (else keep its size, centred)', { input: <input type="checkbox" checked={fit} onChange={(e) => setFit(e.target.checked)} /> }))}
                 </label>
               </>
             )}
             {kind === 'split' && <SplitOptions value={split} onChange={setSplit} />}
             {kind === 'sign' && (
               <fieldset>
-                <legend>Signature</legend>
-                {!ids.length && <p className="print-error">Make or import a Digital ID first (Signatures panel › Digital IDs).</p>}
+                <legend>{msg('Signature')}</legend>
+                {!ids.length && <p className="print-error">{msg('Make or import a Digital ID first (Signatures panel › Digital IDs).')}</p>}
                 <label className="row">
-                  Digital ID
+                  {msg('Digital ID')}
                   <select
                   value={sign.idId}
                   onChange={(e) => {
@@ -430,42 +455,39 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                   </select>
                   {!card?.pinPad && (
                     <>
-                      {card ? 'PIN' : 'Password'}
-                      <input type="password" autoComplete="off" value={sign.password} title={card ? 'Sent to the card for each file’s signature while the batch runs; never stored' : undefined} onChange={(e) => setSign({ ...sign, password: e.target.value })} />
+                      {card ? msg('PIN') : msg('Password')}
+                      <input type="password" autoComplete="off" value={sign.password} title={card ? msg('Sent to the card for each file’s signature while the batch runs; never stored') : undefined} onChange={(e) => setSign({ ...sign, password: e.target.value })} />
                     </>
                   )}
                 </label>
-                {card?.pinPad && <p className="print-hint">Enter the PIN on the card reader for each file when it asks.</p>}
+                {card?.pinPad && <p className="print-hint">{msg('Enter the PIN on the card reader for each file when it asks.')}</p>}
                 <label className="row">
-                  Reason
-                  <input value={sign.reason} onChange={(e) => setSign({ ...sign, reason: e.target.value })} />
-                  Location
-                  <input value={sign.location} onChange={(e) => setSign({ ...sign, location: e.target.value })} />
+                  {keyed(msgParts('Reason{input}Location{input2}', { input: <input value={sign.reason} onChange={(e) => setSign({ ...sign, reason: e.target.value })} />, input2: <input value={sign.location} onChange={(e) => setSign({ ...sign, location: e.target.value })} /> }))}
                 </label>
                 <label className="row">
                   <select value={sign.certify} onChange={(e) => setSign({ ...sign, certify: Number(e.target.value) as 0 | 1 | 2 | 3 })}>
-                    <option value={0}>Approve (sign)</option>
-                    <option value={1}>Certify: no changes allowed</option>
-                    <option value={2}>Certify: allow form filling and signing</option>
-                    <option value={3}>Certify: also allow markups</option>
+                    <option value={0}>{msg('Approve (sign)')}</option>
+                    <option value={1}>{msg('Certify: no changes allowed')}</option>
+                    <option value={2}>{msg('Certify: allow form filling and signing')}</option>
+                    <option value={3}>{msg('Certify: also allow markups')}</option>
                   </select>
                 </label>
                 <label className="row">
-                  Seal
+                  {msg('Seal')}
                   <select value={sign.imageId ?? ''} onChange={(e) => setSign({ ...sign, imageId: e.target.value || null })}>
-                    <option value="">None (name and date)</option>
+                    <option value="">{msg('None (name and date)')}</option>
                     {pictures.map((p) => (
                       <option key={p.id} value={p.id}>
-                        {p.name || (p.kind === 'initials' ? 'Initials' : 'Signature')}
+                        {p.name || (p.kind === 'initials' ? msg('Initials') : msg('Signature'))}
                       </option>
                     ))}
                   </select>
                 </label>
                 <label className="row">
-                  Place it
+                  {msg('Place it')}
                   <select value={sign.placement} onChange={(e) => setSign({ ...sign, placement: e.target.value as BatchSign['placement'] })}>
-                    <option value="invisible">Invisibly</option>
-                    {CORNERS.map(([v, l]) => (
+                    <option value="invisible">{msg('Invisibly')}</option>
+                    {CORNERS().map(([v, l]) => (
                       <option key={v} value={v}>
                         {l}
                       </option>
@@ -473,8 +495,8 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
                   </select>
                   {sign.placement !== 'invisible' && (
                     <select value={sign.page} onChange={(e) => setSign({ ...sign, page: e.target.value as 'first' | 'last' })}>
-                      <option value="first">of the first page</option>
-                      <option value="last">of the last page</option>
+                      <option value="first">{msg('of the first page')}</option>
+                      <option value="last">{msg('of the last page')}</option>
                     </select>
                   )}
                 </label>
@@ -483,28 +505,28 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
               </fieldset>
             )}
             <fieldset>
-              <legend>Files ({ordered.length})</legend>
+              <legend>{msg('Files ({count})', { count: ordered.length })}</legend>
               <div className="row">
                 <select
                   value=""
-                  aria-label="Choose the files of a set or group"
+                  aria-label={msg('Choose the files of a set or group')}
                   onChange={(e) => {
                     const [type, id] = e.target.value.split(':');
                     const ids = type === 'set' ? sets.find((s) => s.id === id)?.entries.map((x) => x.fileId) : type === 'group' ? groups.find((g) => g.id === id)?.fileIds : type === 'all' ? files.map((f) => f.id) : type === 'none' ? [] : null;
                     if (ids) setChosen(ids.filter((x) => files.some((f) => f.id === x)));
                   }}
                 >
-                  <option value="">Choose…</option>
-                  <option value="all:">All files</option>
-                  <option value="none:">None</option>
+                  <option value="">{msg('Choose…')}</option>
+                  <option value="all:">{msg('All files')}</option>
+                  <option value="none:">{msg('None')}</option>
                   {sets.map((s) => (
                     <option key={s.id} value={`set:${s.id}`}>
-                      Set: {s.name}
+                      {msg('Set: {name}', { name: s.name })}
                     </option>
                   ))}
                   {groups.map((g) => (
                     <option key={g.id} value={`group:${g.id}`}>
-                      Group: {g.name}
+                      {msg('Group: {name}', { name: g.name })}
                     </option>
                   ))}
                 </select>
@@ -520,17 +542,16 @@ export function BatchDialog({ initial, files, sets, groups, selected, onRun, onC
             </fieldset>
             {WRITES.has(kind) && (
               <label className="check">
-                <input type="checkbox" checked={keepRevisions} onChange={(e) => setKeepRevisions(e.target.checked)} />
-                Keep each file as it was as a revision (Document › Revisions)
+                {keyed(msgParts('{input}Keep each file as it was as a revision (Document › Revisions)', { input: <input type="checkbox" checked={keepRevisions} onChange={(e) => setKeepRevisions(e.target.checked)} /> }))}
               </label>
             )}
             <div className="actions">
               <span className="spacer" />
               <button type="button" className="btn" onClick={onClose}>
-                Cancel
+                {msg('Cancel')}
               </button>
               <button type="submit" className="btn primary" disabled={!enough}>
-                Run on {ordered.length} file{ordered.length === 1 ? '' : 's'}
+                {msg('Run on {count, plural, one {# file} other {# files}}', { count: ordered.length })}
               </button>
             </div>
           </>

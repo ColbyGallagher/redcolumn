@@ -9,6 +9,9 @@
     "typecheck": "tsc -p .",
     "test": "node --test --experimental-strip-types src/*.test.ts"
   },
+  "dependencies": {
+    "@nb/i18n": "workspace:*"
+  },
   "devDependencies": {
     "@types/node": "^26.6.1",
     "typescript": "5.9.3"

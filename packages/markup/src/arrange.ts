@@ -1,7 +1,7 @@
 import { arcPoints } from './arc';
 import { flatten, markupShape } from './geometry';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isTextType, mapGeometry, rotatePoint, rotationCentre, type Geometry, type Markup, type Point, type Rect } from './model';
+import { boundsOf, contentBox, isTextType, mapGeometry, markerSize, rotatePoint, rotationCentre, type Geometry, type Markup, type Point, type Rect } from './model';
 
 export type Alignment = 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom';
 export type Axis = 'horizontal' | 'vertical';
@@ -220,6 +220,10 @@ function drawnGeometry(m: Markup): { lines: Point[][]; filled: Point[][] } {
     }
   }
   const info = TYPE_INFO[m.type];
+  if (m.type === 'count' && m.style.countSymbol) {
+    const r = markerSize(m);
+    for (const [x, y] of m.points) filled.push(rectPolygon({ x: x - r, y: y - r, w: r * 2, h: r * 2 }));
+  }
   if (info.solid || info.content === 'text' || info.content === 'image') filled.push(rectPolygon(contentBox(m)));
   if (!lines.length && !filled.length) lines.push(m.type === 'arc' ? arcPoints(m.points) : [...m.points]);
   if (!m.rotation) return { lines, filled };
@@ -269,7 +273,7 @@ function pointIn([px, py]: readonly [number, number], poly: readonly Point[]): b
 }
 
 /** Style keys a Format Painter carries from one markup to another. */
-const PAINTED_KEYS = ['stroke', 'fill', 'fillOpacity', 'width', 'opacity', 'dash', 'dashArray', 'lineStyle', 'hatch', 'hatchColor', 'hatchScale', 'hatchSpec', 'fontFamily', 'bold', 'italic', 'underline', 'strikethrough', 'textColor', 'textAlign', 'verticalAlign', 'startCap', 'endCap', 'capScale', 'blendMode'] as const;
+const PAINTED_KEYS = ['stroke', 'strokeOpacity', 'fill', 'fillOpacity', 'width', 'opacity', 'dash', 'dashArray', 'lineStyle', 'hatch', 'hatchColor', 'hatchScale', 'hatchSpec', 'fontFamily', 'bold', 'italic', 'underline', 'strikethrough', 'textColor', 'textAlign', 'verticalAlign', 'startCap', 'endCap', 'capScale', 'blendMode'] as const;
 
 /**
  * The style `target` takes when painted with `source`'s format: its appearance (colours, line,
@@ -303,7 +307,7 @@ export function scaledAbout(m: Markup, base: Point, factor: number): Partial<Mar
     }
   }
   if (isTextType(m.type) && style.fontSize) {
-    style.fontSize = Math.round(style.fontSize * factor * 100) / 100;
+    style.fontSize = Math.max(1, Math.round(style.fontSize * factor));
     restyled = true;
   }
   return restyled ? { ...out, style } : out;

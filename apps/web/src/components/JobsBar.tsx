@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useJobs } from '../jobs/jobs';
 
 /** Long-running jobs (OCR, …) with their progress and a Cancel button. */
@@ -12,7 +13,7 @@ export function JobsBar() {
             <b>{j.label}</b>
             {j.cancel && (
               <button className="btn small flat" onClick={j.cancel}>
-                Cancel
+                {msg('Cancel')}
               </button>
             )}
           </div>

@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState } from 'react';
 import type { SheetInfo } from '@nb/sheets';
 import type { PreviewDrawing, PreviewView } from '../LinkPreview';
@@ -32,7 +33,7 @@ export function ThumbStrip({ pages, sheets, current, render, onGoTo, flagged }: 
     list.current?.querySelector(`[data-page="${current}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [current]);
   return (
-    <ol ref={list} className="sw-thumbs" aria-label="Sheets">
+    <ol ref={list} className="sw-thumbs" aria-label={msg('Sheets')}>
       {pages.map((p, i) => (
         <Thumb key={i} index={i} page={p} sheet={sheets[i]} current={i === current} flagged={!!flagged?.has(i)} render={render} onGoTo={onGoTo} root={list} />
       ))}
@@ -90,7 +91,7 @@ function Thumb({
   const label = sheet?.number ?? `Page ${index + 1}`;
   return (
     <li data-page={index} className={`${current ? 'current' : ''}${flagged ? ' flagged' : ''}`}>
-      <button type="button" onClick={() => onGoTo(index)} aria-current={current ? 'page' : undefined} aria-label={`Sheet ${index + 1}${sheet?.number ? `, ${sheet.number}` : ''}`} title={[label, sheet?.title].filter(Boolean).join(' — ')}>
+      <button type="button" onClick={() => onGoTo(index)} aria-current={current ? 'page' : undefined} aria-label={msg('Sheet {number}{value2}', { number: index + 1, value2: sheet?.number ? `, ${sheet.number}` : '' })} title={[label, sheet?.title].filter(Boolean).join(' — ')}>
         <div ref={host} className="sw-thumb-page" style={{ width: WIDTH, height: h }} />
         <span className="sw-thumb-label">
           <b>{index + 1}</b> {tail(sheet?.number)}

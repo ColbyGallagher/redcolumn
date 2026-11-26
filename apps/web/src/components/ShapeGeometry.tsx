@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState, type KeyboardEvent } from 'react';
 import { boundsOf, circleBox, polarPoint, resizedBox, segmentPolar, withSegment, type Markup, type MarkupStore, type Point } from '@nb/markup';
 import { formatLength, METERS_PER_UNIT, pageLengthFor, parseLength, realLengthAlong, type Scale } from '@nb/measure';
@@ -28,8 +30,8 @@ export function ShapeGeometry({ markup: m, scale, store, readOnly }: Props) {
     const b = boundsOf(m.points.slice(0, 2));
     return (
       <>
-        <LengthField label="Width" title="Width at the page's scale; the first corner stays put" points={b.w} scale={scale} readOnly={readOnly} onChange={(w) => setPoints(resizedBox(m, w, b.h))} />
-        <LengthField label="Height" title="Height at the page's scale; the first corner stays put" points={b.h} dir={[0, 1]} scale={scale} readOnly={readOnly} onChange={(h) => setPoints(resizedBox(m, b.w, h))} />
+        <LengthField label={msg('Width')} title={msg('Width at the page\'s scale; the first corner stays put')} points={b.w} scale={scale} readOnly={readOnly} onChange={(w) => setPoints(resizedBox(m, w, b.h))} />
+        <LengthField label={msg('Height')} title={msg('Height at the page\'s scale; the first corner stays put')} points={b.h} dir={[0, 1]} scale={scale} readOnly={readOnly} onChange={(h) => setPoints(resizedBox(m, b.w, h))} />
       </>
     );
   }
@@ -40,7 +42,7 @@ export function ShapeGeometry({ markup: m, scale, store, readOnly }: Props) {
   const setEnd = (l: number, a: number) => setPoints([start, polarPoint(start, l, a), ...m.points.slice(2)]);
   return (
     <>
-      <LengthField label="Length" title="Length at the page's scale; the line's start stays put" points={length} dir={unitDir(start, m.points[1]!)} scale={scale} readOnly={readOnly} onChange={(l) => setEnd(l, angle)} />
+      <LengthField label={msg('Length')} title={msg('Length at the page\'s scale; the line\'s start stays put')} points={length} dir={unitDir(start, m.points[1]!)} scale={scale} readOnly={readOnly} onChange={(l) => setEnd(l, angle)} />
       <AngleField angle={angle} readOnly={readOnly} onChange={(a) => setEnd(length, a)} />
     </>
   );
@@ -55,11 +57,11 @@ function EllipseGeometry({ markup: m, scale, readOnly, onChange }: { markup: Mar
   const circle = as === 'circle' && round;
   return (
     <>
-      <label className="field" title="Ellipse: width and height. Circle: radius or diameter, about its centre.">
+      <label className="field" title={msg('Ellipse: width and height. Circle: radius or diameter, about its centre.')}>
         <select
           value={circle ? 'circle' : 'ellipse'}
           disabled={readOnly}
-          aria-label="Shape"
+          aria-label={msg('Shape')}
           onChange={(e) => {
             const next = e.target.value as 'ellipse' | 'circle';
             setAs(next);
@@ -67,19 +69,19 @@ function EllipseGeometry({ markup: m, scale, readOnly, onChange }: { markup: Mar
             if (next === 'circle' && !round) onChange(circleBox(centre, b.w / 2));
           }}
         >
-          <option value="ellipse">Ellipse</option>
-          <option value="circle">Circle</option>
+          <option value="ellipse">{msg('Ellipse')}</option>
+          <option value="circle">{msg('Circle')}</option>
         </select>
       </label>
       {circle ? (
         <>
-          <LengthField label="Radius" title="Radius at the page's scale; the centre stays put" points={b.w / 2} scale={scale} readOnly={readOnly} onChange={(r) => onChange(circleBox(centre, r))} />
-          <LengthField label="Diameter" title="Diameter at the page's scale; the centre stays put" points={b.w} scale={scale} readOnly={readOnly} onChange={(d) => onChange(circleBox(centre, d / 2))} />
+          <LengthField label={msg('Radius')} title={msg('Radius at the page\'s scale; the centre stays put')} points={b.w / 2} scale={scale} readOnly={readOnly} onChange={(r) => onChange(circleBox(centre, r))} />
+          <LengthField label={msg('Diameter')} title={msg('Diameter at the page\'s scale; the centre stays put')} points={b.w} scale={scale} readOnly={readOnly} onChange={(d) => onChange(circleBox(centre, d / 2))} />
         </>
       ) : (
         <>
-          <LengthField label="Width" title="Width at the page's scale; the first corner stays put" points={b.w} scale={scale} readOnly={readOnly} onChange={(w) => onChange(resizedBox(m, w, b.h))} />
-          <LengthField label="Height" title="Height at the page's scale; the first corner stays put" points={b.h} dir={[0, 1]} scale={scale} readOnly={readOnly} onChange={(h) => onChange(resizedBox(m, b.w, h))} />
+          <LengthField label={msg('Width')} title={msg('Width at the page\'s scale; the first corner stays put')} points={b.w} scale={scale} readOnly={readOnly} onChange={(w) => onChange(resizedBox(m, w, b.h))} />
+          <LengthField label={msg('Height')} title={msg('Height at the page\'s scale; the first corner stays put')} points={b.h} dir={[0, 1]} scale={scale} readOnly={readOnly} onChange={(h) => onChange(resizedBox(m, b.w, h))} />
         </>
       )}
     </>
@@ -96,19 +98,12 @@ function PolylineGeometry({ markup: m, scale, readOnly, onChange }: { markup: Ma
   for (let k = 0; k < count; k++) total += realLengthAlong(scale, m.points[k + 1]![0] - m.points[k]![0], m.points[k + 1]![1] - m.points[k]![1]);
   return (
     <>
-      <label className="field" title="Segment to edit, counted from the polyline's start">
-        Segment
-        <select value={i} onChange={(e) => setChosen(Number(e.target.value))}>
-          {Array.from({ length: count }, (_, k) => (
-            <option key={k} value={k}>
-              {k + 1} of {count}
-            </option>
-          ))}
-        </select>
+      <label className="field" title={msg('Segment to edit, counted from the polyline\'s start')}>
+        {keyed(msgParts('Segment{select}', { select: <select value={i} onChange={(e) => setChosen(Number(e.target.value))}> {Array.from({ length: count }, (_, k) => ( <option key={k} value={k}> {msg('{number} of {count}', { number: k + 1, count })} </option> ))} </select> }))}
       </label>
       <LengthField
-        label="Length"
-        title="This segment's length at the page's scale; the points after it move along"
+        label={msg('Length')}
+        title={msg('This segment\'s length at the page\'s scale; the points after it move along')}
         points={length}
         dir={unitDir(m.points[i]!, m.points[i + 1]!)}
         scale={scale}
@@ -116,8 +111,8 @@ function PolylineGeometry({ markup: m, scale, readOnly, onChange }: { markup: Ma
         onChange={(l) => onChange(withSegment(m.points, i, l, angle))}
       />
       <AngleField angle={angle} readOnly={readOnly} onChange={(a) => onChange(withSegment(m.points, i, length, a))} />
-      <span className="field" title="Total length of all segments">
-        Total {formatLength(total, scale)}
+      <span className="field" title={msg('Total length of all segments')}>
+        {msg('Total {amount}', { amount: formatLength(total, scale) })}
       </span>
     </>
   );
@@ -167,26 +162,8 @@ function LengthField({ label, title, points, scale, readOnly, onChange, dir = [1
 function AngleField({ angle, readOnly, onChange }: { angle: number; readOnly: boolean; onChange: (degrees: number) => void }) {
   const shown = Number(angle.toFixed(2));
   return (
-    <label className="field" title="Angle in degrees, counter-clockwise from pointing right, as on paper">
-      Angle
-      <input
-        key={shown}
-        className="geometry-angle"
-        inputMode="decimal"
-        defaultValue={shown}
-        disabled={readOnly}
-        aria-label="Angle"
-        onBlur={(e) => {
-          const v = Number(e.target.value);
-          if (e.target.value.trim() === '' || !Number.isFinite(v)) {
-            e.target.value = String(shown);
-            return;
-          }
-          if (Math.abs(v - shown) > 1e-9) onChange(v);
-        }}
-        onKeyDown={keys}
-      />
-      °
+    <label className="field" title={msg('Angle in degrees, counter-clockwise from pointing right, as on paper')}>
+      {keyed(msgParts('Angle{input}°', { input: <input key={shown} className="geometry-angle" inputMode="decimal" defaultValue={shown} disabled={readOnly} aria-label={msg('Angle')} onBlur={(e) => { const v = Number(e.target.value); if (e.target.value.trim() === '' || !Number.isFinite(v)) { e.target.value = String(shown); return; } if (Math.abs(v - shown) > 1e-9) onChange(v); }} onKeyDown={keys} /> }))}
     </label>
   );
 }

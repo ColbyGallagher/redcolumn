@@ -1,3 +1,5 @@
+import { msg } from '@nb/i18n';
+import { lazy } from '../../i18n/lazy';
 /**
  * Projects: a shared OneDrive folder of PDFs with check out / check in, a revision for every
  * check-in, and a Project Record. There is no server, so nothing here has two writers: every
@@ -16,7 +18,7 @@
 
 /** What someone may do. OneDrive's own sharing is what enforces it; the app follows it. */
 export type Level = 'viewer' | 'editor' | 'owner';
-export const LEVEL_LABELS: Record<Level, string> = { viewer: 'Can view', editor: 'Can edit', owner: 'Owner' };
+export const LEVEL_LABELS = lazy((): Record<Level, string> => ({ viewer: msg('Can view'), editor: msg('Can edit'), owner: msg('Owner') }));
 
 export interface Person {
   name: string;

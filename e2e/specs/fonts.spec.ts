@@ -42,7 +42,7 @@ test.describe('font picker', () => {
   test('lists the standard fonts, filters by typing, and sets the standard font', async ({ app }) => {
     await selectedTextBox(app);
     await picker(app).click();
-    await expect(options(app)).toHaveText(['Helvetica / Arial', 'Times New Roman', 'Courier New']);
+    await expect(options(app)).toHaveText(['Helvetica / Arial', 'Arial Narrow', 'Times New Roman', 'Courier New']);
     await app.page.getByLabel('Filter fonts').fill('cour');
     await expect(options(app)).toHaveText(['Courier New']);
     await app.page.keyboard.press('Enter');
@@ -70,7 +70,7 @@ test.describe('font picker', () => {
     });
     await picker(app).click();
     await app.page.getByRole('button', { name: 'Show installed fonts…' }).click();
-    await expect(options(app)).toHaveCount(3);
+    await expect(options(app)).toHaveCount(4);
     expect(app.errors).toEqual([]);
   });
 

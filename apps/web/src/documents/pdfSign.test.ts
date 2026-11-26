@@ -6,6 +6,7 @@ import { createSelfSignedId, importDigitalId, unlockId, readCertificate, binaryT
 import { checkSignatures, signPdf, signedVersion, type Signer } from './pdfSign.ts';
 import { saveIncremental, snapshot } from './incremental.ts';
 import { createFields } from './forms.ts';
+import { assertValidPdf } from '@nb/markup/test/qpdf';
 
 async function sample(useObjectStreams = false) {
   const doc = await PDFDocument.create();
@@ -38,6 +39,7 @@ for (const streams of [false, true]) {
     const unlocked = unlockId(await idPromise, 'pw');
     const original = await sample(streams);
     const signed = await signPdf(original, unlocked, { area: { pageIndex: 0, rect: { x: 40, y: 40, w: 180, h: 50 } }, reason: 'Approved', location: 'Sydney' });
+    assertValidPdf(signed, `signPdf (${streams ? 'xref stream' : 'xref table'})`);
     assert.deepEqual(signed.subarray(0, original.length), original, 'the original bytes are kept');
     const [check] = await checkSignatures(signed);
     assert.ok(check, 'one signature');
@@ -59,6 +61,7 @@ for (const streams of [false, true]) {
 for (const digest of ['SHA-384', 'SHA-512'] as const) {
   test(`signing with ${digest} checks out`, async () => {
     const signed = await signPdf(await sample(), unlockId(await idPromise, 'pw'), { digest });
+    assertValidPdf(signed, `signPdf ${digest}`);
     const [check] = await checkSignatures(signed);
     assert.equal(check?.intact, true);
     assert.equal(check?.problem, null);
@@ -84,6 +87,7 @@ test('signatures are PAdES by default: ETSI.CAdES.detached, the signer’s certi
   const unlocked = unlockId(await idPromise, 'pw');
   const date = new Date(Date.UTC(2026, 9, 27, 3, 4, 5));
   const signed = await signPdf(await sample(), unlocked, { date });
+  assertValidPdf(signed, 'signPdf PAdES');
   const { subFilter, cms } = signatureParts(signed);
   assert.equal(subFilter, 'ETSI.CAdES.detached');
   const types = signedAttrTypes(cms);
@@ -97,6 +101,7 @@ test('signatures are PAdES by default: ETSI.CAdES.detached, the signer’s certi
 
   // The older format is still there for old readers.
   const old = await signPdf(await sample(), unlocked, { date, format: 'pkcs7' });
+  assertValidPdf(old, 'signPdf pkcs7');
   assert.equal(signatureParts(old).subFilter, 'adbe.pkcs7.detached');
   assert.ok(signedAttrTypes(signatureParts(old).cms).includes('1.2.840.113549.1.9.5'));
   const [oldCheck] = await checkSignatures(old);
@@ -158,6 +163,7 @@ test('changing a signed byte breaks the signature; appending keeps it but not th
   const snap = snapshot(doc, signed);
   doc.setTitle('Changed later');
   const later = await saveIncremental(signed, doc, snap);
+  assertValidPdf(later, 'saveIncremental after signature');
   const [after] = await checkSignatures(later);
   assert.equal(after!.intact, true);
   assert.equal(after!.coversWholeFile, false);
@@ -168,7 +174,9 @@ test('certifying, signing an existing field, and a second signature', async () =
   const unlocked = unlockId(await idPromise, 'pw');
   const withField = await createFields(await sample(), [{ type: 'signature', name: 'Engineer', pageIndex: 1, rect: { x: 50, y: 50, w: 150, h: 40 } }]);
   const certified = await signPdf(withField, unlocked, { certify: 2, reason: 'Issued for construction' });
+  assertValidPdf(certified, 'signPdf certify');
   const first = await signPdf(certified, unlocked, { fieldName: 'Engineer', reason: 'Checked' });
+  assertValidPdf(first, 'signPdf second signature');
   const checks = await checkSignatures(first);
   assert.equal(checks.length, 2);
   const cert = checks.find((c) => c.certify)!;
@@ -187,6 +195,7 @@ test('filling in a signed form appends, so the signature stays valid', async () 
   const form = await createFields(await sample(), [{ type: 'text', name: 'Comments', pageIndex: 0, rect: { x: 40, y: 40, w: 200, h: 20 } }]);
   const signed = await signPdf(form, unlocked, { certify: 2 });
   const { bytes } = await fillForm(signed, { Comments: 'Looks good' });
+  assertValidPdf(bytes, 'fillForm on signed PDF');
   assert.deepEqual(bytes.subarray(0, signed.length), signed);
   const [check] = await checkSignatures(bytes);
   assert.equal(check!.intact, true);
@@ -213,6 +222,7 @@ test('headers, a text layer, properties, crops and flattening append to a signed
   ];
   for (const [what, edit] of edits) {
     const bytes = await edit();
+    assertValidPdf(bytes, `append ${what} to signed PDF`);
     assert.deepEqual(bytes.subarray(0, signed.length), signed, `${what}: the signed bytes are kept`);
     const [check] = await checkSignatures(bytes);
     assert.equal(check!.intact, true, `${what}: the signature is intact`);
@@ -284,6 +294,7 @@ test('a key held outside the app signs through a Signer (RSA in WebCrypto, never
     },
   };
   const signed = await signPdf(await sample(), token, { area: { pageIndex: 0, rect: { x: 40, y: 40, w: 180, h: 50 } }, reason: 'Approved' });
+  assertValidPdf(signed, 'signPdf WebCrypto RSA token');
   assert.deepEqual(seen, ['SHA-256'], 'signed once, over the signed attributes');
   const [check] = await checkSignatures(signed);
   assert.equal(check?.problem, null);
@@ -295,6 +306,7 @@ test('a key held outside the app signs through a Signer (RSA in WebCrypto, never
 for (const digest of ['SHA-256', 'SHA-384'] as const) {
   test(`an ECDSA P-256 token key signs with ${digest} and checks out`, async () => {
     const signed = await signPdf(await sample(), await ecToken(), { digest, reason: 'Checked' });
+    assertValidPdf(signed, `signPdf ECDSA ${digest}`);
     const [check] = await checkSignatures(signed);
     assert.equal(check?.problem, null);
     assert.equal(check?.intact, true);

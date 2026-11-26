@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useState } from 'react';
 import { clientSetups, type AssistantLaunch } from '../desktop/clients';
 import { setAssistantOn } from '../desktop/assistantFlag';
@@ -20,6 +21,7 @@ export function McpPrefs() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [compact, setCompact] = useState(false);
 
   useEffect(() => {
     const host = desktop();
@@ -41,7 +43,7 @@ export function McpPrefs() {
         setInfo(next);
         setAssistantOn(next.enabled);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'The MCP server could not be changed.'))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : msg('The MCP server could not be changed.')))
       .finally(() => setBusy(false));
   };
 
@@ -57,28 +59,33 @@ export function McpPrefs() {
       <div className="mcp-prefs">
         <label className="pref-check">
           <input type="checkbox" checked={false} disabled />
-          <span>Enable MCP server</span>
+          <span>{msg('Enable MCP server')}</span>
         </label>
         <p className="pref-note managed-note" role="status">
-          {MANAGED_NOTE} The MCP server is turned off on this computer, so AI clients cannot reach redcolumn.
+          {MANAGED_NOTE} {msg('The MCP server is turned off on this computer, so AI clients cannot reach redcolumn.')}
         </p>
       </div>
     );
-  if (!info) return <p className="pref-note">Loading…</p>;
+  if (!info) return <p className="pref-note">{msg('Loading…')}</p>;
   const launch: AssistantLaunch = { command: info.command, args: info.args, env: info.env };
-  const clients = clientSetups(launch, platform());
+  const clients = clientSetups(launch, platform(), { compact });
 
   return (
     <div className="mcp-prefs">
       <label className="pref-check">
         <input type="checkbox" checked={info.enabled} disabled={busy} onChange={toggle} />
-        <span>Enable MCP server</span>
+        <span>{msg('Enable MCP server')}</span>
       </label>
       <p className="pref-note" role="status">
-        {info.enabled ? 'On. Leave redcolumn open. This takes effect immediately, not when you press OK. Each client below starts this installation.' : 'Off. The desktop app is not listening.'}
+        {info.enabled ? msg('On. Leave redcolumn open. This takes effect immediately, not when you press OK. Each client below starts this installation.') : msg('Off. The desktop app is not listening.')}
       </p>
       {error && <p className="print-error">{error}</p>}
-      <p className="pref-note">While this is on, an AI client on this computer can read the open drawing, run commands, and edit markups. Deletes and document changes wait for Allow. Drawings stay on this computer, and redcolumn does not receive them.</p>
+      <label className="pref-check">
+        <input type="checkbox" checked={compact} onChange={(e) => setCompact(e.target.checked)} />
+        <span>{msg('Compact tool list (fewer tokens)')}</span>
+      </label>
+      <p className="pref-note">{msg('Starts the MCP server with --compact, exposing 10 everyday tools plus tool_search and tool_call to reach the rest on demand.')}</p>
+      <p className="pref-note">{msg('While this is on, an AI client on this computer can read the open drawing, run commands, and edit markups. Deletes and document changes wait for Allow. Drawings stay on this computer, and redcolumn does not receive them.')}</p>
       {clients.map((client) => (
         <section key={client.id} className="assistant-block">
           <h4>{client.title}</h4>
@@ -86,7 +93,7 @@ export function McpPrefs() {
           <pre>{client.copy}</pre>
           <div className="actions">
             <button type="button" className="btn" onClick={() => copy(client.id, client.copy)}>
-              {copied === client.id ? 'Copied' : 'Copy'}
+              {copied === client.id ? msg('Copied') : msg('Copy')}
             </button>
             {client.href && client.hrefLabel && (
               <button type="button" className="btn" onClick={() => window.open(client.href, '_blank', 'noopener')}>

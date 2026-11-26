@@ -15,6 +15,7 @@ Each open PDF gets its own **tab** above the drawing.
 - **Reorder:** drag a tab left or right.
 - **Close:** click the **×** on the tab, middle-click the tab, or press [[Ctrl+W]] or [[Ctrl+F4]].
 - **Close all:** press [[Ctrl+Shift+W]].
+- **Reopen closed tab:** press [[Ctrl+Shift+T]] to reopen the most recently closed document at its last page.
 
 ## The tab menu
 
@@ -26,7 +27,9 @@ Right-click a tab for more choices:
 |---|---|
 | **Close All But This** | Closes every other tab. |
 | **Close Tabs to the Right** | Closes the tabs after this one. |
+| **Reopen Closed Tab** | Reopens the most recently closed document ([[Ctrl+Shift+T]]). |
 | **Save / Save As…** | Saves this document. See [Save your work](#save). |
+| **Reveal in Explorer / Finder** | Opens the file's folder in your system file manager (desktop app). |
 | **Save a Copy of the Original…** | Saves the PDF as it was before any markups. |
 | **Add to Session** | Shares the document in a [Live Session](#sessions). |
 | **Show in File Access** | Finds the file in the [File Access](#file-access) panel. |

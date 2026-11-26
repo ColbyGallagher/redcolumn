@@ -133,6 +133,10 @@ for (const type of MARKUP_TYPES) {
       // Its two defining corners first, then the other corners and the middles of the four edges.
       assert.equal(handles.length, 8);
       assert.deepEqual(handles.slice(0, 2), m.points.slice(0, 2));
+    } else if (m.type === 'callout') {
+      // Leader vertices and box corners first, then the remaining 6 text-box handles.
+      assert.equal(handles.length, m.points.length + 6);
+      assert.deepEqual(handles.slice(0, m.points.length), m.points);
     }
     else assert.deepEqual(handles, m.points);
   });
