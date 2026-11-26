@@ -223,7 +223,7 @@ export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet,
 
   readonly fileHash: string;
 
-  /** The document's key: its file's hash. */
+  /** The document's key: the id it was opened with. */
   get key(): string {
     return this.fileHash;
   }

@@ -57,7 +57,7 @@ export interface DocumentSetup {
 
 /** The markups of one document, and the edits every document takes. */
 export interface MarkupDocument extends DocumentSetup {
-  /** Identifies the document (and so its contents) for caches and saved settings. */
+  /** Identifies the document for caches and saved settings. It stays the same when the document's pages or file change. */
   readonly key: string;
   /** Edits are ignored while true. */
   readonly readOnly: boolean;
@@ -79,7 +79,7 @@ export interface MarkupDocument extends DocumentSetup {
   batch(fn: () => void): void;
   /** Sets one custom column's value on several markups as one undo step (empty clears it). */
   setField(ids: Iterable<string>, columnId: string, value: string): void;
-  /** The document's page count, when known (what refers to pages past it is ignored). */
+  /** Tells the document its page count. Content kept by page, such as portals and AI review entries, may then ignore pages past it. */
   setPageCount(count: number): void;
   /** Ends the current undo step so the next edit is undone separately. */
   checkpoint(): void;
@@ -88,7 +88,7 @@ export interface MarkupDocument extends DocumentSetup {
   /** What can be undone, newest first: each step's description and when it was made. */
   undoHistory(): { label: string; at: number }[];
   /** Undoes the newest `steps` steps. */
-  undoSteps(steps: number): void;
+  undoSteps(steps: number): void | Promise<void>;
   destroy(): Promise<void>;
 }
 
@@ -115,8 +115,6 @@ export interface AiReviewFacet {
   changeAiReview(change: AiReviewChange, byAi?: boolean): void;
   reviewPass(): ReviewPassSettings;
   setReviewPass(next: ReviewPassSettings, byAi?: boolean): void;
-  /** Adds links an AI assistant proposed, each waiting for a person. Returns the stored ids. */
-  proposeLinks(links: readonly DetectedLink[]): string[];
 }
 
 /** Portals: regions of pages kept in step with each other. */
@@ -140,6 +138,8 @@ export interface LinkFacet {
   /** Replaces the link candidates found from taught marks. */
   setMarkLinks(found: readonly DetectedLink[], markIds: readonly string[]): void;
   setLinkStatus(id: string, status: LinkStatus): void;
+  /** Adds links an AI assistant proposed, each waiting for a person. Returns the stored ids. */
+  proposeLinks(links: readonly DetectedLink[]): string[];
   /** The bookmark tree (stable until the next change). */
   bookmarks(): Bookmark[];
   places(): Place[];
