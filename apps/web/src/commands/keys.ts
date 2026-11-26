@@ -98,6 +98,7 @@ export const DEFAULT_KEYS: Readonly<Record<string, readonly string[]>> = {
   'file.open': ['Ctrl+O'],
   'file.close': ['Ctrl+F4', 'Ctrl+W'],
   'file.closeAll': ['Ctrl+Shift+W'],
+  'tab.reopenClosed': ['Ctrl+Shift+T'],
   'file.save': ['Ctrl+S'],
   'file.saveAs': ['Ctrl+Shift+S'],
   'file.saveAll': ['Shift+F2'],

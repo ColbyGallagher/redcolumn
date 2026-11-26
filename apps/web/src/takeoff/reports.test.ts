@@ -85,6 +85,17 @@ test('Quantity Summary by Item groups by category, rounds the order once and tot
   near(t.grandTotal!.cost, 290);
 });
 
+test('an item that rounds each measurement orders each one rounded, and prices that', () => {
+  const each = { ...drywall, roundEach: true };
+  const resolved = resolveAssemblies(raw, [each, labour], []);
+  const t = buildReport('byItem', { ...input, assemblies: resolved, items: [each, labour], ctx: { ...ctx, assemblies: resolved } });
+  const dw = t.groups[0]!.rows[0]!;
+  // Room A: 3.4375 sheets to 4; Room B: 6.1875 to 8, in multiples of 2. Together 12, not 10.
+  near(dw.gross, (100 / 32 + 180 / 32) * 1.1);
+  assert.equal(dw.order, 12);
+  assert.equal(dw.cost, 180);
+});
+
 test('By Assembly has a heading and a cost subtotal per assembly', () => {
   const t = buildReport('byAssembly', input);
   assert.deepEqual(t.groups.map((g) => g.heading), ['Lined wall', 'Trim']);

@@ -1,3 +1,5 @@
+import { msg } from '@nb/i18n';
+import { scaleGroupName } from '../i18n/names';
 import { SCALE_PRESETS, type Scale } from '@nb/measure';
 import { SCALE_GROUPS, useSettings } from '../settings/settings';
 
@@ -23,10 +25,10 @@ export function ScaleControl({ scale, disabled, onPreset, onCustom, onBulk, comp
   // imperial) has no option in the list, so it is shown like a custom scale.
   const isPreset = !!scale && SCALE_PRESETS.some((p) => p.label === scale.label && groups.includes(p.group));
   return (
-    <label className="field scale" title="Drawing scale for this page">
-      {!compact && 'Scale'}
+    <label className="field scale" title={msg('Drawing scale for this page')}>
+      {!compact && msg('Scale')}
       <select
-        aria-label="Scale"
+        aria-label={msg('Scale')}
         disabled={disabled}
         value={scale ? (isPreset ? scale.label : CURRENT) : ''}
         onChange={(e) => {
@@ -36,11 +38,11 @@ export function ScaleControl({ scale, disabled, onPreset, onCustom, onBulk, comp
         }}
       >
         <option value="" disabled>
-          Scale Not Set
+          {msg('Scale Not Set')}
         </option>
         {scale && !isPreset && <option value={CURRENT}>{scale.label}</option>}
         {groups.map((group) => (
-          <optgroup key={group} label={group}>
+          <optgroup key={group} label={scaleGroupName(group)}>
             {SCALE_PRESETS.filter((p) => p.group === group).map((p) => (
               <option key={p.label} value={p.label}>
                 {p.label}
@@ -48,11 +50,11 @@ export function ScaleControl({ scale, disabled, onPreset, onCustom, onBulk, comp
             ))}
           </optgroup>
         ))}
-        <option value={CUSTOM}>Custom…</option>
+        <option value={CUSTOM}>{msg('Custom…')}</option>
       </select>
       {onBulk && (
-        <button type="button" className="btn small" disabled={disabled} onClick={onBulk} title="Review and set the scale of many pages at once">
-          Bulk Scales
+        <button type="button" className="btn small" disabled={disabled} onClick={onBulk} title={msg('Review and set the scale of many pages at once')}>
+          {msg('Bulk Scales')}
         </button>
       )}
     </label>

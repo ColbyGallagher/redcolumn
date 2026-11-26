@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 /** Only unacknowledged Yjs operations; replaying their original IDs is idempotent. */
 export interface PendingRoom {
   room: string;
@@ -32,7 +33,7 @@ export const sessionJournal: SessionJournal = {
       const tx = db.transaction(STORE, 'readonly');
       const request = tx.objectStore(STORE).get(scope);
       tx.oncomplete = () => { db.close(); resolve((request.result as PendingRoom[] | undefined) ?? []); };
-      tx.onabort = tx.onerror = () => { db.close(); reject(tx.error ?? new Error('Could not read pending session changes.')); };
+      tx.onabort = tx.onerror = () => { db.close(); reject(tx.error ?? new Error(msg('Could not read pending session changes.'))); };
     });
   },
   async write(scope, rooms) {
@@ -44,7 +45,7 @@ export const sessionJournal: SessionJournal = {
       if (rooms.length) store.put(rooms, scope);
       else store.delete(scope);
       tx.oncomplete = () => { db.close(); resolve(); };
-      tx.onabort = tx.onerror = () => { db.close(); reject(tx.error ?? new Error('Could not save pending session changes.')); };
+      tx.onabort = tx.onerror = () => { db.close(); reject(tx.error ?? new Error(msg('Could not save pending session changes.'))); };
     });
   },
 };

@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useState } from 'react';
 import { REPORTS, type ReportId, type ReportScope } from '../takeoff/reports';
 
@@ -24,16 +25,16 @@ interface Props {
 }
 
 const SCOPES: { id: ReportScope; label: string }[] = [
-  { id: 'all', label: 'All pages' },
-  { id: 'page', label: 'Current page' },
-  { id: 'selection', label: 'Selected markups' },
-  { id: 'list', label: 'Markups list, as filtered' },
+  { id: 'all', get label() { return msg('All pages'); } },
+  { id: 'page', get label() { return msg('Current page'); } },
+  { id: 'selection', get label() { return msg('Selected markups'); } },
+  { id: 'list', get label() { return msg('Markups list, as filtered'); } },
 ];
 
 const FORMATS: { id: ReportFormatId; label: string; hint: string }[] = [
-  { id: 'pdf', label: 'PDF', hint: 'One file, a page set per report' },
-  { id: 'xlsx', label: 'Excel', hint: 'One workbook, a sheet per report' },
-  { id: 'csv', label: 'CSV', hint: 'One file per report (a zip when more than one)' },
+  { id: 'pdf', get label() { return msg('PDF'); }, get hint() { return msg('One file, a page set per report'); } },
+  { id: 'xlsx', get label() { return msg('Excel'); }, get hint() { return msg('One workbook, a sheet per report'); } },
+  { id: 'csv', get label() { return msg('CSV'); }, get hint() { return msg('One file per report (a zip when more than one)'); } },
 ];
 
 /** The paper people in most places use: Letter in the US and Canada, A4 elsewhere. */
@@ -67,7 +68,7 @@ export function ReportsDialog({ counts, pageLabel, busy, error, onExport, onClos
       <form
         className="modal reports-dialog"
         role="dialog"
-        aria-label="Takeoff Reports"
+        aria-label={msg('Takeoff Reports')}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
@@ -78,9 +79,9 @@ export function ReportsDialog({ counts, pageLabel, busy, error, onExport, onClos
           if (ready) onExport({ reports: REPORTS.filter((r) => picked.has(r.id)).map((r) => r.id), scope, format, paper });
         }}
       >
-        <h3>Takeoff Reports</h3>
+        <h3>{msg('Takeoff Reports')}</h3>
         <fieldset className="reports-group">
-          <legend>Reports</legend>
+          <legend>{msg('Reports')}</legend>
           {REPORTS.map((r) => (
             <label key={r.id} className="reports-choice" title={r.hint}>
               <input type="checkbox" checked={picked.has(r.id)} onChange={(e) => toggle(r.id, e.target.checked)} />
@@ -91,18 +92,18 @@ export function ReportsDialog({ counts, pageLabel, busy, error, onExport, onClos
           ))}
         </fieldset>
         <fieldset className="reports-group">
-          <legend>Cover</legend>
+          <legend>{msg('Cover')}</legend>
           {SCOPES.map((s) => (
             <label key={s.id} className="reports-choice">
               <input type="radio" name="report-scope" checked={scope === s.id} disabled={s.id !== 'all' && counts[s.id] === 0} onChange={() => setScope(s.id)} />
               <span>
-                {s.id === 'page' ? `${s.label} (${pageLabel})` : s.label} <span className="muted">{counts[s.id]} markup{counts[s.id] === 1 ? '' : 's'}</span>
+                {s.id === 'page' ? `${s.label} (${pageLabel})` : s.label} <span className="muted">{msg('{counts, plural, one {# markup} other {# markups}}', { counts: counts[s.id] })}</span>
               </span>
             </label>
           ))}
         </fieldset>
         <fieldset className="reports-group">
-          <legend>File</legend>
+          <legend>{msg('File')}</legend>
           {FORMATS.map((f) => (
             <label key={f.id} className="reports-choice" title={f.hint}>
               <input type="radio" name="report-format" checked={format === f.id} onChange={() => setFormat(f.id)} />
@@ -112,10 +113,10 @@ export function ReportsDialog({ counts, pageLabel, busy, error, onExport, onClos
             </label>
           ))}
           <label className="reports-choice">
-            <span>Paper</span>
-            <select aria-label="Paper size" value={paper} disabled={format !== 'pdf'} onChange={(e) => setPaper(e.target.value as ReportPaper)}>
-              <option value="a4">A4 landscape</option>
-              <option value="letter">Letter landscape</option>
+            <span>{msg('Paper')}</span>
+            <select aria-label={msg('Paper size')} value={paper} disabled={format !== 'pdf'} onChange={(e) => setPaper(e.target.value as ReportPaper)}>
+              <option value="a4">{msg('A4 landscape')}</option>
+              <option value="letter">{msg('Letter landscape')}</option>
             </select>
           </label>
         </fieldset>
@@ -127,10 +128,10 @@ export function ReportsDialog({ counts, pageLabel, busy, error, onExport, onClos
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!ready}>
-            {busy ? 'Exporting…' : 'Export'}
+            {busy ? msg('Exporting…') : msg('Export')}
           </button>
         </div>
       </form>

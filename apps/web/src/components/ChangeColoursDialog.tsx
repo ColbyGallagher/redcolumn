@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useState } from 'react';
 
 interface Props {
@@ -27,8 +28,8 @@ export function ChangeColoursDialog({ colours, onApply, onCancel }: Props) {
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Change Colours</h3>
-        <p>Each colour the selected markups use: line, fill and text. A new colour replaces it wherever it is used.</p>
+        <h3>{msg('Change Colours')}</h3>
+        <p>{msg('Each colour the selected markups use: line, fill and text. A new colour replaces it wherever it is used.')}</p>
         <div className="form-grid change-colours">
           {colours.map((c, i) => (
             <div key={c} className="change-colour-row">
@@ -38,7 +39,7 @@ export function ChangeColoursDialog({ colours, onApply, onCancel }: Props) {
               </span>
               <input
                 type="color"
-                aria-label={`New colour for ${c}`}
+                aria-label={msg('New colour for {c}', { c })}
                 value={next[c] ?? c}
                 autoFocus={i === 0}
                 onChange={(e) => setNext((n) => ({ ...n, [c]: e.target.value }))}
@@ -49,10 +50,10 @@ export function ChangeColoursDialog({ colours, onApply, onCancel }: Props) {
         </div>
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!Object.keys(changed).length}>
-            Change
+            {msg('Change')}
           </button>
         </div>
       </form>

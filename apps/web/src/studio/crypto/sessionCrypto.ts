@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import {
   aesKey,
   canonical,
@@ -101,7 +102,7 @@ export class SessionCrypto {
 
   /** The host's keys as saved in its app folder. */
   async hostKeys(): Promise<HostKeys> {
-    if (!this.host) throw new Error('Only the host has these keys.');
+    if (!this.host) throw new Error(msg('Only the host has these keys.'));
     return { ...(await exportIdentity(this.host)), epochs: Object.fromEntries([...this.raw].map(([n, raw]) => [String(n), toB64url(raw)])) };
   }
 
@@ -147,7 +148,7 @@ export class SessionCrypto {
   /** The plain bytes, or null when the key for that epoch is not ours (yet). Throws on tampering. */
   async openBytes(sealed: Uint8Array): Promise<Uint8Array | null> {
     const epoch = sealedEpoch(sealed);
-    if (epoch === null) throw new Error('This file is not encrypted, but the session is.');
+    if (epoch === null) throw new Error(msg('This file is not encrypted, but the session is.'));
     const key = this.keys.get(epoch);
     return key ? unseal(key, sealed) : null;
   }
@@ -160,9 +161,9 @@ export class SessionCrypto {
 
   async openJson<T>(raw: Uint8Array): Promise<T> {
     const sealed = sealedJsonBytes(raw);
-    if (!sealed) throw new Error('This file is not encrypted, but the session is.');
+    if (!sealed) throw new Error(msg('This file is not encrypted, but the session is.'));
     const plain = await this.openBytes(sealed);
-    if (!plain) throw new Error('This file was encrypted with a key this browser does not have.');
+    if (!plain) throw new Error(msg('This file was encrypted with a key this browser does not have.'));
     return JSON.parse(td.decode(plain)) as T;
   }
 
@@ -187,7 +188,7 @@ export class SessionCrypto {
   // ---- The manifest: signed by the host, sealed with the link's key ----
 
   async sealManifest<M extends { sig?: string }>(manifest: M): Promise<Blob> {
-    if (!this.host) throw new Error('This session is end-to-end encrypted: only the host’s keys can change it. Open it where you started it, signed in as the host.');
+    if (!this.host) throw new Error(msg('This session is end-to-end encrypted: only the host’s keys can change it. Open it where you started it, signed in as the host.'));
     const { sig: _sig, ...rest } = manifest;
     const sig = toB64url(await signBytes(this.host, te.encode(canonical(rest))));
     return this.sealJson({ ...rest, sig });
@@ -198,7 +199,7 @@ export class SessionCrypto {
     const m = await this.openJson<M>(raw);
     const { sig, ...rest } = m;
     if (!m.enc || !sig || (await fingerprint(m.enc.host.sign)) !== this.secret.host || !(await verifyBytes(m.enc.host.sign, te.encode(canonical(rest)), fromB64url(sig)))) {
-      throw new Error('The session’s manifest is not signed by its host. It may have been changed by someone else.');
+      throw new Error(`The session’s manifest is not signed by its host. It may have been changed by someone else.`);
     }
     return m;
   }

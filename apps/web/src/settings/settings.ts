@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { ThemeChoice } from '../theme/themes';
-import { DEFAULT_SCALE, SCALE_PRESETS, type LengthUnit, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, SCALE_PRESETS, UNIT_PRECISION, type LengthUnit, type Scale } from '@nb/measure';
 
 /**
  * App preferences (File → Preferences…), kept per browser. Unlike profiles they are not about the
@@ -37,9 +37,6 @@ const SYSTEM_DEFAULTS: Record<UnitSystem, Pick<Settings, 'lengthUnit' | 'areaUni
   metric: { lengthUnit: 'm', areaUnit: 'm', volumeUnit: 'm' },
   imperial: { lengthUnit: 'ft', areaUnit: 'ft', volumeUnit: 'ft' },
 };
-
-/** Decimal places lengths get in a unit when the app picks the unit itself. */
-const UNIT_PRECISION: Record<LengthUnit, number> = { mm: 0, cm: 1, m: 2, km: 3, in: 2, ft: 2, yd: 2, mi: 3 };
 
 /** The unit the grid is spaced in on paper: millimetres for metric, inches for imperial. */
 export const gridUnitOf = (system: UnitSystem): 'mm' | 'in' => (system === 'metric' ? 'mm' : 'in');
@@ -82,6 +79,31 @@ export function withDefaultUnits(scale: Scale, s: Settings = current): Scale {
     if (!next.feetInches && (scale.feetInches || scale.precision === preset.precision)) next.precision = UNIT_PRECISION[next.unit];
   }
   return next;
+}
+
+/**
+ * A page scale shown in the default units (Preferences › Units): lengths in the default length unit,
+ * areas and volumes in theirs. The ratio (metres per point) is untouched, so every measurement on the
+ * page keeps its real size and only its wording changes.
+ *
+ * Nothing is thrown away, so a round trip through another unit system restores the page: the inch
+ * fraction format and its precision stay on the scale (they only take effect while the unit is ft or
+ * in, and lengths in other units then show two decimals), and Bluebeam's area and volume wording is
+ * keyed by unit, so it applies again whenever areas return to that unit.
+ */
+export function scaleInDefaultUnits(scale: Scale, s: Settings = current): Scale {
+  const areaUnit = s.areaUnit;
+  const volumeUnit = s.volumeUnit;
+  if (scale.unit === s.lengthUnit && scale.areaUnit === areaUnit && scale.volumeUnit === volumeUnit) return scale;
+  return {
+    ...scale,
+    unit: s.lengthUnit,
+    areaUnit,
+    volumeUnit,
+    // A precision picked in the scale dialog is kept while the length unit stays; a fraction format's
+    // precision is kept so a return to ft or in finds it again.
+    precision: scale.feetInches || scale.unit === s.lengthUnit ? scale.precision : UNIT_PRECISION[s.lengthUnit],
+  };
 }
 
 /** A Sets category: sheets whose tag value starts with `filter` belong to it. */
@@ -167,6 +189,8 @@ export interface Settings {
   gridSize: number;
   /** Rulers along the top and left of the view (View → Rulers). */
   showRulers: boolean;
+  /** Keep File, Edit, View and the other menus across the top bar instead of under the redcolumn button. */
+  showMenuBar: boolean;
   /** Full-screen crosshair cursor (View → Full-Screen Crosshair). */
   crosshair: boolean;
   /** How latitudes and longitudes on maps (geospatial PDFs) are shown: decimal degrees or degrees, minutes and seconds. */
@@ -254,6 +278,10 @@ export interface Settings {
   // exported with the rest, but nothing in RedColumn reads them yet.
 
   // General › Options
+  /** Interface language: a code from @nb/i18n's LOCALES, or 'auto' to follow the browser or system. Applies at the next start. */
+  uiLanguage: string;
+  /** How numbers are written and read: a locale such as 'de-DE', or 'auto' for the system's. Applies at the next start. */
+  numberFormat: string;
   /** Which part of a long document name the tabs cut short. */
   tabTruncation: 'start' | 'middle' | 'end';
   /** Library id of a document opened (in front) every time the app starts; '' for none. */
@@ -267,6 +295,8 @@ export interface Settings {
   pageLayout: 'auto' | 'single' | 'continuous' | 'sideBySide' | 'continuousSideBySide';
   /** Highest zoom the view allows, in percent. */
   maxZoom: number;
+  /** Splitting a single document into two panes starts with Synchronise Document switched on. */
+  syncSplitView: boolean;
   /**
    * Sheets slow to draw (hundreds of thousands of hatch lines, clipped hatches): offer to draw them
    * from an optimised copy, do it without asking, or leave them be. The file itself never changes.
@@ -318,7 +348,7 @@ export interface Settings {
   /** Check Spelling also checks words in capitals (often abbreviations on drawings). */
   spellUpperCase: boolean;
   /** Dictionary Check Spelling uses. */
-  dictionary: 'en-AU' | 'en-GB' | 'en-US';
+  dictionary: 'en-AU' | 'en-GB' | 'en-US' | 'de-DE' | 'fr-FR';
   // Interface › Markups List
   /** Selecting a markup in the list zooms to fit it (otherwise the view only goes to its page). */
   zoomFitSelected: boolean;
@@ -442,6 +472,7 @@ export const DEFAULT_SETTINGS: Settings = {
   rightClickFinishes: false,
   gridSize: 5,
   showRulers: false,
+  showMenuBar: false,
   crosshair: false,
   geoFormat: 'decimal',
   showSpaces: true,
@@ -486,12 +517,15 @@ export const DEFAULT_SETTINGS: Settings = {
   snapshotVector: true,
   embedHostHooks: false,
 
+  uiLanguage: 'auto',
+  numberFormat: 'auto',
   tabTruncation: 'end',
   startupFile: '',
   documentRecovery: true,
   autosave: false,
   pageLayout: 'auto',
   maxZoom: 6400,
+  syncSplitView: false,
   optimiseDrawings: 'ask',
   singlePageWheel: 'zoom',
   continuousWheel: 'scroll',

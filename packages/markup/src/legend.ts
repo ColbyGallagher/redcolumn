@@ -56,7 +56,8 @@ export function legendRows(
   const plus = legend.legend?.keys ? cloudPlusGroups(all) : new Set<string>();
   for (const m of [...all].sort((a, b) => a.pageIndex - b.pageIndex || a.createdAt - b.createdAt)) {
     if (!listed(m, legend) || !onLegendPage(legend, m.pageIndex) || !inLegendKeys(legend, m, plus)) continue;
-    const key = `${m.type}${m.manual?.kind ?? ''}|${m.subject ?? ''}|${m.style.stroke}|${m.style.fill ?? ''}`;
+    const shapeKey = m.type === 'count' ? `|${m.style.countSymbol ? `sym:${m.style.countSymbol.id}` : (m.style.countShape ?? 'circle')}` : '';
+    const key = `${m.type}${m.manual?.kind ?? ''}|${m.subject ?? ''}|${m.style.stroke}|${m.style.fill ?? ''}${shapeKey}`;
     let row = rows.get(key);
     if (!row) {
       row = { key, sample: m, label: m.subject || MARKUP_LABELS[m.type], count: 0, measure: '', meters: 0 };

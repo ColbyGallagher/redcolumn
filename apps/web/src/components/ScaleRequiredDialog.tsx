@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 interface Props {
   /** The tool that needs the scale is Scale to Length (otherwise a measuring tool). */
   scaleToLength: boolean;
@@ -36,32 +37,30 @@ export function ScaleRequiredDialog({ scaleToLength, page, notToScale, onSetScal
       >
         {notToScale ? (
           <>
-            <h3>This sheet is not to scale</h3>
+            <h3>{msg('This sheet is not to scale')}</h3>
             <p>
-              {page}’s title block says NOT TO SCALE, so lengths measured on it are not real-world lengths and should not go into a takeoff. Measure a sheet drawn to scale
-              instead. If part of this sheet is drawn to scale, calibrate from a known dimension in that part.
+              {msg('{page}’s title block says NOT TO SCALE, so lengths measured on it are not real-world lengths and should not go into a takeoff. Measure a sheet drawn to scale instead. If part of this sheet is drawn to scale, calibrate from a known dimension in that part.', { page })}
             </p>
           </>
         ) : (
           <>
-            <h3>Set a page scale first</h3>
+            <h3>{msg('Set a page scale first')}</h3>
             <p>
-              {page} has no scale, so {scaleToLength ? 'Scale to Length' : 'measurements'} can’t use real-world lengths. Set the page’s scale, or calibrate it from a known
-              dimension, then try again.
+              {msg('{page} has no scale, so {value} can’t use real-world lengths. Set the page’s scale, or calibrate it from a known dimension, then try again.', { page, value: scaleToLength ? msg('Scale to Length') : msg('measurements') })}
             </p>
           </>
         )}
         <div className="actions">
           <button type={notToScale ? 'submit' : 'button'} className={notToScale ? 'btn primary' : 'btn'} autoFocus={notToScale} onClick={notToScale ? undefined : onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           {onCalibrate && (
-            <button type="button" className="btn" title="Draw a line over a known dimension on the drawing" onClick={onCalibrate}>
-              Calibrate…
+            <button type="button" className="btn" title={msg('Draw a line over a known dimension on the drawing')} onClick={onCalibrate}>
+              {msg('Calibrate…')}
             </button>
           )}
           <button type={notToScale ? 'button' : 'submit'} className={notToScale ? 'btn' : 'btn primary'} autoFocus={!notToScale} onClick={notToScale ? onSetScale : undefined}>
-            {notToScale ? 'Set Scale Anyway…' : 'Set Scale…'}
+            {notToScale ? msg('Set Scale Anyway…') : msg('Set Scale…')}
           </button>
         </div>
       </form>

@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../../i18n/keyed';
 import { useState } from 'react';
 
 /** Splits typed addresses (commas, semicolons, spaces or new lines). */
@@ -44,7 +46,7 @@ export function InviteDialog({
         className="modal session-dialog rc-share"
         role="dialog"
         aria-modal="true"
-        aria-label="Share Session Invitations"
+        aria-label={msg('Share Session Invitations')}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
@@ -62,12 +64,12 @@ export function InviteDialog({
         }}
       >
         <div className="rc-share-top">
-          <h3>Share Session Invitations</h3>
+          <h3>{msg('Share Session Invitations')}</h3>
           <span>
             <button type="button" className="rc-share-copy" onClick={copy}>
-              {copied ? 'Copied' : 'Copy Session Invitation Link'}
+              {copied ? msg('Copied') : msg('Copy Session Invitation Link')}
             </button>
-            <button type="button" className="rc-dialog-x" aria-label="Close" disabled={busy} onClick={onCancel}>
+            <button type="button" className="rc-dialog-x" aria-label={msg('Close')} disabled={busy} onClick={onCancel}>
               ×
             </button>
           </span>
@@ -75,16 +77,16 @@ export function InviteDialog({
         <div className="rc-share-body">
           {mode === 'pick' ? (
             <>
-              <p className="rc-share-lead">Get Started with one of these options:</p>
+              <p className="rc-share-lead">{msg('Get Started with one of these options:')}</p>
               <button type="button" className="rc-share-opt" onClick={() => setMode('emails')}>
-                Type or Paste Emails <span aria-hidden="true">Ab</span>
+                {keyed(msgParts('Type or Paste Emails {span}', { span: <span aria-hidden="true">{msg('Ab')}</span> }))}
               </button>
               <button
                 type="button"
                 className="rc-share-opt"
                 onClick={() => {
                   if (!groupEmails.length) {
-                    setNote(groups.length ? 'Those groups have no email addresses yet.' : 'This session has no groups yet. Add them in Session Settings → Attendees.');
+                    setNote(groups.length ? msg('Those groups have no email addresses yet.') : msg('This session has no groups yet. Add them in Session Settings → Attendees.'));
                     return;
                   }
                   setText((prev) => [...new Set([...parseEmails(prev), ...groupEmails])].join(', '));
@@ -92,32 +94,31 @@ export function InviteDialog({
                   setMode('emails');
                 }}
               >
-                Add Emails from Groups <span aria-hidden="true">☺</span>
+                {keyed(msgParts('Add Emails from Groups {span}', { span: <span aria-hidden="true">☺</span> }))}
               </button>
               {note && <p className="print-hint">{note}</p>}
             </>
           ) : (
             <div className="rc-share-form">
               <label>
-                Email addresses
-                <textarea rows={4} value={text} autoFocus onChange={(e) => setText(e.target.value)} placeholder="ann@example.com, bob@example.com" />
+                {keyed(msgParts('Email addresses{textarea}', { textarea: <textarea rows={4} value={text} autoFocus onChange={(e) => setText(e.target.value)} placeholder={msg('ann@example.com, bob@example.com')} /> }))}
               </label>
               <button type="button" className="rc-set-link" onClick={() => setMode('pick')}>
-                Other options
+                {msg('Other options')}
               </button>
             </div>
           )}
         </div>
-        {bad.length > 0 && <p className="print-error">Not an email address: {bad.join(', ')}</p>}
-        {mode === 'emails' && <p className="print-hint">The session folder is shared with them, and OneDrive emails them the link.</p>}
+        {bad.length > 0 && <p className="print-error">{msg('Not an email address: {bad}', { bad: bad.join(', ') })}</p>}
+        {mode === 'emails' && <p className="print-hint">{msg('The session folder is shared with them, and OneDrive emails them the link.')}</p>}
         {error && <p className="print-error">{error}</p>}
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" disabled={busy} onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={busy || !emails.length || bad.length > 0}>
-            {busy ? 'Sending…' : 'Invite Participants'}
+            {busy ? msg('Sending…') : msg('Invite Participants')}
           </button>
         </div>
       </form>

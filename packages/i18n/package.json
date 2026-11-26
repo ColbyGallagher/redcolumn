@@ -1,0 +1,21 @@
+{
+  "name": "@nb/i18n",
+  "version": "0.0.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --test --experimental-strip-types \"src/*.test.ts\" \"scripts/*.test.ts\"",
+    "extract": "node --experimental-strip-types scripts/extract.ts",
+    "check:catalog": "node --experimental-strip-types scripts/extract.ts --check",
+    "check:literals": "node --experimental-strip-types scripts/no-literals.ts",
+    "check:css": "node --experimental-strip-types scripts/logical-css.ts",
+    "check": "pnpm run check:catalog && pnpm run check:literals && pnpm run check:css"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.1",
+    "typescript": "5.9.3"
+  }
+}
