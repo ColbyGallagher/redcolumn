@@ -94,6 +94,7 @@ nsis:
   installerLanguages:
     - en_US
     - de_DE
+    - fr_FR
 # Not signed with a Developer ID or notarized. identity "-" ad-hoc signs it instead: Apple Silicon
 # will not run an unsigned app, and signing re-seals it after the fuses above are flipped.
 mac:

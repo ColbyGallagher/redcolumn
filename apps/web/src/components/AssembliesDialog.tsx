@@ -262,6 +262,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
   const refs = groups.flatMap((g) => g.names);
   const linked = (item: AssemblyItem): Item | undefined => (item.itemId ? catalog.find((c) => c.id === item.itemId) : undefined);
   const expanded = selected?.items.find((i) => i.id === expandedId) ?? null;
+  const roundEachHint = msg('Round each measurement up before adding them up, rather than the total once: four 14 ft runs of pipe sold in 8 ft lengths need 16 ft each, as offcuts cannot be joined.');
   const roundHint = msg('Round the quantity up to a multiple of this instead of a whole number: 10 for pipe sold in 10 ft lengths, 0.5 for half sheets. Leave blank for whole numbers.');
 
   return (
@@ -462,7 +463,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                 <div className="col-field">
                   <span>{msg('Items')}</span>
                   <small className="hint-text">
-                    {msg('Each item’s quantity per measurement. Waste is added before rounding up; totals round up once, on the total.')}
+                    {msg('Each item’s quantity per measurement. Waste is added before rounding up; totals round up once, on the total, unless you tick each to round every measurement up first.')}
                   </small>
                   <FormulaSyntax onHelp={onHelp} />
                   <div className="asm-refs" aria-label={msg('Insert into the formula')}>
@@ -510,7 +511,7 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                                   onChange={(e) => {
                                     const id = e.target.value;
                                     // Linking clears the fields the catalog item now supplies, so they follow it.
-                                    if (id) patchItem(item.id, { itemId: id, name: '', unit: '', waste: undefined, unitCost: undefined, roundUp: undefined, roundTo: undefined });
+                                    if (id) patchItem(item.id, { itemId: id, name: '', unit: '', waste: undefined, unitCost: undefined, roundUp: undefined, roundTo: undefined, roundEach: undefined });
                                     else patchItem(item.id, { itemId: undefined, name: item.name || from?.name || 'Item', unit: item.unit || from?.unit || '' });
                                   }}
                                 >
@@ -541,9 +542,15 @@ export function AssembliesDialog({ initial, readOnly, columns, usage, unitSystem
                               </td>
                               <td>
                                 <div className="asm-round">
-                                  <input type="checkbox" aria-label={msg('Round up')} title={msg('Round the quantity up instead of leaving it fractional')} checked={!!item.roundUp} onChange={(e) => patchItem(item.id, { roundUp: e.target.checked || undefined, ...(e.target.checked ? {} : { roundTo: undefined }) })} />
+                                  <input type="checkbox" aria-label={msg('Round up')} title={msg('Round the quantity up instead of leaving it fractional')} checked={!!item.roundUp} onChange={(e) => patchItem(item.id, { roundUp: e.target.checked || undefined, ...(e.target.checked ? {} : { roundTo: undefined, roundEach: undefined }) })} />
                                   {item.roundUp && (
                                     <NumberBox key={`${item.id}:r`} label={msg('Round up {name} to a multiple of', { name: item.name })} title={roundHint} value={item.roundTo} placeholder="1" width={44} onChange={(n) => patchItem(item.id, { roundTo: n !== undefined && n > 0 && n !== 1 ? n : undefined })} />
+                                  )}
+                                  {item.roundUp && (
+                                    <label className="asm-round-each" title={roundEachHint}>
+                                      <input type="checkbox" aria-label={msg('Round up {name} for each measurement', { name: item.name || from?.name || msg('item') })} checked={!!item.roundEach} onChange={(e) => patchItem(item.id, { roundEach: e.target.checked || undefined })} />
+                                      {msg('each')}
+                                    </label>
                                   )}
                                 </div>
                               </td>

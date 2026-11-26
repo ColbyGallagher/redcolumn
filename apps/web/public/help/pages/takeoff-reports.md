@@ -9,7 +9,7 @@
 
 ## The reports
 
-- **Quantity Summary by Item** lists each item once, grouped by category: item number, description, unit, net quantity, waste %, gross quantity, the **order quantity** (rounded up as the item says, once on the total), unit cost and extended cost, with a cost total.
+- **Quantity Summary by Item** lists each item once, grouped by category: item number, description, unit, net quantity, waste %, gross quantity, the **order quantity** (rounded up as the item says, once on the total, or each measurement first for an item that rounds up **each**), unit cost and extended cost, with a cost total.
 - **Quantities by Assembly** shows each assembly's items under its name, with a cost subtotal for the assembly.
 - **Quantities by Sheet** shows the items on each sheet (its sheet number, else "Page N"), with a subtotal for the sheet.
 - **Measurement Detail** has one row per measurement: page, subject, label, type, plan quantity, unit, slope, slope factor, true quantity, cutouts (count and area taken off), depth, whether the quantity was typed in, and the assembly.

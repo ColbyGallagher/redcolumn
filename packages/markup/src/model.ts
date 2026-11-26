@@ -703,7 +703,7 @@ export function markupBounds(m: Markup): Rect {
 }
 
 /** Types that can be turned to any angle (Rotate): box-shaped markups. */
-export const ROTATABLE: ReadonlySet<MarkupType> = new Set<MarkupType>(['rect', 'ellipse', 'cloud', 'text', 'typewriter', 'image', 'signature', 'stamp', 'flagLabel', 'flowShape']);
+export const ROTATABLE: ReadonlySet<MarkupType> = new Set<MarkupType>(['rect', 'ellipse', 'cloud', 'text', 'typewriter', 'image', 'signature', 'stamp', 'flagLabel', 'flowShape', 'callout', 'legend']);
 
 /** The point a markup turns about: the centre of its box. */
 export function rotationCentre(m: Pick<Markup, 'type' | 'points'>): Point {
@@ -719,6 +719,35 @@ export function rotatePoint(p: Point, c: Point, degrees: number): Point {
   const dx = p[0] - c[0];
   const dy = p[1] - c[1];
   return [c[0] + dx * cos - dy * sin, c[1] + dx * sin + dy * cos];
+}
+
+/**
+ * A callout's points re-stored for a new text box and turn, so its arrow tips and knees stay where they
+ * are on the page. A callout turns about the middle of its box (`rotationCentre`) with all its points
+ * stored in the box's own frame: changing the box or the turn would otherwise swing the leaders with it.
+ * `points` is the callout's points with the new box in 2-3 (the leader points are read from `m`).
+ */
+export function calloutLeadersKept(m: Pick<Markup, 'type' | 'points' | 'rotation'>, points: readonly Point[], rotation = m.rotation ?? 0): Point[] {
+  const r0 = m.rotation ?? 0;
+  if (m.type !== 'callout' || points.length < 4 || (!r0 && !rotation)) return [...points];
+  const c0 = rotationCentre(m);
+  const c1 = rotationCentre({ type: m.type, points: points as Point[] });
+  return points.map((p, i): Point => {
+    if (i === 2 || i === 3) return p;
+    const q = m.points[i] ?? p;
+    return rotatePoint(r0 ? rotatePoint(q, c0, r0) : q, c1, -rotation);
+  });
+}
+
+/**
+ * The edit that turns `m` to `rotation` degrees (none for 0) about the middle of its box. A callout's
+ * text box turns while its arrow tips and knees stay where they are on the page (its leaders then land
+ * square on the turned box's sides).
+ */
+export function turnedTo(m: Pick<Markup, 'type' | 'points' | 'rotation'>, rotation: number): Pick<Markup, 'rotation'> & Partial<Pick<Markup, 'points'>> {
+  const turn = rotation || undefined;
+  if (m.type !== 'callout' || m.points.length < 4) return { rotation: turn };
+  return { rotation: turn, points: calloutLeadersKept(m, m.points, rotation) };
 }
 
 /** A page point in a rotated markup's own (unrotated) frame. */

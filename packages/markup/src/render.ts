@@ -859,7 +859,8 @@ export function drawSelection(ctx: CanvasRenderingContext2D, m: Markup, zoom: nu
 /** The rotate handle of a selected, rotatable markup: above the top of its box, turned with it. */
 export function rotateHandle(m: Markup, zoom: number): { at: [number, number]; stem: [number, number] } | null {
   if (m.locked || !ROTATABLE.has(m.type)) return null;
-  const b = markupBounds({ ...m, rotation: 0 });
+  // A callout's knob sits above its text box, which is what turns (its leaders reach elsewhere).
+  const b = m.type === 'callout' && m.points.length >= 4 ? contentBox(m) : markupBounds({ ...m, rotation: 0 });
   const c = rotationCentre(m);
   const top: [number, number] = [b.x + b.w / 2, b.y];
   const at: [number, number] = [b.x + b.w / 2, b.y - 18 / zoom];
