@@ -26,6 +26,38 @@ test.describe('view', () => {
     expect((await app.view()).zoom).toBeGreaterThanOrEqual(fit - 1e-6);
   });
 
+  test('fit width brings the page back across the view after zooming off centre (#493)', async ({ app }) => {
+    // The page's sides on screen, by its two top corners.
+    const sides = async () => [(await app.at([0, 0])).x, (await app.at([1224, 0])).x] as const;
+    await app.cmd('view.singlePage');
+    await app.cmd('view.fitWidth');
+    const [left, right] = await sides();
+    // Zoom in about the top-left corner of the view, which leaves the page far off to the right.
+    await app.page.evaluate(() => window.__nb.viewer.zoomBy(8, 0, 0));
+    await app.cmd('view.fitWidth');
+    const after = await sides();
+    expect(after[0]).toBeCloseTo(left, 1);
+    expect(after[1]).toBeCloseTo(right, 1);
+  });
+
+  test('fit page shows the entire page in every layout', async ({ app }) => {
+    // A window much wider than the sheet's shape, so its height is what limits the zoom.
+    await app.page.setViewportSize({ width: 1440, height: 600 });
+    for (const layout of ['view.continuous', 'view.singlePage', 'view.continuousSideBySide', 'view.sideBySide']) {
+      await app.cmd(layout);
+      await app.cmd('view.actualSize');
+      await app.cmd('view.fitPage');
+      const view = (await app.page.locator('canvas').first().boundingBox())!;
+      for (const corner of [[0, 0], [1224, 792]] as const) {
+        const at = await app.at(corner);
+        expect(at.x, layout).toBeGreaterThanOrEqual(view.x);
+        expect(at.x, layout).toBeLessThanOrEqual(view.x + view.width);
+        expect(at.y, layout).toBeGreaterThanOrEqual(view.y);
+        expect(at.y, layout).toBeLessThanOrEqual(view.y + view.height);
+      }
+    }
+  });
+
   test('page layouts', async ({ app }) => {
     const LAYOUTS: [string, string][] = [
       ['view.singlePage', 'single'],
