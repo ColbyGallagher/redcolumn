@@ -41,6 +41,8 @@ export interface Item {
   /** Round quantities up to a multiple of this (with `roundUp`). */
   roundTo?: number;
   roundUp?: boolean;
+  /** With `roundUp`, round each measurement up before adding them up (see `AssemblyItem.roundEach`). */
+  roundEach?: boolean;
   /** The product list record its cost and price come from (see `listCost`). */
   listRef?: { listId: string; recordId: string };
 }
@@ -137,6 +139,7 @@ export function sanitizeItems(raw: unknown): Item[] {
       ...(waste !== null && waste !== 0 ? { waste } : {}),
       ...(r.roundUp === true ? { roundUp: true } : {}),
       ...(r.roundUp === true && roundTo !== null && roundTo > 0 && roundTo !== 1 ? { roundTo } : {}),
+      ...(r.roundUp === true && r.roundEach === true ? { roundEach: true } : {}),
       ...(ref ? { listRef: ref } : {}),
     });
   }
@@ -300,7 +303,7 @@ export function resolveAssemblyItem(ai: AssemblyItem, items: readonly Item[], li
   const item = items.find((i) => i.id === ai.itemId);
   if (!item) return ai;
   const { unitCost } = listCost(item, lists);
-  const rounding = ai.roundUp !== undefined ? { roundUp: ai.roundUp, roundTo: ai.roundTo } : { roundUp: item.roundUp, roundTo: item.roundTo };
+  const rounding = ai.roundUp !== undefined ? { roundUp: ai.roundUp, roundTo: ai.roundTo, roundEach: ai.roundEach } : { roundUp: item.roundUp, roundTo: item.roundTo, roundEach: item.roundEach };
   const out: AssemblyItem = {
     ...ai,
     name: ai.name.trim() || item.name,
@@ -310,9 +313,11 @@ export function resolveAssemblyItem(ai: AssemblyItem, items: readonly Item[], li
   };
   delete out.roundUp;
   delete out.roundTo;
+  delete out.roundEach;
   if (rounding.roundUp) {
     out.roundUp = true;
     if (rounding.roundTo !== undefined) out.roundTo = rounding.roundTo;
+    if (rounding.roundEach) out.roundEach = true;
   }
   return out;
 }
