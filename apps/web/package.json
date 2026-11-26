@@ -17,6 +17,7 @@
     "@nb/i18n": "workspace:*",
     "@nb/markup": "workspace:*",
     "@nb/measure": "workspace:*",
+    "@nb/model3d": "workspace:*",
     "@nb/pdf-core": "workspace:*",
     "@nb/sheets": "workspace:*",
     "@nb/stitch": "workspace:*",

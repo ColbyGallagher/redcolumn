@@ -32,7 +32,9 @@ export const MAX_GROWTH = 0.05;
  */
 export const FORBIDDEN = [
   { name: 'three', module: /(^|[\\/_.-])three([\\/_.-]|$)/, code: /__THREE__|WebGLRenderer\b/ },
-  { name: 'web-ifc', module: /web-ifc/, code: /web-ifc/ },
+  // The app names the wasm it serves (model3d/web-ifc.wasm) to hand its URL to the lazily loaded
+  // viewer. That exact path is not the library; any other mention is.
+  { name: 'web-ifc', module: /web-ifc/, code: /(?<!model3d\/)web-ifc|web-ifc(?!\.wasm\b)/ },
   { name: '@thatopen', module: /@thatopen/, code: /@thatopen/ },
   { name: 'camera-controls', module: /camera-controls/, code: /camera-controls/ },
 ];

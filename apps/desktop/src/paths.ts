@@ -2,7 +2,7 @@ import { t } from './i18n';
 import { dialog, ipcMain, shell, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { DRAWING_EXTENSIONS, isOpenable, isWritable, OPENABLE_EXTENSIONS, PathAllowlist } from './allowlist';
+import { DRAWING_EXTENSIONS, isOpenable, isWritable, MODEL_EXTENSIONS, OPENABLE_EXTENSIONS, PathAllowlist } from './allowlist';
 import { saveError, writeAtomic } from './atomic';
 import { isDev } from './dev';
 import type { LaunchQueue } from './launch';
@@ -14,9 +14,10 @@ export interface TokenName {
 }
 
 const fileFilters = () => [
-  { name: t('PDF, pictures and drawings'), extensions: OPENABLE_EXTENSIONS },
-  { name: t('PDF and pictures'), extensions: OPENABLE_EXTENSIONS.filter((e) => !DRAWING_EXTENSIONS.includes(e)) },
+  { name: t('PDF, pictures, drawings and models'), extensions: OPENABLE_EXTENSIONS },
+  { name: t('PDF and pictures'), extensions: OPENABLE_EXTENSIONS.filter((e) => !DRAWING_EXTENSIONS.includes(e) && !MODEL_EXTENSIONS.includes(e)) },
   { name: t('DWG and DXF drawings'), extensions: DRAWING_EXTENSIONS },
+  { name: t('IFC models'), extensions: MODEL_EXTENSIONS },
 ];
 const imageFilters = () => [{ name: t('Pictures'), extensions: ['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'] }];
 

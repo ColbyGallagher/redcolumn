@@ -49,7 +49,7 @@ protocols:
   - name: redcolumn link
     schemes:
       - redcolumn
-# Registers redcolumn as a PDF (and DWG/DXF) handler. It does not become the default handler.
+# Registers redcolumn as a PDF (and DWG/DXF and IFC) handler. It does not become the default handler.
 # perMachine and any default-handler setting are left unset on purpose.
 fileAssociations:
   - ext: pdf
@@ -68,6 +68,12 @@ fileAssociations:
     description: DXF drawing
     role: Viewer
     mimeType: image/vnd.dxf
+  # 3D models open in the 3D viewer (Experimental). Viewer only, never the default.
+  - ext: ifc
+    name: IFC
+    description: IFC model
+    role: Viewer
+    mimeType: application/x-step
 # Electron fuses, flipped in the packaged binary (docs/SECURITY-HARDENING.md, E1): the app cannot be
 # run as plain Node, NODE_OPTIONS and --inspect are ignored, and only the integrity-checked
 # app.asar loads.
