@@ -235,24 +235,51 @@ function fitAffine(from: readonly Pt[], to: readonly Pt[]): number[] | null {
 /** A region's page → latitude/longitude map; null when its control points cannot fix one. */
 export type GeoTransform = (p: Pt) => { lat: number; lon: number };
 
-const fitted = new WeakMap<GeoRegion, GeoTransform | null>();
+/** A region's fitted map both ways: page → latitude/longitude and back. */
+interface GeoFit {
+  forward: GeoTransform;
+  /** Null when the page map cannot be inverted. */
+  inverse: ((lat: number, lon: number) => Pt) | null;
+}
 
-export function geoTransform(region: GeoRegion): GeoTransform | null {
+const fitted = new WeakMap<GeoRegion, GeoFit | null>();
+
+function geoFit(region: GeoRegion): GeoFit | null {
   if (fitted.has(region)) return fitted.get(region)!;
   const proj = projector(region.projection, region.points);
   const affine = fitAffine(
     region.points.map((q) => q.at),
     region.points.map((q) => proj.forward(q.lat, q.lon)),
   );
-  const t: GeoTransform | null = affine
-    ? ([x, y]) => {
-        const [a, b, c, d, e, f] = affine as [number, number, number, number, number, number];
+  let fit: GeoFit | null = null;
+  if (affine) {
+    const [a, b, c, d, e, f] = affine as [number, number, number, number, number, number];
+    const det = a * e - b * d;
+    fit = {
+      forward: ([x, y]) => {
         const [lat, lon] = proj.inverse(a * x + b * y + c, d * x + e * y + f);
         return { lat, lon: ((((lon + 180) % 360) + 360) % 360) - 180 };
-      }
-    : null;
-  fitted.set(region, t);
-  return t;
+      },
+      inverse: Number.isFinite(1 / det)
+        ? (lat, lon) => {
+            const [px, py] = proj.forward(lat, lon);
+            const [u, v] = [px - c, py - f];
+            return [(e * u - b * v) / det, (a * v - d * u) / det];
+          }
+        : null,
+    };
+  }
+  fitted.set(region, fit);
+  return fit;
+}
+
+export function geoTransform(region: GeoRegion): GeoTransform | null {
+  return geoFit(region)?.forward ?? null;
+}
+
+/** The inverse of {@link geoTransform}: the page point showing a latitude and longitude (degrees). */
+export function geoInverse(region: GeoRegion): ((lat: number, lon: number) => Pt) | null {
+  return geoFit(region)?.inverse ?? null;
 }
 
 function insidePolygon(poly: readonly Pt[], [x, y]: Pt): boolean {
