@@ -1355,8 +1355,12 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         C: fill && m.type === 'text' ? fill : [],
         ...(fill && m.style.fillOpacity !== undefined && m.style.fillOpacity < 1 ? { FillOpacity: m.style.fillOpacity } : {}),
         ...(m.type === 'typewriter' ? { IT: 'FreeTextTypeWriter' } : {}),
-        // Bluebeam's own key for a turned text box: clockwise degrees (its /Rect is the turned box's bounds).
-        ...(m.type === 'text' && m.rotation && ((m.rotation % 360) + 360) % 360 !== 0 ? { Rotation: Math.round((((m.rotation % 360) + 360) % 360) * 100) / 100 } : {}),
+        // As Revu keeps text on a turned sheet: its own /Rotate is the sheet's turn (the box set upright
+        // there), and /Rotation, Bluebeam's key for a turned text box, is clockwise degrees on top of
+        // that, so the turn as shown (its /Rect is the turned box's bounds; /Rect less /RD the box before
+        // turning). A flag's /RD holds its point, not that box, so a turned flag keeps no /Rotation.
+        ...(sheetTurn(matrix) % 360 ? { Rotate: sheetTurn(matrix) } : {}),
+        ...(m.type !== 'flagLabel' && m.rotation && ((m.rotation % 360) + 360) % 360 !== 0 ? { Rotation: Math.round((((m.rotation % 360) + 360) % 360) * 100) / 100 } : {}),
       };
       if (m.type === 'flagLabel') {
         // Its box reaches the flag's point; the text sits right of it (RD's left inset).

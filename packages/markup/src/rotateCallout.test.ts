@@ -181,3 +181,24 @@ test('a turned legend saves its turn as Bluebeam keeps it', async () => {
   assert.deepEqual([box.w, box.h].map(Math.round), [140, 100]);
   assert.ok(near(rotationCentre(back), rotationCentre(l), 1e-3));
 });
+
+test('a text box on a turned sheet saves as Revu keeps one (its own /Rotate the turn of its sheet, /Rotation the turn as shown) and reads back the same', async () => {
+  for (const type of ['text', 'typewriter', 'flagLabel'] as const) for (const turn of [0, 90, 180, 270]) {
+    // A flag's /RD holds its point, not the box before turning, so only an upright one is turned by its sheet alone.
+    for (const angle of type === 'flagLabel' ? [0] : [0, 30, 90, 180]) {
+      const t = markup(type, [[200, 100], [300, 140]], { id: 't1', ...(angle ? { rotation: angle } : {}) });
+      const { annots, markups } = await reimported([t], turn, false);
+      const d = annots[0]!;
+      // Set upright on its sheet by /Rotate, as Revu does, and turned on top of that by /Rotation.
+      assert.equal(d.lookupMaybe(PDFName.of('Rotate'), PDFNumber)?.asNumber() ?? 0, turn, `/Rotate on a ${turn}° sheet`);
+      assert.equal(d.lookupMaybe(PDFName.of('Rotation'), PDFNumber)?.asNumber() ?? 0, angle, `/Rotation for ${angle}° on a ${turn}° sheet`);
+      // Read back without our own data, it reads the same way on the page, the same size, in the same place.
+      const back = markups[0]!;
+      assert.ok(back.id.startsWith('pdf-'), `${type}: read as another tool's markup`);
+      assert.equal(back.type, type);
+      assert.equal(back.rotation ?? 0, angle, `${type}: turn back for ${angle}° on a ${turn}° sheet`);
+      assert.deepEqual([contentBox(back).w, contentBox(back).h].map(Math.round), [contentBox(t).w, contentBox(t).h].map(Math.round), `${type}: size for ${angle}° on a ${turn}° sheet`);
+      assert.ok(near(rotationCentre(back), rotationCentre(t), 1e-3), `${type}: middle for ${angle}° on a ${turn}° sheet`);
+    }
+  }
+});
