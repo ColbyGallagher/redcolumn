@@ -1,7 +1,7 @@
 import { sanitizeAiOrigin } from './aiReview';
 import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
-import { DEFAULT_STYLES, flagTip, labelPatch, isTextType, MARKUP_TYPES, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
+import { DEFAULT_STYLES, flagTip, labelPatch, isTextType, MARKUP_TYPES, rotatePoint, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
 import { COUNT_STYLE_FROM_PDF } from './countSymbol';
 import {
   arr,
@@ -727,6 +727,19 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
   // /Rotate (Revu sets it to the sheet's turn to keep a text box upright there, and leaves it 0 when
   // the text turned with the sheet); in user space that text box has width and height swapped.
   // `text`: the turn counts even without /Rotation, since which way the words run matters.
+  // How far the sheet turns user space on the page: user x as a page-space vector.
+  const pageTurn = (() => {
+    const o = toPage(0, 0);
+    const ux = toPage(1, 0);
+    return (Math.atan2(ux[1] - o[1], ux[0] - o[0]) * 180) / Math.PI;
+  })();
+  /** The turn Revu drew a box at on the page (see `turnedBox`), and the annotation's own /Rotate counted in it. */
+  const boxTurn = (text: boolean): { rotation: number; own: number } => {
+    const own = text ? (((num(r.Rotate) ?? 0) % 360) + 360) % 360 : 0;
+    const turn = (((num(r.Rotation) ?? 0) + pageTurn - own) % 360 + 360) % 360;
+    const rotation = (Math.round(turn * 1e6) / 1e6) % 360;
+    return { rotation, own };
+  };
   const turnedBox = (insets: number[], text = false): { points: Point[]; rotation: number } | null => {
     if (rect.length !== 4) return null;
     const turn = num(r.Rotation) ?? 0;
@@ -738,12 +751,7 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
     const bw = Math.abs(ab[2]! - ab[0]!) - ins[0]! - ins[2]!;
     const bh = Math.abs(ab[3]! - ab[1]!) - ins[1]! - ins[3]!;
     if (!(bw > 0 && bh > 0)) return null;
-    const own = text ? (((num(r.Rotate) ?? 0) % 360) + 360) % 360 : 0;
-    // How far the sheet turns user space on the page: user x as a page-space vector.
-    const o = toPage(0, 0);
-    const ux = toPage(1, 0);
-    const pageTurn = (Math.atan2(ux[1] - o[1], ux[0] - o[0]) * 180) / Math.PI;
-    const rotation = (Math.round(((((turn + pageTurn - own) % 360) + 360) % 360) * 1e6) / 1e6) % 360;
+    const { rotation, own } = boxTurn(text);
     // Upright and unturned: the plain box already says it all.
     if (!turned && rotation === 0) return null;
     const [w, h] = own % 180 ? [bh, bw] : [bw, bh];
@@ -807,6 +815,21 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       if (text !== style.stroke) style.textColor = text;
       if (!textStyle.fontSize) style.fontSize = daFont(str(r.DA) ?? a.da).size || 12;
       let box = innerBox();
+      /**
+       * A callout Revu drew turned (its text running along user x turned by its own /Rotate, as a text
+       * box's does, plus any /Rotation): its box before the turn, about the same middle, and the turn.
+       * `b` is the box /RD gives on the page; its user-space width and height are the unturned box's.
+       */
+      const turnedCallout = (b: Point[]): { points: Point[]; centre: Point; rotation: number } | null => {
+        const { rotation, own } = boxTurn(true);
+        if (!rotation) return null;
+        const [p, q] = b as [Point, Point];
+        const centre: Point = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+        const [pw, ph] = [Math.abs(q[0] - p[0]), Math.abs(q[1] - p[1])];
+        const [bw, bh] = Math.round(pageTurn / 90) % 2 ? [ph, pw] : [pw, ph];
+        const [w, h] = own % 180 ? [bh, bw] : [bw, bh];
+        return { points: [[centre[0] - w / 2, centre[1] - h / 2], [centre[0] + w / 2, centre[1] + h / 2]], centre, rotation };
+      };
       if (intent === 'FreeTextCallout') {
         const cl = pagePoints(nums(r.CL), toPage);
         if (cl.length >= 2) {
@@ -817,16 +840,25 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
           if (rd.length === 4 && Math.abs(rd[1]! - rd[3]!) > 0.5) {
             const flipped = innerBox([rd[0]!, rd[3]!, rd[2]!, rd[1]!]);
             const end = cl[cl.length - 1]!;
-            // The leader ends on the box's edge: the reading it lies nearer to is the one meant (a tie, as
-            // when the end sits inside both, goes to Bluebeam's own way up).
-            if (distanceToEdge(end, flipped) <= distanceToEdge(end, box)) box = flipped;
+            // The leader ends on the box's edge (the turned box's, when turned): the reading it lies nearer
+            // to is the one meant (a tie, as when the end sits inside both, goes to Bluebeam's own way up).
+            const gap = (b: Point[]) => {
+              const t = turnedCallout(b);
+              return t ? distanceToEdge(rotatePoint(end, t.centre, -t.rotation), t.points) : distanceToEdge(end, b);
+            };
+            if (gap(flipped) <= gap(box)) box = flipped;
           }
           // A callout without a border still draws its leader (Bluebeam: at one point); its box keeps its fill.
+          // A turned callout's points are kept in its box's own frame: the box before the turn about
+          // its middle, and the leader turned back with it (so its tip stays where Revu drew it).
+          const turned = turnedCallout(box);
+          const lead = turned ? cl.map((p) => rotatePoint(p, turned.centre, -turned.rotation)) : cl;
+          if (turned) box = turned.points;
           // A three-point leader (tip, knee, end): the model lands its last stretch square on the box
           // edge the end touches, so level the knee with the end to keep the end where it was drawn.
-          let knee = cl[1]!;
-          if (cl.length >= 3) {
-            const end = cl[cl.length - 1]!;
+          let knee = lead[1]!;
+          if (lead.length >= 3) {
+            const end = lead[lead.length - 1]!;
             const [lo, hi] = [box[0]!, box[1]!];
             const eps = 0.5;
             const inY = end[1] >= lo[1] - eps && end[1] <= hi[1] + eps;
@@ -835,7 +867,7 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
             else if (inX && (Math.abs(end[1] - lo[1]) <= eps || Math.abs(end[1] - hi[1]) <= eps)) knee = [end[0], knee[1]];
           }
           const leader = width > 0 ? {} : { width: 1, ...(color ? { borderless: true } : { noBox: true }) };
-          return [{ type: 'callout', points: [cl[0]!, knee, box[0]!, box[1]!], filled: true, style: { ...style, ...leader, startCap: ending, endCap: 'none' } }];
+          return [{ type: 'callout', points: [lead[0]!, knee, box[0]!, box[1]!], filled: true, style: { ...style, ...leader, startCap: ending, endCap: 'none' }, ...(turned ? { extra: { rotation: turned.rotation } } : {}) }];
         }
       }
       if (intent === 'FreeTextTypeWriter') {
@@ -993,10 +1025,16 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       // A Bluebeam legend: a live legend listing the kinds of markup its keys name.
       const bsi = readBsiLegend(r);
       if (bsi) {
-        const [p, q] = innerBox();
+        // Unlike a text box's, Revu's legend /Rotation is its turn as shown, the sheet's turn included:
+        // a legend that turned with a 90° sheet carries /Rotation 90 over an unturned appearance.
+        // Without /Rotation it turns with its sheet.
+        const turned = turnedBox(rd, true);
+        const shown = num(r.Rotation);
+        if (turned && shown !== null) turned.rotation = (Math.round((((shown % 360) + 360) % 360) * 1e6) / 1e6) % 360;
+        const [p, q] = turned?.points ?? innerBox();
         const own = bsi.pages.length === 1 && bsi.pages[0] === pageIndex;
         const legend = { scope: bsi.scope, ...(bsi.pages.length && !own ? { pages: bsi.pages } : {}), keys: bsi.keys, ...(bsi.nameId ? { nameId: bsi.nameId } : {}) };
-        return [{ type: 'legend', points: [p!, q!], filled: true, style: { width: a.borderWidth > 0 ? a.borderWidth : 0.75 }, extra: { legend, subject: 'Legend' } }];
+        return [{ type: 'legend', points: [p!, q!], filled: true, style: { width: a.borderWidth > 0 ? a.borderWidth : 0.75 }, extra: { legend, subject: 'Legend', ...(turned?.rotation ? { rotation: turned.rotation } : {}) } }];
       }
       // Another tool's stamp (Bluebeam's Approved, a snapshot): its own appearance, as a picture.
       const image = extras.appearances?.get(`${pageIndex}:${a.index}`);

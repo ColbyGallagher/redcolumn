@@ -649,3 +649,100 @@ test('a newer importer refreshes other tools\' markups that were not edited, and
   assert.equal(store.importVersion(), 2);
   await store.destroy();
 });
+
+/**
+ * The way the words run on the page in an appearance Revu wrote, in degrees clockwise: the text's x-axis
+ * through its first Tm and any cm before it, then the form's /Matrix (fitting the /BBox onto /Rect only
+ * scales and moves it), then the sheet's turn.
+ */
+function drawnTextTurn(tm: number[], cm: number[], matrix: number[], pageTurn: number): number {
+  // Row vectors, as PDF composes them: [1 0] · Tm · cm · Matrix.
+  const times = (v: number[], m: number[]) => [v[0]! * m[0]! + v[1]! * m[2]!, v[0]! * m[1]! + v[1]! * m[3]!];
+  const [x, y] = times(times(times([1, 0], tm), cm), matrix);
+  // User space is y up: clockwise on the sheet is negative there, and the sheet turns it on.
+  const turn = (-Math.atan2(y!, x!) * 180) / Math.PI + pageTurn;
+  return Math.round(((turn % 360) + 360) % 360);
+}
+
+test('#459: a callout Revu turned with its sheet comes in turned, its leader where Revu drew it', async () => {
+  // As Revu leaves a callout when its sheet is turned half round: no /Rotate or /Rotation of its own,
+  // its /RD box, /CL leader and appearance all upright in user space, so the sheet turns them all.
+  const doc = await PDFDocument.create();
+  const page = doc.addPage([400, 300]);
+  page.setRotation(degrees(180));
+  const ctx = doc.context;
+  const rect = [100, 100, 260, 200];
+  const tm = [1, 0, 0, 1, 184, 176];
+  const ops = `q 1 0 0 1 0 0 cm 1 0 0 RG 1 w 180 150 70 40 re S BT /Helv 10 Tf ${tm.join(' ')} Tm (NOTE A) Tj ET Q`;
+  const ap = ctx.register(ctx.stream(ops, { Type: 'XObject', Subtype: 'Form', BBox: rect, Matrix: [1, 0, 0, 1, 0, 0] }));
+  const callout = ctx.register(ctx.obj({
+    Type: 'Annot', Subtype: 'FreeText', IT: 'FreeTextCallout', NM: text('TURNED'), Contents: text('NOTE A'), DA: text('1 0 0 rg /Helv 10 Tf'), C: [], BS: { W: 1, S: 'S' }, LE: 'OpenArrow',
+    // The box (180, 150)-(250, 190); the leader from (110, 110) to its left side.
+    Rect: rect, RD: [80, 10, 10, 50], CL: [110, 110, 150, 170, 180, 170], AP: { N: ap },
+  }));
+  page.node.set(PDFName.of('Annots'), ctx.obj([callout]));
+  const bytes = await doc.save();
+  const extras = (await readPdfExtras(bytes))!;
+  const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 1, author: '', intent: 'FreeTextCallout', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null, contents: 'NOTE A' };
+  const [m] = importAnnotations(0, [{ ...base, index: 0, objectNumber: callout.objectNumber, subtype: 'FreeText' }], () => null, extras).markups;
+  assert.equal(m!.type, 'callout');
+  // The turn Revu's appearance draws its words at on the sheet.
+  assert.equal(drawnTextTurn(tm, [1, 0, 0, 1, 0, 0], [1, 0, 0, 1, 0, 0], 180), 180);
+  assert.equal(m!.rotation, 180);
+  const round = (p: number[]) => p.map((v) => Math.round(v * 10) / 10);
+  // The box before its turn keeps the size Revu gave it, about the same middle: user (215, 170), page (185, 170).
+  const [p, q] = m!.points.slice(2, 4) as [[number, number], [number, number]];
+  assert.deepEqual(round([q[0] - p[0], q[1] - p[1]]), [70, 40]);
+  assert.deepEqual(round(rotationCentre(m!)), [185, 170]);
+  // The tip and the leader's end are where Revu drew them on the page (user x runs right to left here).
+  const shown = (pt: [number, number]) => round(rotatePoint(pt, rotationCentre(m!), m!.rotation!));
+  assert.deepEqual(shown(m!.points[0]! as [number, number]), [290, 110]);
+  const leader = markupShape(m!)[1]!.path;
+  const end = leader[leader.length - 1]!;
+  assert.deepEqual(shown([end[1] as number, end[2] as number]), [220, 170]);
+});
+
+test('#459: a Bluebeam legend comes in at the turn Revu drew it', async () => {
+  const build = async (rotation: number | null) => {
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([400, 300]);
+    page.setRotation(degrees(90));
+    const ctx = doc.context;
+    // As Revu writes a legend on a turned sheet: its appearance unturned in user space (identity
+    // /Matrix), its /Rect the box (100, 100)-(300, 180), and /Rotation, when there, the turn as shown.
+    const turned = rotation !== null;
+    const bbox = [100, 100, 300, 180];
+    const matrix = [1, 0, 0, 1, 0, 0];
+    const ap = ctx.register(ctx.stream('q 0 0 0 RG 0.75 w 100 100 200 80 re S BT /Helv 8 Tf 1 0 0 1 110 160 Tm (Legend) Tj ET Q', { Type: 'XObject', Subtype: 'Form', BBox: bbox, Matrix: matrix }));
+    const key = { Type: 9, AdditionalData: [text('Rectangle'), text(''), text('Count')], Color: -65536, BorderWidth: 1 };
+    const legend = ctx.register(ctx.obj({
+      Type: 'Annot', Subtype: 'Stamp', IT: 'StampSnapshot', Subj: text('Legend'), NM: text('KEY'), BS: { W: 0, S: 'S' },
+      Rect: bbox, ...(turned ? { Rotation: rotation } : {}), AP: { N: ap },
+      BSILegend: { MajorVersion: 1, MinorVersion: 0, NameID: text('ABCDEFGHIJKLMNOP'), Title: text('Legend'), PageRangeType: 2, PageRange: [0], Keys: [key], Sums: { QuantityColumn: [0] } },
+    }));
+    page.node.set(PDFName.of('Annots'), ctx.obj([legend]));
+    const bytes = await doc.save();
+    const base = { rect: { x: 0, y: 0, w: 0, h: 0 }, color: null, interior: null, opacity: 1, borderWidth: 0, author: '', intent: 'StampSnapshot', cloudy: false, da: '', appData: '', flags: 4, vertices: [], ink: [], line: null, link: null, contents: '' };
+    const [m] = importAnnotations(0, [{ ...base, index: 0, objectNumber: legend.objectNumber, subtype: 'Stamp' }], () => null, (await readPdfExtras(bytes))!).markups;
+    return { m: m!, drawn: drawnTextTurn([1, 0, 0, 1, 110, 160], [1, 0, 0, 1, 0, 0], matrix, 90) };
+  };
+  const round = (v: number) => Math.round(v * 10) / 10;
+  const size = (m: Markup) => [m.points[1]![0] - m.points[0]![0], m.points[1]![1] - m.points[0]![1]].map(round);
+
+  // Turned with its sheet: it reads the way the sheet turned it, 200 × 80 before the turn.
+  const plain = await build(null);
+  assert.equal(plain.m.type, 'legend');
+  assert.equal(plain.drawn, 90);
+  assert.equal(plain.m.rotation, 90);
+  assert.deepEqual(size(plain.m), [200, 80]);
+  assert.deepEqual(rotationCentre(plain.m).map(round), [140, 200]);
+
+  // /Rotation 90, as Revu writes it there: the legend's turn as shown, the sheet's included, not
+  // a turn on top of it (a Revu-made legend on a 90° sheet reads this way).
+  const own = await build(90);
+  assert.equal(own.m.type, 'legend');
+  assert.equal(own.drawn, 90);
+  assert.equal(own.m.rotation, own.drawn);
+  assert.deepEqual(size(own.m), [200, 80]);
+  assert.deepEqual(rotationCentre(own.m).map(round), [140, 200]);
+});
