@@ -6616,7 +6616,7 @@ export function App() {
       const plan = controls?.state().georeferenced ? planForSheet(regions(), viewer.pageView()) : null;
       if (controls && !plan && !told) {
         told = true;
-        setNotice('Sync View follows the sheet where it is registered to the map: move the sheet to a registered area and the model follows.');
+        setNotice(msg('Sync View follows the sheet where it is registered to the map: move the sheet to a registered area and the model follows.'));
       }
       if (!controls || !plan) return;
       last = plan;
@@ -8288,7 +8288,7 @@ export function App() {
       return [
         ...closing,
         SEP,
-        { label: pane === 'a' ? (split ? 'Move to Right Pane' : 'Open in Split View') : 'Move to Left Pane', onClick: () => moveTab(pane, t) },
+        { label: pane === 'a' ? (split ? msg('Move to Right Pane') : msg('Open in Split View')) : msg('Move to Left Pane'), onClick: () => moveTab(pane, t) },
         ...(desktop()
           ? [SEP, {
               label: msg('Open File Location'),
