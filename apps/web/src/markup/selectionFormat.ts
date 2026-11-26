@@ -39,6 +39,17 @@ export function styleMixed<K extends keyof MarkupStyle>(markups: readonly Pick<M
   return isMixed(markups.map((m) => (resolve ? resolve(m.style[key]) : m.style[key])));
 }
 
+/**
+ * The depth (metres) a selection of volumes shares: null unless every markup is a volume, so the
+ * Depth field only shows where it applies to all of them. `meters` is undefined when they have no
+ * depth, or disagree (mixed).
+ */
+export function sharedDepth(markups: readonly Pick<Markup, 'type' | 'depth'>[]): { meters: number | undefined; mixed: boolean } | null {
+  if (!markups.length || markups.some((m) => m.type !== 'volume')) return null;
+  const mixed = isMixed(markups.map((m) => m.depth || null));
+  return { meters: mixed ? undefined : markups[0]!.depth || undefined, mixed };
+}
+
 /** Whether a selection consists solely of Cloud+ parts (clouds and callouts, at least one of each). */
 export function isCloudPlusSelection(markups: readonly Pick<Markup, 'type'>[]): boolean {
   if (markups.length < 2) return false;

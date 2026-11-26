@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TYPE_INFO, type MarkupType } from '@nb/markup';
-import { commonCapabilities, FOLLOW_START, followFormat, isCloudPlusSelection, isMixed, styleMixed, type FormatFollow } from './selectionFormat.ts';
+import { commonCapabilities, FOLLOW_START, followFormat, isCloudPlusSelection, isMixed, sharedDepth, styleMixed, type FormatFollow } from './selectionFormat.ts';
 
 test('a mixed selection shares only the fields every type has', () => {
   // An area and a count both fill and label with a font; only the area hatches and dashes.
@@ -121,4 +121,13 @@ test('a Format tab the user picked is not taken back when the tool is put down',
   s = followFormat(s, { type: 'pick', format: false });
   s = followFormat(s, { type: 'tool', active: false, contextual: true });
   assert.equal(s.onFormat, false);
+});
+
+test('the Depth field is for selections of volumes only, and reads Mixed where their depths differ', () => {
+  const volume = (depth?: number) => ({ type: 'volume' as const, depth });
+  assert.equal(sharedDepth([]), null);
+  assert.equal(sharedDepth([volume(1), { type: 'area' as const, depth: 1 }]), null);
+  assert.deepEqual(sharedDepth([volume(2), volume(2)]), { meters: 2, mixed: false });
+  assert.deepEqual(sharedDepth([volume(), volume()]), { meters: undefined, mixed: false });
+  assert.deepEqual(sharedDepth([volume(2), volume()]), { meters: undefined, mixed: true });
 });

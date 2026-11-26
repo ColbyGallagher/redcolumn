@@ -4,7 +4,7 @@ import { Children, Fragment, useEffect, useId, useLayoutEffect, useRef, useState
 import { createPortal } from 'react-dom';
 import { HATCH_PATTERNS, isMeasureKind, TEXT_PADDING, lineEnds, MARKUP_LABELS, resolveHatch, styleCapabilities, type FontFamily, type HatchPattern, type HatchSpec, type LineEnding, type Markup, type MarkupStore, type MarkupStyle, type MarkupType, type StampDef, type StoredHatch, type TakeoffTemplate, type TextAlign, type VerticalAlign } from '@nb/markup';
 import { ALIGN_ICONS, LineSpacing, NumberField, VALIGN_ICONS } from './PropertiesPanel';
-import type { Scale } from '@nb/measure';
+import { formatLength, METERS_PER_UNIT, parseLength, type Scale } from '@nb/measure';
 import { FILL_TYPES, isMarkupTool, toolLabel, type FillType, type MarkupTools, type Tool, type ToolsState } from '../markup/MarkupTools';
 import { ComboField, FONT_SIZES } from './ComboField';
 import { LineStyleSelect } from './LineStyleSelect';
@@ -18,7 +18,7 @@ import { shortcutLabel } from '../commands/shortcuts';
 import { useWorkspace } from '../workspace/profiles';
 import { useFloatingPopup } from './useFloatingPopup';
 import { ColorMenu } from './ColorMenu';
-import { commonCapabilities, distinctIdentities, identityOf, identityPatch, isCloudPlusSelection, isMixed, sharedIdentity, styleMixed, toolIdentity, type IdentityField } from '../markup/selectionFormat';
+import { commonCapabilities, distinctIdentities, identityOf, identityPatch, isCloudPlusSelection, isMixed, sharedDepth, sharedIdentity, styleMixed, toolIdentity, type IdentityField } from '../markup/selectionFormat';
 import { saveToolBack } from '../toolchest/saveBack';
 import { useMenubarSlot } from './menubarSlot';
 import type { TakeoffAssemblyProps } from './RibbonAssembly';
@@ -938,7 +938,7 @@ export type MarkupFieldsProps = Pick<ToolBarProps, 'tools' | 'state' | 'markups'
  * Subject, Label, Layer and Assembly in the Markup Format tab. With markups selected they edit those
  * markups (mixed values read "Mixed", and one edit is one undo step); with a drawing tool running they
  * edit what the tool gives the markups it places next, and the command carries on. A Tool Chest tool can
- * be saved back.
+ * be saved back. A selection of volumes also gets their Depth.
  */
 export function MarkupFields({ tools, state, markups, selection, enabled, layerNames = [], askLayer, takeoffAssembly }: MarkupFieldsProps) {
   const sel = selection && selection.markups.length > 0 ? selection : null;
@@ -986,6 +986,32 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
     });
   };
   const idKey = sel ? sel.markups.map((m) => m.id).join(',') : `tool:${state.tool}`;
+  const depth = sel ? sharedDepth(sel.markups) : null;
+  const depthTargets = depth && sel ? sel.markups.map((m) => sel.store.get(m.id) ?? m).filter((m) => !m.locked && sel.store.mayEdit(m)) : [];
+  // Volumes scaled in different units share one field, read and written in the first one's.
+  const depthScale = depth && sel ? sel.store.scaleOf(sel.markups[0]!) : null;
+  const depthText = depthScale && depth?.meters ? formatLength(depth.meters, depthScale) : '';
+  const commitDepth = (input: HTMLInputElement) => {
+    const typed = input.value.trim();
+    // Untouched text is left alone: it is rounded for display, and a blank "Mixed" field must not clear anything.
+    if (!enabled || !sel || !depthScale || typed === depthText) return;
+    const length = typed ? parseLength(typed, depthScale.unit) : 0;
+    // Text that is not a length is put back; an empty or zero depth clears it.
+    if (length === null) {
+      input.value = depthText;
+      return;
+    }
+    const meters = length * METERS_PER_UNIT[depthScale.unit] || undefined;
+    const targets = depthTargets.filter((m) => Math.abs((m.depth ?? 0) - (meters ?? 0)) > 1e-9);
+    if (!targets.length) {
+      input.value = depthText;
+      return;
+    }
+    sel.store.checkpoint();
+    sel.store.batch(() => {
+      for (const m of targets) sel.store.update(m.id, { depth: meters });
+    });
+  };
   const subject = shown('subject');
   const label = shown('label');
   const layer = shown('layer');
@@ -1078,6 +1104,24 @@ export function MarkupFields({ tools, state, markups, selection, enabled, layerN
           <option value="__manage">{msg('Manage assemblies…')}</option>
         </select>
       </label>
+      {depth && depthScale && (
+        <label className="field" title={msg('Depth: gives the volume')}>
+          {msg('Depth')}
+          <input
+            key={`${idKey}:depth:${sel!.markups.map((m) => m.depth ?? '').join(',')}:${depthText}`}
+            className="ident"
+            type="text"
+            aria-label={msg('Depth')}
+            defaultValue={depthText}
+            placeholder={depth.mixed ? msg('Mixed') : msg('e.g. {sample} ({unit})', { sample: depthScale.unit === 'ft' ? `8'-0"` : '2.4', unit: depthScale.unit })}
+            disabled={!enabled || !depthTargets.length}
+            onBlur={(e) => commitDepth(e.currentTarget)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+            }}
+          />
+        </label>
+      )}
       {drawing && item && (
         <button
           type="button"
