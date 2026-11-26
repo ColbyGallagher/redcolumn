@@ -6293,7 +6293,8 @@ export function App() {
   const currentStitch = stitchGroups.find((g) => g.placements.some((p) => p.pageIndex === pageIndex)) ?? null;
   const editing = editingText && (paneB ? openB : open) ? (paneB ? openB : open)!.store.get(editingText) : undefined;
   const v = paneB && ctlB ? ctlB.viewer : ctl?.viewer;
-  const activeOpen = paneB && openB ? openB : open;
+  // A model in front of the right pane makes it active too: PDF commands then have no document, rather than acting on the left pane's.
+  const activeOpen = paneB && (openB || modelB) ? openB : open;
   /** The drawing the active PDF was converted from in this visit, if any. */
   const activeCad = useCadConversion(activeOpen?.file.id);
   // Review Sheet Scales rows: worked out only while the panel is open, and only when pages, sheets or scales change.
@@ -8903,6 +8904,13 @@ export function App() {
     activeTools?.setTool('stamp', { stamp: s, once: !settings.get().toolChestSticky });
   };
 
+  /** The 3D model in front of the active pane, and its view's state once loaded (the 3D ribbon tab and commands follow it). */
+  const activeModel = paneB && (openB || modelB) ? modelB : modelA;
+  const model3dState = useSyncExternalStore(
+    useCallback((l: () => void) => activeModel?.view.subscribe(l) ?? (() => {}), [activeModel]),
+    () => activeModel?.view.controls()?.state() ?? null,
+  );
+
   const commandActions: CommandActions = {
     open: () => openFromDisk(),
     newFromTemplate: () => void newFromTemplate(),
@@ -9335,6 +9343,7 @@ export function App() {
       if (activeTools && !activeTools.connectSelected()) setNotice(msg('The selected shapes are already connected.'));
     },
     connectorRoute: (route) => activeTools?.setConnectorRoute(route),
+    model3d: (action) => activeModel?.view.controls()?.run(action),
   };
   /** A new document that is a copy of a template document (its markups too), under `name`. */
   const copyTemplate = async (choice: StoredFile, name: string) => {
@@ -9681,6 +9690,8 @@ export function App() {
   };
 
   const commands = buildCommands(commandActions, {
+    modelOpen: !!activeModel,
+    model3d: model3dState,
     hasDocument: !!activeOpen,
     editable: !!activeOpen && !activeReadOnly,
     pagesEditable: !!activeOpen && pageCount > 0 && !busyPages,
@@ -10676,7 +10687,7 @@ export function App() {
         };
         const displayMenu = <ToolbarDisplayMenu commands={commandMap} />;
         return ws.toolbarStyle === 'ribbon' ? (
-          <Ribbon commands={commandMap} toolbar={toolbarProps} collapsed={ws.ribbonCollapsed} onCollapsedChange={(ribbonCollapsed) => updateWorkspace((w) => ({ ...w, ribbonCollapsed }))} displayMenu={displayMenu} />
+          <Ribbon commands={commandMap} toolbar={toolbarProps} collapsed={ws.ribbonCollapsed} onCollapsedChange={(ribbonCollapsed) => updateWorkspace((w) => ({ ...w, ribbonCollapsed }))} displayMenu={displayMenu} model3d={activeModel ? { views: model3dState?.views ?? [], openView: model3dState?.openView ?? null, run: (a) => activeModel.view.controls()?.run(a) } : null} />
         ) : (
           <ToolBar {...toolbarProps} toolbarMenu={displayMenu} />
         );

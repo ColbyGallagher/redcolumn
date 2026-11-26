@@ -44,6 +44,9 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
   let session: import('@nb/model3d').ModelSession | null = null;
   let disposed = false;
   let wanted = false;
+  let ready = false;
+  const listeners = new Set<() => void>();
+  const emit = () => listeners.forEach((l) => l());
   const apply = () => session?.setVisible(wanted && document.visibilityState === 'visible');
   document.addEventListener('visibilitychange', apply);
 
@@ -51,6 +54,9 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
     const [{ ModelSession }, cached] = await Promise.all([import('@nb/model3d'), readFragments(file.hash)]);
     if (disposed) return;
     session = ModelSession.create(canvasHost, modelAssets());
+    session.subscribe(emit);
+    // Development and test builds: the session, for debugging and the end-to-end tests.
+    if (import.meta.env.DEV || import.meta.env.VITE_E2E === '1') (element as unknown as { session: unknown }).session = session;
     apply();
     const fragments = await session.loadIfc(new Uint8Array(bytes), file.id, {
       fragments: cached,
@@ -60,6 +66,8 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
     if (!cached) void writeFragments(file.hash, fragments);
     element.dataset.state = 'ready';
     status.hidden = true;
+    ready = true;
+    emit();
   })().catch((err: unknown) => {
     if (disposed) return;
     element.dataset.state = 'error';
@@ -68,6 +76,11 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
 
   return {
     element,
+    controls: () => (ready ? session : null),
+    subscribe(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     setVisible(visible) {
       wanted = visible;
       apply();
@@ -75,6 +88,7 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
     dispose() {
       if (disposed) return;
       disposed = true;
+      listeners.clear();
       abort.abort();
       document.removeEventListener('visibilitychange', apply);
       session?.dispose();
