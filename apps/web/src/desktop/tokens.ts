@@ -110,7 +110,7 @@ export async function revealFileLocation(id: string): Promise<boolean> {
   const token = byDocument.get(id);
   const host = desktop();
   if (!token || !host) return false;
-  return host.showInFolder(token);
+  return host.revealFile ? host.revealFile(token) : host.showInFolder(token);
 }
 
 function concat(chunks: Uint8Array[]): Uint8Array {

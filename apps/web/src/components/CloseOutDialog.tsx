@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { Fragment, useMemo, useState } from 'react';
 import { closeOutCsv, type CloseOutSheet } from '../sheetsync/closeOut';
 
@@ -32,45 +33,45 @@ export function CloseOutDialog({ docName, sheets, templates, templateId, onTempl
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal quantities-dialog close-out-dialog" role="dialog" aria-label="Close-out" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="modal quantities-dialog close-out-dialog" role="dialog" aria-label={msg('Close-out')} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <div className="columns-head">
-          <h3>Close-out · {docName}</h3>
+          <h3>{msg('Close-out · {docName}', { docName })}</h3>
         </div>
         <div className="qty-toolbar">
           <label>
-            Show{' '}
-            <select aria-label="Show comments" value={show} onChange={(e) => setShow(e.target.value === 'all' ? 'all' : 'open')}>
-              <option value="open">Sheets with open comments</option>
-              <option value="all">Every sheet with comments</option>
+            {msg('Show')}{' '}
+            <select aria-label={msg('Show comments')} value={show} onChange={(e) => setShow(e.target.value === 'all' ? 'all' : 'open')}>
+              <option value="open">{msg('Sheets with open comments')}</option>
+              <option value="all">{msg('Every sheet with comments')}</option>
             </select>
           </label>
           <label>
-            Closed means{' '}
-            <select aria-label="Closed statuses from" value={templateId} onChange={(e) => onTemplate(e.target.value)}>
-              <option value="">Accepted, Completed or Cancelled</option>
+            {msg('Closed means')}{' '}
+            <select aria-label={msg('Closed statuses from')} value={templateId} onChange={(e) => onTemplate(e.target.value)}>
+              <option value="">{msg('Accepted, Completed or Cancelled')}</option>
               {templates.map((t) => (
                 <option key={t.id} value={t.id}>
-                  As in {t.name}
+                  {msg('As in {name}', { name: t.name })}
                 </option>
               ))}
             </select>
           </label>
           <button type="button" className="btn small" disabled={!shown.length} onClick={() => setExpanded(allOpen ? new Set() : new Set(shown.map((s) => s.pageIndex)))}>
-            {allOpen ? 'Collapse All' : 'Expand All'}
+            {allOpen ? msg('Collapse All') : msg('Expand All')}
           </button>
           <span className="hint-text" data-testid="close-out-summary">
-            {open} open, {closed} closed on {sheets.length} sheet{sheets.length === 1 ? '' : 's'}
+            {msg('{open} open, {closed} closed on {count, plural, one {# sheet} other {# sheets}}', { open, closed, count: sheets.length })}
           </span>
         </div>
         <div className="qty-scroll">
           <table className="qty-table close-out-table">
             <thead>
               <tr>
-                <th>Sheet</th>
-                <th>Title</th>
-                <th>Revision</th>
-                <th className="num">Open</th>
-                <th className="num">Closed</th>
+                <th>{msg('Sheet')}</th>
+                <th>{msg('Title')}</th>
+                <th>{msg('Revision')}</th>
+                <th className="num">{msg('Open')}</th>
+                <th className="num">{msg('Closed')}</th>
               </tr>
             </thead>
             <tbody>
@@ -88,16 +89,16 @@ export function CloseOutDialog({ docName, sheets, templates, templateId, onTempl
                   </tr>
                   {expanded.has(s.pageIndex) &&
                     s.comments.map((c) => (
-                      <tr key={c.id} className="close-out-comment" tabIndex={0} title="Go to this comment on its sheet" onClick={() => onOpen(c.id, s.pageIndex)} onKeyDown={(e) => e.key === 'Enter' && onOpen(c.id, s.pageIndex)}>
+                      <tr key={c.id} className="close-out-comment" tabIndex={0} title={msg('Go to this comment on its sheet')} onClick={() => onOpen(c.id, s.pageIndex)} onKeyDown={(e) => e.key === 'Enter' && onOpen(c.id, s.pageIndex)}>
                         <td className="num">{c.itemNo ?? ''}</td>
                         <td className="comment-text">
-                          {c.text || '(no comment text)'}
-                          {c.replies > 0 && <span className="hint-text"> · {c.replies === 1 ? '1 reply' : `${c.replies} replies`}</span>}
+                          {c.text || msg('(no comment text)')}
+                          {c.replies > 0 && <span className="hint-text"> · {msg('{count, plural, one {# reply} other {# replies}}', { count: c.replies })}</span>}
                         </td>
-                        <td>{c.raisedRev ? `Raised at ${c.raisedRev}` : ''}</td>
+                        <td>{c.raisedRev ? msg('Raised at {raisedRev}', { raisedRev: c.raisedRev }) : ''}</td>
                         <td colSpan={2}>
                           {c.statusName}
-                          {c.closed && c.status !== 'none' ? ' (closed)' : ''}
+                          {c.closed && c.status !== 'none' ? ' ' + msg('(closed)') : ''}
                         </td>
                       </tr>
                     ))}
@@ -105,15 +106,15 @@ export function CloseOutDialog({ docName, sheets, templates, templateId, onTempl
               ))}
             </tbody>
           </table>
-          {!shown.length && <p className="empty">{sheets.length ? 'Every comment is closed.' : 'This document has no comments yet.'}</p>}
+          {!shown.length && <p className="empty">{sheets.length ? msg('Every comment is closed.') : msg('This document has no comments yet.')}</p>}
         </div>
         <div className="actions">
           <button type="button" className="btn small" disabled={!shown.length} onClick={() => onExportCsv(closeOutCsv(shown))}>
-            Export CSV
+            {msg('Export CSV')}
           </button>
           <span className="grow" />
           <button type="button" className="btn primary" onClick={onClose} autoFocus>
-            Close
+            {msg('Close')}
           </button>
         </div>
       </div>

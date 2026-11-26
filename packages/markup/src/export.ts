@@ -3,7 +3,8 @@ import { PDFArray, PDFBool, PDFContext, PDFDict, PDFDocument, PDFEmbeddedPage, P
 // pdf-lib does not export its literal dictionary type; recover it from a non-overloaded signature.
 type LiteralObject = NonNullable<Parameters<PDFContext['flateStream']>[1]>;
 import { areaLabelOf, areaUnitOf, DEFAULT_SCALE, expandArcs, METERS_PER_UNIT, volumeLabelOf, volumeUnitOf, type GeoRegion, type Scale } from '@nb/measure';
-import { flatten, markupShape, type PathCmd } from './geometry';
+import { countMarkerOutline, flatten, markupShape, type PathCmd } from './geometry';
+import { COUNT_STYLE_FROM_PDF, COUNT_STYLE_TO_PDF, COUNT_SYMBOL_REF, countSymbolImageBox, countSymbolKey, type CountSymbol } from './countSymbol';
 import { connectorLabel } from './flowchart';
 import { lineStyleFonts, lineStyleReach, styledParts, type ArtText, type LineArt } from './lineStyle';
 import { arcPoints, circleThrough } from './arc';
@@ -13,7 +14,7 @@ import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText, tableSummary } from './table';
 import { stampLayout, stampTick } from './stamp';
 import { TYPE_INFO } from './types';
-import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type CountShape, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
+import { boundsOf, contentBox, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, rotatePoint, rotationCentre, threadReplies, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply, type StatusChange } from './model';
 import { baseTextStyle, spansOf, styleRuns } from './textSpans';
 import { dimensionText, labelBox, measurementLabel, segmentLabels, textBaselineOffset, textBoxLines } from './render';
 import { hatchDraw, resolveHatch, type HatchDraw } from './hatches';
@@ -61,6 +62,36 @@ function apply(m: Matrix, [u, v]: Point): Point {
   return [m[0] * u + m[2] * v + m[4], m[1] * u + m[3] * v + m[5]];
 }
 
+/** How far the sheet turns user space on the page, in degrees clockwise: where user x points in page space. */
+function sheetTurn(m: Matrix): number {
+  // The page-space vector `v` with M·v = (1, 0).
+  const det = m[0] * m[3] - m[1] * m[2];
+  const turn = (Math.atan2(-m[1] / det, m[3] / det) * 180) / Math.PI;
+  return ((Math.round(turn * 1e6) / 1e6) % 360 + 360) % 360;
+}
+
+/**
+ * Bluebeam's /Rotation for a turned box: clockwise degrees in user space, which the sheet's own turn
+ * adds to on the page (as Revu writes it, and as import reads it back). Null when that leaves it unturned.
+ */
+function userRotation(matrix: Matrix, m: Pick<Markup, 'rotation'>): number | null {
+  const r = Math.round(((((m.rotation ?? 0) - sheetTurn(matrix)) % 360) + 360) % 360 * 100) / 100;
+  return r % 360 ? r : null;
+}
+
+/**
+ * A turned callout's box as Bluebeam keeps it, in user space: its box before its own /Rotation, which
+ * the sheet then turns (so the box before the callout's turn, turned by the sheet's).
+ */
+function calloutUserBox(matrix: Matrix, m: Markup): [number, number, number, number] {
+  const box = contentBox(m);
+  const c = rotationCentre(m);
+  const turn = m.rotation ? sheetTurn(matrix) : 0;
+  const pts = ([[box.x, box.y], [box.x + box.w, box.y], [box.x + box.w, box.y + box.h], [box.x, box.y + box.h]] as Point[]).map((p) => apply(matrix, turn ? rotatePoint(p, c, turn) : p));
+  const b = boundsOf(pts);
+  return [b.x, b.y, b.x + b.w, b.y + b.h];
+}
+
 /** Page space → user space for the page's crop box and /Rotate, matching how PDFium lays pages out. */
 export function pageMatrix(page: PDFPage): Matrix {
   const { x, y, width, height } = page.getCropBox();
@@ -104,33 +135,6 @@ function pdfText(s: string) {
 /** A name Bluebeam looks up by its text: written as a plain string, as Bluebeam writes its own, unless it needs Unicode. */
 function plainText(s: string) {
   return /^[\x20-\x7e]*$/.test(s) ? PDFString.of(s) : PDFHexString.fromText(s);
-}
-
-/** Bluebeam's /CountStyle for each of our count markers. */
-const COUNT_STYLE_NAMES: Record<CountShape, string> = { circle: 'Circle', check: 'Checkmark', square: 'Square', diamond: 'Diamond', triangle: 'Triangle', cross: 'Cross' };
-
-/** A count marker's outline, centred on (cx, cy), `r` from the centre to its edge (page space, y down). */
-function countMarker(shape: CountShape, cx: number, cy: number, r: number): Point[] {
-  const at = (pts: readonly (readonly [number, number])[]): Point[] => pts.map(([x, y]) => [cx + x * r, cy + y * r]);
-  switch (shape) {
-    case 'check':
-      // Bluebeam's own checkmark, scaled to the marker.
-      return at([[-1, 0.02], [-0.773, -0.205], [-0.271, 0.297], [0.773, -0.749], [1, -0.522], [-0.271, 0.749]]);
-    case 'square':
-      return at([[-1, -1], [1, -1], [1, 1], [-1, 1]]);
-    case 'diamond':
-      return at([[0, -1], [1, 0], [0, 1], [-1, 0]]);
-    case 'triangle':
-      return at([[0, -1], [0.9, 0.75], [-0.9, 0.75]]);
-    case 'cross': {
-      // A plus with arms under a third of the width, turned 45 degrees.
-      const w = 0.3;
-      const plus: [number, number][] = [[-w, -1], [w, -1], [w, -w], [1, -w], [1, w], [w, w], [w, 1], [-w, 1], [-w, w], [-1, w], [-1, -w], [-w, -w]];
-      return at(plus.map(([x, y]) => [(x - y) / Math.SQRT2, (x + y) / Math.SQRT2] as [number, number]));
-    }
-    default:
-      return at(Array.from({ length: 24 }, (_, i) => [Math.cos((i / 24) * 2 * Math.PI), Math.sin((i / 24) * 2 * Math.PI)] as [number, number]));
-  }
 }
 
 /** Bluebeam's name for a hatch: its label in the Standard set, or an imported hatch's own name. */
@@ -295,12 +299,12 @@ const artStandardFont = (t: Pick<ArtText, 'font' | 'bold' | 'italic'>): Standard
 
 /** A custom line style's laid out strokes, fills and text as content stream operators, in the line color. */
 function artOps(art: LineArt, ctx: Ctx, color: [number, number, number], fontRefs: Record<string, PDFRef>): string[] {
-  const ops: string[] = ['/GS0 gs [] 0 d'];
+  const ops: string[] = ['/GSD gs [] 0 d'];
   const [r, g, b] = color;
   if (art.fill.length) ops.push(`${fmt(r)} ${fmt(g)} ${fmt(b)} rg`, pathOps(art.fill), 'f');
   if (art.stroke.length) ops.push(pathOps(art.stroke), 'S');
   if (art.texts.length) {
-    ops.push('/GS1 gs', `${fmt(r)} ${fmt(g)} ${fmt(b)} rg`);
+    ops.push('/GSD gs', `${fmt(r)} ${fmt(g)} ${fmt(b)} rg`);
     for (const t of art.texts) {
       const name = artStandardFont(t);
       const font = ctx.fonts.get(name);
@@ -328,9 +332,15 @@ function safeText(font: PDFFont, s: string): string {
 /** Characters outside Latin-1 that the standard fonts' WinAnsi encoding still has. */
 const WIN_ANSI_EXTRA = new Set([0x20ac, 0x201a, 0x0192, 0x201e, 0x2026, 0x2020, 0x2021, 0x02c6, 0x2030, 0x0160, 0x2039, 0x0152, 0x017d, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x017e, 0x0178]);
 
-/** The words a markup draws as text: its text, stamp lines and table cells. */
+/** The words a markup draws as text: its text, stamp lines, table cells, and custom count symbol text. */
 function drawnStrings(m: Markup): string[] {
-  return [m.text, ...(m.stamp?.lines ?? []), ...(m.stamp?.art?.texts.map((t) => t.text) ?? []), ...(m.table?.cells.flat() ?? [])].filter((t): t is string => !!t);
+  return [
+    m.text,
+    ...(m.stamp?.lines ?? []),
+    ...(m.stamp?.art?.texts.map((t) => t.text) ?? []),
+    ...(m.table?.cells.flat() ?? []),
+    ...(m.type === 'count' && m.style.countSymbol?.markups ? m.style.countSymbol.markups.flatMap(drawnStrings) : []),
+  ].filter((t): t is string => !!t);
 }
 
 /** Whether the standard fonts cannot show every character of the text markups draw. */
@@ -360,6 +370,8 @@ interface Ctx {
   images: Map<string, PDFImage>;
   /** Embedded vector Snapshots by their PDF (base64): the page as a form, and its user space → shown space. */
   pictures: Map<string, VectorForm>;
+  /** Reusable Form XObjects for vector custom count symbols, keyed by `countSymbolKey`. */
+  countSymbols: Map<string, PDFRef>;
   scale: Scale;
   /** Every markup being exported and each page's scale, for legends. */
   all: readonly Markup[];
@@ -464,9 +476,61 @@ function underlineOps(x: number, y: number, w: number, size: number): string {
   return `${fmt(Math.max(size * 0.06, 0.25))} w 0 J [] 0 d ${fmt(x)} ${fmt(y)} m ${fmt(x + w)} ${fmt(y)} l S`;
 }
 
+/** Builds (and caches per document) a Form XObject for a vector custom count symbol around (0, 0). */
+function countSymbolForm(ctx: Ctx, sym: CountSymbol): PDFRef | null {
+  if (!sym.markups?.length) return null;
+  const key = countSymbolKey(sym);
+  const cached = ctx.countSymbols.get(key);
+  if (cached) return cached;
+  const box: [number, number, number, number] = [-20, -20, 20, 20];
+  const subCtx: Ctx = { ...ctx, matrix: [1, 0, 0, 1, 0, 0] };
+  const xobj: LiteralObject = {};
+  const ops: string[] = [];
+  sym.markups.forEach((sub, i) => {
+    const name = `S${i}`;
+    xobj[name] = appearance(subCtx, { ...sub, style: { ...sub.style, showLabel: false } }, box);
+    ops.push(`/${name} Do`);
+  });
+  const ref = ctx.doc.context.register(
+    ctx.doc.context.flateStream(ops.join('\n'), {
+      Type: 'XObject',
+      Subtype: 'Form',
+      BBox: box,
+      Resources: { XObject: xobj },
+    }),
+  );
+  ctx.countSymbols.set(key, ref);
+  return ref;
+}
+
+/** Appends drawing ops for a count markup's custom symbol (picture or vector markups) at each point. */
+function appendCountSymbolOps(ctx: Ctx, m: Markup, ops: string[], xobjects: LiteralObject, name: string) {
+  const sym = m.type === 'count' ? m.style.countSymbol : undefined;
+  if (!sym) return;
+  const r = markerSize(m);
+  if (sym.image) {
+    const img = ctx.images.get(sym.image);
+    if (!img) return;
+    const { w, h } = countSymbolImageBox(sym.aspect ?? img.width / Math.max(1, img.height), r);
+    xobjects[name] = img.ref;
+    for (const [x, y] of m.points) {
+      ops.push('q /GS1 gs', `${fmt(w)} 0 0 ${fmt(-h)} ${fmt(x - w / 2)} ${fmt(y + h / 2)} cm`, `/${name} Do`, 'Q');
+    }
+  } else if (sym.markups?.length) {
+    const form = countSymbolForm(ctx, sym);
+    if (!form) return;
+    const k = r / COUNT_SYMBOL_REF;
+    xobjects[name] = form;
+    for (const [x, y] of m.points) {
+      ops.push('q /GS1 gs', `${fmt(k)} 0 0 ${fmt(k)} ${fmt(x)} ${fmt(y)} cm`, `/${name} Do`, 'Q');
+    }
+  }
+}
+
 function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number]): PDFRef {
   const { doc, matrix } = ctx;
   const { style } = m;
+  const strokeAlpha = style.opacity * (style.strokeOpacity ?? 1);
   const fillAlpha = style.opacity * (style.fillOpacity ?? 1);
   const [sr, sg, sb] = rgb(style.stroke);
   const [tr, tg, tb] = rgb(textColor(style));
@@ -535,6 +599,8 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
     ops.push(part.fill && part.stroke ? `B${star}` : part.fill ? `f${star}` : part.stroke ? 'S' : 'n');
   }
   ops.push('[] 0 d');
+  const countXObjects: LiteralObject = {};
+  appendCountSymbolOps(ctx, m, ops, countXObjects, 'CS0');
 
   const blendName = pdfBlendName(m);
   // With the fill alone blending (fillOnly), the lines and text do not: the fill and hatch carry /BM.
@@ -543,12 +609,12 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   const fillBm = blendName && fillOnly ? { BM: blendName } : {};
   const resources: LiteralObject = {
     ExtGState: {
-      GS0: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...bm },
-      GSD: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
+      GS0: { Type: 'ExtGState', CA: strokeAlpha, ca: fillAlpha, ...bm },
+      GSD: { Type: 'ExtGState', CA: strokeAlpha, ca: strokeAlpha, ...bmExplicit },
       GS1: { Type: 'ExtGState', CA: style.opacity, ca: style.opacity, ...bmExplicit },
       GSL: { Type: 'ExtGState', CA: 0.85 * style.opacity, ca: 0.85 * style.opacity },
       GSH: { Type: 'ExtGState', CA: fillAlpha, ca: fillAlpha, ...fillBm },
-      GSF: { Type: 'ExtGState', CA: style.opacity, ca: fillAlpha, ...fillBm },
+      GSF: { Type: 'ExtGState', CA: strokeAlpha, ca: fillAlpha, ...fillBm },
     },
   };
   if (hatchPattern) {
@@ -835,19 +901,23 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
       const [dr, dg, db] = rgb(style.stroke);
       ops.push('q', `${fmt(dr)} ${fmt(dg)} ${fmt(db)} RG 0.5 w`, `${fmt(L.box.x)} ${fmt(r.y)} m ${fmt(L.box.x + L.box.w)} ${fmt(r.y)} l S`, 'Q');
       const symbol = legendSymbol(row.sample, r.symbol);
-      const [cr, cg, cb] = rgb(symbol.style.stroke);
-      ops.push('q', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} RG`, `${fmt(symbol.style.width)} w`, '1 J 1 j', dashOp(symbol.style.dashArray ?? dashPattern(symbol.style.dash, symbol.style.width)));
-      for (const part of markupShape(symbol)) {
-        if (part.hatch && part.clip) continue;
-        ops.push(pathOps(part.path));
-        if (part.fill) {
-          const [fr, fg, fb] = rgb(part.fill);
-          ops.push(`${fmt(fr)} ${fmt(fg)} ${fmt(fb)} rg`);
+      if (symbol.type === 'count' && symbol.style.countSymbol) {
+        appendCountSymbolOps(ctx, symbol, ops, countXObjects, `LC${i}`);
+      } else {
+        const [cr, cg, cb] = rgb(symbol.style.stroke);
+        ops.push('q', `${fmt(cr)} ${fmt(cg)} ${fmt(cb)} RG`, `${fmt(symbol.style.width)} w`, '1 J 1 j', dashOp(symbol.style.dashArray ?? dashPattern(symbol.style.dash, symbol.style.width)));
+        for (const part of markupShape(symbol)) {
+          if (part.hatch && part.clip) continue;
+          ops.push(pathOps(part.path));
+          if (part.fill) {
+            const [fr, fg, fb] = rgb(part.fill);
+            ops.push(`${fmt(fr)} ${fmt(fg)} ${fmt(fb)} rg`);
+          }
+          const star = part.evenOdd ? '*' : '';
+          ops.push(part.fill && part.stroke ? `B${star}` : part.fill ? `f${star}` : part.stroke ? 'S' : 'n');
         }
-        const star = part.evenOdd ? '*' : '';
-        ops.push(part.fill && part.stroke ? `B${star}` : part.fill ? `f${star}` : part.stroke ? 'S' : 'n');
+        ops.push('Q');
       }
-      ops.push('Q');
     }
     ops.push(`${fmt(tr)} ${fmt(tg)} ${fmt(tb)} rg`, 'BT', `/F0 ${fmt(size)} Tf`);
     text('Legend', L.title.x, baseline(L.box.y, bandH), 'left');
@@ -862,6 +932,7 @@ function appearance(ctx: Ctx, m: Markup, rect: [number, number, number, number])
   }
   ops.push('Q');
   if (Object.keys(artFonts).length) resources.Font = { ...(resources.Font as LiteralObject | undefined), ...artFonts };
+  if (Object.keys(countXObjects).length) resources.XObject = { ...(resources.XObject as LiteralObject | undefined), ...countXObjects };
 
   const stream = doc.context.flateStream(ops.join('\n'), {
     Type: 'XObject',
@@ -998,10 +1069,13 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   ];
   if (m.type === 'callout' && m.points.length >= 4) {
     // A callout's box goes in /RD, whose top and bottom insets Bluebeam reads the other way up from
-    // other readers: equal ones (Rect grown to match) mean the same box to all of them.
-    const box = contentBox(m);
-    const ys = [apply(matrix, [box.x, box.y])[1], apply(matrix, [box.x + box.w, box.y + box.h])[1]];
-    const inset = Math.max(rect[3] - Math.max(...ys), Math.min(...ys) - rect[1]);
+    // other readers: equal ones (Rect grown to match) mean the same box to all of them. A turned
+    // callout's box before its turn may reach past the turned one's bounds: Rect holds both.
+    const ub = calloutUserBox(matrix, m);
+    rect[0] = Math.min(rect[0], ub[0]);
+    rect[2] = Math.max(rect[2], ub[2]);
+    const ys = [ub[1], ub[3]];
+    const inset = Math.max(rect[3] - Math.max(...ys), Math.min(...ys) - rect[1], 0);
     rect[1] = Math.min(...ys) - inset;
     rect[3] = Math.max(...ys) + inset;
   }
@@ -1242,9 +1316,9 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       const shape = m.style.countShape ?? 'circle';
       specific = {
         Subtype: 'Polygon',
-        Vertices: flat(countMarker(shape, cx, cy, markerSize(m)).map((p) => apply(matrix, p))),
+        Vertices: flat(countMarkerOutline(m.style.countSymbol ? 'circle' : shape, cx, cy, markerSize(m)).map((p) => apply(matrix, p))),
         IT: 'PolygonCount',
-        CountStyle: COUNT_STYLE_NAMES[shape],
+        CountStyle: m.style.countSymbol ? 'Custom' : COUNT_STYLE_TO_PDF[shape],
         MeasurementTypes: 128,
         BBMeasure: measureDict(ctx.scale),
       };
@@ -1281,8 +1355,12 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         C: fill && m.type === 'text' ? fill : [],
         ...(fill && m.style.fillOpacity !== undefined && m.style.fillOpacity < 1 ? { FillOpacity: m.style.fillOpacity } : {}),
         ...(m.type === 'typewriter' ? { IT: 'FreeTextTypeWriter' } : {}),
-        // Bluebeam's own key for a turned text box: clockwise degrees (its /Rect is the turned box's bounds).
-        ...(m.type === 'text' && m.rotation && ((m.rotation % 360) + 360) % 360 !== 0 ? { Rotation: Math.round((((m.rotation % 360) + 360) % 360) * 100) / 100 } : {}),
+        // As Revu keeps text on a turned sheet: its own /Rotate is the sheet's turn (the box set upright
+        // there), and /Rotation, Bluebeam's key for a turned text box, is clockwise degrees on top of
+        // that, so the turn as shown (its /Rect is the turned box's bounds; /Rect less /RD the box before
+        // turning). A flag's /RD holds its point, not that box, so a turned flag keeps no /Rotation.
+        ...(sheetTurn(matrix) % 360 ? { Rotate: sheetTurn(matrix) } : {}),
+        ...(m.type !== 'flagLabel' && m.rotation && ((m.rotation % 360) + 360) % 360 !== 0 ? { Rotation: Math.round((((m.rotation % 360) + 360) % 360) * 100) / 100 } : {}),
       };
       if (m.type === 'flagLabel') {
         // Its box reaches the flag's point; the text sits right of it (RD's left inset).
@@ -1323,6 +1401,10 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       // Bluebeam's own legend is a snapshot stamp with its keys and totals in /BSILegend, which it
       // keeps current as markups change.
       specific = { Subtype: 'Stamp', IT: 'StampSnapshot', BSILegend: textValues(bsiLegendValue(m, ctx.all, ctx.pages.length, ctx.scaleFor, ctx.scaleOf)) as never };
+      // Bluebeam's turn for a turned legend (its /Rect holds the turned box): unlike a text box's,
+      // a legend's /Rotation is its turn as shown, the sheet's turn included.
+      const shown = Math.round((((m.rotation ?? 0) % 360) + 360) % 360 * 100) / 100;
+      if (shown % 360 !== 0) specific.Rotation = shown;
       break;
     }
     case 'table': {
@@ -1336,10 +1418,12 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       const [r, g, bl] = rgb(textColor(m.style));
       const font = daFontName(m.style.fontFamily);
       const box = contentBox(m);
-      const corners = [apply(matrix, [box.x, box.y]), apply(matrix, [box.x + box.w, box.y + box.h])];
-      const bx = [Math.min(corners[0]![0], corners[1]![0]), Math.min(corners[0]![1], corners[1]![1]), Math.max(corners[0]![0], corners[1]![0]), Math.max(corners[0]![1], corners[1]![1])] as const;
+      const bx = calloutUserBox(matrix, m);
       const land = m.points.length >= 4 ? calloutLanding(m.points[1]!, box) : null;
-      const leader = land ? [m.points[0]!, land.knee, land.attach] : m.points.slice(0, 2);
+      // A turned callout's leader as the page shows it: running to the turned box's side.
+      const c = rotationCentre(m);
+      const leader = (land ? [m.points[0]!, land.knee, land.attach] : m.points.slice(0, 2)).map((p) => (m.rotation ? rotatePoint(p, c, m.rotation) : p));
+      const turn = userRotation(matrix, m);
       specific = {
         Subtype: 'FreeText',
         IT: 'FreeTextCallout',
@@ -1351,6 +1435,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         Q: m.style.textAlign === 'center' ? 1 : m.style.textAlign === 'right' ? 2 : 0,
         ...richText(m),
         C: fill ? fill : [],
+        ...(m.rotation && turn !== null ? { Rotation: turn } : {}),
       };
       delete base.IC;
       break;
@@ -1551,6 +1636,10 @@ function nativeForm(orig: PDFDict, m: Markup, matrix: Matrix): LiteralObject | n
   const subtype = nameValue(orig, 'Subtype');
   const intent = nameValue(orig, 'IT');
   if (m.type === 'count' && subtype === 'Polygon' && intent === 'PolygonCount' && m.points.length === 1) {
+    // Only reuse the imported polygon vertices when shape, custom symbol and marker size are unchanged.
+    if (m.style.countSymbol) return null;
+    const origShape = COUNT_STYLE_FROM_PDF[nameValue(orig, 'CountStyle') ?? ''] ?? 'circle';
+    if ((m.style.countShape ?? 'circle') !== origShape) return null;
     const v = numbers(orig, 'Vertices');
     if (v.length < 2) return null;
     let x0 = Infinity;
@@ -1563,6 +1652,9 @@ function nativeForm(orig: PDFDict, m: Markup, matrix: Matrix): LiteralObject | n
       y0 = Math.min(y0, v[i + 1]!);
       y1 = Math.max(y1, v[i + 1]!);
     }
+    const origR = Math.max(x1 - x0, y1 - y0) / 2;
+    const wantR = Math.hypot(matrix[0] * markerSize(m), matrix[1] * markerSize(m));
+    if (Math.abs(origR - wantR) > 0.5) return null;
     const [cx, cy] = apply(matrix, m.points[0]!);
     const dx = cx - (x0 + x1) / 2;
     const dy = cy - (y0 + y1) / 2;
@@ -2251,7 +2343,8 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
   const unicode = options.fallbackFont && needsUnicodeFont(written) ? [...new Set(written.flatMap(drawnStrings).join(''))].join('') : null;
   const embedder = unicode !== null ? (d: PDFDocument, n: StandardFonts) => options.fallbackFont!(d, n, unicode) : options.embedFont;
   const embedStandard = (name: StandardFonts) => (embedder ? embedder(doc, name) : doc.embedFont(name));
-  for (const m of written) {
+  const allDrawn = written.flatMap((m) => (m.type === 'count' && m.style.countSymbol?.markups?.length ? [m, ...m.style.countSymbol.markups] : [m]));
+  for (const m of allDrawn) {
     // Stamps always letter in Helvetica, the headline bold.
     const names = [
       ...(m.type === 'stamp'
@@ -2298,14 +2391,14 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     } else for (const [key, font] of loaded) fonts.set(key, font);
   }
   const images = new Map<string, PDFImage>();
-  for (const m of written) {
-    const src = isImageType(m.type) || m.type === 'attachment' ? m.image : m.type === 'stamp' ? m.stamp?.art?.image : undefined;
+  for (const m of allDrawn) {
+    const src = isImageType(m.type) || m.type === 'attachment' ? m.image : m.type === 'stamp' ? m.stamp?.art?.image : m.type === 'count' ? m.style.countSymbol?.image : undefined;
     if (!src || images.has(src)) continue;
     const img = await embedDataUrl(doc, src);
     if (img) images.set(src, img);
   }
   const pictures = new Map<string, VectorForm>();
-  for (const m of written) {
+  for (const m of allDrawn) {
     if (!hasVector(m) || pictures.has(m.vector.pdf)) continue;
     const form = await embedVector(doc, m.vector.pdf);
     if (form) pictures.set(m.vector.pdf, form);
@@ -2333,12 +2426,13 @@ export async function exportWithAnnotations(original: ArrayBuffer, markups: read
     if (!byPage.has(m.pageIndex)) byPage.set(m.pageIndex, []);
     byPage.get(m.pageIndex)!.push(m);
   }
+  const countSymbols = new Map<string, PDFRef>();
   const pageIndexes = new Set([...byPage.keys(), ...Object.keys(options.imported ?? {}).map(Number), ...Object.keys(options.importedSpaces ?? {}).map(Number)]);
   for (const pageIndex of [...pageIndexes].sort((a, b) => a - b)) {
     const page = pages[pageIndex];
     if (!page) continue;
     const list = (byPage.get(pageIndex) ?? []).sort((a, b) => a.createdAt - b.createdAt);
-    const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, pictures, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames, unembedded };
+    const ctx: Ctx = { doc, page, matrix: pageMatrix(page), fonts, images, pictures, countSymbols, scale: scaleFor(pageIndex), all: markups, scaleFor, scaleOf, pages, placeNames, unembedded };
     const build = (m: Markup, orig?: PDFDict) => {
       const dict = annotationDict({ ...ctx, scale: scaleOf(m) }, m);
       // Markups on a layer show and hide with it in other viewers too.

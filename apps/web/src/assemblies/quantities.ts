@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { isMeasureKind, reviewedOnly, type Assembly, type AssemblyItem, type CustomColumn, type Markup } from '@nb/markup';
 import { evalFormula, formulaRefs, FormulaError, type Value } from '../columns/formula';
 import { BUILT_IN_COLUMNS, cellsFor, customKey, formatNumber, type Cell, type CellContext } from '../columns/listColumns';
@@ -6,25 +7,26 @@ import { BUILT_IN_COLUMNS, cellsFor, customKey, formatNumber, type Cell, type Ce
  * Takeoff quantities from assemblies. Each item's formula is worked out per measurement from what
  * the Markups list shows for it (in the page's display units: feet and square feet on a feet scale,
  * metres on a metric one) and the assembly's variables; waste is added, then the quantity is
- * rounded up when the item says so. Totals round up once, on the total, as material is ordered.
+ * rounded up when the item says so. Totals round up once, on the total, as material is ordered,
+ * unless the item rounds each measurement up (`roundEach`: offcuts that cannot be joined).
  */
 
 /** Names a formula can use besides the list's columns and the assembly's variables. */
 export const MEASURED_NAMES: { name: string; hint: string }[] = [
-  { name: 'Quantity', hint: 'The measurement itself: its length, area, volume or count' },
-  { name: 'Length', hint: 'Length of a line or run; the perimeter of an area' },
-  { name: 'Perimeter', hint: 'Same as Length' },
-  { name: 'Area', hint: 'Area of an area or volume, cutouts taken off' },
-  { name: 'Volume', hint: 'Volume (an area with a depth)' },
-  { name: 'Wall Area', hint: 'Length × depth (a run with a height)' },
-  { name: 'Depth', hint: 'The measurement’s depth or height' },
-  { name: 'Count', hint: 'Items in a count (or a typed count); 1 for any other measurement' },
-  { name: 'Plan Length', hint: 'Length on plan, before the slope' },
-  { name: 'Plan Area', hint: 'Area on plan, before the slope' },
-  { name: 'Slope Factor', hint: 'True over plan: 1 when flat' },
-  { name: 'Pitch', hint: 'The slope as rise per 12 of run' },
-  { name: 'Slope Angle', hint: 'The slope in degrees' },
-  { name: 'Slope %', hint: 'The slope as a percent grade' },
+  { name: 'Quantity', get hint() { return msg('The measurement itself: its length, area, volume or count'); } },
+  { name: 'Length', get hint() { return msg('Length of a line or run; the perimeter of an area'); } },
+  { name: 'Perimeter', get hint() { return msg('Same as Length'); } },
+  { name: 'Area', get hint() { return msg('Area of an area or volume, cutouts taken off'); } },
+  { name: 'Volume', get hint() { return msg('Volume (an area with a depth)'); } },
+  { name: 'Wall Area', get hint() { return msg('Length × depth (a run with a height)'); } },
+  { name: 'Depth', get hint() { return msg('The measurement’s depth or height'); } },
+  { name: 'Count', get hint() { return msg('Items in a count (or a typed count); 1 for any other measurement'); } },
+  { name: 'Plan Length', get hint() { return msg('Length on plan, before the slope'); } },
+  { name: 'Plan Area', get hint() { return msg('Area on plan, before the slope'); } },
+  { name: 'Slope Factor', get hint() { return msg('True over plan: 1 when flat'); } },
+  { name: 'Pitch', get hint() { return msg('The slope as rise per 12 of run'); } },
+  { name: 'Slope Angle', get hint() { return msg('The slope in degrees'); } },
+  { name: 'Slope %', get hint() { return msg('The slope as a percent grade'); } },
 ];
 
 /**
@@ -92,6 +94,44 @@ export function withWaste(item: AssemblyItem, base: number): { quantity: number;
   return { quantity, rounded: item.roundUp ? ceilTo(quantity, roundStep(item)) : quantity };
 }
 
+/**
+ * A running total of quantities as ordered: those that round each measurement up (`roundEach`) are
+ * added already rounded; the rest are pooled and rounded up once, to the largest step among them.
+ */
+export interface RoundedSum {
+  /** The step the pooled quantities round up to; 0 when none rounds. */
+  step: number;
+  /** Quantities rounded up together, on their total. */
+  pool: number;
+  /** Quantities already rounded up, one measurement at a time. */
+  each: number;
+}
+
+export const emptyRoundedSum = (): RoundedSum => ({ step: 0, pool: 0, each: 0 });
+
+/** Whether an item rounds each measurement up rather than the total. */
+const roundsEach = (item: Pick<AssemblyItem, 'roundUp' | 'roundEach'>) => !!item.roundUp && !!item.roundEach;
+
+/** What one measurement adds to an order before the total is rounded: rounded already when the item rounds each. */
+export function orderedQuantity(r: Pick<ItemQuantity, 'item' | 'quantity' | 'rounded'>): number {
+  return (roundsEach(r.item) ? r.rounded : r.quantity) ?? 0;
+}
+
+/** Adds one measurement's item quantity (worked out, with waste) into `sum`. */
+export function addRounded(sum: RoundedSum, r: Pick<ItemQuantity, 'item' | 'quantity' | 'rounded'>): void {
+  if (r.quantity === null || r.rounded === null) return;
+  if (roundsEach(r.item)) sum.each += r.rounded;
+  else {
+    sum.pool += r.quantity;
+    if (r.item.roundUp) sum.step = Math.max(sum.step, roundStep(r.item));
+  }
+}
+
+/** What `sum` comes to as ordered. */
+export function roundedTotal(sum: RoundedSum): number {
+  return Number((sum.each + (sum.step > 0 ? ceilTo(sum.pool, sum.step) : sum.pool)).toPrecision(12));
+}
+
 /** The quantities one measurement stands for under `assembly`. */
 export function itemQuantities(m: Markup, assembly: Assembly, cells: Readonly<Record<string, Cell>>, columns: readonly CustomColumn[]): ItemQuantity[] {
   const lookup = lookupFor(m, cells, columns, assembly);
@@ -102,7 +142,7 @@ export function itemQuantities(m: Markup, assembly: Assembly, cells: Readonly<Re
     const res = byHand ?? (item.formula.trim() ? evalFormula(item.formula, lookup) : { error: 'No formula' });
     if ('error' in res) return { item, base: null, quantity: null, rounded: null, cost: null, error: res.error };
     const base = typeof res.value === 'number' ? res.value : Number(res.value);
-    if (!Number.isFinite(base)) return { item, base: null, quantity: null, rounded: null, cost: null, error: 'Not a number' };
+    if (!Number.isFinite(base)) return { item, base: null, quantity: null, rounded: null, cost: null, error: msg('Not a number') };
     const { quantity, rounded } = withWaste(item, base);
     return { item, base, quantity, rounded, cost: item.unitCost !== undefined ? rounded * item.unitCost : null, ...(byHand ? { set: true } : {}) };
   });
@@ -130,7 +170,7 @@ export interface RollupRow {
   base: number;
   /** With waste. */
   quantity: number;
-  /** With waste, rounded up once on the total when the item rounds. */
+  /** With waste, rounded up once on the total when the item rounds (each measurement first with `roundEach`). */
   total: number;
   /** The unit cost, when every contribution has the same one. */
   unitCost: number | null;
@@ -146,7 +186,7 @@ export interface RollupRow {
  * added up across assemblies, for ordering; by assembly or page, per assembly item.
  */
 export function rollup(markups: readonly Markup[], assemblies: readonly Assembly[], ctx: CellContext, by: RollupBy, pageLabel: (pageIndex: number) => string = (i) => `Page ${i + 1}`): RollupRow[] {
-  const rows = new Map<string, RollupRow & { step: number; costs: Set<number>; costSum: number }>();
+  const rows = new Map<string, RollupRow & RoundedSum & { costs: Set<number>; costSum: number }>();
   // AI drafts wait for a person before they count.
   for (const m of reviewedOnly(markups)) {
     const q = markupQuantities(m, assemblies, ctx);
@@ -157,7 +197,7 @@ export function rollup(markups: readonly Markup[], assemblies: readonly Assembly
       const key = by === 'assembly' ? `${q.assembly.id}\u0000${r.item.id}` : by === 'page' ? `${m.pageIndex}\u0000${itemKey}` : itemKey;
       let row = rows.get(key);
       if (!row) {
-        row = { key, group, item: r.item.name, unit: r.item.unit, measurements: 0, base: 0, quantity: 0, total: 0, unitCost: null, cost: null, errors: 0, setByHand: 0, step: 0, costs: new Set(), costSum: 0 };
+        row = { key, group, item: r.item.name, unit: r.item.unit, measurements: 0, base: 0, quantity: 0, total: 0, unitCost: null, cost: null, errors: 0, setByHand: 0, ...emptyRoundedSum(), costs: new Set(), costSum: 0 };
         rows.set(key, row);
       }
       row.measurements++;
@@ -168,15 +208,15 @@ export function rollup(markups: readonly Markup[], assemblies: readonly Assembly
       if (r.set) row.setByHand++;
       row.base += r.base;
       row.quantity += r.quantity;
-      if (r.item.roundUp) row.step = Math.max(row.step, roundStep(r.item));
+      addRounded(row, r);
       if (r.item.unitCost !== undefined) {
         row.costs.add(r.item.unitCost);
-        row.costSum += r.quantity * r.item.unitCost;
+        row.costSum += orderedQuantity(r) * r.item.unitCost;
       }
     }
   }
-  const out = [...rows.values()].map(({ step, costs, costSum, ...row }) => {
-    const total = step > 0 ? ceilTo(row.quantity, step) : row.quantity;
+  const out = [...rows.values()].map(({ step, pool, each, costs, costSum, ...row }) => {
+    const total = roundedTotal({ step, pool, each });
     const unitCost = costs.size === 1 ? [...costs][0]! : null;
     // One price: the ordered total at that price. Several: each contribution at its own.
     const cost = unitCost !== null ? total * unitCost : costs.size ? costSum : null;

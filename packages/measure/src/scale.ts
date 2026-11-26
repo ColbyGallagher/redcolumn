@@ -1,3 +1,5 @@
+import { formatFixed, formatTrimmed, normalizeNumberText } from '@nb/i18n';
+
 export type LengthUnit = 'in' | 'ft' | 'yd' | 'mi' | 'mm' | 'cm' | 'm' | 'km';
 
 export const METERS_PER_UNIT: Record<LengthUnit, number> = {
@@ -153,8 +155,9 @@ export function formatFeetInches(feet: number, denominator = 16): string {
   return `${sign}${wholeFeet}'-${inchText}"`;
 }
 
+/** A value with `precision` decimals and digit groups, in the number format people chose (`1,250.50`, `1.250,50`). */
 function trimNumber(value: number, precision: number): string {
-  return value.toLocaleString('en-US', { minimumFractionDigits: precision, maximumFractionDigits: precision });
+  return formatFixed(value, precision);
 }
 
 /** Inches with the fraction rounded to 1/`denominator`, e.g. `6 1/2"`. */
@@ -177,11 +180,22 @@ export function usesFractions(scale: Scale): boolean {
 export const DECIMAL_PRECISIONS = [0, 1, 2, 3, 4];
 export const FRACTION_PRECISIONS = [1, 2, 4, 8, 16, 32, 64];
 
+/** Decimal places lengths get in a unit when the app picks the unit itself. */
+export const UNIT_PRECISION: Record<LengthUnit, number> = { mm: 0, cm: 1, m: 2, km: 3, in: 2, ft: 2, yd: 2, mi: 3 };
+
+/**
+ * Decimal places a scale shows lengths with. A scale that keeps its inch fractions while its unit is
+ * not ft or in (so a switch back finds them) has no decimal precision of its own: the unit's default.
+ */
+export function lengthDecimals(scale: Scale): number {
+  return scale.feetInches ? UNIT_PRECISION[scale.unit] : scale.precision;
+}
+
 export function formatLength(meters: number, scale: Scale): string {
   const value = meters / METERS_PER_UNIT[scale.unit];
   if (scale.unit === 'ft' && scale.feetInches) return formatFeetInches(value, scale.precision);
   if (scale.unit === 'in' && scale.feetInches) return formatFractionalInches(value, scale.precision);
-  return `${trimNumber(value, scale.feetInches ? 2 : scale.precision)} ${scale.unit}`;
+  return `${trimNumber(value, lengthDecimals(scale))} ${scale.unit}`;
 }
 
 export const AREA_LABELS: Record<LengthUnit, string> = {
@@ -272,17 +286,17 @@ const LENGTH_PART = /\s*-?\s*(?:(\d+)\s*\/\s*(\d+)|(\d*\.?\d+)(?:(?:\s+|\s*-\s*)
  * Parses a length typed by a user into `unit`s, whatever units it is typed in. Accepts plain
  * numbers in `unit` (`25`, `25.5`, `5 1/2`), and lengths with units or unit marks, in any unit and
  * mixed (`1"`, `3/4 in`, `25'-6"`, `25' 6 1/2"`, `5' 6`, `450mm`, `1.2 m`, `1m 25cm`, `2 feet`), and
- * digit groups (`1,250.5 m`, as `formatLength` writes them).
+ * digit groups (`1,250.5 m`, as `formatLength` writes them). Numbers follow the chosen number format,
+ * so `1,5 m` and `1.250,5 m` read in German.
  * Returns null when the text is not a positive length.
  */
 export function parseLength(text: string, unit: LengthUnit): number | null {
-  const t = text
-    .trim()
+  // Numbers in the chosen format first: digit groups dropped (1,250 or 1.250 is one number) and a
+  // decimal comma read as a point. Before the quote marks, so a Swiss 1’250 is not feet.
+  const t = normalizeNumberText(text.trim())
     .toLowerCase()
     .replace(/[“”″]/g, '"')
-    .replace(/[‘’′]/g, "'")
-    // Digit groups: 1,250 is one number.
-    .replace(/(\d),(?=\d{3}(?!\d))/g, '$1');
+    .replace(/[‘’′]/g, "'");
   if (!t || t.startsWith('-')) return null;
   const parts: { value: number; unit: LengthUnit | null }[] = [];
   LENGTH_PART.lastIndex = 0;
@@ -381,7 +395,7 @@ const PAPER_POINTS: Record<PaperUnit, number> = { in: 72, mm: 72 / 25.4, cm: 72 
 
 /** A positive number, including an inch fraction such as `1/4` or `1 1/2`. */
 export function parseScaleNumber(text: string): number | null {
-  const t = text.trim();
+  const t = normalizeNumberText(text.trim());
   if (/^\d*\.?\d+$/.test(t)) {
     const v = Number(t);
     return v > 0 ? v : null;
@@ -392,8 +406,12 @@ export function parseScaleNumber(text: string): number | null {
   return v > 0 ? v : null;
 }
 
-/** A scale number for a field: a reduced sixteenth when it is one, otherwise a trimmed decimal. */
-export function formatScaleNumber(n: number): string {
+/**
+ * A scale number: a reduced sixteenth when it is one, otherwise a trimmed decimal. `forPeople` writes
+ * the decimal in the chosen number format, for a field someone edits; without it the decimal keeps a
+ * point, as scale labels are stored.
+ */
+export function formatScaleNumber(n: number, forPeople = false): string {
   if (!Number.isFinite(n)) return '';
   const den = 16;
   const units = Math.round(n * den);
@@ -404,7 +422,7 @@ export function formatScaleNumber(n: number): string {
     const g = gcd(frac, den);
     return `${whole ? `${whole} ` : ''}${frac / g}/${den / g}`;
   }
-  return String(Math.round(n * 1e6) / 1e6);
+  return forPeople ? formatTrimmed(n, 6) : String(Math.round(n * 1e6) / 1e6);
 }
 
 function scalePartsLabel(paper: number, paperUnit: PaperUnit, real: number, realUnit: LengthUnit): string {

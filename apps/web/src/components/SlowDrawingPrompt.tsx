@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState } from 'react';
 import type { PdfDocument } from '@nb/pdf-core';
 import { RenderCopyJob } from '../documents/renderCopy/client';
@@ -47,11 +48,11 @@ function cause(plan: PagePlan): string {
   if (plan.images && merged < 1000 && plan.clips < 50) {
     const mp = Math.round(plan.imagePixelsBefore / 1e6);
     return plan.images === 1
-      ? `Its picture (${mp} megapixels) is far sharper than the page shows it; optimised, it is scaled to ${KEEP_DPI} dpi.`
-      : `Its ${n(plan.images)} pictures (${mp} megapixels) are far sharper than the page shows them; optimised, they are scaled to ${KEEP_DPI} dpi.`;
+      ? msg('Its picture ({mp} megapixels) is far sharper than the page shows it; optimised, it is scaled to {kEEP_DPI} dpi.', { mp, kEEP_DPI: KEEP_DPI })
+      : msg('Its {n} pictures ({mp} megapixels) are far sharper than the page shows them; optimised, they are scaled to {kEEP_DPI} dpi.', { n: n(plan.images), mp, kEEP_DPI: KEEP_DPI });
   }
-  if (merged >= plan.clips * 10) return `It is drawn as ${n(plan.objectsBefore)} separate lines; optimised, as ${n(plan.objectsAfter)}.`;
-  return `It clips ${n(plan.clips)} hatches the slow way; optimised, its lines are cut to shape instead.`;
+  if (merged >= plan.clips * 10) return msg('It is drawn as {n} separate lines; optimised, as {n2}.', { n: n(plan.objectsBefore), n2: n(plan.objectsAfter) });
+  return msg('It clips {n} hatches the slow way; optimised, its lines are cut to shape instead.', { n: n(plan.clips) });
 }
 
 /**
@@ -91,7 +92,7 @@ export function SlowDrawingPrompt({ viewer, doc, fileId }: { viewer: TileViewer;
       for (const p of pages) {
         const a = slow.get(p);
         const b = fast.get(p);
-        if (a && b && Math.abs(a.mpx - b.mpx) <= 0.25 * a.mpx) return ` Page ${p + 1} now draws in ${seconds(b.ms)} instead of ${seconds(a.ms)}.`;
+        if (a && b && Math.abs(a.mpx - b.mpx) <= 0.25 * a.mpx) return ' ' + msg('Page {number} now draws in {seconds} instead of {seconds2}.', { number: p + 1, seconds: seconds(b.ms), seconds2: seconds(a.ms) });
       }
       return '';
     };
@@ -102,7 +103,7 @@ export function SlowDrawingPrompt({ viewer, doc, fileId }: { viewer: TileViewer;
     const check = async (pages: number[], totals: Totals) => {
       for (const [k, p] of pages.entries()) {
         if (disposed) return;
-        setState({ kind: 'working', label: 'Checking optimised sheets', done: k, total: pages.length });
+        setState({ kind: 'working', label: msg('Checking optimised sheets'), done: k, total: pages.length });
         const c = await doc.checkCopy(p);
         if (c.ok) {
           totals.ok++;
@@ -124,13 +125,13 @@ export function SlowDrawingPrompt({ viewer, doc, fileId }: { viewer: TileViewer;
         const progress = (label: string) => (done: number, total: number) => !disposed && setState({ kind: 'working', label, done, total });
         // The sheets in view and the slow ones first, so the difference shows in seconds.
         const first = [...new Set([viewer.getView().pageIndex, ...slow.keys()])];
-        const a = await j.build(first, progress('Optimising sheets in view'));
+        const a = await j.build(first, progress(msg('Optimising sheets in view')));
         if (disposed) return;
         if (a.bytes) {
           await doc.setRenderCopy(a.bytes);
           await check(a.pages.filter((p) => p.worthwhile).map((p) => p.pageIndex), totals);
         }
-        const b = await j.build(null, progress('Optimising the other sheets'));
+        const b = await j.build(null, progress(msg('Optimising the other sheets')));
         if (disposed) return;
         if (b.bytes) {
           await doc.setRenderCopy(b.bytes, true);
@@ -140,16 +141,16 @@ export function SlowDrawingPrompt({ viewer, doc, fileId }: { viewer: TileViewer;
         if (disposed) return;
         if (!totals.ok) {
           await doc.setRenderCopy(null);
-          setState({ kind: 'done', text: 'Optimising made no difference to how these sheets look or draw, so they are drawn as before.' });
+          setState({ kind: 'done', text: msg('Optimising made no difference to how these sheets look or draw, so they are drawn as before.') });
           return;
         }
-        const failed = totals.failed ? ` ${n(totals.failed)} sheet${totals.failed === 1 ? '' : 's'} came out different and ${totals.failed === 1 ? 'is' : 'are'} drawn as before.` : '';
+        const failed = totals.failed ? ' ' + msg('{n} {failed, plural, one {sheet} other {sheets}} came out different and {value} drawn as before.', { n: n(totals.failed), failed: totals.failed, value: totals.failed === 1 ? msg('is') : msg('are') }) : '';
         setState({
           kind: 'done',
-          text: `Optimised ${n(totals.ok)} sheet${totals.ok === 1 ? '' : 's'} for display, each checked against the original: ${compact(totals.objectsBefore)} drawing objects down to ${compact(totals.objectsAfter)}.${measured()}${failed} The file itself is unchanged.`,
+          text: msg('Optimised {n} {ok, plural, one {sheet} other {sheets}} for display, each checked against the original: {compact} drawing objects down to {compact2}.{measured}{failed} The file itself is unchanged.', { n: n(totals.ok), ok: totals.ok, compact: compact(totals.objectsBefore), compact2: compact(totals.objectsAfter), measured: measured(), failed }),
         });
       } catch (err) {
-        if (!disposed) setState({ kind: 'done', text: `Could not optimise this document: ${err instanceof Error ? err.message : String(err)}. It is drawn as before.` });
+        if (!disposed) setState({ kind: 'done', text: msg('Could not optimise this document: {value}. It is drawn as before.', { value: err instanceof Error ? err.message : String(err) }) });
       } finally {
         job?.dispose();
         job = null;
@@ -230,11 +231,11 @@ export function SlowDrawingPrompt({ viewer, doc, fileId }: { viewer: TileViewer;
       {state.kind === 'offer' && (
         <>
           <p>
-            Page {state.page + 1} took {(state.ms / 1000).toFixed(1)} s to draw. {cause(state.plan)} Draw this document from an optimised copy? Your file is not changed.
+            {msg('Page {page} took {value2} s to draw. {cause} Draw this document from an optimised copy? Your file is not changed.', { page: state.page + 1, value2: (state.ms / 1000).toFixed(1), cause: cause(state.plan) })}
           </p>
           <div className="slow-drawing-actions">
             <button className="btn primary" onClick={() => start.current()}>
-              Optimise
+              {msg('Optimise')}
             </button>
             <button
               className="btn"
@@ -244,7 +245,7 @@ export function SlowDrawingPrompt({ viewer, doc, fileId }: { viewer: TileViewer;
                 setState({ kind: 'idle' });
               }}
             >
-              Not Now
+              {msg('Not Now')}
             </button>
             <button
               className="btn"
@@ -254,7 +255,7 @@ export function SlowDrawingPrompt({ viewer, doc, fileId }: { viewer: TileViewer;
                 setState({ kind: 'idle' });
               }}
             >
-              Never Ask
+              {msg('Never Ask')}
             </button>
           </div>
         </>
@@ -262,12 +263,12 @@ export function SlowDrawingPrompt({ viewer, doc, fileId }: { viewer: TileViewer;
       {state.kind === 'working' && (
         <>
           <p>
-            {state.label}… {state.total > 0 && `${state.done} of ${state.total}`}
+            {state.label}… {state.total > 0 && msg('{done} of {total}', { done: state.done, total: state.total })}
           </p>
           <progress max={Math.max(1, state.total)} value={state.done} />
           <div className="slow-drawing-actions">
             <button className="btn" onClick={() => stop.current()}>
-              Stop
+              {msg('Stop')}
             </button>
           </div>
         </>

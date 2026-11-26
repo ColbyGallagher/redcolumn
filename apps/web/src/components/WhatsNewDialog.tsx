@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { WHATS_NEW, formatReleaseDate } from '../help/whatsNew';
 
 /** Help › Learn What's New. */
@@ -12,11 +14,11 @@ export function WhatsNewDialog({ onClose }: { onClose: () => void }) {
           if (e.key === 'Escape') onClose();
         }}
       >
-        <h3>What's New in redcolumn</h3>
+        <h3>{msg('What\'s New in redcolumn')}</h3>
         {WHATS_NEW.map((release) => (
           <div key={release.version} className="whats-new-release">
             <h4>
-              Version {release.version} <span className="muted">· Released {formatReleaseDate(release.date)}</span>
+              {keyed(msgParts('Version {version} {span}', { version: release.version, span: <span className="muted">{msg('· Released {releaseDate}', { releaseDate: formatReleaseDate(release.date) })}</span> }))}
             </h4>
             {release.sections.map((section) => (
               <section key={section.title}>
@@ -32,7 +34,7 @@ export function WhatsNewDialog({ onClose }: { onClose: () => void }) {
         ))}
         <div className="actions">
           <button className="btn primary" onClick={onClose} autoFocus>
-            Close
+            {msg('Close')}
           </button>
         </div>
       </div>

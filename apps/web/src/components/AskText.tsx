@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 
 interface Request {
@@ -85,7 +86,7 @@ export function AskTextHost() {
         </div>
         <div className="actions">
           <button type="button" className="btn" onClick={() => done(null)}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={req.password ? !value : !value.trim()}>
             {req.confirm}

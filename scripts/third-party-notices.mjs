@@ -42,6 +42,8 @@ const NOTES = {
   'node-forge': 'Dual-licensed BSD-3-Clause or GPL-2.0; redcolumn uses it under BSD-3-Clause.',
   'dictionary-en': 'The English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
   'dictionary-en-gb': 'The British English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
+  'dictionary-de': 'The German Hunspell dictionary (igerman98, by Björn Jacke), licensed GPL-2.0 or GPL-3.0. redcolumn ships it unmodified as separate data files (spell/de-DE.aff and spell/de-DE.dic) that the spell checker reads; its source is at https://www.j3e.de/ispell/igerman98/. Its licence is below.',
+  'dictionary-fr': 'The French Hunspell dictionary (Dicollecte, by Olivier R.), licensed MPL-2.0. redcolumn ships it unmodified as separate data files (spell/fr-FR.aff and spell/fr-FR.dic) that the spell checker reads; its source is at https://grammalecte.net/. Its licence is below.',
   'dictionary-en-au': 'The Australian English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
 };
 for (const lang of ['deu', 'eng', 'fra', 'ita', 'nld', 'por', 'spa'])
@@ -59,6 +61,14 @@ const BUNDLED = [
     homepage: 'https://github.com/liberationfonts/liberation-fonts',
     note: 'Liberation Sans, Serif and Mono (public/fonts), embedded in PDF/A exports in place of Helvetica, Times and Courier, and in PDFs converted from CAD drawings in place of their fonts.',
     file: 'liberation-fonts.txt',
+  },
+  {
+    name: 'Liberation Sans Narrow',
+    version: '1.07.5',
+    licence: 'GPL-2.0-only WITH Font-exception-2.0',
+    homepage: 'https://github.com/liberationfonts/liberation-sans-narrow',
+    note: 'Liberation Sans Narrow (public/fonts), metric-compatible with Arial Narrow; used for on-screen rendering and PDF embedding when Arial Narrow is not installed on the computer.',
+    file: 'liberation-sans-narrow.txt',
   },
   {
     name: 'Node.js',

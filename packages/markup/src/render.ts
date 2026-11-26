@@ -5,7 +5,8 @@ import { layoutParagraphs } from './textLists';
 import { baseTextStyle, layoutRuns, runsWithin, spansOf, styleRuns, type StyledMeasure } from './textSpans';
 import { markupShape, TEXT_LINE_HEIGHT, textLineHeight, textPadding, type PathCmd } from './geometry';
 import { bulgeMidpoint } from './cad';
-import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
+import { boundsOf, contentBox, dimensionLine, isImageType, isMeasureKind, isTextType, markerSize, markupBounds, markupLabel, measureProps, rotatePoint, rotationCentre, ROTATABLE, type Markup, type Point } from './model';
+import { COUNT_SYMBOL_REF, countSymbolImageBox } from './countSymbol';
 import { TYPE_INFO } from './types';
 import { legendLayout, legendRows, legendSymbol } from './legend';
 import { tableCells, tableCellText } from './table';
@@ -438,6 +439,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     ctx.rotate((m.rotation * Math.PI) / 180);
     ctx.translate(-cx, -cy);
   }
+  const strokeAlpha = style.opacity * (style.strokeOpacity ?? 1);
   ctx.globalAlpha = style.opacity;
   // Highlighters multiply by default so drawing detail stays visible underneath.
   const blend = BLEND_MODES.find((b) => b.value === effectiveBlendMode(m))!.canvas;
@@ -454,7 +456,10 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
   const dash = draftDash ? [draftDash * 5, draftDash * 3] : (style.dashArray ?? dashPattern(style.dash, lineWidth));
   for (const part of styledParts(markupShape(m), style.lineStyle, style.width, style.lineStyle ? canvasMeasure(ctx) : () => 0)) {
     if (part.art) {
+      ctx.save();
+      ctx.globalAlpha = strokeAlpha;
       paintArt(ctx, part.art);
+      ctx.restore();
       continue;
     }
     if (part.hatch && part.clip) {
@@ -468,19 +473,44 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
     if (part.fill) {
       ctx.save();
       if (fillOnly && !part.decoration) ctx.globalCompositeOperation = blend;
-      ctx.globalAlpha = style.opacity * (part.decoration ? 1 : (style.fillOpacity ?? 1));
+      ctx.globalAlpha = part.decoration ? strokeAlpha : style.opacity * (style.fillOpacity ?? 1);
       ctx.fillStyle = part.fill;
       ctx.fill(part.evenOdd ? 'evenodd' : 'nonzero');
       ctx.restore();
     }
     if (part.stroke) {
+      ctx.save();
+      ctx.globalAlpha = strokeAlpha;
       ctx.setLineDash(part.decoration ? [] : dash);
       // An exact dash pattern is drawn with flat ends, as other viewers do; presets use round ones for dots.
       if (style.dashArray) ctx.lineCap = part.decoration ? 'round' : 'butt';
       ctx.stroke();
+      ctx.restore();
     }
   }
   ctx.setLineDash([]);
+  if (m.type === 'count' && style.countSymbol) {
+    const sym = style.countSymbol;
+    const r = markerSize(m);
+    if (sym.image) {
+      const img = markupImage(sym.image);
+      if (img) {
+        const { w, h } = countSymbolImageBox(sym.aspect ?? img.naturalWidth / Math.max(1, img.naturalHeight), r);
+        for (const [x, y] of m.points) ctx.drawImage(img, x - w / 2, y - h / 2, w, h);
+      }
+    } else if (sym.markups?.length) {
+      const k = r / COUNT_SYMBOL_REF;
+      for (const [x, y] of m.points) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(k, k);
+        for (const sub of sym.markups) {
+          drawMarkup(ctx, { ...sub, style: { ...sub.style, opacity: sub.style.opacity * style.opacity, showLabel: false } }, zoom * k);
+        }
+        ctx.restore();
+      }
+    }
+  }
   const whole = measurementLabel(m, scale);
   for (const label of whole ? [whole, ...segmentLabels(m, scale)] : []) {
     const { size, background } = labelStyle(m);
@@ -499,6 +529,7 @@ export function drawMarkup(ctx: CanvasRenderingContext2D, m: Markup, zoom = Infi
       ctx.globalAlpha = style.opacity;
       ctx.fillStyle = style.fill ?? '#ffffff';
       ctx.fillRect(x - w / 2, y - h / 2, w, h);
+      ctx.globalAlpha = strokeAlpha;
       ctx.strokeStyle = style.stroke;
       ctx.setLineDash(dash.length ? dash : [style.width * 3, style.width * 2]);
       ctx.strokeRect(x - w / 2, y - h / 2, w, h);
@@ -769,9 +800,12 @@ export function drawSelection(ctx: CanvasRenderingContext2D, m: Markup, zoom: nu
   ctx.fillStyle = '#fff';
   const h = handlePx * px;
   const box = TYPE_INFO[m.type].handles === 'box';
+  const calloutBox = m.type === 'callout' && m.points.length >= 4;
+  const n = m.points.length;
   handlePositions({ ...m, rotation: 0 }).forEach(([x, y], i) => {
     // A box's corners are round and the middles of its edges square, as in Bluebeam.
-    if (box && BOX_CORNERS.includes(i)) {
+    const isCorner = (box && BOX_CORNERS.includes(i)) || (calloutBox && (i === 2 || i === 3 || i === n || i === n + 1));
+    if (isCorner) {
       ctx.beginPath();
       ctx.arc(x, y, h / 2, 0, Math.PI * 2);
       ctx.fill();
@@ -825,7 +859,8 @@ export function drawSelection(ctx: CanvasRenderingContext2D, m: Markup, zoom: nu
 /** The rotate handle of a selected, rotatable markup: above the top of its box, turned with it. */
 export function rotateHandle(m: Markup, zoom: number): { at: [number, number]; stem: [number, number] } | null {
   if (m.locked || !ROTATABLE.has(m.type)) return null;
-  const b = markupBounds({ ...m, rotation: 0 });
+  // A callout's knob sits above its text box, which is what turns (its leaders reach elsewhere).
+  const b = m.type === 'callout' && m.points.length >= 4 ? contentBox(m) : markupBounds({ ...m, rotation: 0 });
   const c = rotationCentre(m);
   const top: [number, number] = [b.x + b.w / 2, b.y];
   const at: [number, number] = [b.x + b.w / 2, b.y - 18 / zoom];
@@ -867,7 +902,17 @@ export function handlePositions(m: Markup): [number, number][] {
   const handles = TYPE_INFO[m.type].handles;
   // A connector's bends are routed for it: only its two ends are handles.
   const ends = m.type === 'connector' && m.points.length > 1 ? [m.points[0]!, m.points[m.points.length - 1]!] : m.points.slice(0, 2);
-  const pts = handles === 'none' ? [] : handles === 'vertices' ? m.points : handles === 'box' ? boxHandles(m.points) : ends;
+  // A callout exposes its leader vertices (tip, knee, ...) plus all 8 handles of its text box (points 2-3 are the first two corners).
+  const pts =
+    m.type === 'callout' && m.points.length >= 4
+      ? [...m.points, ...boxHandles(m.points.slice(2, 4)).slice(2)]
+      : handles === 'none'
+        ? []
+        : handles === 'vertices'
+          ? m.points
+          : handles === 'box'
+            ? boxHandles(m.points)
+            : ends;
   if (!m.rotation) return pts;
   const c = rotationCentre(m);
   return pts.map((p) => rotatePoint(p, c, m.rotation!));

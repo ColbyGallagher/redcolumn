@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import { normalizeUrl, type LinkAction, type Place } from '@nb/markup';
 import { ComparePagePicker, type PagePreview } from './ComparePagePicker';
@@ -84,11 +86,11 @@ export function HyperlinkDialog({ initial, pageCount, pageLabel, places, current
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Action</h3>
+        <h3>{msg('Action')}</h3>
         <label className="row">
           <input type="radio" name="kind" checked={kind === 'page'} onChange={() => setKind('page')} autoFocus={kind === 'page'} />
-          Jump to page
-          <select value={page} aria-label="Page" disabled={kind !== 'page'} onChange={(e) => setPage(Number(e.target.value))}>
+          {msg('Jump to page')}
+          <select value={page} aria-label={msg('Page')} disabled={kind !== 'page'} onChange={(e) => setPage(Number(e.target.value))}>
             {Array.from({ length: pageCount }, (_, i) => (
               <option key={i} value={i}>
                 {pageLabel(i)}
@@ -99,19 +101,18 @@ export function HyperlinkDialog({ initial, pageCount, pageLabel, places, current
         {kind === 'page' && (
           <div className="row indent">
             <label className="check">
-              <input type="checkbox" checked={keepView && !!view} disabled={!view} onChange={(e) => setKeepView(e.target.checked)} />
-              Zoom to an area (Snapshot View)
+              {keyed(msgParts('{input}Zoom to an area (Snapshot View)', { input: <input type="checkbox" checked={keepView && !!view} disabled={!view} onChange={(e) => setKeepView(e.target.checked)} /> }))}
             </label>
             <button type="button" className="btn small" onClick={() => setPicking(true)}>
-              {view ? 'Change area…' : 'Choose area…'}
+              {view ? msg('Change area…') : msg('Choose area…')}
             </button>
           </div>
         )}
         <label className="row">
           <input type="radio" name="kind" checked={kind === 'place'} disabled={!places.length} onChange={() => setKind('place')} />
-          Jump to Place
-          <select value={placeId} aria-label="Place" disabled={kind !== 'place' || !places.length} onChange={(e) => setPlaceId(e.target.value)}>
-            {!places.length && <option value="">No Places yet (add them on the Bookmarks panel)</option>}
+          {msg('Jump to Place')}
+          <select value={placeId} aria-label={msg('Place')} disabled={kind !== 'place' || !places.length} onChange={(e) => setPlaceId(e.target.value)}>
+            {!places.length && <option value="">{msg('No Places yet (add them on the Bookmarks panel)')}</option>}
             {places.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name} — {pageLabel(p.pageIndex)}
@@ -121,25 +122,25 @@ export function HyperlinkDialog({ initial, pageCount, pageLabel, places, current
         </label>
         <label className="row">
           <input type="radio" name="kind" checked={kind === 'file'} disabled={!others.length} onChange={() => setKind('file')} />
-          Open document
-          <select value={otherId} aria-label="Document" disabled={kind !== 'file' || !others.length} onChange={(e) => setOtherId(e.target.value)}>
-            {!others.length && <option value="">No other documents in the library</option>}
+          {msg('Open document')}
+          <select value={otherId} aria-label={msg('Document')} disabled={kind !== 'file' || !others.length} onChange={(e) => setOtherId(e.target.value)}>
+            {!others.length && <option value="">{msg('No other documents in the library')}</option>}
             {others.map((f) => (
               <option key={f.id} value={f.id}>
                 {f.name}
               </option>
             ))}
           </select>
-          page
-          <input type="number" min={1} value={otherPage} aria-label="Page in that document" disabled={kind !== 'file'} style={{ width: 56 }} onChange={(e) => setOtherPage(Math.max(1, Math.round(Number(e.target.value)) || 1))} />
+          {msg('page')}
+          <input type="number" min={1} value={otherPage} aria-label={msg('Page in that document')} disabled={kind !== 'file'} style={{ width: 56 }} onChange={(e) => setOtherPage(Math.max(1, Math.round(Number(e.target.value)) || 1))} />
         </label>
         <label className="row">
           <input type="radio" name="kind" checked={kind === 'url'} onChange={() => setKind('url')} />
-          Open web page
+          {msg('Open web page')}
           <input
             type="text"
             value={url}
-            aria-label="Web address"
+            aria-label={msg('Web address')}
             placeholder="https://…"
             autoFocus={kind === 'url'}
             onFocus={() => setKind('url')}
@@ -149,15 +150,15 @@ export function HyperlinkDialog({ initial, pageCount, pageLabel, places, current
         <div className="actions">
           {onRemove && initial && (
             <button type="button" className="btn" onClick={onRemove}>
-              Remove Action
+              {msg('Remove Action')}
             </button>
           )}
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!ready}>
-            OK
+            {msg('OK')}
           </button>
         </div>
       </form>

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { msg } from '@nb/i18n';
 import { useFloatingPopup } from './useFloatingPopup';
 import { addCustomColor, parseHex, removeCustomColor } from '../workspace/customColors';
 import { profiles, updateWorkspace } from '../workspace/profiles';
@@ -26,6 +27,8 @@ interface ColorMenuProps {
   /** The color shown on the button's bar while `value` is null (what "same as line" resolves to). */
   fallback?: string;
   onChange: (color: string | null) => void;
+  /** Called while hovering a swatch (hex or null for none), and with undefined when leaving or closing. */
+  onPreview?: (color: string | null | undefined) => void;
   /** Adds a "No fill"-style entry at the top that sets the color to null. */
   noneLabel?: string;
   disabled?: boolean;
@@ -40,16 +43,21 @@ interface ColorMenuProps {
  * A Word/Excel-style color button: the icon with a bar in the current color under it, and a palette
  * dropdown with "No fill", standard colors and a custom picker.
  */
-export function ColorMenu({ label, short, icon, value, fallback, onChange, noneLabel, disabled, wide, title, mixed }: ColorMenuProps) {
+export function ColorMenu({ label, short, icon, value, fallback, onChange, onPreview, noneLabel, disabled, wide, title, mixed }: ColorMenuProps) {
   const [open, setOpen] = useState(false);
   const [hex, setHex] = useState('');
   const custom = useSyncExternalStore(profiles.subscribe, () => profiles.active().state.customColors) ?? NO_COLORS;
   const native = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
   const pop = useRef<HTMLDivElement>(null);
+  const previewRef = useRef(onPreview);
+  previewRef.current = onPreview;
   const floating = useFloatingPopup(root, open);
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      previewRef.current?.(undefined);
+      return;
+    }
     const close = (e: PointerEvent) => {
       const t = e.target as Node;
       if (!root.current?.contains(t) && !pop.current?.contains(t)) setOpen(false);
@@ -64,8 +72,10 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
       window.removeEventListener('keydown', onKey);
     };
   }, [open]);
+  useEffect(() => () => previewRef.current?.(undefined), []);
 
   const pick = (color: string | null) => {
+    onPreview?.(undefined);
     onChange(color);
     setOpen(false);
   };
@@ -88,7 +98,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
         type="button"
         className={`btn color-btn${open ? ' open' : ''}`}
         disabled={disabled}
-        title={mixed ? `${title ?? label} (mixed)` : (title ?? label)}
+        title={mixed ? msg('{name} (mixed)', { name: title ?? label }) : (title ?? label)}
         aria-label={label}
         data-mixed={mixed || undefined}
         aria-expanded={open}
@@ -99,16 +109,16 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
           <span className="field-icon">{icon}</span>
           <span className={`color-bar${mixed ? ' mixed' : value || fallback ? '' : ' none'}`} style={!mixed && (value || fallback) ? { background: value ?? fallback } : undefined} />
         </span>
-        <span className="field-label">{wide ? (mixed ? 'Mixed' : (value ?? noneLabel ?? 'None')) : short}</span>
+        <span className="field-label">{wide ? (mixed ? msg('Mixed') : (value ?? noneLabel ?? msg('None'))) : short}</span>
         <span className="color-caret" aria-hidden="true">
           ▾
         </span>
       </button>
       {open && floating && createPortal(
-        <div className="color-pop" role="dialog" aria-label={label} ref={pop} style={{ ...floating, minWidth: undefined }}>
+        <div className="color-pop" role="dialog" aria-label={label} ref={pop} style={{ ...floating, minWidth: undefined }} onMouseLeave={() => onPreview?.(undefined)}>
           <div className="color-pop-title">{label}</div>
           {noneLabel && (
-            <button type="button" className={`color-none${value === null ? ' on' : ''}`} onClick={() => pick(null)}>
+            <button type="button" className={`color-none${value === null ? ' on' : ''}`} onMouseEnter={() => onPreview?.(null)} onFocus={() => onPreview?.(null)} onClick={() => pick(null)}>
               <span className="color-swatch none" />
               {noneLabel}
             </button>
@@ -124,6 +134,8 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
                   title={c}
                   aria-label={c}
                   aria-pressed={norm === c}
+                  onMouseEnter={() => onPreview?.(c)}
+                  onFocus={() => onPreview?.(c)}
                   onClick={() => pick(c)}
                 />
               )),
@@ -131,7 +143,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
           </div>
           {custom.length > 0 && (
             <>
-              <div className="color-pop-title">Custom</div>
+              <div className="color-pop-title">{msg('Custom')}</div>
               <div className="color-grid">
                 {custom.map((c) => (
                   <button
@@ -139,9 +151,11 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
                     type="button"
                     className={`color-swatch${norm === c ? ' on' : ''}`}
                     style={{ background: c }}
-                    title={`${c} (right-click or press Delete to remove)`}
-                    aria-label={`Custom ${c}`}
+                    title={msg('{colour} (right-click or press Delete to remove)', { colour: c })}
+                    aria-label={msg('Custom {colour}', { colour: c })}
                     aria-pressed={norm === c}
+                    onMouseEnter={() => onPreview?.(c)}
+                    onFocus={() => onPreview?.(c)}
                     onClick={() => pick(c)}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -159,8 +173,8 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
             </>
           )}
           <label className="color-more">
-            <input ref={native} type="color" aria-label={`${label}: more colors`} value={value ?? fallback ?? '#ffffff'} onChange={(e) => onChange(e.target.value)} />
-            More colors…
+            <input ref={native} type="color" aria-label={msg('{label}: more colors', { label })} value={value ?? fallback ?? '#ffffff'} onChange={(e) => onChange(e.target.value)} />
+            {msg('More colors…')}
           </label>
           <form
             className="color-hex"
@@ -174,7 +188,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
           >
             <input
               type="text"
-              aria-label={`${label}: hex`}
+              aria-label={msg('{label}: hex', { label })}
               placeholder="#rrggbb"
               spellCheck={false}
               value={hex}
@@ -182,7 +196,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, noneL
               onChange={(e) => setHex(e.target.value)}
             />
             <button type="submit" className="btn" disabled={!typed}>
-              Add
+              {msg('Add')}
             </button>
           </form>
         </div>,

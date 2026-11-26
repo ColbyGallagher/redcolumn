@@ -1,10 +1,13 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from './i18n/keyed';
+import { lazy } from './i18n/lazy';
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
-import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds } from '@nb/markup';
+import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canBeCountSymbol, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds, symbolFromMarkups } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
-import { actionTarget, boundsOf, isAiDraft, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
+import { actionTarget, turnedTo, boundsOf, isAiDraft, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, regionCrs, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
@@ -84,11 +87,11 @@ import { itemQuantities, rollup } from './assemblies/quantities';
 import { MarkupSummaryDialog, type SummaryExportRequest } from './components/ExportDialog';
 import { ProfilesDialog } from './components/ProfilesDialog';
 import { PreferencesDialog, type Category as PrefCategory } from './components/PreferencesDialog';
-import { settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
+import { scaleInDefaultUnits, settings, systemOf, useSettings, withDefaultUnits } from './settings/settings';
 import { buildRows, cellsFor, listColumns, resolveLayout, rowsToCsv, withThreads, type CellContext, type ListColumn, type ListRowData } from './columns/listColumns';
 import { clearLayout, DEFAULT_LAYOUT, fitWidths, loadLayout, saveLayout, serializeLayout } from './workspace/layoutState';
 import { LAYOUT_RESET_EVENT, SECTION_KEYS } from './workspace/layoutPrefs';
-import { addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
+import { addCountSymbol, addToToolSet, createToolSet, DEFAULT_TOOLBAR_TOOLS, profiles, RECENT_TOOLS_ID, rememberRecentTool, stampLibrary, updateWorkspace, useProfiles, useWorkspace, type ToolChestItem } from './workspace/profiles';
 import { documentDigest, signatures, type SavedSignature } from './signatures/signatures';
 import { TextEditor } from './components/TextEditor';
 import { hideFromRecents, setTemplate } from './storage/fileStore';
@@ -127,9 +130,10 @@ import { cadToolFits, isCadTool } from './markup/cadTools';
 import { GEOMETRY_TYPES } from './components/ShapeGeometry';
 import { PageToolsDialog, type PageToolKind, type PageToolSpec } from './components/PageToolsDialog';
 import { HeaderFooterDialog } from './components/HeaderFooterDialog';
-import { PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
+import { PROCESS_ENGLISH, PROCESS_TITLES, ProcessDialog, type ProcessKind, type ProcessSpec } from './components/ProcessDialog';
 import { OcrDialog } from './components/OcrDialog';
 import { CompareDialog, type ComparePairing, type CompareSpec } from './components/CompareDialog';
+import type { PickerPageHandle } from './components/ComparePagePicker';
 import type { OverlayPageSpec } from './documents/overlay';
 import type { PagePair } from './compare/pairing';
 import { SlipSheetDialog, type SlipSheetSpec } from './components/SlipSheetDialog';
@@ -142,7 +146,7 @@ import type { SignatureCheck } from './documents/pdfSign';
 import { FormsPanel, type NewFieldType } from './components/FormsPanel';
 import { FieldEditor } from './components/FieldEditor';
 import type { FieldChanges, FormField, FormModel } from './documents/forms';
-import { BatchDialog, BATCH_LABELS, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
+import { BatchDialog, BATCH_ENGLISH, batchLabel, type BatchKind, type BatchResult, type BatchSpec } from './components/BatchDialog';
 import { drawingSets, type SetSheet, type SheetIndex } from './storage/sets';
 import { fileGroups } from './storage/fileGroups';
 import { CompareResultsPanel, type CompareResults, type CompareStop } from './components/CompareResultsPanel';
@@ -173,6 +177,7 @@ import { ShortcutsDialog } from './components/ShortcutsDialog';
 import { RevuMigrationDialog } from './components/RevuMigrationDialog';
 import { FillStampDialog, StampsDialog } from './components/StampsDialog';
 import { LineStylesDialog, MANAGE_LINE_STYLES_EVENT } from './components/LineStylesDialog';
+import { CountSymbolsDialog, MANAGE_COUNT_SYMBOLS_EVENT } from './components/CountSymbolsDialog';
 import { NewPdfDialog, type TemplateRequest } from './components/NewPdfDialog';
 import { StartScreen } from './components/StartScreen';
 import { BUILTIN_TEMPLATES } from './documents/builtinTemplates';
@@ -220,7 +225,7 @@ import { PagesPanel, resetThumbnails } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
 import { librarySource, openSource } from './search/sources';
 import { countsFromHits, type CountTool } from './search/countFromHits';
-import { MenuBar, LEFT_TITLES, type BottomTab, type LeftTab } from './components/MenuBar';
+import { MenuBar, LEFT_TABS, leftTitles, type BottomTab, type LeftTab } from './components/MenuBar';
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
@@ -307,7 +312,7 @@ function pageOpsLabel(ops: readonly PageOp[]): string {
     case 'insert':
       return 'Insert pages';
     case 'blank':
-      return `Insert ${op.count === 1 ? 'a blank page' : `${op.count} blank pages`}`;
+      return `Insert ${op.count === 1 ? 'a blank page' : msg('{count} blank pages', { count: op.count })}`;
   }
 }
 
@@ -422,7 +427,7 @@ function TabName({ t, saved }: { t: OpenTab; saved: number }) {
   return (
     <span className="tab-title">
       {shown}
-      {dirty && <span className="dirty" title="Unsaved changes">*</span>}
+      {dirty && <span className="dirty" title={msg('Unsaved changes')}>*</span>}
     </span>
   );
 }
@@ -439,7 +444,7 @@ function loadAuthor() {
 
 /** Asks which template to start from. */
 async function pickTemplate(templates: readonly StoredFile[]): Promise<StoredFile | null> {
-  const id = await askText('New PDF from Template', templates[0]!.id, { label: 'Start from which template?', confirm: 'Next', choices: templates.map((t) => ({ value: t.id, label: t.name })) });
+  const id = await askText(msg('New PDF from Template'), templates[0]!.id, { label: msg('Start from which template?'), confirm: msg('Next'), choices: templates.map((t) => ({ value: t.id, label: t.name })) });
   return templates.find((t) => t.id === id) ?? null;
 }
 
@@ -479,7 +484,7 @@ function turnMarkups(store: MarkupStore, ms: readonly Markup[], degrees: number,
     for (const m of ms) {
       if (m.locked || !store.mayEdit(m)) continue;
       const next = ((((absolute ? 0 : (m.rotation ?? 0)) + degrees) % 360) + 360) % 360;
-      store.update(m.id, { rotation: next || undefined });
+      store.update(m.id, turnedTo(m, next));
     }
   });
 }
@@ -524,7 +529,7 @@ function download(name: string, blob: Blob) {
     (r) => {
       if (r === 'unsupported') anchorDownload(name, blob);
     },
-    (err) => window.alert(err instanceof Error ? err.message : `${name} could not be saved.`),
+    (err) => window.alert(err instanceof Error ? err.message : msg('{name} could not be saved.', { name })),
   );
 }
 
@@ -595,7 +600,10 @@ function toolChestItemOf(group: Markup | readonly Markup[], store?: MarkupStore 
   ms.sort((x, y) => x.createdAt - y.createdAt);
   const m = ms[0]!;
   const b = boundsOf(ms.flatMap((x) => x.points));
-  const templates: Markup[] = ms.map((x) => ({ ...structuredClone(x), id: '', pageIndex: 0, ...moved(x, -b.x, -b.y), status: 'none', author: '', createdAt: 0, modifiedAt: 0 }));
+  const isSingleCount = ms.length === 1 && m.type === 'count';
+  const templates: Markup[] = isSingleCount
+    ? [{ ...structuredClone(m), id: '', pageIndex: 0, points: [[0, 0]], status: 'none', author: '', createdAt: 0, modifiedAt: 0 }]
+    : ms.map((x) => ({ ...structuredClone(x), id: '', pageIndex: 0, ...moved(x, -b.x, -b.y), status: 'none', author: '', createdAt: 0, modifiedAt: 0 }));
   const snippet = isTextType(m.type) && m.text?.trim() ? m.text.trim().split('\n')[0]!.slice(0, 40) : '';
   return {
     type: m.type,
@@ -604,6 +612,8 @@ function toolChestItemOf(group: Markup | readonly Markup[], store?: MarkupStore 
     ...(m.subject ? { subject: m.subject } : {}),
     ...(m.image ? { image: m.image } : {}),
     markups: templates,
+    // Saved Count tools arm the Count tool in its look rather than pasting the original points.
+    ...(isSingleCount ? { mode: 'style' as const } : {}),
     // The page scale it was drawn at, so sets that scale to the page keep its real size.
     ...(store?.hasScale(m.pageIndex) ? { metersPerPoint: store.scaleOf(m).metersPerPoint } : {}),
   };
@@ -711,8 +721,8 @@ function visibleView(viewer: TileViewer, canvas: HTMLCanvasElement | null): View
  */
 async function pkiFetch(url: string, body?: Uint8Array, type?: string): Promise<Uint8Array> {
   const viaDesktop = desktop()?.pkiFetch;
-  if (!viaDesktop) throw new Error('Time stamps and revocation checks need the desktop app');
-  requireOnline('Time stamps and revocation checks');
+  if (!viaDesktop) throw new Error(msg('Time stamps and revocation checks need the desktop app'));
+  requireOnline(msg('Time stamps and revocation checks'));
   return viaDesktop(url, body, type);
 }
 
@@ -740,9 +750,9 @@ async function withLtv(signed: Uint8Array): Promise<{ bytes: Uint8Array; note: s
   try {
     // Only the signature just made: others in the file are their signers' to complete.
     const out = await addLtv(signed, { newest: true });
-    return { bytes: out.bytes, note: out.problems.length ? `LTV added, but not for all of it: ${out.problems.join('; ')}` : null };
+    return { bytes: out.bytes, note: out.problems.length ? msg('LTV added, but not for all of it: {problems}', { problems: out.problems.join('; ') }) : null };
   } catch (err) {
-    return { bytes: signed, note: `Long-term validation not added: ${err instanceof Error ? err.message : String(err)}` };
+    return { bytes: signed, note: msg('Long-term validation not added: {value}', { value: err instanceof Error ? err.message : String(err) }) };
   }
 }
 
@@ -762,7 +772,7 @@ const panelSide = (id: LeftTab): DockSide => (!narrowScreen() && profiles.active
 const firstPanelOn = (side: DockSide): LeftTab | undefined => {
   const ws = profiles.active().state;
   // 3D panels come and go with models, so a side never starts on one.
-  return RAIL.find(({ id, needsModel }) => !needsModel && panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked))?.id;
+  return RAIL().find(({ id, needsModel }) => !needsModel && panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked))?.id;
 };
 
 /** Progress within one of `count` steps of a job, as part of the whole. */
@@ -874,7 +884,7 @@ async function annotatedBytes(
  */
 async function projectCopyBytes(libraryId: string): Promise<ArrayBuffer> {
   const file = (await listFiles()).find((f) => f.id === libraryId);
-  if (!file) throw new Error('Your copy is no longer in the library.');
+  if (!file) throw new Error(msg('Your copy is no longer in the library.'));
   return readFile(file.hash);
 }
 
@@ -942,7 +952,7 @@ function startCellEdit(tools: MarkupTools, typed?: string): boolean {
 /** Drag data for reordering document tabs. */
 const TAB_DRAG_TYPE = 'application/x-nb-tab';
 
-const INDEX_PHASES: Record<IndexProgress['phase'], string> = { annotations: 'Importing markups', text: 'Reading text', links: 'Finding links', marks: 'Finding taught marks', stitch: 'Stitching sheets' };
+const INDEX_PHASES = (): Record<IndexProgress['phase'], string> => ({ annotations: msg('Importing markups'), text: msg('Reading text'), links: msg('Finding links'), marks: msg('Finding taught marks'), stitch: msg('Stitching sheets') });
 
 /** Jobs that rewrite a document's pages; while one runs, page operations are turned off. */
 const PAGES_JOB = { kind: 'pages', cancellable: false } as const;
@@ -953,7 +963,7 @@ const PAGES_JOB = { kind: 'pages', cancellable: false } as const;
  */
 async function rewriteSigned(doc: PdfDocument, what: string): Promise<boolean> {
   const { signatures } = await doc.info();
-  return !signatures || confirm(`This file is digitally signed. ${what} writes the file again, so its ${signatures === 1 ? 'signature' : `${signatures} signatures`} will no longer be valid. Continue?`);
+  return !signatures || confirm(msg('This file is digitally signed. {what} writes the file again, so its {value} will no longer be valid. Continue?', { what, value: signatures === 1 ? msg('signature') : msg('{signatures} signatures', { signatures }) }));
 }
 
 /** Largest vector Snapshot kept in a markup (its PDF); a larger one is copied as a picture only. */
@@ -1072,7 +1082,7 @@ export function App() {
   const readSavedPanel = (side: DockSide) => {
     try {
       const saved = JSON.parse(localStorage.getItem(`nb.panel.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
-      const tab = saved?.tab && saved.tab in LEFT_TITLES && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
+      const tab = saved?.tab && (LEFT_TABS as readonly string[]).includes(saved.tab) && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
       return { tab, open: typeof saved?.open === 'boolean' ? saved.open : null };
     } catch {
       return { tab: null, open: null };
@@ -1319,7 +1329,7 @@ export function App() {
       if (!reasons || reasons === updateWaitingFor.current) return;
       updateWaitingFor.current = reasons;
       const when = desktop() ? 'restarts' : 'loads';
-      setNotice(`A new version of redcolumn is ready. It ${when} when you are done (${reasons}); Help › Check for Updates ${when} it now.`);
+      setNotice(msg('A new version of redcolumn is ready. It {when} when you are done ({reasons}); Help › Check for Updates {when2} it now.', { when, reasons, when2: when }));
     };
     window.addEventListener('nb-update-ready', ready);
     return () => window.removeEventListener('nb-update-ready', ready);
@@ -1347,7 +1357,7 @@ export function App() {
       .then((r) => {
         if (!r.ok) setNotice(r.reason);
       })
-      .catch(() => setNotice('Could not restart to update. It installs when you close redcolumn.'));
+      .catch(() => setNotice(msg('Could not restart to update. It installs when you close redcolumn.')));
   const onUpdateButton = () => {
     if (updateState?.status === 'ready') restartIntoUpdate();
     else if (updateState?.status === 'available' && updateState.url) window.open(updateState.url, '_blank', 'noopener');
@@ -1408,12 +1418,18 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [stampsOpen, setStampsOpen] = useState(false);
   const [lineStylesOpen, setLineStylesOpen] = useState(false);
+  const [countSymbolsOpen, setCountSymbolsOpen] = useState(false);
   const [revuMigrationOpen, setRevuMigrationOpen] = useState(false);
   useEffect(() => {
     // The Line style pickers open the manager from wherever they sit.
     const open = () => setLineStylesOpen(true);
     window.addEventListener(MANAGE_LINE_STYLES_EVENT, open);
     return () => window.removeEventListener(MANAGE_LINE_STYLES_EVENT, open);
+  }, []);
+  useEffect(() => {
+    const open = () => setCountSymbolsOpen(true);
+    window.addEventListener(MANAGE_COUNT_SYMBOLS_EVENT, open);
+    return () => window.removeEventListener(MANAGE_COUNT_SYMBOLS_EVENT, open);
   }, []);
   /** Manage Stamps opened on the new-stamp editor (the toolbar menu's New Stamp). */
   const [stampsCreating, setStampsCreating] = useState(false);
@@ -1492,7 +1508,7 @@ export function App() {
   nameSpaceRef.current = (o, id) => {
     if (!o) return;
     const n = o.store.all().filter((m) => m.type === 'space').length;
-    void askText('Name the Space', `Space ${n}`, { label: 'Name', confirm: 'Save' }).then((name) => {
+    void askText(msg('Name the Space'), `Space ${n}`, { label: msg('Name'), confirm: msg('Save') }).then((name) => {
       if (name?.trim()) o.store.update(id, { subject: name.trim() });
     });
   };
@@ -1510,6 +1526,9 @@ export function App() {
   const [blankPdf, setBlankPdf] = useState<'new' | 'blank' | null>(null);
   const [combineOpen, setCombineOpen] = useState(false);
   const [docPropsOpen, setDocPropsOpen] = useState(false);
+  /** Recently closed file- or library-backed tabs (LIFO, max 20) for Reopen Closed Tab (Ctrl+Shift+T). */
+  const [closedTabs, setClosedTabs] = useState<{ name: string; libraryId: string; desktopToken: string | null; pageIndex: number }[]>([]);
+  const closedTabsRef = useRef<{ name: string; libraryId: string; desktopToken: string | null; pageIndex: number }[]>([]);
   const [revealFile, setRevealFile] = useState<{ id: string; token: number } | null>(null);
   const [startSession, setStartSession] = useState<{ token: number; fileIds: string[] } | null>(null);
   /** Page labels from regions: the boxes drawn, on which pane's document, and its page text. */
@@ -1729,9 +1748,9 @@ export function App() {
         viewer.engineRestarted();
         viewerBRef.current?.engineRestarted();
         resetThumbnails();
-        setNotice(lost ? `The PDF renderer restarted. ${lost} open document${lost === 1 ? '' : 's'} could not be drawn again; close and reopen ${lost === 1 ? 'it' : 'them'}.` : 'The PDF renderer restarted.');
+        setNotice(lost ? msg('The PDF renderer restarted. {lost} open {lost2, plural, one {document} other {documents}} could not be drawn again; close and reopen {value}.', { lost, lost2: lost, value: lost === 1 ? msg('it') : msg('them') }) : msg('The PDF renderer restarted.'));
       },
-      onGaveUp: () => setNotice("The PDF renderer stopped again. Use Retry on the page to restart it."),
+      onGaveUp: () => setNotice(msg('The PDF renderer stopped again. Use Retry on the page to restart it.')),
       log: (message, detail) => console.error(message, detail),
     });
     const retry = () => (supervisor.needsRetry ? supervisor.retry().then(() => undefined) : undefined);
@@ -1865,8 +1884,9 @@ export function App() {
         return new SnapIndex(g.segments, undefined, g.curves);
       });
       c.tools.setTextSource((pageIndex) => packed.doc.text(pageIndex));
-      c.viewer.setDocument(packed.doc);
       const view = savedViews.current.get(packed.file.id);
+      // View rotation belongs to each document: one not shown before starts unrotated.
+      c.viewer.setDocument(packed.doc, view?.rotation ?? 0);
       // A stitched view's camera only makes sense with its stitch layout, so just return to its page.
       if (view?.mode === 'stitch') c.viewer.goToPage(view.pageIndex);
       else if (view) c.viewer.setView(view);
@@ -1970,7 +1990,7 @@ export function App() {
     const { signal, progress, end } = startJob(`Reading · ${cur.file.name}`, { kind: 'index' });
     signal.addEventListener('abort', () => abort.abort());
     try {
-      await job(cur, abort.signal, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]));
+      await job(cur, abort.signal, (p) => progress(p.done, p.total, INDEX_PHASES()[p.phase]));
     } catch (err) {
       if (!abort.signal.aborted) setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -2066,7 +2086,7 @@ export function App() {
         await linkFromMarks(() => readFile(cur.file.hash), cur.store, marksFor(cur.store), report, signal, standardOf(cur.store)?.links);
         if (!announce) return;
         const review = cur.store.allLinks().filter((l) => l.id.startsWith('mark-') && l.status === 'review').length;
-        setNotice(review ? `${review} link${review === 1 ? '' : 's'} from taught marks to review in the Links tab.` : 'No marks like it were found in this document.');
+        setNotice(review ? msg('{review, plural, one {# link} other {# links}} from taught marks to review in the Links tab.', { review }) : msg('No marks like it were found in this document.'));
       }),
     [runIndexJob],
   );
@@ -2217,12 +2237,12 @@ export function App() {
         try {
           const open = await ctl.engine.unlock(bytes.slice(0), password);
           if (!open) return bytes;
-          setNotice(`${name} was protected. This device keeps it unprotected so it can be worked on; Document › Security saves a protected copy.`);
+          setNotice(msg('{name} was protected. This device keeps it unprotected so it can be worked on; Document › Security saves a protected copy.', { name }));
           return open;
         } catch (err) {
           if (!(err instanceof Error) || err.message !== NEEDS_PASSWORD) throw err;
-          const typed = await askText(attempt ? 'Wrong password' : 'Password', '', { label: `${name} is protected. Type its password to open it.`, confirm: 'Open', password: true });
-          if (typed === null) throw new Error(`${name} was not opened: it needs its password.`);
+          const typed = await askText(attempt ? msg('Wrong password') : msg('Password'), '', { label: msg('{name} is protected. Type its password to open it.', { name }), confirm: msg('Open'), password: true });
+          if (typed === null) throw new Error(msg('{name} was not opened: it needs its password.', { name }));
           password = typed;
         }
       }
@@ -2335,7 +2355,7 @@ export function App() {
         for (const src of sources) {
           if (src.kind === 'open') {
             const tab = tabs.find((t) => t.file.id === src.id);
-            if (!tab) throw new Error(`${src.name} is no longer open.`);
+            if (!tab) throw new Error(msg('{name} is no longer open.', { name: src.name }));
             const bytes = await annotatedBytes(tab);
             parts.push(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer);
           } else {
@@ -2348,7 +2368,7 @@ export function App() {
         const combined = rest.length ? await ctl.engine.editPdf(first, rest.map((_, i) => ({ type: 'insert' as const, source: i, at: Number.MAX_SAFE_INTEGER })), rest) : first;
         await openCreated(name, combined);
       } catch (err) {
-        setError(`Combine failed: ${err instanceof Error ? err.message : String(err)}`);
+        setError(msg('Combine failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         job.end();
       }
@@ -2370,9 +2390,7 @@ export function App() {
           // A file moved, renamed or deleted on disk since is not opened from here: Save would
           // write it back where it was. Opened from its new place, it finds its markups again.
           if (await movedAway(file.id)) {
-            if (confirm(`"${file.name}" is no longer in its folder. It may have been moved, renamed or deleted, so it was not opened. Open it from where it is now with File › Open.
-
-Remove it from the recent files?`)) removeFromRecents([file.id]);
+            if (confirm(msg('"{name}" is no longer in its folder. It may have been moved, renamed or deleted, so it was not opened. Open it from where it is now with File › Open.\n\nRemove it from the recent files?', { name: file.name }))) removeFromRecents([file.id]);
             return;
           }
           await openStored(file, await readFile(file.hash), target ?? (split && activePane === 'b' ? 'b' : 'a'));
@@ -2397,7 +2415,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     async (link: MarkupLink) => {
       const file = linkedFile(await listFiles(), link);
       if (!file) {
-        setNotice(`The document this link is for${link.name ? ` (${link.name})` : ''} is not in the library on this device.`);
+        setNotice(msg('The document this link is for{value} is not in the library on this device.', { value: link.name ? ` (${link.name})` : '' }));
         return;
       }
       setPendingLink({ fileId: file.id, markupId: link.markup, since: Date.now() });
@@ -2463,7 +2481,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       if (settings.get().documentRecovery) {
         const recovered = recoveredDocs();
         const names = [...reopened, ...(startup ? [startup] : [])].filter((f, i, all) => recovered.has(f.id) && all.indexOf(f) === i).map((f) => f.name);
-        if (names.length) setNotice(`Recovered changes not yet saved to ${names.join(', ')}.`);
+        if (names.length) setNotice(msg('Recovered changes not yet saved to {names}.', { names: names.join(', ') }));
       }
     })();
   }, [ctl, libraryReady, library, openFromLibrary]);
@@ -2482,10 +2500,11 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const mirror = pendingMirror.current;
     pendingMirror.current = false;
     if (mirror && openRef.current) {
-      // One document in both panes (one markup store, two views), kept in step.
+      // One document in both panes (one markup store, two views). Views start independent unless
+      // Preferences › Document says to synchronise them; Synchronise in the View menu toggles it anytime.
       mirrorRef.current = true;
       showInPane('b', openRef.current, true);
-      setSync('document');
+      setSync(settings.get().syncSplitView ? 'document' : null);
       setActivePane('a');
     }
   }, [ctlB, openStored, showInPane]);
@@ -2644,7 +2663,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           await reopenInPane(tab, inA ? 'a' : 'b', { file, doc, store }, (was) => Math.min(was, doc.pages.length - 1));
         }
       } catch (err) {
-        setError(`Could not bring the document back as it was: ${err instanceof Error ? err.message : String(err)}`);
+        setError(msg('Could not bring the document back as it was: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         wanted.delete(store);
         void refreshLibrary();
@@ -2703,7 +2722,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const viewer = intoB ? ctlB?.viewer : ctl?.viewer;
       if (!cur || !ctl || !tools || !viewer) return;
       if (studioDocOf(cur.file.id)) {
-        setError('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.');
+        setError(msg('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.'));
         return;
       }
       const job = startJob(`Pages · ${cur.file.name}`, PAGES_JOB);
@@ -2732,7 +2751,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         // Inserted pages have no sheet information yet; the tab now holds the new file.
         if (ops.some((op) => op.type === 'insert')) void detectSheetsOffline(openRefOf(intoB ? 'b' : 'a').current);
       } catch (err) {
-        setError(`Page operation failed: ${err instanceof Error ? err.message : String(err)}`);
+        setError(msg('Page operation failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         job.end();
       }
@@ -2752,7 +2771,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         const p = pages[k]!;
         const size = cur.doc.pages[p]!;
         const scale = Math.min(dpi / 72, 7000 / Math.max(size.width, size.height));
-        progress(k, pages.length, `Page ${p + 1}: rendering`);
+        progress(k, pages.length, msg('Page {number}: rendering', { number: p + 1 }));
         const w = Math.ceil(size.width * scale);
         const h = Math.ceil(size.height * scale);
         const { bitmap } = await cur.doc.renderTile(p, scale, 0, 0, w, h);
@@ -2763,11 +2782,11 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         ctx.drawImage(bitmap, 0, 0);
         bitmap.close();
         const image = await canvas.convertToBlob({ type: 'image/png' });
-        progress(k, pages.length, `Page ${p + 1}: reading text (${k + 1} of ${pages.length})`);
+        progress(k, pages.length, msg('Page {number}: reading text ({number2} of {count})', { number: p + 1, number2: k + 1, count: pages.length }));
         words.set(p, await recognise(image, scale));
       }
       if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
-      progress(pages.length, pages.length, 'Adding the text');
+      progress(pages.length, pages.length, msg('Adding the text'));
       const bytes = await addTextLayer(await readFile(cur.file.hash), words);
       await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
       return [...words.values()].reduce((n, l) => n + l.length, 0);
@@ -2778,15 +2797,15 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const runOcr = useCallback(
     async (cur: OpenFile, pages: number[], dpi: number) => {
       if (studioDocOf(cur.file.id)) {
-        setError('A Live Session document is shared with others, so its content cannot be changed here.');
+        setError(msg('A Live Session document is shared with others, so its content cannot be changed here.'));
         return;
       }
       try {
         const count = await runJob(`OCR · ${cur.file.name}`, (ctx) => ocrDocument(cur, pages, dpi, ctx));
-        setNotice(`OCR found ${count} word${count === 1 ? '' : 's'} on ${pages.length} page${pages.length === 1 ? '' : 's'}; they can now be searched and selected.`);
+        setNotice(msg('OCR found {count, plural, one {# word} other {# words}} on {count2, plural, one {# page} other {# pages}}; they can now be searched and selected.', { count, count2: pages.length }));
       } catch (err) {
-        if (isAbort(err)) setNotice('OCR cancelled; the document was not changed.');
-        else setError(`OCR failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (isAbort(err)) setNotice(msg('OCR cancelled; the document was not changed.'));
+        else setError(msg('OCR failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       }
     },
     [ocrDocument],
@@ -2799,11 +2818,11 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
    */
   const acquireDocument = useCallback(
     async (fileId: string): Promise<{ open: OpenFile; release: () => void }> => {
-      if (!ctl) throw new Error('The PDF engine is not ready');
+      if (!ctl) throw new Error(msg('The PDF engine is not ready'));
       const tab = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === fileId);
       if (tab) return { open: tab, release: () => {} };
       const file = (await listFiles()).find((f) => f.id === fileId);
-      if (!file) throw new Error('That document is no longer in the library');
+      if (!file) throw new Error(msg('That document is no longer in the library'));
       const [doc, store] = await Promise.all([ctl.engine.open(await readFile(file.hash)), MarkupStore.open(file.id)]);
       await hideImported(doc, store);
       return {
@@ -2827,7 +2846,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const { open, release } = await acquireDocument(file.id);
       try {
         const found = await readPdfAnnotations(bytes.slice(0), open.store);
-        await commitDocument(open, bytes, () => open.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported, found.extras), 'Before reopening from the embedding application');
+        await commitDocument(open, bytes, () => open.store.importAnnotations(found.markups.filter(fromOtherTools), found.links, found.imported, found.extras), `Before reopening from the embedding application`);
       } finally {
         release();
       }
@@ -2861,6 +2880,58 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       }
     },
     [acquireDocument],
+  );
+
+  /** Live handle to a library page for Align Pages / Select Region (crisp zoomed tiles + Snap to Content). */
+  const openPickerPage = useCallback(
+    async (fileId: string, page: number): Promise<PickerPageHandle> => {
+      const { open, release } = await acquireDocument(fileId);
+      const index = Math.min(Math.max(0, page), open.doc.pages.length - 1);
+      const size = open.doc.pages[index]!;
+      let snapPromise: Promise<SnapIndex> | null = null;
+      return {
+        width: size.width,
+        height: size.height,
+        renderTile: async (scale, x, y, width, height, signal) => {
+          const { bitmap } = await open.doc.renderTile(index, scale, x, y, width, height, { signal, thinLines: settings.get().thinLines });
+          return bitmap;
+        },
+        snapIndex: () => {
+          if (!snapPromise) {
+            snapPromise = open.doc.geometry(index).then((g) => new SnapIndex(g.segments, undefined, g.curves));
+          }
+          return snapPromise;
+        },
+        release,
+      };
+    },
+    [acquireDocument],
+  );
+
+  /** Adds a file picked from the user's computer to the library without opening a tab, returning its ID. */
+  const importLibraryFile = useCallback(
+    async (file: File): Promise<string | null> => {
+      try {
+        const cad = isCadFile(file);
+        const image = !cad && isImageFile(file);
+        const conversion = cad ? await convertFile(file) : null;
+        const raw = image || cad ? null : await file.arrayBuffer();
+        const bytes = conversion ? conversion.pdf : image ? await imageToPdf(file) : await unlockBytes(raw!, file.name);
+        const name = cad ? pdfNameFor(file.name) : image ? file.name.replace(/\.[^.]+$/, '') + '.pdf' : file.name;
+        const source = handleOf(file);
+        const hostId = cad ? null : hostDocumentId(tokenOf(source));
+        let stored = await saveFile(name, bytes.slice(0), hostId ?? undefined);
+        if (hostId && stored.hash !== (await contentHash(bytes))) stored = await takeHostContentsRef.current(stored, bytes.slice(0));
+        if (source && bytes === raw) await rememberHandle(stored.id, source);
+        if (conversion) cadSession.set(stored.id, conversion);
+        await refreshLibrary();
+        return stored.id;
+      } catch (err) {
+        if (isAbort(err)) return null;
+        throw err;
+      }
+    },
+    [refreshLibrary, unlockBytes],
   );
 
   /**
@@ -2951,7 +3022,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
         const id = all[k]!;
         if (refs.has(id)) continue;
-        progress(k, all.length, `Reading sheets: ${library.find((f) => f.id === id)?.name ?? ''}`);
+        progress(k, all.length, msg('Reading sheets: {value}', { value: library.find((f) => f.id === id)?.name ?? '' }));
         const known = drawingSets.index()[id];
         if (known) {
           refs.set(id, Array.from({ length: known.pageCount }, (_, page) => ({ fileId: id, page, label: known.sheets[page]?.number ?? null })));
@@ -3000,18 +3071,18 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           const found = done.reduce((n, r) => n + r.pages.reduce((m, p) => m + p.differences.length, 0), 0);
           const crowded = done.reduce((n, r) => n + r.pages.filter((p) => p.found).length, 0);
           if (!done.length) {
-            setNotice('No sheets in the two sets matched.');
+            setNotice(msg('No sheets in the two sets matched.'));
             return;
           }
-          setNotice(`Bulk Compare: ${sheets} sheet${sheets === 1 ? '' : 's'} in ${done.length} pair${done.length === 1 ? '' : 's'} of files, ${found} difference${found === 1 ? '' : 's'} clouded.${crowded ? ` ${crowded} sheet${crowded === 1 ? '' : 's'} had too many to mark one by one and were grouped; they may not line up.` : ''} Showing the pair with the most.`);
+          setNotice(msg('Bulk Compare: {sheets, plural, one {# sheet} other {# sheets}} in {count, plural, one {# pair} other {# pairs}} of files, {found, plural, one {# difference} other {# differences}} clouded.{value} Showing the pair with the most.', { sheets, count: done.length, found, value: crowded ? ' ' + msg('{crowded, plural, one {# sheet} other {# sheets}} had too many to mark one by one and were grouped; they may not line up.', { crowded }) : '' }));
           // Ranked by what was found, not what one page keeps.
           const weight = (r: (typeof done)[number]) => r.pages.reduce((m, p) => m + (p.found ?? p.differences.length), 0);
           const most = done.reduce((a, b) => (weight(b) > weight(a) ? b : a));
           setCompareResults(most);
           await sideBySideRef.current(most.oldId, most.newId);
         } catch (err) {
-          if (isAbort(err)) setNotice('Bulk Compare cancelled.');
-          else setError(`Bulk Compare failed: ${err instanceof Error ? err.message : String(err)}`);
+          if (isAbort(err)) setNotice(msg('Bulk Compare cancelled.'));
+          else setError(msg('Bulk Compare failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
         }
         return;
       }
@@ -3020,8 +3091,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         setCompareResults(results);
         await sideBySideRef.current(results.oldId, results.newId);
       } catch (err) {
-        if (isAbort(err)) setNotice('Compare cancelled.');
-        else setError(`Compare failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (isAbort(err)) setNotice(msg('Compare cancelled.'));
+        else setError(msg('Compare failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       }
     },
     [compareFiles, pairBatch, library],
@@ -3047,7 +3118,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             for (let k = 0; k < pairs.length; k++) {
               if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
               const pair = pairs[k]!;
-              progress(k, pairs.length, `${pageLabelFor(n, pair.newPage)}: lining up (${k + 1} of ${pairs.length})`);
+              progress(k, pairs.length, msg('{pageLabelFor}: lining up ({number} of {count})', { pageLabelFor: pageLabelFor(n, pair.newPage), number: k + 1, count: pairs.length }));
               const fitted = spec.options.align || spec.options.scaleToFit || spec.options.transform;
               const transform = fitted ? (await comparePages(o.doc, n.doc, pair, { ...spec.options, graphics: false, text: false })).transform : undefined;
               pages.push({
@@ -3075,7 +3146,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           if (spec.batch) {
             // Every pair of files stacked into one PDF.
             const groups = await pairBatch(spec.batch, spec.pairing.kind !== 'order', ctx);
-            if (!groups.length) throw new Error('No sheets in the two sets matched');
+            if (!groups.length) throw new Error(msg('No sheets in the two sets matched'));
             const pages: OverlayPageSpec[] = [];
             const sources = [];
             for (let g = 0; g < groups.length; g++) {
@@ -3084,12 +3155,12 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
               pages.push(...plan.pages);
               sources.push({ bytes: await readFile(plan.oldFile.hash), color: rgbOf(spec.colors.old) }, { bytes: await readFile(plan.newFile.hash), color: rgbOf(spec.colors.new) });
             }
-            ctx.progress(1, 1, 'Making the overlay');
+            ctx.progress(1, 1, msg('Making the overlay'));
             const bytes = await overlayPages(sources, pages);
             return { name: `Bulk Overlay ${new Date().toISOString().slice(0, 10)}.pdf`, bytes, count: pages.length };
           }
           const plan = await overlayPlan(spec, ctx);
-          ctx.progress(1, 1, 'Making the overlay');
+          ctx.progress(1, 1, msg('Making the overlay'));
           const bytes = await overlayPages(
             [
               { bytes: await readFile(plan.oldFile.hash), color: rgbOf(spec.colors.old) },
@@ -3101,10 +3172,10 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           return { name: `Overlay - ${base(plan.newFile.name)} over ${base(plan.oldFile.name)}.pdf`, bytes, count: plan.pages.length };
         });
         await openCreated(made.name, made.bytes.slice().buffer);
-        setNotice(`Overlaid ${made.count} page${made.count === 1 ? '' : 's'}: dark lines are in both revisions, coloured lines only in the revision drawn in that colour.`);
+        setNotice(msg('Overlaid {count, plural, one {# page} other {# pages}}: dark lines are in both revisions, coloured lines only in the revision drawn in that colour.', { count: made.count }));
       } catch (err) {
-        if (isAbort(err)) setNotice('Overlay cancelled.');
-        else setError(`Overlay failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (isAbort(err)) setNotice(msg('Overlay cancelled.'));
+        else setError(msg('Overlay failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       }
     },
     [overlayPlan, pairBatch, library, openCreated],
@@ -3150,7 +3221,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         },
         { signal, onProgress: (done, total) => progress(done, total, `Page ${regions[done]!.pageIndex + 1} (${done + 1} of ${total})`) },
       );
-      progress(regions.length, regions.length, 'Saving the redacted document');
+      progress(regions.length, regions.length, msg('Saving the redacted document'));
       const report = redacted.report;
       let bytes = redacted.bytes;
       if (redacting && options?.stripMetadata) {
@@ -3174,7 +3245,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       let checked = 0;
       for (const { pageIndex } of regions) {
         const here = areas.filter((a) => a.pageIndex === pageIndex);
-        progress(checked++, regions.length, `Checking page ${pageIndex + 1} for text left inside (${checked} of ${regions.length})`);
+        progress(checked++, regions.length, msg('Checking page {page} for text left inside ({checked} of {count})', { page: pageIndex + 1, checked, count: regions.length }));
         const words = (await doc?.text(pageIndex)) ?? [];
         // The overlay's own label is not left-over text.
         const label = new Set((options?.text ?? '').split(/\s+/).filter(Boolean));
@@ -3186,10 +3257,10 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         }).length;
       }
       const what = `${report.chars} character${report.chars === 1 ? '' : 's'}, ${report.paths} line${report.paths === 1 ? '' : 's'} or shape${report.paths === 1 ? '' : 's'}, ${report.images} picture${report.images === 1 ? '' : 's'}`;
-      const markupNote = gone.filter((m) => m.type !== 'redaction').length ? `, and ${gone.filter((m) => m.type !== 'redaction').length} markup(s) over them` : '';
+      const markupNote = gone.filter((m) => m.type !== 'redaction').length ? msg(', and {count} markup(s) over them', { count: gone.filter((m) => m.type !== 'redaction').length }) : '';
       const onPages = erase ? ` on ${regions.length} page${regions.length === 1 ? '' : 's'}` : '';
-      if (left || report.skipped) setError(`${redacting ? 'Redaction' : 'Erase'} removed ${what}${markupNote}${onPages}, but ${left ? `${left} word(s) can still be read inside the areas` : `${report.skipped} item(s) inside embedded forms could not be removed`}${covering ? ' (they are covered by the box)' : ''}. Check the file before sharing it.`);
-      else setNotice(`${redacting || erase ? 'Redacted' : 'Erased'}: removed ${what}${markupNote}${onPages}. Checked: no text is left in the ${redacting || erase ? 'redacted' : 'erased'} areas.`);
+      if (left || report.skipped) setError(msg('{value} removed {what}{markupNote}{onPages}, but {value2}{value3}. Check the file before sharing it.', { value: redacting ? msg('Redaction') : msg('Erase'), what, markupNote, onPages, value2: left ? msg('{left} word(s) can still be read inside the areas', { left }) : msg('{skipped} item(s) inside embedded forms could not be removed', { skipped: report.skipped }), value3: covering ? ' ' + msg('(they are covered by the box)') : '' }));
+      else setNotice(msg('{value}: removed {what}{markupNote}{onPages}. Checked: no text is left in the {value2} areas.', { value: redacting || erase ? msg('Redacted') : msg('Erased'), what, markupNote, onPages, value2: redacting || erase ? msg('redacted') : msg('erased') }));
     },
     [ctl, ctlB, swapDocument],
   );
@@ -3198,14 +3269,14 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const runRedact = useCallback(
     async (cur: OpenFile, intoB: boolean, mode: 'redact' | 'erase', areas: Parameters<typeof redactPages>[4], options?: RedactOptions, erase?: Parameters<typeof redactPages>[6]) => {
       if (!ctl || !areas.length) return;
-      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its content cannot be changed here.');
+      if (studioDocOf(cur.file.id)) throw new Error(msg('A Live Session document is shared with others, so its content cannot be changed here.'));
       if (!(await rewriteSigned(cur.doc, mode === 'redact' ? 'Redaction' : 'Erase Content'))) return;
       const pages = new Set(areas.map((a) => a.pageIndex)).size;
       try {
         await runJob(`${mode === 'redact' ? 'Redact' : 'Bulk Redact'} · ${cur.file.name}`, (ctx) => redactPages(ctx, cur, intoB, mode, areas, options, erase), { ...PAGES_JOB, cancellable: true, shown: pages > 1 });
       } catch (err) {
         if (!isAbort(err)) throw err;
-        setNotice(`${mode === 'redact' ? 'Redaction' : 'Erase'} cancelled; the document was not changed.`);
+        setNotice(msg('{value} cancelled; the document was not changed.', { value: mode === 'redact' ? msg('Redaction') : msg('Erase') }));
       }
     },
     [ctl, redactPages],
@@ -3216,30 +3287,30 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const c = paneB ? ctlB : ctl;
     if (!cur || !c || !ctl) return;
     if (studioDocOf(cur.file.id)) {
-      setError('A Live Session document is shared with others, so its content cannot be changed here.');
+      setError(msg('A Live Session document is shared with others, so its content cannot be changed here.'));
       return;
     }
     void (async () => {
       const obj = await cur.doc.textObjectAt(pageIndex, at[0], at[1]);
       if (!obj) {
         // Clicking where there is no text adds new text to the page there.
-        const text = await askText('Add Text', '', { label: 'New text for the page (Helvetica, 10 pt; Enter a line break as \\n). It becomes part of the PDF, not a markup.', confirm: 'Add' });
+        const text = await askText(msg('Add Text'), '', { label: msg('New text for the page (Helvetica, 10 pt; Enter a line break as \\n). It becomes part of the PDF, not a markup.'), confirm: msg('Add') });
         if (!text) return;
         const bytes = await ctl.engine.addText(await readFile(cur.file.hash), pageIndex, at[0], at[1], text.replace(/\\n/g, '\n'));
         await swapDocument(cur, paneB, bytes, undefined, undefined, 'Add text');
         return;
       }
       c.tools.flash(pageIndex, obj.rect);
-      const text = await askText('Edit text', obj.text, { label: 'Text', confirm: 'Replace' });
+      const text = await askText(msg('Edit text'), obj.text, { label: msg('Text'), confirm: msg('Replace') });
       if (text === null || text === obj.text) return;
       const { bytes, keptFont } = await ctl.engine.replaceText(await readFile(cur.file.hash), pageIndex, obj.index, text);
       await swapDocument(cur, paneB, bytes, undefined, undefined, 'Edit text');
-      if (!keptFont) setNotice("The text's own font does not have all the new characters, so it is set in Helvetica.");
-    })().catch((err) => setError(`Edit text failed: ${err instanceof Error ? err.message : String(err)}`));
+      if (!keptFont) setNotice(msg('The text\'s own font does not have all the new characters, so it is set in Helvetica.'));
+    })().catch((err) => setError(msg('Edit text failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
   };
   eraseRef.current = (pageIndex, rect, polygon) => {
     const cur = activeOpen;
-    if (cur) void runRedact(cur, paneB, 'erase', [{ pageIndex, rect, ...(polygon ? { polygon } : {}) }]).catch((err) => setError(`Erase failed: ${err instanceof Error ? err.message : String(err)}`));
+    if (cur) void runRedact(cur, paneB, 'erase', [{ pageIndex, rect, ...(polygon ? { polygon } : {}) }]).catch((err) => setError(msg('Erase failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
   };
 
   /** Flatten, Unflatten, Repair, Reduce File Size and Colour Processing (Document menu). */
@@ -3259,15 +3330,15 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           const exported = await annotatedBytes(cur, { links: false, markups });
           const { bytes, count } = await p.flattenAnnotations(exported, spec.recovery ? JSON.stringify(markups) : null);
           await commitDocument(cur, bytes.slice().buffer, () => cur.store.resetMarkups(links), revisionNote);
-          return `Flattened ${count} markup${count === 1 ? '' : 's'}${spec.recovery ? '; Document › Unflatten brings them back' : ''}.`;
+          return msg('Flattened {count, plural, one {# markup} other {# markups}}{value}.', { count, value: spec.recovery ? msg('; Document › Unflatten brings them back') : '' });
         }
         case 'unflatten': {
           const { bytes, recovery } = await p.unflatten(await readFile(cur.file.hash));
-          if (recovery === null) return 'This file has no flattened markups to recover.';
+          if (recovery === null) return msg('This file has no flattened markups to recover.');
           const markups = JSON.parse(recovery) as Markup[];
           const kept = cur.store.all().filter((m) => !markups.some((r) => r.id === m.id));
           await commitDocument(cur, bytes.slice().buffer, () => cur.store.resetMarkups([...kept, ...markups]), revisionNote);
-          return `Recovered ${markups.length} markup${markups.length === 1 ? '' : 's'}.`;
+          return msg('Recovered {count, plural, one {# markup} other {# markups}}.', { count: markups.length });
         }
         case 'repair': {
           if (!ctl) return null;
@@ -3281,21 +3352,21 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           const recompress = spec.recompress ? (jpeg: Uint8Array) => recompressJpeg(jpeg, spec.quality) : undefined;
           const { bytes, images } = await p.reduceFileSize(await readFile(cur.file.hash), recompress, (done, total) => {
             stopped();
-            progress(done, total, `Picture ${done + 1} of ${total}`);
+            progress(done, total, msg('Picture {number} of {total}', { number: done + 1, total }));
           });
-          if (bytes.length >= before) return 'The file is already as small as this can make it.';
+          if (bytes.length >= before) return msg('The file is already as small as this can make it.');
           await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
           const mb = (n: number) => `${(n / 1024 / 1024).toFixed(2)} MB`;
-          return `Reduced from ${mb(before)} to ${mb(bytes.length)}${images ? ` (${images} picture${images === 1 ? '' : 's'} recompressed)` : ''}.`;
+          return msg('Reduced from {mb} to {mb2}{value}.', { mb: mb(before), mb2: mb(bytes.length), value: images ? ' ' + msg('({images, plural, one {# picture} other {# pictures}} recompressed)', { images }) : '' });
         }
         case 'colour': {
           const bytes = await p.recolourPages(await readFile(cur.file.hash), spec.pages, spec.mode, recolourJpeg, (done, total, phase) => {
             stopped();
-            progress(done, total, phase === 'pages' ? `Page ${spec.pages[done]! + 1} (${done + 1} of ${total})` : `Picture ${done + 1} of ${total}`);
+            progress(done, total, phase === 'pages' ? `Page ${spec.pages[done]! + 1} (${done + 1} of ${total})` : msg('Picture {number} of {total}', { number: done + 1, total }));
           });
           stopped();
           await commitDocument(cur, bytes.slice().buffer, undefined, revisionNote);
-          return `Changed the colours of ${spec.pages.length} page${spec.pages.length === 1 ? '' : 's'}.`;
+          return msg('Changed the colours of {count, plural, one {# page} other {# pages}}.', { count: spec.pages.length });
         }
       }
     },
@@ -3305,16 +3376,16 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   /** `processDocument` as a job, so the longer ones show progress and can be cancelled before the file is changed. */
   const runProcess = useCallback(
     async (cur: OpenFile, spec: Parameters<typeof processDocument>[2], revisionNote?: string): Promise<string | null> => {
-      if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
-      const rewrites: Partial<Record<typeof spec.kind, string>> = { repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' };
+      if (studioDocOf(cur.file.id)) throw new Error(msg('A Live Session document is shared with others, so it cannot be changed here.'));
+      const rewrites: Partial<Record<typeof spec.kind, string>> = { repair: 'Repair', reduce: msg('Reduce File Size'), colour: 'Colour Processing' };
       const rewriting = rewrites[spec.kind];
       if (rewriting && !(await rewriteSigned(cur.doc, rewriting))) return null;
-      const title = { flatten: 'Flatten', unflatten: 'Unflatten', repair: 'Repair', reduce: 'Reduce File Size', colour: 'Colour Processing' }[spec.kind];
+      const title = { flatten: 'Flatten', unflatten: 'Unflatten', repair: 'Repair', reduce: msg('Reduce File Size'), colour: 'Colour Processing' }[spec.kind];
       try {
         return await runJob(`${title} · ${cur.file.name}`, (ctx) => processDocument(ctx, cur, spec, revisionNote), { ...PAGES_JOB, cancellable: spec.kind === 'reduce' || spec.kind === 'colour' });
       } catch (err) {
         if (!isAbort(err)) throw err;
-        return `${title} cancelled; the document was not changed.`;
+        return msg('{title} cancelled; the document was not changed.', { title });
       }
     },
     [processDocument],
@@ -3330,13 +3401,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     async (cur: OpenFile, intoB: boolean, spec: SlipSheetSpec) => {
       if (!ctl) return;
       if (studioDocOf(cur.file.id)) {
-        setError('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.');
+        setError(msg('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.'));
         return;
       }
       // The Slip Sheet job below shows progress; this one keeps page operations off until the end.
       const job = startJob('Slip Sheet', { ...PAGES_JOB, shown: false });
       try {
-        const report = await runJob(`Slip Sheet · ${cur.file.name}`, async ({ signal, progress }) => {
+        const report = await runJob(msg('Slip Sheet · {name}', { name: cur.file.name }), async ({ signal, progress }) => {
           const { detectSheets } = await import('@nb/sheets');
           const { planSlipSheet } = await import('./documents/slipSheet');
           const tools = await import('./documents/pageTools');
@@ -3354,7 +3425,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
               const name = src.kind === 'file' ? src.file.name : src.name;
               progress(s, spec.sources.length, `Reading ${name}`);
               const stored = src.kind === 'library' ? library.find((f) => f.id === src.id) : null;
-              if (src.kind === 'library' && !stored) throw new Error(`${name} is no longer in the library`);
+              if (src.kind === 'library' && !stored) throw new Error(msg('{name} is no longer in the library', { name }));
               const bytes = src.kind === 'file' ? await src.file.arrayBuffer() : await readFile(stored!.hash);
               // The engine takes the buffer it is given, so it gets a copy.
               const doc = await ctl.engine.open(bytes.slice(0));
@@ -3380,7 +3451,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
               for (let k = 0; k < plan.replace.length; k++) {
                 cancelled();
                 const r = plan.replace[k]!;
-                progress(k, plan.replace.length, `Lining up ${labelOf(r.incoming)}`);
+                progress(k, plan.replace.length, msg('Lining up {labelOf}', { labelOf: labelOf(r.incoming) }));
                 // A sheet reissued at another paper size is scaled to it as well.
                 const { transform: t } = await comparePages(cur.doc, opened[r.incoming.source]!.doc, { oldPage: r.target, newPage: r.incoming.page }, { ...DEFAULT_COMPARE, graphics: false, text: false, scaleToFit: true });
                 if (Math.hypot(t[4], t[5]) > 0.5 || Math.abs(t[0] - 1) > 0.001) moves.set(r.target, { scale: t[0], dx: t[4], dy: t[5] });
@@ -3403,7 +3474,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             const note = `Before Slip Sheet: ${[...replacedLabels, ...plan.add.map(labelOf)].slice(0, 6).join(', ')}${plan.replace.length + plan.add.length > 6 ? '…' : ''}`;
             // The revision kept is the stored file, which has no markups in it. Comments left behind are
             // written into the copy that is kept, so they can still be read there.
-            if (behind.length) await keepRevisionOf(cur.file.id, (await annotatedBytes(cur)).slice().buffer, `${note} (with its markups: ${behind.length} closed comment${behind.length === 1 ? '' : 's'} left behind)`);
+            if (behind.length) await keepRevisionOf(cur.file.id, (await annotatedBytes(cur)).slice().buffer, msg('{note} (with its markups: {count} closed {count2, plural, one {comment} other {comments}} left behind)', { note, count: behind.length, count2: behind.length }));
             else await keepRevision(cur.file.id, note);
             const first = cur.doc.pages.length;
             await swapDocument(cur, intoB, bytes instanceof Uint8Array ? bytes.slice().buffer : bytes.slice(0), () => {
@@ -3427,14 +3498,14 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         const parts = [
           plan.replace.length ? `replaced ${plan.replace.length} sheet${plan.replace.length === 1 ? '' : 's'} (${list(plan.replace.map((r) => r.incoming))})` : '',
           plan.add.length ? `added ${plan.add.length} (${list(plan.add)})` : '',
-          plan.skipped.length ? `left out ${plan.skipped.length} with no match (${list(plan.skipped)})` : '',
+          plan.skipped.length ? msg('left out {count} with no match ({list})', { count: plan.skipped.length, list: list(plan.skipped) }) : '',
           left ? `left ${left} closed comment${left === 1 ? '' : 's'} behind` : '',
         ].filter(Boolean);
-        setNotice(plan.replace.length || plan.add.length ? `Slip Sheet ${parts.join('; ')}. The set as it was is kept under Document › Revisions.` : `Slip Sheet found no matching sheets${parts.length ? `: ${parts.join('; ')}` : ''}.`);
+        setNotice(plan.replace.length || plan.add.length ? msg('Slip Sheet {parts}. The set as it was is kept under Document › Revisions.', { parts: parts.join('; ') }) : msg('Slip Sheet found no matching sheets{value}.', { value: parts.length ? `: ${parts.join('; ')}` : '' }));
         void refreshLibrary();
       } catch (err) {
-        if (isAbort(err)) setNotice('Slip Sheet cancelled; the document was not changed.');
-        else setError(`Slip Sheet failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (isAbort(err)) setNotice(msg('Slip Sheet cancelled; the document was not changed.'));
+        else setError(msg('Slip Sheet failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         job.end();
       }
@@ -3459,10 +3530,10 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           await replaceFileContent(fileId, bytes);
           forgetText(fileId);
         }
-        setNotice('Restored. The version before it is kept as a revision.');
+        setNotice(msg('Restored. The version before it is kept as a revision.'));
         void refreshLibrary();
       } catch (err) {
-        setError(`Restore failed: ${err instanceof Error ? err.message : String(err)}`);
+        setError(msg('Restore failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       }
     },
     [swapDocument, refreshLibrary],
@@ -3508,7 +3579,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           }
         });
       } catch (err) {
-        if (!isAbort(err)) setError(`Reading sheets failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (!isAbort(err)) setError(msg('Reading sheets failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         setIndexingSets(false);
       }
@@ -3521,7 +3592,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     async (fileId: string, page: number) => {
       const file = library.find((f) => f.id === fileId);
       if (!file) {
-        setError('That file is no longer in the library.');
+        setError(msg('That file is no longer in the library.'));
         return;
       }
       // Preferences › Sets › Open Documents (Open Edited Documents, when the one in front has unsaved
@@ -3638,7 +3709,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                     fonts.done();
                     const { flattenSelection } = await import('./documents/process');
                     const { bytes } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), {});
-                    await commitDocument(b.open, bytes.slice().buffer, () => store.removeFlattened(copies.map((m) => m.id), {}), 'Before flattening markups copied from the earlier revision');
+                    await commitDocument(b.open, bytes.slice().buffer, () => store.removeFlattened(copies.map((m) => m.id), {}), `Before flattening markups copied from the earlier revision`);
                   }
                 }
               }
@@ -3675,12 +3746,12 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           }
         });
       } catch (err) {
-        if (!isAbort(err)) setError(`Following up revisions failed: ${err instanceof Error ? err.message : String(err)}`);
+        if (!isAbort(err)) setError(msg('Following up revisions failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       } finally {
         drawingSets.markRevised(setId, done);
       }
-      const parts = [copied ? `copied ${copied} markup${copied === 1 ? '' : 's'} to the new revision${done.length === 1 ? '' : 's'}` : '', stamped ? `stamped ${stamped} earlier revision${stamped === 1 ? '' : 's'} Superseded` : ''].filter(Boolean);
-      if (parts.length) setNotice(`Sets: ${parts.join('; ')}.`);
+      const parts = [copied ? msg('copied {copied, plural, one {# markup} other {# markups}} to the new {count, plural, one {revision} other {revisions}}', { copied, count: done.length }) : '', stamped ? `stamped ${stamped} earlier revision${stamped === 1 ? '' : 's'} Superseded` : ''].filter(Boolean);
+      if (parts.length) setNotice(msg('Sets: {parts}.', { parts: parts.join('; ') }));
     },
     [acquireDocument, commitDocument],
   );
@@ -3696,7 +3767,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const known = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === hit.docId)?.file ?? library.find((f) => f.id === hit.docId);
       if (known) await openFromLibrary(known);
       else if (file) await openNewFile(file, split && activePaneRef.current === 'b' ? 'b' : 'a');
-      else return setError('That file is no longer in the library.');
+      else return setError(msg('That file is no longer in the library.'));
       // The document comes to the front of its pane on the next render.
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     }
@@ -3711,12 +3782,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
    */
   const runBatch = useCallback(
     async (spec: BatchSpec, onResult: (r: BatchResult) => void) => {
-      const label = BATCH_LABELS[spec.command.kind];
-      const note = spec.keepRevisions ? `Before Bulk ${label}` : undefined;
+      const label = batchLabel(spec.command.kind);
+      // Revision notes are kept in English: they are stored with the file, and stepLabel reads them back.
+      const note = spec.keepRevisions ? `Before Bulk ${BATCH_ENGLISH[spec.command.kind]}` : undefined;
       const nameOf = (id: string) => library.find((f) => f.id === id)?.name ?? id;
       const fail = (fileId: string, err: unknown) => onResult({ fileId, name: nameOf(fileId), ok: false, message: err instanceof Error ? err.message : String(err) });
       try {
-        await runJob(`Bulk ${label}`, async (ctx) => {
+        await runJob(msg('Bulk {operation}', { operation: label }), async (ctx) => {
           const { signal, progress } = ctx;
           const cancelled = () => {
             if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -3778,7 +3850,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                     modifiedAt: now,
                   });
                 const targets = [...new Set(mine.map((l) => l.target.name))];
-                onResult({ fileId: f.fileId, name: f.name, ok: true, message: mine.length ? `${mine.length} link${mine.length === 1 ? '' : 's'} to ${targets.join(', ')}` : 'No references to the other files' });
+                onResult({ fileId: f.fileId, name: f.name, ok: true, message: mine.length ? `${mine.length} link${mine.length === 1 ? '' : 's'} to ${targets.join(', ')}` : msg('No references to the other files') });
               }
             } finally {
               for (const h of held) h.release();
@@ -3801,14 +3873,14 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           let signer: { id: import('./documents/digitalIds').UnlockedId | import('./documents/pdfSign').Signer; image?: Uint8Array } | null = null;
           if (command.kind === 'sign') {
             const record = digitalIds.list().find((r) => r.id === command.sign.idId);
-            if (!record) throw new Error('That Digital ID is no longer on this device');
+            if (!record) throw new Error(msg('That Digital ID is no longer on this device'));
             const id = (await import('./documents/signers')).signerFor(record, command.sign.password);
             if (!record.token) rememberPassword(record.id, command.sign.password);
             const picture = command.sign.imageId ? signatures.get().find((x) => x.id === command.sign.imageId) : undefined;
             signer = { id, ...(picture ? { image: new Uint8Array(await (await fetch(picture.image)).arrayBuffer()) } : {}) };
           }
           const stampDef = command.kind === 'stamp' ? stampLibrary(profiles.active().state).find((x) => x.id === command.stampId) : null;
-          if (command.kind === 'stamp' && !stampDef) throw new Error('That stamp is no longer in the library');
+          if (command.kind === 'stamp' && !stampDef) throw new Error(msg('That stamp is no longer in the library'));
           for (let k = 0; k < spec.fileIds.length; k++) {
             cancelled();
             const id = spec.fileIds[k]!;
@@ -3822,7 +3894,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             }
             const cur = h.open;
             try {
-              if (command.kind !== 'summary' && command.kind !== 'print' && command.kind !== 'split' && studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
+              if (command.kind !== 'summary' && command.kind !== 'print' && command.kind !== 'split' && studioDocOf(cur.file.id)) throw new Error(msg('A Live Session document is shared with others, so it cannot be changed here.'));
               const allPages = cur.doc.pages.map((_, i) => i);
               let message: string;
               switch (command.kind) {
@@ -3869,7 +3941,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                   } else {
                     const rel = [
                       { key: '__id', label: 'ID', width: 140 },
-                      { key: '__parent', label: 'Parent', width: 140 },
+                      { key: '__parent', label: msg('Parent'), width: 140 },
                     ];
                     summaryCols = [...rel, ...cols.map((c) => ({ key: c.key, label: c.label, width: c.defaultWidth, ...(c.align ? { align: c.align } : {}) }))];
                     for (const r of rows) summaryRows.push({ cells: [cur.file.name, ...summaryCols.map((c) => text(r, c.key))], color: r.reply ? undefined : r.markup.style.stroke });
@@ -3888,7 +3960,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                   const texts = await Promise.all(cur.doc.pages.map((_, i) => cur.doc.text(i)));
                   const pages = texts.flatMap((w, i) => (w.length ? [] : [i]));
                   if (!pages.length) {
-                    message = 'Every page already has text';
+                    message = msg('Every page already has text');
                     break;
                   }
                   const count = await ocrDocument(cur, pages, command.dpi, { signal, progress: (d, t, st) => progress(k, spec.fileIds.length, `${nameOf(id)}: ${st ?? `${d}/${t}`}`) }, note);
@@ -3945,7 +4017,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                     const r = tools.marginRect(cur.doc.pages[i]!, command.margins);
                     if (r) crops.set(i, r);
                   }
-                  if (!crops.size) throw new Error('Nothing would be left of the pages: use smaller margins.');
+                  if (!crops.size) throw new Error(msg('Nothing would be left of the pages: use smaller margins.'));
                   const { bytes, transforms } = await tools.cropPages(await readFile(cur.file.hash), crops);
                   await commitDocument(cur, bytes.slice().buffer, () => cur.store.transformPages(transforms), note);
                   message = `${crops.size} page${crops.size === 1 ? '' : 's'} cropped`;
@@ -4023,7 +4095,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                   const labels = allPages.map((i) => sheets[i]?.number || null);
                   const n = labels.filter(Boolean).length;
                   if (!n) {
-                    message = 'No sheet numbers found';
+                    message = msg('No sheet numbers found');
                     break;
                   }
                   const [{ PDFDocument }, { writePageLabels }] = await Promise.all([import('pdf-lib'), import('@nb/markup/export')]);
@@ -4038,11 +4110,11 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                   const { hasHeaderFooter, removeHeaderFooter } = await import('./documents/headerFooter');
                   const bytes = await readFile(cur.file.hash);
                   if (!(await hasHeaderFooter(bytes))) {
-                    message = 'No headers or footers added here';
+                    message = msg('No headers or footers added here');
                     break;
                   }
                   await commitDocument(cur, (await removeHeaderFooter(bytes)).slice().buffer, undefined, note);
-                  message = 'Headers and footers removed';
+                  message = msg('Headers and footers removed');
                   break;
                 }
                 case 'colour':
@@ -4050,7 +4122,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                   break;
                 case 'flatten':
                   if (!cur.store.all().some((m) => m.type !== 'hyperlink')) {
-                    message = 'No markups to flatten';
+                    message = msg('No markups to flatten');
                     break;
                   }
                   message = (await runProcess(cur, command, note)) ?? 'Done';
@@ -4075,9 +4147,9 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             summaryCols = summaryCols.filter((_, i) => used[i]);
             for (const r of summaryRows) r.cells = [r.cells[0]!, ...r.cells.slice(1).filter((_, i) => used[i])];
             const out = await summaryPdf({
-              title: 'Markup Summary',
+              title: msg('Markup Summary'),
               subtitle: `${spec.fileIds.length} file${spec.fileIds.length === 1 ? '' : 's'} · ${summaryRows.length} row${summaryRows.length === 1 ? '' : 's'} · ${new Date().toLocaleString()} by ${authorRef.current}`,
-              columns: [{ label: 'File', width: 160 }, ...summaryCols.map(({ key: _, ...c }) => c)],
+              columns: [{ label: msg('File'), width: 160 }, ...summaryCols.map(({ key: _, ...c }) => c)],
               rows: summaryRows,
             });
             download('Markup summary.pdf', new Blob([out as BlobPart], { type: 'application/pdf' }));
@@ -4098,8 +4170,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           }
         });
       } catch (err) {
-        if (!isAbort(err)) setError(`Bulk ${label} failed: ${err instanceof Error ? err.message : String(err)}`);
-        else setNotice(`Bulk ${label} cancelled; files already done keep their changes.`);
+        if (!isAbort(err)) setError(msg('Bulk {label} failed: {value}', { label, value: err instanceof Error ? err.message : String(err) }));
+        else setNotice(msg('Bulk {label} cancelled; files already done keep their changes.', { label }));
       }
       void refreshLibrary();
     },
@@ -4156,7 +4228,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         .then(async () => {
           const cur = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === fileId);
           if (!cur) return false;
-          if (studioDocOf(fileId)) throw new Error('A Live Session document is shared with others, so it cannot be changed here.');
+          if (studioDocOf(fileId)) throw new Error(msg('A Live Session document is shared with others, so it cannot be changed here.'));
           return runJob(
             what,
             async () => {
@@ -4172,7 +4244,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         })
         .catch((err) => {
           if (rethrow) throw err;
-          setError(`${what} failed: ${err instanceof Error ? err.message : String(err)}`);
+          setError(msg('{what} failed: {error}', { what, error: err instanceof Error ? err.message : String(err) }));
           return false;
         });
       // The queue carries on after a failure.
@@ -4184,7 +4256,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
 
   const fillFields = useCallback(
     (fileId: string, values: Record<string, string>) =>
-      editForm(fileId, 'Filling in the form', async (bytes) => (await import('./documents/forms')).fillForm(bytes, values, { validate: true })),
+      editForm(fileId, msg('Filling in the form'), async (bytes) => (await import('./documents/forms')).fillForm(bytes, values, { validate: true })),
     [editForm],
   );
 
@@ -4227,13 +4299,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     switch (a.kind) {
       case 'url':
         if (/^(https?|mailto):/i.test(a.url)) window.open(a.url, '_blank', 'noopener');
-        else setError(`The button’s address is not a web address: ${a.url}`);
+        else setError(msg('The button’s address is not a web address: {url}', { url: a.url }));
         return;
       case 'page':
         navigate(Math.min(a.pageIndex, o.doc.pages.length - 1), null);
         return;
       case 'reset':
-        void editForm(o.file.id, 'Resetting the form', async (bytes) => (await import('./documents/forms')).resetForm(bytes));
+        void editForm(o.file.id, msg('Resetting the form'), async (bytes) => (await import('./documents/forms')).resetForm(bytes));
         return;
       case 'print':
         setPrintOpen(true);
@@ -4244,15 +4316,15 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         if (/^mailto:/i.test(a.url)) {
           // Mail apps take no attachments from a link: the data is downloaded to attach.
           download(`${o.file.name.replace(/\.pdf$/i, '')} form data.xfdf`, new Blob([xfdf], { type: 'application/vnd.adobe.xfdf' }));
-          window.open(`${a.url}${a.url.includes('?') ? '&' : '?'}subject=${encodeURIComponent(`Form data: ${o.file.name}`)}&body=${encodeURIComponent('The form data is attached (XFDF).')}`, '_blank');
-          setNotice('The form data was saved as an XFDF file; attach it to the email that opened.');
+          window.open(`${a.url}${a.url.includes('?') ? '&' : '?'}subject=${encodeURIComponent(msg('Form data: {name}', { name: o.file.name }))}&body=${encodeURIComponent(msg('The form data is attached (XFDF).'))}`, '_blank');
+          setNotice(msg('The form data was saved as an XFDF file; attach it to the email that opened.'));
           return;
         }
         try {
           const res = await fetch(a.url, { method: 'POST', headers: { 'content-type': 'application/vnd.adobe.xfdf' }, body: xfdf });
-          setNotice(res.ok ? `Form submitted to ${new URL(a.url).host}.` : `Submitting failed: ${new URL(a.url).host} answered ${res.status}.`);
+          setNotice(res.ok ? msg('Form submitted to {host}.', { host: new URL(a.url).host }) : msg('Submitting failed: {host} answered {status}.', { host: new URL(a.url).host, status: String(res.status) }));
         } catch {
-          setError(`Could not submit the form to ${a.url} (the server may not accept requests from this app).`);
+          setError(msg('Could not submit the form to {url} (the server may not accept requests from this app).', { url: a.url }));
         }
         return;
       }
@@ -4268,7 +4340,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       // The box for a signature being made: sign there.
       pendingSign.current = null;
       (pane === 'b' ? ctlB : ctl)?.tools.setTool('select');
-      void runSign(o.file.id, signing, { area: { pageIndex, rect } }).catch((err) => setError(`Signing failed: ${err instanceof Error ? err.message : String(err)}`));
+      void runSign(o.file.id, signing, { area: { pageIndex, rect } }).catch((err) => setError(msg('Signing failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
       return;
     }
     const model = formModels[o.file.hash];
@@ -4280,7 +4352,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const joining = newFieldType === 'radio' && selected?.type === 'radio';
       const name = joining ? selected.name : uniqueName(FIELD_BASE[newFieldType], names);
       const options = newFieldType === 'radio' ? [uniqueName('Choice', joining ? selected.options : [])] : undefined;
-      await editForm(o.file.id, 'Adding the field', (bytes) => createFields(bytes, [{ type: newFieldType, name, pageIndex, rect, ...(options ? { options } : {}) }]));
+      await editForm(o.file.id, msg('Adding the field'), (bytes) => createFields(bytes, [{ type: newFieldType, name, pageIndex, rect, ...(options ? { options } : {}) }]));
       setSelectedField(name);
       showPanel('forms');
     })();
@@ -4319,7 +4391,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const runSign = useCallback(
     async (fileId: string, c: SignChoice, target: { fieldName?: string; area?: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } } }) => {
       const record = digitalIds.list().find((r) => r.id === c.idId);
-      if (!record) throw new Error('That Digital ID is no longer on this device');
+      if (!record) throw new Error(msg('That Digital ID is no longer on this device'));
       const { signerFor } = await import('./documents/signers');
       const { signPdf } = await import('./documents/pdfSign');
       const id = signerFor(record, c.password);
@@ -4350,7 +4422,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         true,
       );
       if (!ok) return;
-      setNotice(`Signed by ${record.name}${c.certify ? ' and certified' : ''}. The version before signing is kept under Document › Revisions.${ltvNote ? ` ${ltvNote}` : ''}`);
+      setNotice(msg('Signed by {name}{value}. The version before signing is kept under Document › Revisions.{value2}', { name: record.name, value: c.certify ? ' ' + msg('and certified') : '', value2: ltvNote ? ` ${ltvNote}` : '' }));
       showPanel('signatures');
     },
     [editForm],
@@ -4369,7 +4441,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const tools = await import('./documents/pageTools');
       const base = cur.file.name.replace(/\.pdf$/i, '');
       const writes = spec.kind === 'replace' || spec.kind === 'crop' || spec.kind === 'setup';
-      if (writes && studioDocOf(cur.file.id)) throw new Error('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.');
+      if (writes && studioDocOf(cur.file.id)) throw new Error(msg('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.'));
       const zipDownload = async (name: string, parts: Uint8Array[], names: (i: number) => string) => {
         const { zipFiles } = await import('./documents/zip');
         download(name, new Blob([zipFiles(parts.map((data, i) => ({ name: names(i), data }))) as BlobPart], { type: 'application/zip' }));
@@ -4392,7 +4464,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         case 'split': {
           const parts = await tools.splitDocument(await annotatedBytes(cur), base, cur.store.bookmarks(), spec);
           await zipDownload(`${base} (split).zip`, parts.map((p) => p.data), (i) => parts[i]!.name);
-          setNotice(`Split into ${parts.length} files.`);
+          setNotice(msg('Split into {count} files.', { count: parts.length }));
           return;
         }
         case 'replace': {
@@ -4413,7 +4485,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             r = { x: x0, y: y0, w: Math.min(size.width, r.x + r.w) - x0, h: Math.min(size.height, r.y + r.h) - y0 };
             if (r.w > 1 && r.h > 1) crops.set(p, r);
           }
-          if (!crops.size) throw new Error('Nothing would be left of the pages: use smaller margins.');
+          if (!crops.size) throw new Error(msg('Nothing would be left of the pages: use smaller margins.'));
           const { bytes, transforms } = await tools.cropPages(await readFile(cur.file.hash), crops);
           await swapDocument(cur, intoB, bytes.slice().buffer, () => cur.store.transformPages(transforms), undefined, 'Crop pages');
           return;
@@ -4438,7 +4510,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const label = pages.length === 1 ? `page ${pages[0]! + 1}` : `${pages.length} pages`;
       download(`${cur.file.name.replace(/\.pdf$/i, '')} (${label}).pdf`, new Blob([out], { type: 'application/pdf' }));
     } catch (err) {
-      setError(`Extract failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Extract failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     } finally {
       job.end();
     }
@@ -4486,7 +4558,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           await saved(handle.name);
           return true;
         }
-        if (!silent) setError(`${handle.name} was not saved: the browser did not allow writing to it.`);
+        if (!silent) setError(msg('{name} was not saved: the browser did not allow writing to it.', { name: handle.name }));
         return false;
       }
       const picked = await saveAsWithPicker(cur.file.name.endsWith('.pdf') ? cur.file.name : `${cur.file.name}.pdf`, 'application/pdf', blob);
@@ -4500,7 +4572,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       return true;
     } catch (err) {
       // Autosave retries after the next edit; a document that cannot be saved quietly stays unsaved.
-      if (!silent) setError(`Save failed: ${err instanceof Error ? err.message : String(err)}`);
+      if (!silent) setError(msg('Save failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       return false;
     }
   }, [replaceTab, setFront, refreshLibrary]);
@@ -4541,12 +4613,36 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
    * the right pane has some, the right pane's tabs move across and the split closes.
    */
   const closeTab = useCallback(
-    (pane: Pane, fileId: string) => {
+    (pane: Pane, fileId: string, recordClosed = true) => {
       pane = tabPaneOf(pane);
       const tabs = pane === 'b' ? tabsBRef.current : tabsARef.current;
       const idx = tabs.findIndex((t) => t.file.id === fileId);
       if (idx < 0) return;
       const closing = tabs[idx]!;
+      // A model in front counts too, so closing it brings the next tab forward.
+      const front = frontTabOf(pane);
+      if (recordClosed) {
+        const desktopToken = fileLocationToken(closing.file.id);
+        const isBlankUnsaved = closing.file.name === 'Untitled.pdf' && !desktopToken && !hasFileLocation(closing.file.id);
+        if (!studioDocOf(closing.file.id) && !isBlankUnsaved && (desktopToken || (closing.file.id && closing.file.hash))) {
+          const viewer = pane === 'b' ? ctlB?.viewer : ctl?.viewer;
+          const lastPage =
+            front === closing && viewer
+              ? viewer.currentPageIndex
+              : (savedViews.current.get(closing.file.id)?.pageIndex ?? 0);
+          const entry = {
+            name: closing.file.name,
+            libraryId: closing.file.id,
+            desktopToken,
+            pageIndex: Math.max(0, lastPage),
+          };
+          setClosedTabs((prev) => {
+            const next = [...prev.filter((x) => x.libraryId !== entry.libraryId), entry].slice(-20);
+            closedTabsRef.current = next;
+            return next;
+          });
+        }
+      }
       const rest = tabs.filter((_, i) => i !== idx);
       setTabs(pane, rest);
       // The mirrored right pane follows the left pane's next tab; with none, the mirror and the split end.
@@ -4555,7 +4651,6 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         setSplit(false);
         setActivePane('a');
       }
-      const front = frontTabOf(pane);
       if (front === closing) {
         const next = rest[Math.min(idx, rest.length - 1)] ?? null;
         if (next) showInPane(pane, next);
@@ -4579,8 +4674,73 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       }
       disposeOpen(closing);
     },
-    [setTabs, showInPane],
+    [setTabs, showInPane, ctl, ctlB],
   );
+
+  /** Pops the most recently closed file- or library-backed tab and reopens it, restoring its last page. */
+  const reopenClosedTab = useCallback(async () => {
+    const stack = closedTabsRef.current;
+    if (!stack.length) return;
+    const entry = stack[stack.length - 1]!;
+    const next = stack.slice(0, -1);
+    closedTabsRef.current = next;
+    setClosedTabs(next);
+
+    const targetPane: Pane = split && activePaneRef.current === 'b' ? 'b' : 'a';
+    const restorePage = (fileId: string, page: number) => {
+      if (page <= 0) return;
+      const tab = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === fileId);
+      if (!tab || page >= tab.doc.pages.length) return;
+      const isB = tabsBRef.current.some((t) => t.file.id === fileId);
+      (isB ? ctlB?.viewer : ctl?.viewer)?.goToPage(page);
+    };
+
+    for (const p of ['a', 'b'] as const) {
+      const existing = (p === 'b' ? tabsBRef.current : tabsARef.current).find((t) => t.file.id === entry.libraryId);
+      if (existing) {
+        activateTab(p, existing);
+        restorePage(entry.libraryId, entry.pageIndex);
+        return;
+      }
+    }
+
+    try {
+      const files = await listFiles();
+      const file = files.find((f) => f.id === entry.libraryId);
+      if (file) {
+        if (await movedAway(file.id)) {
+          setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+          return;
+        }
+        const bytes = await readFile(file.hash);
+        await openStored(file, bytes, targetPane);
+        await touchFile(file.id);
+        void refreshLibrary();
+        restorePage(file.id, entry.pageIndex);
+        return;
+      }
+
+      const host = desktop();
+      if (entry.desktopToken && host) {
+        const exists = host.tokenExists ? await host.tokenExists(entry.desktopToken) : true;
+        if (!exists) {
+          setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+          return;
+        }
+        const raw = await host.readToken(entry.desktopToken);
+        const bytes = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer;
+        const stored = await saveFile(entry.name, bytes.slice(0));
+        await openStored(stored, bytes, targetPane);
+        void refreshLibrary();
+        restorePage(stored.id, entry.pageIndex);
+        return;
+      }
+
+      setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+    } catch {
+      setNotice(msg('Could not reopen "{name}": the file is no longer available.', { name: entry.name }));
+    }
+  }, [split, ctl, ctlB, activateTab, openStored, refreshLibrary]);
 
   /**
    * Puts a document's markups back to what its file holds: undoes what was done since it matched
@@ -4637,6 +4797,55 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   );
   closeTabRef.current = requestCloseTab;
 
+  /**
+   * Before the window goes (closing it, or Restart Now): asks about each document with unsaved
+   * changes, showing it first, then saves Live Sessions on this device. False when the person
+   * cancels or a session could not be saved, and the app keeps running.
+   */
+  const settleBeforeLeaving = useCallback(async () => {
+    for (const pane of ['a', 'b'] as const) {
+      for (const t of [...(pane === 'b' ? tabsBRef.current : tabsARef.current)]) {
+        if (studioDocOf(t.file.id) || !hasUnsavedChanges(t)) continue;
+        activateTab(pane, t);
+        if (!(await settleUnsaved(pane, t.file.id))) return false;
+      }
+    }
+    try {
+      await Promise.all(sessionsRef.current.map((s) => s.saveLocally?.()));
+    } catch {
+      setError(msg('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing or restarting.'));
+      return false;
+    }
+    return true;
+  }, [activateTab, settleUnsaved]);
+
+  /**
+   * Leaves the app (the desktop window closing, or Restart Now) once `settleBeforeLeaving` allows it.
+   * One guard covers both, so a close request while Restart Now is asking (or the reverse) does not
+   * ask about the same documents twice.
+   */
+  const leaving = useRef(false);
+  const leaveApp = useCallback(
+    async (go: () => void, failed: (error: string) => string) => {
+      if (leaving.current) return;
+      leaving.current = true;
+      try {
+        if (await settleBeforeLeaving()) go();
+      } catch (e) {
+        setError(failed(e instanceof Error ? e.message : String(e)));
+      } finally {
+        leaving.current = false;
+      }
+    },
+    [settleBeforeLeaving],
+  );
+
+  /**
+   * Restarts the app (Preferences › Language), after the same questions closing the window asks
+   * (the desktop app has no browser prompt on reload).
+   */
+  const restartApp = useCallback(() => leaveApp(() => location.reload(), (error) => msg('Could not restart: {error}', { error })), [leaveApp]);
+
   // The desktop app asks before its window closes while documents have unsaved changes: the page
   // reports whether any do, and on a close request asks about each one, showing it first.
   useEffect(() => {
@@ -4689,28 +4898,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   useEffect(() => {
     const host = desktop();
     if (!host?.onCloseRequest) return;
-    let asking = false;
-    return host.onCloseRequest(() => {
-      if (asking) return;
-      asking = true;
-      void (async () => {
-        try {
-          for (const pane of ['a', 'b'] as const) {
-            for (const t of [...(pane === 'b' ? tabsBRef.current : tabsARef.current)]) {
-              if (studioDocOf(t.file.id) || !hasUnsavedChanges(t)) continue;
-              activateTab(pane, t);
-              if (!(await settleUnsaved(pane, t.file.id))) return;
-            }
-          }
-          try { await Promise.all(sessionsRef.current.map((s) => s.saveLocally?.())); }
-          catch { setError('Session changes could not be saved on this device. Keep redcolumn open and retry sync before closing.'); return; }
-          host.closeWindow?.();
-        } finally {
-          asking = false;
-        }
-      })();
-    });
-  }, [activateTab, settleUnsaved]);
+    return host.onCloseRequest(() => void leaveApp(() => host.closeWindow?.(), (error) => msg('Could not close the window: {error}', { error })));
+  }, [leaveApp]);
 
   /** Closes tabs one after another, stopping when the person cancels one. */
   const requestCloseTabs = useCallback(
@@ -4764,7 +4953,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const fileId = studioFileId(sessionId, docId);
     const wasOpen = [...tabsARef.current, ...tabsBRef.current].some((t) => t.file.id === fileId);
     closeStudioDocs(sessionId, docId);
-    if (wasOpen) setError(`${name ?? 'A document'} was removed from the session.`);
+    if (wasOpen) setError(msg('{value} was removed from the session.', { value: name ?? msg('A document') }));
   };
 
   /** Opens a session document in a tab: downloads it (or uses this device's copy offline) and syncs its markups. */
@@ -4879,7 +5068,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const open = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === d.fileId);
       if (open) return { bytes: await readFile(open.file.hash), seed: Y.encodeStateAsUpdate(open.store.doc) };
       const stored = library.find((f) => f.id === d.fileId);
-      if (!stored) throw new Error(`${d.name} is no longer in the library.`);
+      if (!stored) throw new Error(msg('{name} is no longer in the library.', { name: d.name }));
       const store = await MarkupStore.open(stored.id);
       const seed = Y.encodeStateAsUpdate(store.doc);
       await store.destroy();
@@ -5042,7 +5231,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           for (const r of withThreads(buildRows(store.all(), ctx, {}, null), ctx)) rows.push({ ...r, cells: { document: { text: d.name, num: null }, ...r.cells } });
         });
       }
-      return rowsToCsv(rows, [{ key: 'document', label: 'Document', defaultWidth: 160 }, ...(columns ?? listColumns([]).filter((c) => keep.has(c.key)))], true);
+      return rowsToCsv(rows, [{ key: 'document', label: msg('Document'), defaultWidth: 160 }, ...(columns ?? listColumns([]).filter((c) => keep.has(c.key)))], true);
     },
     [withSessionMarkups],
   );
@@ -5076,7 +5265,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           try {
             dir = await pick({ id: 'end-session', mode: 'readwrite' });
           } catch {
-            throw new Error('No folder was chosen, so the session was not ended.');
+            throw new Error(msg('No folder was chosen, so the session was not ended.'));
           }
         }
       } else if (saving && choice.destination === 'onedrive') await authorizeMicrosoft();
@@ -5125,14 +5314,14 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           files.push({ name: safe(`${d.name.replace(/\.pdf$/i, '')} (${meta.name}).pdf`), blob: new Blob([out.slice().buffer], { type: 'application/pdf' }) });
         }
       }
-      if (choice.markupsCsv && meta.documents.length) step('Preparing the markups CSV');
+      if (choice.markupsCsv && meta.documents.length) step(msg('Preparing the markups CSV'));
       if (choice.markupsCsv && meta.documents.length) files.push({ name: safe(`${meta.name} markups.csv`), blob: new Blob(['﻿' + (await sessionMarkupsCsv(session))], { type: 'text/csv' }) });
       if (choice.recordCsv) {
-        step('Preparing the session record');
+        step(msg('Preparing the session record'));
         const snap = session.getSnapshot();
         files.push({ name: safe(`${meta.name} session record.csv`), blob: new Blob(['﻿' + recordToCsv(snap.meta, snap.record)], { type: 'text/csv' }) });
       }
-      if (choice.reportPdf) step('Preparing the session report');
+      if (choice.reportPdf) step(msg('Preparing the session report'));
       if (choice.reportPdf) files.push({ name: safe(`${meta.name} session report.pdf`), blob: new Blob([(await sessionReportBytes(session)) as BlobPart], { type: 'application/pdf' }) });
 
       let where = '';
@@ -5157,32 +5346,32 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           const folder = `${meta.name} (ended ${stamp})`;
           const folderId = await oneDriveApi.createFolder(folder);
           for (const f of files) {
-            step(`Uploading ${f.name} to OneDrive`);
+            step(msg('Uploading {name} to OneDrive', { name: f.name }));
             await oneDriveApi.createFile(folderId, f.name, f.blob.type, f.blob, {});
           }
-          where = `OneDrive, Apps/redcolumn/${folder}`;
+          where = msg('OneDrive, Apps/redcolumn/{folder}', { folder });
         } else {
-          if (!project) throw new Error('Choose a Project to save to.');
+          if (!project) throw new Error(msg('Choose a Project to save to.'));
           const taken = new Set(project.getSnapshot().folders.filter((f) => f.parentId === null).map((f) => f.name.toLowerCase()));
           let folder = `${safe(meta.name)} (ended ${stamp})`;
           for (let n = 2; taken.has(folder.toLowerCase()); n++) folder = `${safe(meta.name)} (ended ${stamp}) ${n}`;
           const { id } = await project.addFolder(folder, null);
           for (const f of files) {
-            step(`Uploading ${f.name} to the Project`);
+            step(msg('Uploading {name} to the Project', { name: f.name }));
             await project.addFile(f.name, id, await f.blob.arrayBuffer());
           }
-          where = `the Project “${project.getSnapshot().manifest.name}”, folder ${folder}`;
+          where = msg('the Project “{name}”, folder {folder}', { name: project.getSnapshot().manifest.name, folder });
         }
       }
 
       // Session Roundtrip: library documents take the session's markups (and its newer revision, if the host updated it).
       await session.prepareCloseout?.();
-      if (reviewState() !== archivedState) throw new Error('The review changed while its archive was being saved. Its shared files have been kept. Check the latest changes and save the archive again.');
+      if (reviewState() !== archivedState) throw new Error(msg('The review changed while its archive was being saved. Its shared files have been kept. Check the latest changes and save the archive again.'));
       const sentBack: string[] = [];
       for (const d of meta.documents) {
         const back = choice.sendBack.includes(d.id) ? sourceOf(sessionId, d.id) : null;
         if (!back) continue;
-        step(`Sending ${d.name} back to your library`);
+        step(msg('Sending {name} back to your library', { name: d.name }));
         const bytes = await session.fetchDocument(d.id);
         const chosen = await withSessionMarkups(session, d.id, (store) => store.all().filter((m) => choice.authors.includes(m.author)));
         const tab = pdfTabs([...tabsARef.current, ...tabsBRef.current]).find((t) => t.file.id === back.fileId);
@@ -5203,14 +5392,14 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       if (sentBack.length) void refreshLibrary();
 
       // Everything is saved: only now does the session go.
-      step('Removing the session and its files');
+      step(msg('Removing the session and its files'));
       await session.end();
       closeStudioDocs(sessionId);
       forgetRoundtrip(sessionId);
       sessionsRef.current = sessionsRef.current.filter((s) => s.id !== sessionId);
       setSessions(sessionsRef.current);
       setFocusedSession((f) => (f === sessionId ? null : f));
-      setNotice(`Ended “${meta.name}” and removed its files.${files.length ? ` Saved ${files.length} file${files.length === 1 ? '' : 's'} to ${where}.` : ''}${sentBack.length ? ` Sent back: ${sentBack.join(', ')}.` : ''}`);
+      setNotice(msg('Ended “{name}” and removed its files.{value}{value2}', { name: meta.name, value: files.length ? ' ' + msg('Saved {count, plural, one {# file} other {# files}} to {where}.', { count: files.length, where }) : '', value2: sentBack.length ? ' ' + msg('Sent back: {sentBack}.', { sentBack: sentBack.join(', ') }) : '' }));
     },
     [withSessionMarkups, sessionMarkupsCsv, sessionReportBytes, closeStudioDocs, acquireDocument, commitDocument, refreshLibrary],
   );
@@ -5231,8 +5420,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         void session
           .fetchDocument(d.id)
           .then((bytes) => swapDocument(tab, !inA, bytes, () => tab.store.forgetImported(tab.doc.pages.map((_, i) => i))))
-          .then(() => setNotice(`${d.name} was updated to revision ${version}; markups are on the same pages.`))
-          .catch((err) => setError(`Could not load the new revision of ${d.name}: ${err instanceof Error ? err.message : String(err)}`));
+          .then(() => setNotice(msg('{name} was updated to revision {version}; markups are on the same pages.', { name: d.name, version: String(version) })))
+          .catch((err) => setError(msg('Could not load the new revision of {name}: {value}', { name: d.name, value: err instanceof Error ? err.message : String(err) })));
       }
     }
   }, [snapshots, swapDocument]);
@@ -5305,7 +5494,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           const got = await project.download(file.id).catch((err) => {
             // Offline: the copy on this device opens as it is.
             if (!(err instanceof TypeError)) throw err;
-            setNotice(`Offline: opened your copy of ${file.name} (revision ${link.rev}); the Project has revision ${latest}.`);
+            setNotice(msg('Offline: opened your copy of {name} (revision {rev}); the Project has revision {latest}.', { name: file.name, rev: String(link.rev), latest: String(latest) }));
             return null;
           });
           if (!got) return void (await openFromLibrary(stored));
@@ -5321,7 +5510,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             held?.release();
           }
           setLink(copyId, { ...link, rev: got.revision.n });
-          setNotice(`${file.name}: updated to revision ${got.revision.n} from the Project.`);
+          setNotice(msg('{name}: updated to revision {n} from the Project.', { name: file.name, n: String(got.revision.n) }));
         }
         await openFromLibrary((await listFiles()).find((f) => f.id === copyId)!);
         return;
@@ -5341,7 +5530,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const file = await project.addFile(s.name, folderId, s.bytes);
       if (s.libraryId) setLink(s.libraryId, { projectId: project.id, fileId: file.id, rev: 1, name: s.name });
     }
-    setNotice(`Added ${sources.map((s) => s.name).join(', ')} to the Project.`);
+    setNotice(msg('Added {list} to the Project.', { list: sources.map((s) => s.name).join(', ') }));
   }, []);
 
   /**
@@ -5351,17 +5540,17 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const checkInProjectFile = useCallback(
     async (project: Project, file: ProjectFile, comment: string) => {
       const copyId = libraryCopyOf(project.id, file.id);
-      if (!copyId) throw new Error('Open the file from the Project first, then make your changes.');
+      if (!copyId) throw new Error(msg('Open the file from the Project first, then make your changes.'));
       const link = linkOf(copyId)!;
       const queue = () => {
         projectQueue().add({ kind: 'checkin', projectId: project.id, fileId: file.id, fileName: file.name, by: authorRef.current, libraryId: copyId, baseRev: link.rev, comment, keep: false });
-        setNotice(`${file.name} will be checked in when OneDrive can be reached.`);
+        setNotice(msg('{name} will be checked in when OneDrive can be reached.', { name: file.name }));
       };
       if (!navigator.onLine) return queue();
       try {
         const rev = await project.checkIn(file.id, await projectCopyBytes(copyId), comment);
         setLink(copyId, { ...link, rev: rev.n });
-        setNotice(`Checked in ${file.name} as revision ${rev.n}.`);
+        setNotice(msg('Checked in {name} as revision {n}.', { name: file.name, n: String(rev.n) }));
       } catch (err) {
         if (!isUnreachable(err)) throw err;
         queue();
@@ -5404,16 +5593,16 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       await project.poll();
       if (c.kind === 'note') return void (await project.note('file', noteText(c), { fileId: c.fileId }));
       const file = project.getSnapshot().files.find((f) => f.id === c.fileId);
-      if (!file) throw new Error('It is no longer in the Project.');
-      if (!project.heldByMe(file)) throw new Error(file.checkout ? `${file.checkout.by} has it checked out.` : 'It is no longer checked out to you. Check it out again, then retry.');
+      if (!file) throw new Error(msg('It is no longer in the Project.'));
+      if (!project.heldByMe(file)) throw new Error(file.checkout ? msg('{by} has it checked out.', { by: file.checkout.by }) : msg('It is no longer checked out to you. Check it out again, then retry.'));
       const latest = file.revisions[file.revisions.length - 1]!.n;
-      if (latest > c.baseRev) throw new Error(`Someone checked in revision ${latest} after your copy (revision ${c.baseRev}).`);
+      if (latest > c.baseRev) throw new Error(msg('Someone checked in revision {latest} after your copy (revision {baseRev}).', { latest: String(latest), baseRev: String(c.baseRev) }));
       const rev = await project.checkIn(file.id, await projectCopyBytes(c.libraryId), c.comment);
       const link = linkOf(c.libraryId);
       if (link) setLink(c.libraryId, { ...link, rev: rev.n });
     });
-    if (r.sent.length) setNotice(`Sent ${r.sent.length} Project change${r.sent.length === 1 ? '' : 's'} made offline.`);
-    if (r.failed.length) setError(`Not sent: ${r.failed.map((c) => `${c.fileName} (${c.error})`).join('; ')}. Retry or discard them in the Projects panel.`);
+    if (r.sent.length) setNotice(msg('Sent {count} Project {count2, plural, one {change} other {changes}} made offline.', { count: r.sent.length, count2: r.sent.length }));
+    if (r.failed.length) setError(msg('Not sent: {list}. Retry or discard them in the Projects panel.', { list: r.failed.map((c) => `${c.fileName} (${c.error})`).join('; ') }));
   }, []);
   const sendQueuedRef = useRef(sendQueuedProjectChanges);
   sendQueuedRef.current = sendQueuedProjectChanges;
@@ -5490,8 +5679,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   useEffect(() => {
     if (!ctl) return;
     const offs = [
-      addBusyCheck('jobs', () => (runningJobs().length ? `${runningJobs()[0]!.label.toLowerCase()} is running` : null)),
-      addBusyCheck('projects', () => (projectQueue().busy ? 'Project changes are being sent' : null)),
+      addBusyCheck('jobs', () => (runningJobs().length ? msg('{label} is running', { label: runningJobs()[0]!.label.toLowerCase() }) : null)),
+      addBusyCheck('projects', () => (projectQueue().busy ? msg('Project changes are being sent') : null)),
       addBusyCheck('drawing', () => (ctl.tools.inProgress || ctlBRef.current?.tools.inProgress ? 'a markup is being drawn' : null)),
     ];
     return () => offs.forEach((o) => o());
@@ -5517,9 +5706,9 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           const res = await fetch(launch.url).catch(() => null);
           const blob = res?.ok ? await res.blob() : null;
           if (blob && (blob.type === 'application/pdf' || /\.pdf($|\?)/i.test(launch.url))) return openNewFileRef.current([new File([blob], decodeURIComponent(new URL(launch.url).pathname.split('/').pop() || 'Shared.pdf'), { type: 'application/pdf' })], 'a');
-          return setError(`Could not open the shared link ${launch.url}. Download the PDF and share the file instead.`);
+          return setError(msg('Could not open the shared link {url}. Download the PDF and share the file instead.', { url: launch.url }));
         }
-        setError(launch.error ? 'The shared file could not be received.' : 'Nothing to open was shared: share a PDF file.');
+        setError(launch.error ? msg('The shared file could not be received.') : msg('Nothing to open was shared: share a PDF file.'));
       })();
     }
     // Once, when the viewer is ready.
@@ -5743,7 +5932,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const rows: CommentRow[] = [];
       const failed: string[] = [];
       const open = (row: CommentRow) => void openCommentRow(() => openSessionDocument(session.id, row.fileId), row).catch((err) => setError(err instanceof Error ? err.message : String(err)));
-      setCommentsTable({ key, title: `Live Session ${session.meta.name}`, rows: null, progress: { done: 0, total: docs.length }, failed, open, refresh: () => void showSessionComments(session) });
+      setCommentsTable({ key, title: msg('Live Session {name}', { name: session.meta.name }), rows: null, progress: { done: 0, total: docs.length }, failed, open, refresh: () => void showSessionComments(session) });
       for (const [i, d] of docs.entries()) {
         try {
           rows.push(
@@ -5820,8 +6009,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     if (!store || !m) return;
     const replace = m.type === 'replaceText';
     const connector = m.type === 'connector';
-    void askText(replace ? 'Replace Text' : connector ? 'Connector Text' : 'Dimension Text', m.text ?? '', {
-      label: replace ? `Replacing "${m.comment ?? ''}" with:` : connector ? 'Shown on the connector, e.g. Yes or No.' : 'Shown along the dimension line.',
+    void askText(replace ? msg('Replace Text') : connector ? msg('Connector Text') : msg('Dimension Text'), m.text ?? '', {
+      label: replace ? msg('Replacing "{value}" with:', { value: m.comment ?? '' }) : connector ? msg('Shown on the connector, e.g. Yes or No.') : msg('Shown along the dimension line.'),
       confirm: 'OK',
     }).then((text) => {
       if (text !== null && text !== (m.text ?? '')) {
@@ -5914,7 +6103,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     if (!p) return;
     if (activeOpen?.file.id !== p.fileId) {
       // Its document is open in another tab: the view cannot go there from here.
-      setNotice(`Switch to ${previewFile(p.fileId)?.file.name ?? 'its document'} to open ${p.title}.`);
+      setNotice(msg('Switch to {value} to open {title}.', { value: previewFile(p.fileId)?.file.name ?? msg('its document'), title: p.title }));
       return;
     }
     navigate(p.link.targetPage, p.link.targetRect);
@@ -5926,7 +6115,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const p = linkPreviews.find((x) => x.id === id);
     if (!p) return;
     if (activeOpen?.file.id !== p.fileId) {
-      setNotice(`Switch to ${previewFile(p.fileId)?.file.name ?? 'its document'} to go back.`);
+      setNotice(msg('Switch to {value} to go back.', { value: previewFile(p.fileId)?.file.name ?? msg('its document') }));
       return;
     }
     navigate(p.link.pageIndex, p.link.rect);
@@ -6017,11 +6206,11 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       setClipboardCount(1);
       try {
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-        setNotice('Snapshot copied to the clipboard. Ctrl+V pastes it as an image.');
+        setNotice(msg('Snapshot copied to the clipboard. Ctrl+V pastes it as an image.'));
       } catch {
-        setNotice('Snapshot copied. Ctrl+V pastes it as an image here.');
+        setNotice(msg('Snapshot copied. Ctrl+V pastes it as an image here.'));
       }
-    })().catch((err) => setError(`Snapshot failed: ${err instanceof Error ? err.message : String(err)}`));
+    })().catch((err) => setError(msg('Snapshot failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
   };
   // An image pasted from another app becomes an image markup at the pointer (or the view's centre).
   pasteImageRef.current = (file, dropped) => {
@@ -6075,7 +6264,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const at = c.viewer.pageNearClient(x, y) + 1;
       void Promise.all(files.map((f) => imageToPdf(f)))
         .then((pages) => applyPageOps(pages.map((_, i) => ({ type: 'insert', source: i, at: at + i })), pages))
-        .catch((err) => setError(`Adding the pictures failed: ${err instanceof Error ? err.message : String(err)}`));
+        .catch((err) => setError(msg('Adding the pictures failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
       return;
     }
     if (o.store.readOnly) return;
@@ -6151,7 +6340,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         if (i % 8 === 7 || i === texts.length - 1) setScaleReadings({ file: o.file.id, pages: { ...pages }, done: i === texts.length - 1 });
       }
     })().catch((err) => {
-      if (!isAbort(err) && !ctrl.signal.aborted) setError(`Could not read the pages' scale bars: ${err instanceof Error ? err.message : String(err)}`);
+      if (!isAbort(err) && !ctrl.signal.aborted) setError(msg('Could not read the pages\' scale bars: {value}', { value: err instanceof Error ? err.message : String(err) }));
     });
     return () => ctrl.abort();
   }, [scaleReviewOpen, activeOpen]);
@@ -6167,7 +6356,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const ops = sources.map((_, i) => ({ type: 'insert' as const, source: i, at }));
       await applyPageOps(where === 'end' ? ops : ops.reverse(), sources);
     } catch (err) {
-      setError(`Bulk insert failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Bulk insert failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
   const activeTools = paneB && ctlB ? ctlB.tools : ctl?.tools;
@@ -6487,7 +6676,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const now = proposed();
       if (now > seen) {
         setTakeoffReviewOpen(true);
-        setNotice('An AI client proposed a grouping tool. Review it in Takeoff › Review AI Takeoff › Tools: it cannot run until you accept it.');
+        setNotice(msg('An AI client proposed a grouping tool. Review it in Takeoff › Review AI Takeoff › Tools: it cannot run until you accept it.'));
       }
       seen = now;
     });
@@ -6503,7 +6692,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     // measurement brings one back, and that is no reason to open the panel. Only new ones are.
     const seen = aiWaitingKeys(store);
     // Ones that came while another document was in front are mentioned once it is.
-    if (seen.size) setNotice(`${seen.size} AI result${seen.size === 1 ? ' is' : 's are'} waiting for your review in Takeoff › Review AI Takeoff.`);
+    if (seen.size) setNotice(msg('{size} AI {size2, plural, one {result is} other {results are}} waiting for your review in Takeoff › Review AI Takeoff.', { size: seen.size, size2: seen.size }));
     return store.subscribe(() => {
       const now = aiWaitingKeys(store);
       let fresh = false;
@@ -6513,7 +6702,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       }
       if (fresh) {
         setTakeoffReviewOpen(true);
-        setNotice(`${now.size} AI result${now.size === 1 ? ' is' : 's are'} waiting for your review. Nothing counts towards the takeoff until you approve it.`);
+        setNotice(msg('{size} AI {size2, plural, one {result is} other {results are}} waiting for your review. Nothing counts towards the takeoff until you approve it.', { size: now.size, size2: now.size }));
       }
     });
   }, [activeOpen]);
@@ -6541,9 +6730,9 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           copied = copies.length;
         },
         () => result.pageIndex,
-        'Stitch to New Page',
+        msg('Stitch to New Page'),
       );
-      setNotice(`Stitched ${group.placements.length} sheets onto page ${result.pageIndex + 1}${withMarkups ? ` with ${copied} markup${copied === 1 ? '' : 's'}` : ''}.`);
+      setNotice(msg('Stitched {count} sheets onto page {page}{value2}.', { count: group.placements.length, page: result.pageIndex + 1, value2: withMarkups ? ' ' + msg('with {copied, plural, one {# markup} other {# markups}}', { copied }) : '' }));
       return { pageIndex: result.pageIndex, markups: copied };
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -6576,7 +6765,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const store = activeOpen?.store;
     if (!store || store.readOnly) return;
     const assembly = m.assemblyId ? store.assemblies().find((a) => a.id === m.assemblyId) : undefined;
-    const name = (await askText('Save as Template', m.subject || assembly?.name || MARKUP_LABELS[m.type], { label: 'Pick it from Takeoff › Templates to measure more like this one: the same tool, subject, layer, style, slope, depth, assembly and inputs.', confirm: 'Save' }))?.trim();
+    const name = (await askText(msg('Save as Template'), m.subject || assembly?.name || MARKUP_LABELS[m.type], { label: msg('Pick it from Takeoff › Templates to measure more like this one: the same tool, subject, layer, style, slope, depth, assembly and inputs.'), confirm: msg('Save') }))?.trim();
     if (!name) return;
     const t: TakeoffTemplate = {
       id: crypto.randomUUID(),
@@ -6590,7 +6779,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     store.setEstimating({ templates: [...store.estimating().templates, t] });
     // The library gets it too, with its assembly and what that prices from, for other documents.
     const kept = addToLibrary({ ...referencedRecords(documentFile(store), assembly ? [assembly.id] : []), templates: [t] });
-    setNotice(`Saved the template “${name}”${kept ? '' : ' in this document (this browser would not keep the library)'}. Pick it from Takeoff › Templates to measure more like it.`);
+    setNotice(msg('Saved the template “{name}”{value}. Pick it from Takeoff › Templates to measure more like it.', { name, value: kept ? '' : ' ' + msg('in this document (this browser would not keep the library)') }));
   };
   /** Arms a takeoff template's tool; one from the library is copied into the document first, with its assembly. */
   const armTemplate = (t: TakeoffTemplate) => {
@@ -6614,7 +6803,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       ...(assemblyId ? { assemblyId, ...(t.inputs ? { assemblyInputs: t.inputs } : {}) } : {}),
       takeoffTemplateId: t.id,
     });
-    setNotice(`Template “${t.name}” armed: each ${MARKUP_LABELS[t.tool as Markup['type']]?.toLowerCase() ?? 'measurement'} you draw gets its ${assemblyId ? 'assembly and ' : ''}settings.`);
+    setNotice(msg('Template “{name}” armed: each {value} you draw gets its {value2}settings.', { name: t.name, value: MARKUP_LABELS[t.tool as Markup['type']]?.toLowerCase() ?? msg('measurement'), value2: assemblyId ? msg('assembly and ') : '' }));
   };
 
   const cellContext: CellContext = {
@@ -6748,7 +6937,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           blobs.push({ name: file.filename, blob: new Blob([body], { type: file.mime }) });
         }
       }
-      if (!blobs.length) throw new Error('Nothing to export.');
+      if (!blobs.length) throw new Error(msg('Nothing to export.'));
       if (req.config.ExportFormat === 3) {
         const { printPdfBytes } = await import('./documents/printPdf');
         printPdfBytes(new Uint8Array(await blobs[0]!.blob.arrayBuffer()));
@@ -6769,7 +6958,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       }
       setSummaryOpen(false);
     } catch (err) {
-      setError(`Markup summary failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Markup summary failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     } finally {
       for (const h of held) h.release();
       job.end();
@@ -6818,7 +7007,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     // A document's own annotations are read in after it opens: give them a moment before saying it is gone.
     const wait = setTimeout(() => {
       setPendingLink(null);
-      setNotice('The comment this link is for is no longer in the document.');
+      setNotice(msg('The comment this link is for is no longer in the document.'));
     }, Math.max(0, pendingLink.since + 8000 - Date.now()));
     return () => clearTimeout(wait);
     // The markups are what is waited for.
@@ -6877,9 +7066,9 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         }
         const saved = await excel.fill(template.clientFile.id, name, plan.fill);
         if (!saved) return;
-        setNotice(`${saved.name} saved: the register in a copy of ${template.clientFile.name}.`);
+        setNotice(msg('{name} saved: the register in a copy of {name2}.', { name: saved.name, name2: template.clientFile.name }));
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'The client’s file could not be filled in.');
+        setError(err instanceof Error ? err.message : msg('The client’s file could not be filled in.'));
         return;
       }
     } else {
@@ -6887,7 +7076,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       try {
         if (options.thumbnails) thumbnails = await registerThumbs(activeOpen, listed);
       } catch (err) {
-        setError(`The thumbnails could not be made: ${err instanceof Error ? err.message : String(err)}`);
+        setError(msg('The thumbnails could not be made: {value}', { value: err instanceof Error ? err.message : String(err) }));
         return;
       }
       download(`${name}.xlsx`, new Blob([exportRegisterWorkbook({ ...register, ...(thumbnails ? { thumbnails } : {}) }) as BlobPart], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
@@ -6908,11 +7097,11 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const file = await pickFile('.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     if (!file) return;
     try {
-      if (file.size > READ_LIMITS.maxBytes) throw new Error('That workbook is too large to import.');
+      if (file.size > READ_LIMITS.maxBytes) throw new Error(msg('That workbook is too large to import.'));
       const book = await readWorkbook(new Uint8Array(await file.arrayBuffer()));
       setImportExcel({ fileId: cur.file.id, fileName: file.name, book, aliases: {} });
     } catch (err) {
-      setError(`Importing ${file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Importing {name} failed: {value}', { name: file.name, value: err instanceof Error ? err.message : String(err) }));
     }
   };
   // A two-way link has its own columns and every markup: a filter or a hidden column in the list must not look like deleted rows or columns.
@@ -7000,7 +7189,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       }
       setReportsOpen(false);
     } catch (err) {
-      setReportsError(err instanceof Error ? err.message : 'The reports could not be made.');
+      setReportsError(err instanceof Error ? err.message : msg('The reports could not be made.'));
     } finally {
       setReportsBusy(false);
     }
@@ -7060,7 +7249,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       waiting.push({ store, id: m.id });
       if (asking) return;
       asking = true;
-      void askText('Your name', '', { label: 'Your markups are signed with this name. You can change it later in Preferences.', confirm: 'Save' }).then((name) => {
+      void askText(msg('Your name'), '', { label: msg('Your markups are signed with this name. You can change it later in Preferences.'), confirm: msg('Save') }).then((name) => {
         named = true; // Declined: ask again next time the app starts, not on every markup.
         if (!name) return;
         MarkupStore.author = name;
@@ -7187,11 +7376,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
 
   /** One pane's row of document tabs: click to bring forward, × or middle-click to close. */
   const docTabs = (pane: Pane) => {
-    const tabs = pane === 'b' ? tabsB : tabsA;
+    // A mirrored right pane shows its document's tab too (it has none of its own in the list).
+    const mirrored = pane === 'b' && mirrorRef.current && !!openB;
+    const tabs = pane === 'b' ? (mirrored ? [openB] : tabsB) : tabsA;
     const front: OpenTab | null = pane === 'b' ? openB ?? modelB : open ?? modelA;
     return (
       <DocTabStrip
-        label={pane === 'b' ? 'Right pane documents' : 'Documents'}
+        label={pane === 'b' ? msg('Right pane documents') : msg('Documents')}
         activeKey={front?.file.id ?? null}
         count={tabs.length}
         onOverflowMenu={(e) => {
@@ -7207,8 +7398,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           <button
             type="button"
             className="doc-tab-add"
-            title="New or open PDF"
-            aria-label="New or open PDF"
+            title={msg('New or open PDF')}
+            aria-label={msg('New or open PDF')}
             onClick={(e) => {
               setActivePane(pane);
               activePaneRef.current = pane;
@@ -7217,8 +7408,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
                 x: r.left,
                 y: r.bottom,
                 items: [
-                  { label: 'New PDF…', shortcut: shortcutLabel('file.newPdf'), onClick: () => commandsRef.current.get('file.newPdf')?.run() },
-                  { label: 'Open PDF…', shortcut: shortcutLabel('file.open'), onClick: () => openFromDisk() },
+                  { label: msg('New PDF…'), shortcut: shortcutLabel('file.newPdf'), onClick: () => commandsRef.current.get('file.newPdf')?.run() },
+                  { label: msg('Open PDF…'), shortcut: shortcutLabel('file.open'), onClick: () => openFromDisk() },
                 ],
               });
             }}
@@ -7236,10 +7427,10 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
               role="tab"
               aria-selected={t === front}
               className={`doc-tab${t === front ? ' active' : ''}`}
-              title={session ? `${t.file.name} · Live Session ${sessionName ?? session.sessionId}` : t.file.name}
+              title={session ? msg('{name} · Live Session {value}', { name: t.file.name, value: sessionName ?? session.sessionId }) : t.file.name}
               onClick={() => activateTab(pane, t)}
               onContextMenu={(e) => showMenu(e, tabMenu(pane, t))}
-              draggable
+              draggable={!mirrored}
               onDragStart={(e) => {
                 e.dataTransfer.setData(TAB_DRAG_TYPE, JSON.stringify({ pane, id: t.file.id }));
                 e.dataTransfer.effectAllowed = 'move';
@@ -7279,15 +7470,15 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
               }}
             >
               {session && (
-                <span className="studio-badge" title={`Live Session document${sessionName ? ` (${sessionName})` : ''}: markups sync with everyone in the session`}>
-                  Live
+                <span className="studio-badge" title={msg('Live Session document{value}: markups sync with everyone in the session', { value: sessionName ? ` (${sessionName})` : '' })}>
+                  {msg('Live')}
                 </span>
               )}
               <TabName t={t} saved={savedTick} />
               <button
                 type="button"
                 className="close"
-                title="Close"
+                title={msg('Close')}
                 onClick={(e) => {
                   e.stopPropagation();
                   void requestCloseTab(pane, t.file.id);
@@ -7298,7 +7489,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             </div>
           );
         })}
-        {tabs.length === 0 && <div className="doc-tab empty">No document</div>}
+        {tabs.length === 0 && <div className="doc-tab empty">{msg('No document')}</div>}
       </DocTabStrip>
     );
   };
@@ -7339,7 +7530,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   /** Tool picks for the page menu, grouped like the Markup and Measure menus. */
   const toolEntries = (tools: MarkupTools, list: { tool: Tool }[]): MenuEntry[] =>
     list.map(({ tool }) => ({
-      label: isMarkupTool(tool) ? MARKUP_LABELS[tool] : tool === 'select' ? 'Select' : 'Calibrate',
+      label: isMarkupTool(tool) ? MARKUP_LABELS[tool] : tool === 'select' ? msg('Select') : msg('Calibrate'),
       shortcut: toolShortcut(tool),
       checked: tools.getState().tool === tool,
       onClick: () => tools.setTool(tool),
@@ -7409,7 +7600,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     if (!pictures.length) return;
     store.checkpoint();
     store.batch(() => pictures.forEach(({ id, capture }) => store.update(id, { capture })));
-    setNotice(`Captured ${pictures.length} markup${pictures.length === 1 ? '' : 's'}. The Capture column in the Markups list shows ${pictures.length === 1 ? 'it' : 'them'}.`);
+    setNotice(msg('Captured {count, plural, one {# markup} other {# markups}}. The Capture column in the Markups list shows {value}.', { count: pictures.length, value: pictures.length === 1 ? msg('it') : msg('them') }));
   };
 
   /**
@@ -7420,7 +7611,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const { c, o } = paneParts(pane);
     if (!o) return;
     if (studioDocOf(o.file.id)) {
-      setError('A Live Session document is shared with others, so its markups cannot be flattened here.');
+      setError(msg('A Live Session document is shared with others, so its markups cannot be flattened here.'));
       return;
     }
     const store = o.store;
@@ -7428,7 +7619,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const targets = ms.filter((m) => m.type !== 'hyperlink' && m.type !== 'space' && !m.locked && store.mayEdit(m));
     if (!targets.length) return;
     const n = `${targets.length} markup${targets.length === 1 ? '' : 's'}`;
-    if (!confirm(`Flatten ${n} into the page? ${targets.length === 1 ? 'It becomes' : 'They become'} part of the drawing and can no longer be edited. The file as it is now is kept as a revision.`)) return;
+    if (!confirm(msg('Flatten {n} into the page? {value} part of the drawing and can no longer be edited. The file as it is now is kept as a revision.', { n, value: targets.length === 1 ? msg('It becomes') : msg('They become') }))) return;
     try {
       // The PDF's own annotations the targets stand for (with their replies and states) go too.
       const imported = store.importedAnnotations();
@@ -7448,9 +7639,9 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const { bytes, count } = await flattenSelection(exported, new Set(fresh.map((m) => m.id)), drop);
       c?.tools.select([]);
       await commitDocument(o, bytes.slice().buffer, () => store.removeFlattened(targets.map((m) => m.id), drop), `Before flattening ${n}`);
-      setNotice(`Flattened ${count} markup${count === 1 ? '' : 's'} into the page. File › Revisions has the file as it was.`);
+      setNotice(msg('Flattened {count, plural, one {# markup} other {# markups}} into the page. File › Revisions has the file as it was.', { count }));
     } catch (err) {
-      setError(`Flatten failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Flatten failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -7471,9 +7662,11 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     // Selecting one list row selects its whole group (a Cloud+ is a cloud and a callout). That is still one comment.
     const oneGroup = !!first.groupId && ms.every((m) => m.groupId === first.groupId);
     const replyMarkup = oneGroup ? (ms.find((m) => isTextType(m.type)) ?? first) : first;
-    // A callout (alone, or with its cloud in a Cloud+) can take extra leaders.
+    // A callout (alone, or with its cloud in a Cloud+) can take extra leaders; a single text box
+    // becomes a callout when given one.
     const callouts = ms.filter((m) => m.type === 'callout');
     const callout = callouts.length === 1 ? callouts[0] : undefined;
+    const leaderTarget = callout ?? (one && first.type === 'text' ? first : undefined);
     const status = one ? first.status : null;
     const setStatus = (s: string) => {
       store.checkpoint();
@@ -7486,13 +7679,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         ? [
             SEP,
             {
-              label: 'Connector',
+              label: msg('Connector'),
               disabled: ro || !!connector.locked,
               items: [
-                { label: 'Right-Angle', checked: (connector.connect?.route ?? 'elbow') === 'elbow', onClick: () => c.tools.setRouteOf(connector.id, 'elbow') },
-                { label: 'Straight', checked: connector.connect?.route === 'straight', onClick: () => c.tools.setRouteOf(connector.id, 'straight') },
+                { label: msg('Right-Angle'), checked: (connector.connect?.route ?? 'elbow') === 'elbow', onClick: () => c.tools.setRouteOf(connector.id, 'elbow') },
+                { label: msg('Straight'), checked: connector.connect?.route === 'straight', onClick: () => c.tools.setRouteOf(connector.id, 'straight') },
                 SEP,
-                { label: 'Reset Route', disabled: !connector.connect?.bends, onClick: () => c.tools.setRouteOf(connector.id, 'reset') },
+                { label: msg('Reset Route'), disabled: !connector.connect?.bends, onClick: () => c.tools.setRouteOf(connector.id, 'reset') },
               ],
             },
           ]
@@ -7527,99 +7720,101 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       };
       return [
         SEP,
-        { label: 'Edit Cell Text', disabled: off, onClick: () => setEditingCell({ id: m.id, ...cell }) },
-        { label: 'Merge Cells', disabled: off || !c.tools.canMergeCells(), onClick: () => c.tools.mergeSelectedCells() },
-        { label: 'Split Cell', disabled: off || !c.tools.canSplitCells(), onClick: () => c.tools.splitSelectedCells() },
-        { label: 'Insert Row Above', disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row, cell.row)) },
-        { label: 'Insert Row Below', disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row + 1, cell.row)) },
-        { label: 'Insert Column Left', disabled: off || t.cols.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableColumn(m, cell.col, cell.col)) },
-        { label: 'Insert Column Right', disabled: off || t.cols.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableColumn(m, cell.col + 1, cell.col)) },
-        { label: `Delete Row ${cell.row + 1}`, danger: true, disabled: off || t.rows.length <= 1, onClick: () => apply(deleteTableRow(m, cell.row)) },
-        { label: `Delete Column ${cell.col + 1}`, danger: true, disabled: off || t.cols.length <= 1, onClick: () => apply(deleteTableColumn(m, cell.col)) },
+        { label: msg('Edit Cell Text'), disabled: off, onClick: () => setEditingCell({ id: m.id, ...cell }) },
+        { label: msg('Merge Cells'), disabled: off || !c.tools.canMergeCells(), onClick: () => c.tools.mergeSelectedCells() },
+        { label: msg('Split Cell'), disabled: off || !c.tools.canSplitCells(), onClick: () => c.tools.splitSelectedCells() },
+        { label: msg('Insert Row Above'), disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row, cell.row)) },
+        { label: msg('Insert Row Below'), disabled: off || t.rows.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableRow(m, cell.row + 1, cell.row)) },
+        { label: msg('Insert Column Left'), disabled: off || t.cols.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableColumn(m, cell.col, cell.col)) },
+        { label: msg('Insert Column Right'), disabled: off || t.cols.length >= MAX_TABLE_LINES, onClick: () => apply(insertTableColumn(m, cell.col + 1, cell.col)) },
+        { label: msg('Delete Row {number}', { number: cell.row + 1 }), danger: true, disabled: off || t.rows.length <= 1, onClick: () => apply(deleteTableRow(m, cell.row)) },
+        { label: msg('Delete Column {number}', { number: cell.col + 1 }), danger: true, disabled: off || t.cols.length <= 1, onClick: () => apply(deleteTableColumn(m, cell.col)) },
         SEP,
       ];
     };
     return [
-      { label: 'Cut', icon: MENU_ICONS.cut, shortcut: shortcutLabel('edit.cut'), disabled: ro || allLocked, onClick: () => cutMarkups(pane) },
-      { label: 'Copy', icon: MENU_ICONS.copy, shortcut: shortcutLabel('edit.copy'), onClick: () => copyMarkups(pane) },
-      { label: 'Paste', icon: MENU_ICONS.paste, shortcut: shortcutLabel('edit.paste'), disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, first.pageIndex, null) },
-      { label: 'Multiply…', icon: MENU_ICONS.multiply, shortcut: shortcutLabel('edit.multiply'), disabled: ro || allLocked, onClick: () => setMultiplyFor(pane) },
-      { label: 'Format Painter', icon: MENU_ICONS.painter, shortcut: shortcutLabel('edit.formatPainter'), disabled: ro || !one, onClick: () => c.tools.setTool('painter') },
-      { label: 'Delete', icon: MENU_ICONS.delete, shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
+      { label: msg('Cut'), icon: MENU_ICONS.cut, shortcut: shortcutLabel('edit.cut'), disabled: ro || allLocked, onClick: () => cutMarkups(pane) },
+      { label: msg('Copy'), icon: MENU_ICONS.copy, shortcut: shortcutLabel('edit.copy'), onClick: () => copyMarkups(pane) },
+      { label: msg('Paste'), icon: MENU_ICONS.paste, shortcut: shortcutLabel('edit.paste'), disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, first.pageIndex, null) },
+      { label: msg('Multiply…'), icon: MENU_ICONS.multiply, shortcut: shortcutLabel('edit.multiply'), disabled: ro || allLocked, onClick: () => setMultiplyFor(pane) },
+      { label: msg('Format Painter'), icon: MENU_ICONS.painter, shortcut: shortcutLabel('edit.formatPainter'), disabled: ro || !one, onClick: () => c.tools.setTool('painter') },
+      { label: msg('Delete'), icon: MENU_ICONS.delete, shortcut: 'Del', disabled: ro || allLocked, onClick: () => c.tools.deleteSelected() },
       SEP,
-      { label: 'Round All Corners', checked: allRound, disabled: ro || !roundable.some((m) => !m.locked && store.mayEdit(m)), onClick: () => roundCorners(store, ms, !allRound) },
+      { label: msg('Round All Corners'), checked: allRound, disabled: ro || !roundable.some((m) => !m.locked && store.mayEdit(m)), onClick: () => roundCorners(store, ms, !allRound) },
       ...(ms.some((m) => m.type === 'image' && m.image)
-        ? [{ label: 'Adjust Image…', disabled: ro || allLocked, onClick: () => setAdjustImageFor({ pane, ids: ms.filter((m) => m.type === 'image' && m.image).map((m) => m.id) }) } as MenuEntry]
+        ? [{ label: msg('Adjust Image…'), disabled: ro || allLocked, onClick: () => setAdjustImageFor({ pane, ids: ms.filter((m) => m.type === 'image' && m.image).map((m) => m.id) }) } as MenuEntry]
         : []),
       // A picture's own colours are swapped, not the line and fill colours the other markups have.
-      { label: 'Change Colours…', disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
-      { label: 'Auto-size Text Box', shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
+      { label: msg('Change Colours…'), disabled: ro || allLocked, onClick: () => (one && first.type === 'image' && first.image ? setPictureColoursFor({ pane, id: first.id }) : setChangeColoursFor({ pane, ids })) },
+      { label: msg('Auto-size Text Box'), shortcut: shortcutLabel('edit.autoSize'), disabled: ro || allLocked || !ms.some(canAutoSize), onClick: () => autoSizeTextBoxes(store, ms) },
       // What only some kinds of markup have.
       // Right-click on a measurement's segment: curve it, or straighten it.
       ...(() => {
         const seg = one && at ? c.tools.segmentAt(first.id, at) : null;
         return seg
-          ? [{ label: seg.curved ? 'Convert to Line' : 'Convert to Arc', disabled: ro || theirs || !!first.locked, onClick: () => c.tools.setSegmentCurve(first.id, seg.segment, !seg.curved) } as MenuEntry]
+          ? [{ label: seg.curved ? msg('Convert to Line') : msg('Convert to Arc'), disabled: ro || theirs || !!first.locked, onClick: () => c.tools.setSegmentCurve(first.id, seg.segment, !seg.curved) } as MenuEntry]
           : [];
       })(),
-      ...(one && isTextType(first.type) ? [{ label: 'Edit Text', disabled: ro || theirs || !!first.locked, onClick: () => setEditingText(first.id) }] : []),
+      ...(one && isTextType(first.type) ? [{ label: msg('Edit Text'), disabled: ro || theirs || !!first.locked, onClick: () => setEditingText(first.id) }] : []),
       ...(one && first.type === 'table' ? tableItems(first) : []),
       // A count or an open line carries on from where it stopped (a line from the end nearest the click).
-      ...(one && c.tools.canResumeMarkup(first.id) ? [{ label: 'Resume', disabled: ro || theirs || !!first.locked, onClick: () => c.tools.resume(first.id, at) } as MenuEntry] : []),
-      ...(one && !isTextType(first.type) ? [{ label: first.comment ? 'Edit Comment…' : 'Add Comment…', disabled: ro || theirs, onClick: () => setCommentEdit({ pane, id: first.id }) }] : []),
+      ...(one && c.tools.canResumeMarkup(first.id) ? [{ label: msg('Resume'), disabled: ro || theirs || !!first.locked, onClick: () => c.tools.resume(first.id, at) } as MenuEntry] : []),
+      ...(one && !isTextType(first.type) ? [{ label: first.comment ? msg('Edit Comment…') : msg('Add Comment…'), disabled: ro || theirs, onClick: () => setCommentEdit({ pane, id: first.id }) }] : []),
       ...(ms.every((m) => ROTATABLE.has(m.type))
         ? [
             {
-              label: 'Rotate',
+              label: msg('Rotate'),
               disabled: ro || allLocked,
               items: [
-                { label: 'Rotate 90° Clockwise', onClick: () => turnMarkups(store, ms, 90) },
-                { label: 'Rotate 90° Counterclockwise', onClick: () => turnMarkups(store, ms, -90) },
+                { label: msg('Rotate 90° Clockwise'), onClick: () => turnMarkups(store, ms, 90) },
+                { label: msg('Rotate 90° Counterclockwise'), onClick: () => turnMarkups(store, ms, -90) },
                 {
-                  label: 'Rotate…',
+                  label: msg('Rotate…'),
                   onClick: () =>
                     void (async () => {
-                      const help = 'Angle in degrees, clockwise, or a grade such as 2% or 1:50 (negative falls to the right). Drag the round handle above a selected markup to turn it freely.';
+                      const help = msg('Angle in degrees, clockwise, or a grade such as 2% or 1:50 (negative falls to the right). Drag the round handle above a selected markup to turn it freely.');
                       let initial = String(first.rotation ?? 0);
                       let note = '';
                       // Ask again, with the reason, until the input is understood or the dialog is cancelled.
                       for (;;) {
-                        const t = await askText('Rotate', initial, { label: note ? `${note}\n${help}` : help, confirm: 'Rotate' });
+                        const t = await askText(msg('Rotate'), initial, { label: note ? `${note}\n${help}` : help, confirm: msg('Rotate') });
                         if (t === null) return;
                         const r = parseRotationInput(t);
                         if (r.ok && (!r.warning || t === initial)) return turnMarkups(store, ms, r.degrees, true);
                         initial = t;
-                        note = r.ok ? `${r.warning} Press Rotate again to apply it.` : r.error;
+                        note = r.ok ? msg('{warning} Press Rotate again to apply it.', { warning: r.warning }) : r.error;
                       }
                     })(),
                 },
-                { label: 'Reset Rotation', disabled: !ms.some((m) => m.rotation), onClick: () => turnMarkups(store, ms, 0, true) },
+                { label: msg('Reset Rotation'), disabled: !ms.some((m) => m.rotation), onClick: () => turnMarkups(store, ms, 0, true) },
               ],
             },
           ]
         : []),
-      ...(callout
+      ...(leaderTarget
         ? [
-            { label: 'Add Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.addCalloutLeader(callout.id) } as MenuEntry,
-            ...(callout.points.length >= 6 ? [{ label: 'Remove Last Leader', disabled: ro || !!callout.locked, onClick: () => c.tools.removeCalloutLeader(callout.id) } as MenuEntry] : []),
+            { label: msg('Add Leader'), disabled: ro || !!leaderTarget.locked || !store.mayEdit(leaderTarget), onClick: () => c.tools.addCalloutLeader(leaderTarget.id) } as MenuEntry,
+            ...(leaderTarget.type === 'callout' && leaderTarget.points.length >= 6
+              ? [{ label: msg('Remove Last Leader'), disabled: ro || !!leaderTarget.locked || !store.mayEdit(leaderTarget), onClick: () => c.tools.removeCalloutLeader(leaderTarget.id) } as MenuEntry]
+              : []),
           ]
         : []),
       ...(one && first.attachment
         ? [
-            { label: 'Open Attachment', onClick: () => openAttachment(first) },
-            { label: 'Save Attachment…', onClick: () => download(first.attachment!.name, attachmentBlob(first.attachment!)) },
+            { label: msg('Open Attachment'), onClick: () => openAttachment(first) },
+            { label: msg('Save Attachment…'), onClick: () => download(first.attachment!.name, attachmentBlob(first.attachment!)) },
           ]
         : []),
       ...(one && first.type === 'image' && first.image
         ? [
-            { label: 'Crop Image', disabled: ro || !!first.locked, onClick: () => c.tools.setTool('cropImage') } as MenuEntry,
-            { label: 'Reset Crop', disabled: ro || !!first.locked || !cropOf(first), onClick: () => c.tools.resetCropSelected() } as MenuEntry,
+            { label: msg('Crop Image'), disabled: ro || !!first.locked, onClick: () => c.tools.setTool('cropImage') } as MenuEntry,
+            { label: msg('Reset Crop'), disabled: ro || !!first.locked || !cropOf(first), onClick: () => c.tools.resetCropSelected() } as MenuEntry,
           ]
         : []),
       ...connectorItems(),
       SEP,
       {
-        label: 'Layer',
+        label: msg('Layer'),
         disabled: ro,
         items: [
           ...[...new Set([...store.all().flatMap((m) => (m.layer ? [m.layer] : [])), ...(o ? addedMarkupLayers(o.file.hash) : [])])].sort().map((name) => ({
@@ -7627,74 +7822,74 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             checked: ms.every((m) => m.layer === name),
             onClick: () => setAll(() => ({ layer: name })),
           })),
-          { label: 'No Layer', checked: ms.every((m) => !m.layer), onClick: () => setAll(() => ({ layer: undefined })) },
+          { label: msg('No Layer'), checked: ms.every((m) => !m.layer), onClick: () => setAll(() => ({ layer: undefined })) },
           SEP,
           {
-            label: 'New Layer…',
+            label: msg('New Layer…'),
             onClick: () =>
-              void askText('New Markup Layer', '', { label: 'The selected markups move to it. Layers show and hide in the Layers panel, and are PDF layers in saved files.', confirm: 'Create' }).then((name) => {
+              void askText(msg('New Markup Layer'), '', { label: msg('The selected markups move to it. Layers show and hide in the Layers panel, and are PDF layers in saved files.'), confirm: msg('Create') }).then((name) => {
                 if (name) setAll(() => ({ layer: name }));
               }),
           },
         ],
       },
       {
-        label: 'Order',
+        label: msg('Order'),
         disabled: ro,
         items: [
-          { label: 'Bring to Front', shortcut: shortcutLabel('edit.bringToFront'), onClick: () => c.tools.arrange(ids, 'front') },
-          { label: 'Bring Forward', shortcut: shortcutLabel('edit.bringForward'), onClick: () => c.tools.arrange(ids, 'forward') },
-          { label: 'Send Backward', shortcut: shortcutLabel('edit.sendBackward'), onClick: () => c.tools.arrange(ids, 'backward') },
-          { label: 'Send to Back', shortcut: shortcutLabel('edit.sendToBack'), onClick: () => c.tools.arrange(ids, 'back') },
+          { label: msg('Bring to Front'), shortcut: shortcutLabel('edit.bringToFront'), onClick: () => c.tools.arrange(ids, 'front') },
+          { label: msg('Bring Forward'), shortcut: shortcutLabel('edit.bringForward'), onClick: () => c.tools.arrange(ids, 'forward') },
+          { label: msg('Send Backward'), shortcut: shortcutLabel('edit.sendBackward'), onClick: () => c.tools.arrange(ids, 'backward') },
+          { label: msg('Send to Back'), shortcut: shortcutLabel('edit.sendToBack'), onClick: () => c.tools.arrange(ids, 'back') },
         ],
       },
       {
-        label: 'Alignment',
+        label: msg('Alignment'),
         disabled: ro || allLocked,
         items: [
-          { label: 'Align Left', shortcut: shortcutLabel('edit.alignLeft'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignLeft')?.run() },
-          { label: 'Align Center', shortcut: shortcutLabel('edit.alignCenter'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignCenter')?.run() },
-          { label: 'Align Right', shortcut: shortcutLabel('edit.alignRight'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignRight')?.run() },
-          { label: 'Align Top', shortcut: shortcutLabel('edit.alignTop'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignTop')?.run() },
-          { label: 'Align Middle', shortcut: shortcutLabel('edit.alignMiddle'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignMiddle')?.run() },
-          { label: 'Align Bottom', shortcut: shortcutLabel('edit.alignBottom'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignBottom')?.run() },
-          { label: 'Center in Document', disabled: anyLocked, onClick: () => commandsRef.current.get('edit.centerInDocument')?.run() },
+          { label: msg('Align Left'), shortcut: shortcutLabel('edit.alignLeft'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignLeft')?.run() },
+          { label: msg('Align Center'), shortcut: shortcutLabel('edit.alignCenter'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignCenter')?.run() },
+          { label: msg('Align Right'), shortcut: shortcutLabel('edit.alignRight'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignRight')?.run() },
+          { label: msg('Align Top'), shortcut: shortcutLabel('edit.alignTop'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignTop')?.run() },
+          { label: msg('Align Middle'), shortcut: shortcutLabel('edit.alignMiddle'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignMiddle')?.run() },
+          { label: msg('Align Bottom'), shortcut: shortcutLabel('edit.alignBottom'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignBottom')?.run() },
+          { label: msg('Center in Document'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.centerInDocument')?.run() },
           SEP,
-          { label: 'Distribute Horizontally', disabled: ms.length < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeHorizontal')?.run() },
-          { label: 'Distribute Vertically', disabled: ms.length < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeVertical')?.run() },
+          { label: msg('Distribute Horizontally'), disabled: ms.length < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeHorizontal')?.run() },
+          { label: msg('Distribute Vertically'), disabled: ms.length < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeVertical')?.run() },
           SEP,
-          { label: 'Same Width', disabled: one, onClick: () => commandsRef.current.get('edit.sameWidth')?.run() },
-          { label: 'Same Height', disabled: one, onClick: () => commandsRef.current.get('edit.sameHeight')?.run() },
-          { label: 'Same Size', disabled: one, onClick: () => commandsRef.current.get('edit.sameSize')?.run() },
+          { label: msg('Same Width'), disabled: one, onClick: () => commandsRef.current.get('edit.sameWidth')?.run() },
+          { label: msg('Same Height'), disabled: one, onClick: () => commandsRef.current.get('edit.sameHeight')?.run() },
+          { label: msg('Same Size'), disabled: one, onClick: () => commandsRef.current.get('edit.sameSize')?.run() },
           SEP,
-          { label: 'Flip Horizontal', shortcut: shortcutLabel('edit.flipHorizontal'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipHorizontal')?.run() },
-          { label: 'Flip Vertical', shortcut: shortcutLabel('edit.flipVertical'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipVertical')?.run() },
+          { label: msg('Flip Horizontal'), shortcut: shortcutLabel('edit.flipHorizontal'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipHorizontal')?.run() },
+          { label: msg('Flip Vertical'), shortcut: shortcutLabel('edit.flipVertical'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipVertical')?.run() },
           SEP,
-          { label: 'Scale to Length…', onClick: () => c.tools.setTool('scaleLength') },
+          { label: msg('Scale to Length…'), onClick: () => c.tools.setTool('scaleLength') },
         ],
       },
       // Any markup can carry an action (a flag that opens a detail, a cloud that opens an RFI page).
-      { label: 'Edit Action…', shortcut: shortcutLabel('edit.editAction'), disabled: ro || theirs || !one, onClick: () => setHyperlinkEdit({ pane, id: first.id }) },
+      { label: msg('Edit Action…'), shortcut: shortcutLabel('edit.editAction'), disabled: ro || theirs || !one, onClick: () => setHyperlinkEdit({ pane, id: first.id }) },
       {
-        label: 'Capture',
+        label: msg('Capture'),
         disabled: ro,
         items: [
           {
-            label: ms.some((m) => m.capture) ? 'Capture Again' : 'Capture',
+            label: ms.some((m) => m.capture) ? msg('Capture Again') : msg('Capture'),
             disabled: theirs,
-            onClick: () => void captureMarkups(o, ms).catch((err) => setError(`Capture failed: ${err instanceof Error ? err.message : String(err)}`)),
+            onClick: () => void captureMarkups(o, ms).catch((err) => setError(msg('Capture failed: {value}', { value: err instanceof Error ? err.message : String(err) }))),
           },
-          { label: 'View Capture', disabled: !one || !first.capture, onClick: () => setCaptureView(first.capture ?? null) },
-          { label: 'Remove Capture', disabled: theirs || !ms.some((m) => m.capture), onClick: () => setAll(() => ({ capture: undefined })) },
+          { label: msg('View Capture'), disabled: !one || !first.capture, onClick: () => setCaptureView(first.capture ?? null) },
+          { label: msg('Remove Capture'), disabled: theirs || !ms.some((m) => m.capture), onClick: () => setAll(() => ({ capture: undefined })) },
         ],
       },
-      { label: 'Flatten', icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space') || commandPolicy('document.flatten').disabledReason !== null, onClick: commandPolicy('document.flatten').run(() => void flattenSelected(pane, ms)) },
+      { label: msg('Flatten'), icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space') || commandPolicy('document.flatten').disabledReason !== null, onClick: commandPolicy('document.flatten').run(() => void flattenSelected(pane, ms)) },
       grouped
-        ? { label: 'Ungroup', shortcut: shortcutLabel('edit.ungroup'), disabled: ro || allLocked, onClick: () => c.tools.ungroup() }
-        : { label: 'Group', shortcut: shortcutLabel('edit.group'), disabled: ro || one || allLocked, onClick: () => c.tools.group() },
-      { label: anyLocked ? 'Unlock' : 'Lock', shortcut: shortcutLabel('edit.lock'), disabled: ro || theirs, onClick: () => c.tools.setLocked(!anyLocked) },
+        ? { label: msg('Ungroup'), shortcut: shortcutLabel('edit.ungroup'), disabled: ro || allLocked, onClick: () => c.tools.ungroup() }
+        : { label: msg('Group'), shortcut: shortcutLabel('edit.group'), disabled: ro || one || allLocked, onClick: () => c.tools.group() },
+      { label: anyLocked ? msg('Unlock') : msg('Lock'), shortcut: shortcutLabel('edit.lock'), disabled: ro || theirs, onClick: () => c.tools.setLocked(!anyLocked) },
       {
-        label: ms.every((m) => m.hidden) ? 'Show' : 'Hide',
+        label: ms.every((m) => m.hidden) ? msg('Show') : msg('Hide'),
         icon: MENU_ICONS.hide,
         disabled: ro,
         onClick: () => {
@@ -7704,12 +7899,12 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         },
       },
       {
-        label: 'Legend',
+        label: msg('Legend'),
         icon: MENU_ICONS.legend,
         disabled: ro,
         items: [
           {
-            label: 'Show in Legends',
+            label: msg('Show in Legends'),
             checked: ms.every((m) => !m.legendHidden),
             disabled: theirs,
             onClick: () => {
@@ -7717,12 +7912,12 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
               setAll(() => ({ legendHidden: show ? undefined : true }));
             },
           },
-          { label: 'New Legend', onClick: () => c.tools.setTool('legend') },
+          { label: msg('New Legend'), onClick: () => c.tools.setTool('legend') },
           ...(one && first.type === 'legend'
             ? [
                 SEP,
                 ...(['page', 'document'] as const).map((scope) => ({
-                  label: scope === 'page' ? 'Lists Markups on This Page' : 'Lists Markups in the Document',
+                  label: scope === 'page' ? msg('Lists Markups on This Page') : msg('Lists Markups in the Document'),
                   checked: (first.legend?.scope ?? 'page') === scope,
                   onClick: () => store.update(first.id, { legend: { scope } }),
                 })),
@@ -7731,18 +7926,18 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         ],
       },
       SEP,
-      { label: 'Reply', icon: MENU_ICONS.reply, disabled: ro || !(one || oneGroup), onClick: () => setReplyTo({ pane, id: replyMarkup.id }) },
+      { label: msg('Reply'), icon: MENU_ICONS.reply, disabled: ro || !(one || oneGroup), onClick: () => setReplyTo({ pane, id: replyMarkup.id }) },
       {
-        label: 'Set Status',
+        label: msg('Set Status'),
         disabled: ro,
         items: store.columnSet().statuses.map((s) => ({
-          label: s.id === 'none' ? 'None' : s.name,
+          label: s.id === 'none' ? msg('None') : s.name,
           checked: status === s.id,
           onClick: () => setStatus(s.id),
         })),
       },
       {
-        label: 'Check',
+        label: msg('Check'),
         checked: ms.every((m) => m.checked),
         disabled: ro,
         onClick: () => {
@@ -7751,7 +7946,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         },
       },
       {
-        label: ms.every((m) => m.flagged) ? 'Unflag' : 'Flag',
+        label: ms.every((m) => m.flagged) ? msg('Unflag') : msg('Flag'),
         disabled: ro,
         onClick: () => {
           const flag = !ms.every((m) => m.flagged);
@@ -7761,10 +7956,10 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       ...(session
         ? [
             {
-              label: 'Send Markup Alert…',
+              label: msg('Send Markup Alert…'),
               disabled: !one || sessionById(session.sessionId)?.meta.status !== 'active',
               onClick: () =>
-                void askText('Send Markup Alert', first.comment ?? '', { label: 'Everyone in the session is shown this markup, with your message.', confirm: 'Send' }).then((text) => {
+                void askText(msg('Send Markup Alert'), first.comment ?? '', { label: msg('Everyone in the session is shown this markup, with your message.'), confirm: msg('Send') }).then((text) => {
                   if (text) sessionById(session.sessionId)?.sendAlert(session.docId, first.id, first.pageIndex, text);
                 }),
             },
@@ -7772,7 +7967,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         : []),
       SEP,
       {
-        label: 'Add to Tool Library',
+        label: msg('Add to Tool Library'),
         items: [
           ...profiles
             .active()
@@ -7780,9 +7975,9 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             .map((t) => ({ label: t.name, onClick: () => toolChestItemsOf(ms, store).forEach((item) => addToToolSet(t.id, item)) })),
           SEP,
           {
-            label: 'New Tool Set…',
+            label: msg('New Tool Set…'),
             onClick: () =>
-              void askText('New Tool Set', 'My Tools', { confirm: 'Create' }).then((name) => {
+              void askText(msg('New Tool Set'), 'My Tools', { confirm: msg('Create') }).then((name) => {
                 if (name) {
                   const id = createToolSet(name);
                   toolChestItemsOf(ms, store).forEach((item) => addToToolSet(id, item));
@@ -7791,19 +7986,41 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           },
         ],
       },
-      ...(one && templateable(first) ? [{ label: 'Save as Template…', disabled: ro, onClick: () => void saveAsTemplate(first) }] : []),
+      ...(ms.some(canBeCountSymbol)
+        ? [
+            {
+              label: msg('Save as Count Symbol…'),
+              onClick: () =>
+                void askText(msg('Save as Count Symbol'), first.subject || MARKUP_LABELS[first.type], {
+                  label: msg('Name for this custom Count marker symbol (saved to your profile):'),
+                  confirm: msg('Save'),
+                }).then((name) => {
+                  if (!name?.trim()) return;
+                  const sym = symbolFromMarkups(ms, name.trim(), crypto.randomUUID());
+                  if (!sym) return;
+                  if (!addCountSymbol(sym)) {
+                    setNotice(msg('Could not save count symbol: browser storage is full.'));
+                    return;
+                  }
+                  c.tools.setDefaultStyle('count', { countShape: undefined, countSymbol: structuredClone(sym) });
+                  setNotice(msg('Saved count symbol “{name}”.', { name: sym.name }));
+                }),
+            },
+          ]
+        : []),
+      ...(one && templateable(first) ? [{ label: msg('Save as Template…'), disabled: ro, onClick: () => void saveAsTemplate(first) }] : []),
       SEP,
-      { label: 'Set as Default', disabled: !one, onClick: () => c.tools.setDefaultStyle(first.type, first.style) },
+      { label: msg('Set as Default'), disabled: !one, onClick: () => c.tools.setDefaultStyle(first.type, first.style) },
       {
-        label: 'Apply to Pages…',
+        label: msg('Apply to Pages…'),
         disabled: ro || allLocked || pageCount < 2,
         onClick: () =>
-          void askText('Apply to Pages', `1-${pageCount}`, { label: 'Pages to copy the selection onto, at the same place: for example 1-3, 5, 8- (each markup’s own page is skipped).', confirm: 'Apply' }).then((text) => {
+          void askText(msg('Apply to Pages'), `1-${pageCount}`, { label: msg('Pages to copy the selection onto, at the same place: for example 1-3, 5, 8- (each markup’s own page is skipped).'), confirm: msg('Apply') }).then((text) => {
             const pages = text === null ? [] : parsePageRange(text, pageCount);
             if (pages.length) c.tools.applyToPages(pages);
           }),
       },
-      { label: 'Properties', icon: MENU_ICONS.properties, onClick: () => showPanel('properties') },
+      { label: msg('Properties'), icon: MENU_ICONS.properties, onClick: () => showPanel('properties') },
     ];
   };
 
@@ -7811,7 +8028,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const pageMenu = (pane: Pane, page: number, pt: PagePoint): MenuEntry[] => {
     const { c, o } = paneParts(pane);
     if (!c) return [];
-    if (!o) return [{ label: 'Open…', shortcut: 'Ctrl+O', onClick: () => openFromDisk() }];
+    if (!o) return [{ label: msg('Open…'), shortcut: 'Ctrl+O', onClick: () => openFromDisk() }];
     const ro = o.store.readOnly;
     const v = c.viewer;
     const mode = (pane === 'b' ? statsB : stats)?.mode;
@@ -7824,53 +8041,53 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const grid = models.some((t) => t.kind === 'model') ? gridAtPage(o.store.allGeoRegions(), page, pt) : null;
     // While a polylength or area is being drawn, its next segment can be made a 3-point arc.
     const arcOn = c.tools.getState().arc !== 'off';
-    const arcEntry: MenuEntry[] = !ro && c.tools.getState().measuring && (arcOn || c.tools.canArc()) ? [{ label: 'Arc (3-point)', shortcut: shortcutLabel('draw.arc'), checked: arcOn, onClick: () => c.tools.toggleArc() }, SEP] : [];
+    const arcEntry: MenuEntry[] = !ro && c.tools.getState().measuring && (arcOn || c.tools.canArc()) ? [{ label: msg('Arc (3-point)'), shortcut: shortcutLabel('draw.arc'), checked: arcOn, onClick: () => c.tools.toggleArc() }, SEP] : [];
     return [
       ...arcEntry,
       ...toolEntries(c.tools, MARKUP_TOOLS.filter((t) => t.tool === 'select')),
-      { label: 'Markup', disabled: ro, items: groupedToolEntries(c.tools, MARKUP_GROUPS, (t) => t.tool !== 'select') },
-      { label: 'Measure', disabled: ro, items: groupedToolEntries(c.tools, MEASURE_GROUPS) },
+      { label: msg('Markup'), disabled: ro, items: groupedToolEntries(c.tools, MARKUP_GROUPS, (t) => t.tool !== 'select') },
+      { label: msg('Measure'), disabled: ro, items: groupedToolEntries(c.tools, MEASURE_GROUPS) },
       SEP,
-      { label: 'Paste', shortcut: 'Ctrl+V', disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, page, pt) },
-      { label: 'Select All Markups', shortcut: 'Ctrl+A', onClick: () => c.tools.select(o.store.all().map((m) => m.id)) },
-      ...(geo ? [{ label: 'Copy Coordinates', onClick: () => void navigator.clipboard.writeText(formatLatLon(geo.lat, geo.lon, settings.get().geoFormat)).catch(() => {}) }] : []),
-      ...(grid && models.some((t) => t.kind === 'model') ? [{ label: 'Find in 3D', disabled: !mapModel(), onClick: () => findIn3d(grid) }] : []),
+      { label: msg('Paste'), shortcut: 'Ctrl+V', disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, page, pt) },
+      { label: msg('Select All Markups'), shortcut: 'Ctrl+A', onClick: () => c.tools.select(o.store.all().map((m) => m.id)) },
+      ...(geo ? [{ label: msg('Copy Coordinates'), onClick: () => void navigator.clipboard.writeText(formatLatLon(geo.lat, geo.lon, settings.get().geoFormat)).catch(() => {}) }] : []),
+      ...(grid && models.some((t) => t.kind === 'model') ? [{ label: msg('Find in 3D'), disabled: !mapModel(), onClick: () => findIn3d(grid) }] : []),
       SEP,
-      { label: 'Previous View', shortcut: 'Alt+←', disabled: !canGoBack, onClick: goBack },
-      { label: 'Previous Page', shortcut: 'PgUp', disabled: page <= 0, onClick: () => v.prevPage() },
-      { label: 'Next Page', shortcut: 'PgDn', disabled: page >= count - 1, onClick: () => v.nextPage() },
+      { label: msg('Previous View'), shortcut: 'Alt+←', disabled: !canGoBack, onClick: goBack },
+      { label: msg('Previous Page'), shortcut: 'PgUp', disabled: page <= 0, onClick: () => v.prevPage() },
+      { label: msg('Next Page'), shortcut: 'PgDn', disabled: page >= count - 1, onClick: () => v.nextPage() },
       SEP,
-      { label: 'Zoom In', shortcut: '+', onClick: () => v.zoomSteps(settings.get().buttonZoomStep, 1) },
-      { label: 'Zoom Out', shortcut: '−', onClick: () => v.zoomSteps(settings.get().buttonZoomStep, -1) },
-      { label: 'Fit Page', shortcut: 'Ctrl+9', onClick: () => v.fit() },
-      { label: 'Fit Width', shortcut: 'Ctrl+0', onClick: () => v.fitToWidth() },
-      { label: 'Actual Size', shortcut: 'Ctrl+8', onClick: () => v.actualSize() },
-      { label: 'Single Page', shortcut: 'Ctrl+4', checked: mode === 'single', onClick: () => v.setPageMode('single') },
-      { label: 'Continuous', shortcut: 'Ctrl+5', checked: mode === 'continuous', onClick: () => v.setPageMode('continuous') },
+      { label: msg('Zoom In'), shortcut: '+', onClick: () => v.zoomSteps(settings.get().buttonZoomStep, 1) },
+      { label: msg('Zoom Out'), shortcut: '−', onClick: () => v.zoomSteps(settings.get().buttonZoomStep, -1) },
+      { label: msg('Fit Page'), shortcut: 'Ctrl+9', onClick: () => v.fit() },
+      { label: msg('Fit Width'), shortcut: 'Ctrl+0', onClick: () => v.fitToWidth() },
+      { label: msg('Actual Size'), shortcut: 'Ctrl+8', onClick: () => v.actualSize() },
+      { label: msg('Single Page'), shortcut: 'Ctrl+4', checked: mode === 'single', onClick: () => v.setPageMode('single') },
+      { label: msg('Continuous'), shortcut: 'Ctrl+5', checked: mode === 'continuous', onClick: () => v.setPageMode('continuous') },
       SEP,
       {
-        label: 'Rotate Page',
+        label: msg('Rotate Page'),
         disabled: pageOps,
         items: [
-          { label: 'Clockwise', onClick: () => void applyPageOps([{ type: 'rotate', pages: [page], quarterTurns: 1 }]) },
-          { label: 'Counterclockwise', onClick: () => void applyPageOps([{ type: 'rotate', pages: [page], quarterTurns: 3 }]) },
+          { label: msg('Clockwise'), onClick: () => void applyPageOps([{ type: 'rotate', pages: [page], quarterTurns: 1 }]) },
+          { label: msg('Counterclockwise'), onClick: () => void applyPageOps([{ type: 'rotate', pages: [page], quarterTurns: 3 }]) },
           { label: '180°', onClick: () => void applyPageOps([{ type: 'rotate', pages: [page], quarterTurns: 2 }]) },
         ],
       },
-      { label: 'Insert Pages…', disabled: pageOps, onClick: () => insertFileRef.current?.click() },
-      { label: 'Extract Page…', disabled: busyPages, onClick: () => void extractPages([page]) },
+      { label: msg('Insert Pages…'), disabled: pageOps, onClick: () => insertFileRef.current?.click() },
+      { label: msg('Extract Page…'), disabled: busyPages, onClick: () => void extractPages([page]) },
       {
-        label: 'Delete Page…',
+        label: msg('Delete Page…'),
         disabled: pageOps || count < 2,
         onClick: () => {
-          if (confirm(`Delete page ${page + 1}? Markups on it are deleted too.`)) void applyPageOps([{ type: 'delete', pages: [page] }]);
+          if (confirm(msg('Delete page {page}? Markups on it are deleted too.', { page: page + 1 }))) void applyPageOps([{ type: 'delete', pages: [page] }]);
         },
       },
       SEP,
-      { label: 'Page Labels from Region…', disabled: ro, onClick: () => startLabelRegions(pane) },
-      { label: 'Bulk Apply Page Scale…', disabled: ro, onClick: () => startLabelRegions(pane, 'scale') },
-      { label: 'Thumbnails', onClick: () => showPanel('pages') },
-      { label: 'Properties', onClick: () => showPanel('properties') },
+      { label: msg('Page Labels from Region…'), disabled: ro, onClick: () => startLabelRegions(pane) },
+      { label: msg('Bulk Apply Page Scale…'), disabled: ro, onClick: () => startLabelRegions(pane, 'scale') },
+      { label: msg('Thumbnails'), onClick: () => showPanel('pages') },
+      { label: msg('Properties'), onClick: () => showPanel('properties') },
     ];
   };
 
@@ -7902,8 +8119,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const text = tools?.selectedPdfText();
     if (text) {
       void navigator.clipboard?.writeText(text).then(
-        () => setNotice(`Copied ${text.length} character${text.length === 1 ? '' : 's'}.`),
-        () => setNotice('The browser did not allow copying to the clipboard.'),
+        () => setNotice(msg('Copied {count, plural, one {# character} other {# characters}}.', { count: text.length })),
+        () => setNotice(msg('The browser did not allow copying to the clipboard.')),
       );
       return true;
     }
@@ -7929,11 +8146,14 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       setSplit(true);
       return;
     }
+    // A mirrored document is already shown in both panes: nothing to move.
+    if (mirrorRef.current && (from === 'b' || t === openBRef.current)) return;
     const rest = (from === 'b' ? tabsBRef.current : tabsARef.current).filter((x) => x !== t);
     const front = frontTabOf(from);
     setTabs(from, rest);
     if (front === t) showInPane(from, rest[0] ?? null);
-    setTabs(to, [...(to === 'b' ? tabsBRef.current : tabsARef.current), t]);
+    const dest = to === 'b' ? tabsBRef.current : tabsARef.current;
+    if (!dest.includes(t)) setTabs(to, [...dest, t]);
     activateTab(to, t);
     if (from === 'b' && !rest.length) setSplit(false);
   };
@@ -8026,25 +8246,26 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const detachTab = async (pane: Pane, t: OpenTab) => {
     const host = desktop();
     if (!host?.detachDocument) return;
-    if (studioDocOf(t.file.id)) return setError('A Live Session document stays in the window it was opened in.');
-    if (t.kind === 'model') return setError('A 3D model stays in the window it was opened in.');
+    if (studioDocOf(t.file.id)) return setError(msg('A Live Session document stays in the window it was opened in.'));
+    if (t.kind === 'model') return setError(msg('A 3D model stays in the window it was opened in.'));
     try {
       const token = fileLocationToken(t.file.id);
       const dirty = hasUnsavedChanges(t);
       const contents = dirty || !token ? await annotatedBytes(t, { keepSigned: true }) : null;
-      if (!(await host.detachDocument(token ?? '', t.file.name, contents, dirty))) return setError('Could not open a new window.');
+      if (!(await host.detachDocument(token ?? '', t.file.name, contents, dirty))) return setError(msg('Could not open a new window.'));
       // Its changes live on in the new window, so closing here must not ask about them or keep them for recovery.
       rememberUnsaved(new Map([[t.file.id, false]]));
       markSaved(t);
-      closeTab(pane, t.file.id);
+      closeTab(pane, t.file.id, false);
     } catch (err) {
-      setError(`Could not move the document: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Could not move the document: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   /** Right-click on a document tab: close, save, add to a session, show where it lives, move pane. */
   const tabMenu = (pane: Pane, t: OpenTab): MenuEntry[] => {
-    const tabs = pane === 'b' ? tabsB : tabsA;
+    const mirrored = pane === 'b' && mirrorRef.current;
+    const tabs = mirrored ? [t] : pane === 'b' ? tabsB : tabsA;
     const idx = tabs.indexOf(t);
     const sessionDoc = studioDocOf(t.file.id);
     const snap = sessionDoc ? snapshots.find((s) => s.meta.id === sessionDoc.sessionId) : null;
@@ -8055,10 +8276,11 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     };
     const addable = sessions.filter((s) => s.canAddDocuments);
     const closing: MenuEntry[] = [
-      { label: 'Close', onClick: () => void requestCloseTab(pane, t.file.id) },
-      { label: 'Close All', onClick: () => closeMany(tabs) },
-      { label: 'Close All But This', disabled: tabs.length < 2, onClick: () => closeMany(tabs.filter((x) => x !== t)) },
-      { label: 'Close Tabs to the Right', disabled: idx === tabs.length - 1, onClick: () => closeMany(tabs.slice(idx + 1)) },
+      { label: msg('Close'), onClick: () => void requestCloseTab(pane, t.file.id) },
+      { label: msg('Close All'), onClick: () => closeMany(tabs) },
+      { label: msg('Close All But This'), disabled: tabs.length < 2, onClick: () => closeMany(tabs.filter((x) => x !== t)) },
+      { label: msg('Close Tabs to the Right'), disabled: idx === tabs.length - 1, onClick: () => closeMany(tabs.slice(idx + 1)) },
+      { label: msg('Reopen Closed Tab'), shortcut: 'Ctrl+Shift+T', disabled: closedTabs.length === 0, onClick: () => void reopenClosedTab() },
     ];
     // A 3D model has no markups to save or share, so its menu only closes it, moves it to the other
     // pane (beside a sheet, to sync their views) or shows where it lives.
@@ -8069,10 +8291,10 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         { label: pane === 'a' ? (split ? 'Move to Right Pane' : 'Open in Split View') : 'Move to Left Pane', onClick: () => moveTab(pane, t) },
         ...(desktop()
           ? [SEP, {
-              label: 'Open File Location',
+              label: msg('Open File Location'),
               disabled: locationTick < 0 || !hasFileLocation(t.file.id),
               onClick: () => void revealFileLocation(t.file.id).then((ok) => {
-                if (!ok) setError('That file is not in a folder on this computer. It may have been moved, renamed or deleted.');
+                if (!ok) setError(msg('That file is not in a folder on this computer. It may have been moved, renamed or deleted.'));
               }),
             }]
           : []),
@@ -8080,51 +8302,59 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     return [
       ...closing,
       SEP,
-      { label: 'Save', shortcut: 'Ctrl+S', onClick: withTab(() => void saveDocument(false)) },
-      { label: 'Save As…', shortcut: 'Ctrl+Shift+S', onClick: withTab(() => void saveDocument(true)) },
+      { label: msg('Save'), shortcut: 'Ctrl+S', onClick: withTab(() => void saveDocument(false)) },
+      { label: msg('Save As…'), shortcut: 'Ctrl+Shift+S', onClick: withTab(() => void saveDocument(true)) },
       ...(desktop()?.detachDocument
         ? [{
-            label: 'Move to New Window',
+            label: msg('Move to New Window'),
             onClick: () => void detachTab(pane, t),
           }]
         : []),
-      ...(desktop()
+      ...(desktop() && locationTick >= 0 && hasFileLocation(t.file.id)
         ? [{
-            label: 'Open File Location',
-            disabled: locationTick < 0 || !hasFileLocation(t.file.id),
+            label: (() => {
+              const p = desktop()?.platform ?? (typeof navigator !== 'undefined' ? navigator.platform || navigator.userAgent : '');
+              if (/win/i.test(p)) return msg('Reveal in Explorer');
+              if (/mac|darwin/i.test(p)) return msg('Reveal in Finder');
+              return msg('Show in File Manager');
+            })(),
             onClick: () => void revealFileLocation(t.file.id).then((ok) => {
-              if (!ok) setError('That file is not in a folder on this computer. It may have been moved, renamed or deleted.');
+              if (!ok) setError(msg('That file is not in a folder on this computer. It may have been moved, renamed or deleted.'));
             }),
           }]
         : []),
       {
-        label: 'Save a Copy of the Original…',
+        label: msg('Save a Copy of the Original…'),
         onClick: () => void readFile(t.file.hash).then((bytes) => download(t.file.name, new Blob([bytes], { type: 'application/pdf' }))),
       },
       SEP,
       sessionDoc
-        ? { label: 'Show in Session', onClick: () => { showPanel('sessions'); setFocusedSession(sessionDoc.sessionId); } }
+        ? { label: msg('Show in Session'), onClick: () => { showPanel('sessions'); setFocusedSession(sessionDoc.sessionId); } }
         : !desktop()
-        ? { label: 'Add to Session (desktop app only)', disabled: true, onClick: () => {} }
+        ? { label: msg('Add to Session (desktop app only)'), disabled: true, onClick: () => {} }
         : {
-            label: 'Add to Session',
+            label: msg('Add to Session'),
             items: [
               ...addable.map((s) => ({
                 label: s.meta.name,
                 onClick: () => void runStudio(() => addToStudio(s.id, [{ kind: 'file', fileId: t.file.id, name: t.file.name }])),
               })),
               ...(addable.length ? [SEP] : []),
-              { label: 'Start New Session…', onClick: () => { showPanel('sessions'); setStartSession({ token: Date.now(), fileIds: [t.file.id] }); } },
+              { label: msg('Start New Session…'), onClick: () => { showPanel('sessions'); setStartSession({ token: Date.now(), fileIds: [t.file.id] }); } },
             ],
           },
       sessionDoc
         ? snap?.backend === 'folder'
-          ? { label: 'Show Session Folder', onClick: () => void desktop()?.folder.show(sessionDoc.sessionId) }
-          : { label: 'Open in OneDrive', disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
-        : { label: 'Show in File Access', onClick: () => { showPanel('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
-      { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(t.file.name) },
+          ? { label: msg('Show Session Folder'), onClick: () => void desktop()?.folder.show(sessionDoc.sessionId) }
+          : { label: msg('Open in OneDrive'), disabled: !snap?.folderUrl, onClick: () => snap?.folderUrl && window.open(snap.folderUrl, '_blank', 'noopener') }
+        : { label: msg('Show in File Access'), onClick: () => { showPanel('files'); setRevealFile({ id: t.file.id, token: Date.now() }); } },
+      { label: msg('Copy File Name'), onClick: () => void navigator.clipboard?.writeText(t.file.name) },
       SEP,
-      { label: pane === 'a' ? (split ? 'Move to Right Pane' : 'Open in Split View') : 'Move to Left Pane', onClick: () => moveTab(pane, t) },
+      {
+        label: pane === 'a' ? (split ? msg('Move to Right Pane') : msg('Open in Split View')) : msg('Move to Left Pane'),
+        disabled: mirrorRef.current && (pane === 'b' || t === openBRef.current),
+        onClick: () => moveTab(pane, t),
+      },
     ];
   };
 
@@ -8184,10 +8414,10 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     // Only the coming and going of models matters here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anyModelOpen]);
-  const orderedRail = RAIL.filter(({ id, needsModel }) => (id !== 'markups' || ws.markupsDocked) && (!needsModel || anyModelOpen)).sort((a, b) => {
+  const orderedRail = RAIL().filter(({ id, needsModel }) => (id !== 'markups' || ws.markupsDocked) && (!needsModel || anyModelOpen)).sort((a, b) => {
     const ia = ws.panelOrder.indexOf(a.id);
     const ib = ws.panelOrder.indexOf(b.id);
-    return (ia < 0 ? RAIL.length + RAIL.indexOf(a) : ia) - (ib < 0 ? RAIL.length + RAIL.indexOf(b) : ib);
+    return (ia < 0 ? RAIL().length + RAIL().indexOf(a) : ia) - (ib < 0 ? RAIL().length + RAIL().indexOf(b) : ib);
   });
 
   const visibleRail = orderedRail.filter(({ id }) => !ws.hiddenPanels.includes(id));
@@ -8303,19 +8533,19 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         return {
           label: `${g.label} (${on}/${g.tools.length})`,
           items: [
-            { label: 'Show All in Group', disabled: on === g.tools.length, onClick: () => setGroup(true) },
-            { label: 'Hide Group', disabled: on === 0, onClick: () => setGroup(false) },
+            { label: msg('Show All in Group'), disabled: on === g.tools.length, onClick: () => setGroup(true) },
+            { label: msg('Hide Group'), disabled: on === 0, onClick: () => setGroup(false) },
             SEP,
             ...list(g.tools),
           ],
         };
       });
     return [
-      ...(clicked ? [{ label: `Remove ${toolLabel(clicked)} from Toolbar`, onClick: () => toggle(clicked) } as MenuEntry, SEP] : []),
-      { label: 'Markup Tools', items: groups(MARKUP_GROUPS) },
-      { label: 'Measure Tools', items: groups(MEASURE_GROUPS) },
+      ...(clicked ? [{ label: msg('Remove {toolLabel} from Toolbar', { toolLabel: toolLabel(clicked) }), onClick: () => toggle(clicked) } as MenuEntry, SEP] : []),
+      { label: msg('Markup Tools'), items: groups(MARKUP_GROUPS) },
+      { label: msg('Measure Tools'), items: groups(MEASURE_GROUPS) },
       {
-        label: 'Reset Toolbar to Defaults',
+        label: msg('Reset Toolbar to Defaults'),
         disabled: ws.toolbarTools?.length === DEFAULT_TOOLBAR_TOOLS.length && DEFAULT_TOOLBAR_TOOLS.every((t) => ws.toolbarTools?.includes(t)),
         onClick: () => updateWorkspace((w) => ({ ...w, toolbarTools: [...DEFAULT_TOOLBAR_TOOLS] })),
       },
@@ -8329,8 +8559,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     ...(clicked && !narrowScreen()
       ? [
           panelSide(clicked) === 'left'
-            ? { label: `Dock ${LEFT_TITLES[clicked]} on the Right`, onClick: () => dockPanel(clicked, 'right') }
-            : { label: `Dock ${LEFT_TITLES[clicked]} on the Left`, onClick: () => dockPanel(clicked, 'left') },
+            ? { label: msg('Dock {panel} on the Right', { panel: leftTitles()[clicked]! }), onClick: () => dockPanel(clicked, 'right') }
+            : { label: msg('Dock {panel} on the Left', { panel: leftTitles()[clicked]! }), onClick: () => dockPanel(clicked, 'left') },
           SEP,
         ]
       : []),
@@ -8346,9 +8576,9 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       },
     })),
     SEP,
-    { label: 'Reset Panel Order', disabled: !ws.panelOrder.length, onClick: () => updateWorkspace((w) => ({ ...w, panelOrder: [] })) },
+    { label: msg('Reset Panel Order'), disabled: !ws.panelOrder.length, onClick: () => updateWorkspace((w) => ({ ...w, panelOrder: [] })) },
     {
-      label: 'Dock All Panels on the Left',
+      label: msg('Dock All Panels on the Left'),
       disabled: !ws.rightPanels.length,
       onClick: () => {
         updateWorkspace((w) => ({ ...w, rightPanels: [] }));
@@ -8359,13 +8589,13 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
 
   /** Right-click on the menu bar, toolbars, panel rail or status bar: which parts of the window show. */
   const layoutMenu = (): MenuEntry[] => [
-    { label: 'Markup Toolbar', checked: showTools, onClick: toggleToolbar },
-    { label: 'Panels', checked: leftOpen, onClick: () => setLeftOpen((s) => !s) },
-    ...(rightRail.length ? [{ label: 'Right Panels', checked: rightShown, onClick: () => commandActions.toggleRight() } as MenuEntry] : []),
-    { label: 'Markups List', checked: bottomOpen, onClick: toggleBottom },
-    { label: split ? 'Unsplit' : 'Split View', shortcut: 'Ctrl+2', disabled: !split && !activeOpen, onClick: () => (split ? unsplit() : startSplit()) },
+    { label: msg('Markup Toolbar'), checked: showTools, onClick: toggleToolbar },
+    { label: msg('Panels'), checked: leftOpen, onClick: () => setLeftOpen((s) => !s) },
+    ...(rightRail.length ? [{ label: msg('Right Panels'), checked: rightShown, onClick: () => commandActions.toggleRight() } as MenuEntry] : []),
+    { label: msg('Markups List'), checked: bottomOpen, onClick: toggleBottom },
+    { label: split ? msg('Unsplit') : msg('Split View'), shortcut: 'Ctrl+2', disabled: !split && !activeOpen, onClick: () => (split ? unsplit() : startSplit()) },
     SEP,
-    { label: 'Keyboard Shortcuts', onClick: () => setShortcutsOpen(true) },
+    { label: msg('Keyboard Shortcuts'), onClick: () => setShortcutsOpen(true) },
   ];
 
   /** Copies pages of the active document, with their markups, to the page clipboard. */
@@ -8375,10 +8605,10 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     try {
       const clips = cur.store.copyPages(pages);
       pageClipboard.current = { bytes: await ctl.engine.extractPages(await readFile(cur.file.hash), pages), clips };
-      setNotice(`${pages.length === 1 ? 'Page' : `${pages.length} pages`} copied. Paste (${formatCombo('Ctrl+V')}) inserts ${pages.length === 1 ? 'it' : 'them'} after the selected page.`);
+      setNotice(msg('{value} copied. Paste ({combo}) inserts {value2} after the selected page.', { value: pages.length === 1 ? msg('Page') : msg('{count} pages', { count: pages.length }), combo: formatCombo('Ctrl+V'), value2: pages.length === 1 ? msg('it') : msg('them') }));
       return true;
     } catch (err) {
-      setError(`Copy failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Copy failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       return false;
     }
   };
@@ -8410,7 +8640,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const these = pages.length > 1 ? `${pages.length} pages` : `page ${(pages[0] ?? 0) + 1}`;
     const hasMarkups = pages.some((p) => (activeOpen?.store.forPage(p).length ?? 0) > 0);
     const deletePages = (ask: boolean) => {
-      if (ask && !confirm(`Delete ${these}? Markups on ${pages.length > 1 ? 'them' : 'it'} are deleted too.`)) return false;
+      if (ask && !confirm(msg('Delete {these}? Markups on {value} are deleted too.', { these, value: pages.length > 1 ? msg('them') : msg('it') }))) return false;
       void applyPageOps([{ type: 'delete', pages }]);
       return true;
     };
@@ -8420,17 +8650,17 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       run('window.measurements', 'Set Scale…', MENU_ICONS.scale),
       SEP,
       {
-        label: 'Cut Pages',
+        label: msg('Cut Pages'),
         disabled: none || !editable || pages.length >= count,
         onClick: () =>
           void copyPages(pages).then((ok) => {
             if (ok) deletePages(hasMarkups);
           }),
       },
-      { label: 'Copy Pages', shortcut: 'Ctrl+C', disabled: none || !activeOpen, onClick: () => void copyPages(pages) },
-      run('document.copyPageSnapshot', 'Copy Page to Snapshot', undefined, true),
+      { label: msg('Copy Pages'), shortcut: 'Ctrl+C', disabled: none || !activeOpen, onClick: () => void copyPages(pages) },
+      run('document.copyPageSnapshot', msg('Copy Page to Snapshot'), undefined, true),
       {
-        label: 'Paste Pages',
+        label: msg('Paste Pages'),
         shortcut: 'Ctrl+V',
         disabled: !editable || !pageClipboard.current,
         onClick: () => pastePages(none ? count : pages.at(-1)! + 1),
@@ -8438,26 +8668,26 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       SEP,
       run('tools.stamps', 'Apply Stamp…', MENU_ICONS.stamp, true),
       SEP,
-      run('document.insertBlank', 'Insert Blank Page…', MENU_ICONS.pageBlank),
+      run('document.insertBlank', msg('Insert Blank Page…'), MENU_ICONS.pageBlank),
       run('document.insertPages', 'Insert Pages…', MENU_ICONS.pageInsert),
-      run('document.bulkInsertPages', 'Bulk Insert PDFs…', MENU_ICONS.pageInsert),
-      { label: 'Extract Pages…', icon: MENU_ICONS.pageExtract, shortcut: shortcutLabel('document.extractPages'), disabled: none || !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) },
+      run('document.bulkInsertPages', msg('Bulk Insert PDFs…'), MENU_ICONS.pageInsert),
+      { label: msg('Extract Pages…'), icon: MENU_ICONS.pageExtract, shortcut: shortcutLabel('document.extractPages'), disabled: none || !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) },
       run('document.replacePages', 'Replace Pages…', MENU_ICONS.pageReplace),
-      { label: 'Delete Pages…', icon: MENU_ICONS.pageDelete, shortcut: shortcutLabel('document.deletePages'), disabled: none || !editable || pages.length >= count, onClick: () => deletePages(true) },
+      { label: msg('Delete Pages…'), icon: MENU_ICONS.pageDelete, shortcut: shortcutLabel('document.deletePages'), disabled: none || !editable || pages.length >= count, onClick: () => deletePages(true) },
       {
-        label: 'Rotate Pages',
+        label: msg('Rotate Pages'),
         icon: MENU_ICONS.pageRotate,
         disabled: none || !editable,
         items: [
-          { label: 'Clockwise 90°', shortcut: shortcutLabel('document.rotatePages'), onClick: rotate(1) },
-          { label: 'Counterclockwise 90°', shortcut: shortcutLabel('document.rotateCounterclockwise'), onClick: rotate(-1) },
-          { label: 'Rotate 180°', onClick: rotate(2) },
+          { label: msg('Clockwise 90°'), shortcut: shortcutLabel('document.rotatePages'), onClick: rotate(1) },
+          { label: msg('Counterclockwise 90°'), shortcut: shortcutLabel('document.rotateCounterclockwise'), onClick: rotate(-1) },
+          { label: msg('Rotate 180°'), onClick: rotate(2) },
         ],
       },
       run('document.numberPages', 'Number Pages…', MENU_ICONS.pageNumber),
-      { label: 'Rename Page Label', disabled: !editable || pages.length !== 1, onClick: rename },
+      { label: msg('Rename Page Label'), disabled: !editable || pages.length !== 1, onClick: rename },
       {
-        label: 'Reset All Page Labels',
+        label: msg('Reset All Page Labels'),
         disabled: !editable,
         onClick: () => {
           const store = activeOpen?.store;
@@ -8466,8 +8696,8 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       },
       SEP,
       {
-        label: 'Export Pages',
-        items: [run('file.exportImages', 'Page Images…'), { label: 'PDF…', disabled: none || !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) }],
+        label: msg('Export Pages'),
+        items: [run('file.exportImages', 'Page Images…'), { label: msg('PDF…'), disabled: none || !cmds.get('document.extractPages')?.enabled, onClick: () => void extractPages(pages) }],
       },
       run('file.share', 'Email Pages…'),
       run('file.print', 'Print Pages…', MENU_ICONS.print),
@@ -8476,9 +8706,9 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       run('document.flatten', 'Flatten…', MENU_ICONS.flatten),
       SEP,
       {
-        label: 'Markup Summary',
+        label: msg('Markup Summary'),
         icon: MENU_ICONS.summary,
-        items: [run('file.exportSummary', 'Markup Summary…'), run('file.exportCsv', 'Export Markups CSV')],
+        items: [run('file.exportSummary', 'Markup Summary…'), run('file.exportCsv', msg('Export Markups CSV'))],
       },
     ];
   };
@@ -8490,41 +8720,41 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
 
   /** Right-click on a library file (File Access). */
   const libraryMenu = (f: StoredFile): MenuEntry[] => [
-    { label: 'Open', onClick: () => void openFromLibrary(f, 'a') },
-    { label: `Revisions (${f.revisions?.length ?? 0})…`, onClick: () => setRevisionsOf(f.id) },
-    { label: 'Open in Split View', onClick: () => void readFile(f.hash).then(async (bytes) => {
+    { label: msg('Open'), onClick: () => void openFromLibrary(f, 'a') },
+    { label: msg('Revisions ({count})…', { count: f.revisions?.length ?? 0 }), onClick: () => setRevisionsOf(f.id) },
+    { label: msg('Open in Split View'), onClick: () => void readFile(f.hash).then(async (bytes) => {
         if (!ctlB) {
           pendingSplitStored.current = { file: f, bytes };
           setSplit(true);
         } else await openStored(f, bytes, 'b');
       }) },
     {
-      label: 'Add to Session',
+      label: msg('Add to Session'),
       disabled: !desktop() || !sessions.some((s) => s.canAddDocuments),
       items: sessions
         .filter((s) => s.canAddDocuments)
         .map((s) => ({ label: s.meta.name, onClick: () => void runStudio(() => addToStudio(s.id, [{ kind: 'file', fileId: f.id, name: f.name }])) })),
     },
     SEP,
-    { label: 'Save a Copy…', onClick: () => void readFile(f.hash).then((bytes) => download(f.name, new Blob([bytes], { type: 'application/pdf' }))) },
-    { label: 'Use as Template', checked: !!f.template, onClick: () => void setTemplate(f.id, !f.template).then(refreshLibrary) },
-    { label: 'Copy File Name', onClick: () => void navigator.clipboard?.writeText(f.name) },
+    { label: msg('Save a Copy…'), onClick: () => void readFile(f.hash).then((bytes) => download(f.name, new Blob([bytes], { type: 'application/pdf' }))) },
+    { label: msg('Use as Template'), checked: !!f.template, onClick: () => void setTemplate(f.id, !f.template).then(refreshLibrary) },
+    { label: msg('Copy File Name'), onClick: () => void navigator.clipboard?.writeText(f.name) },
     ...(desktop()
       ? [{
-          label: 'Open File Location',
+          label: msg('Open File Location'),
           disabled: locationTick < 0 || !hasFileLocation(f.id),
           onClick: () => void revealFileLocation(f.id).then((ok) => {
-            if (!ok) setError('That file is not in a folder on this computer. It may have been moved, renamed or deleted.');
+            if (!ok) setError(msg('That file is not in a folder on this computer. It may have been moved, renamed or deleted.'));
           }),
         }]
       : []),
     SEP,
-    { label: 'Remove from Recents', disabled: !!f.recentHidden, onClick: () => removeFromRecents([f.id]) },
+    { label: msg('Remove from Recents'), disabled: !!f.recentHidden, onClick: () => removeFromRecents([f.id]) },
     {
-      label: 'Remove from Device…',
+      label: msg('Remove from Device…'),
       danger: true,
       onClick: () => {
-        if (confirm(`Remove "${f.name}" from this device? Its markups are kept and return if you open it again.`)) {
+        if (confirm(msg('Remove "{name}" from this device? Its markups are kept and return if you open it again.', { name: f.name }))) {
           fileGroups.forget(f.id);
           drawingSets.forget(f.id);
           void removeFile(f).then(() => forgetHandle(f.id)).then(refreshLibrary);
@@ -8541,7 +8771,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     setActivePane(pane);
     setSetup((cur) => (cur?.pane === pane && !step ? cur : { pane, inline: cur?.pane === pane ? cur.inline : false, step, n: (cur?.n ?? 0) + 1 }));
     setSetupTexts(null);
-    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
+    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES()[p.phase]), signal), { kind: 'index' })
       .then((texts) => {
         if ((pane === 'b' ? openBRef.current : openRef.current) === o) setSetupTexts(texts);
       })
@@ -8585,7 +8815,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const { c, o } = paneParts(pane);
     if (!c || !o) return;
     if (kind === 'erase' && studioDocOf(o.file.id)) {
-      setError('A Live Session document is shared with others, so its content cannot be changed here.');
+      setError(msg('A Live Session document is shared with others, so its content cannot be changed here.'));
       return;
     }
     setActivePane(pane);
@@ -8599,7 +8829,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     );
     c.tools.setTool(opts.typed ? 'select' : 'labelRegion');
     setLabelTexts(null);
-    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES[p.phase]), signal), { kind: 'index' })
+    void runJob(`Reading · ${o.file.name}`, ({ signal, progress }) => loadPageTexts(() => readFile(o.file.hash), o.store, (p) => progress(p.done, p.total, INDEX_PHASES()[p.phase]), signal), { kind: 'index' })
       .then((texts) => {
         if ((pane === 'b' ? openBRef.current : openRef.current) === o) setLabelTexts(texts);
       })
@@ -8637,7 +8867,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       const other = waiting[0]!;
       line.matchTo = other.id;
       lines.splice(lines.indexOf(other), 1, { ...other, matchTo: line.id });
-      setNotice(`${line.name} matched to ${other.name} on ${pageLabelFor(doc, other.pageIndex)}.`);
+      setNotice(msg('{name} matched to {name2} on {pageLabelFor}.', { name: line.name, name2: other.name, pageLabelFor: pageLabelFor(doc, other.pageIndex) }));
     }
     doc.store.setManualStitch({ ...s, lines });
     setStitchSelected(line.id);
@@ -8650,7 +8880,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     const zoom = (pane === 'b' ? ctlB : ctl)?.viewer.zoomFor(line?.pageIndex ?? 0) ?? 1;
     // Ends dragged onto each other fix no direction: keep the line as it was.
     if (Math.hypot(p1[0] - p0[0], p1[1] - p0[1]) * zoom < 2) {
-      setNotice('A match line needs two different ends: the line was left as it was.');
+      setNotice(msg('A match line needs two different ends: the line was left as it was.'));
       return false;
     }
     doc.store.setManualStitch({ ...s, lines: s.lines.map((l) => (l.id === id ? { ...l, p0, p1 } : l)) });
@@ -8671,7 +8901,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     if (!doc || !c || doc.store.readOnly) return;
     const m = stitchMover(doc, pane === 'b' ? stitchB : stitchA);
     if (!m) {
-      if (done) setNotice('Pick a matched line in the Stitching panel first: Move Sheet moves the sheet joined at it.');
+      if (done) setNotice(msg('Pick a matched line in the Stitching panel first: Move Sheet moves the sheet joined at it.'));
       return;
     }
     const ref = pairOf(m.lines, m.mover.id)!.ref;
@@ -8783,7 +9013,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   const startCutoutFromSelection = () => {
     const blocker = cutoutBlocker(selectedMarkups, mayEditMarkup);
     if (!blocker) activeTools?.startCutout(selectedMarkups[0]!.id);
-    else setNotice(selectedMarkups.length ? `${blocker}.` : 'Select an area first, then draw the cutout inside it.');
+    else setNotice(selectedMarkups.length ? `${blocker}.` : msg('Select an area first, then draw the cutout inside it.'));
   };
   /** Arms the Stamp tool with a library stamp, remembered as the one to use next time. */
   const placeStamp = (s: StampDef, filled = false) => {
@@ -8865,6 +9095,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     close: closeDocument,
     closeAll: () =>
       void requestCloseTabs((['b', 'a'] as const).flatMap((pane) => (pane === 'b' ? tabsBRef.current : tabsARef.current).map((t) => ({ pane, fileId: t.file.id })))),
+    reopenClosedTab: () => void reopenClosedTab(),
     saveAll: () =>
       void (async () => {
         for (const t of pdfTabs([...tabsARef.current, ...tabsBRef.current])) {
@@ -8872,14 +9103,14 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
             const out = await annotatedBytes(t);
             download(t.file.name.replace(/\.pdf$/i, '') + ' (markups).pdf', new Blob([out as BlobPart], { type: 'application/pdf' }));
           } catch (err) {
-            setError(`Saving ${t.file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+            setError(msg('Saving {name} failed: {value}', { name: t.file.name, value: err instanceof Error ? err.message : String(err) }));
           }
         }
       })(),
     revert: () => {
       const store = activeOpen?.store;
       const n = store?.undoHistory().length ?? 0;
-      if (store && n && confirm(`Revert ${activeOpen!.file.name}? The ${n} change${n === 1 ? '' : 's'} made since it was opened are undone (Redo brings them back).`)) store.undoSteps(n);
+      if (store && n && confirm(msg('Revert {name}? The {n, plural, one {# change} other {# changes}} made since it was opened are undone (Redo brings them back).', { name: activeOpen!.file.name, n }))) store.undoSteps(n);
     },
     publish: (mode) => setPublishFor(mode),
     share: () => void shareDocument(),
@@ -8911,10 +9142,10 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     about: () =>
       alert(
         [
-          `redcolumn ${APP_VERSION}: PDF markup and takeoff for construction drawings.`,
-          'Open source under the Apache License 2.0. Third-party notices: ' + `${PROJECT_URL}/blob/master/THIRD_PARTY_NOTICES.md`,
-          `Your documents stay ${desktop() ? 'on this computer' : 'in this browser'}; there is no redcolumn server or account. Privacy policy: ` + `${PROJECT_URL}/blob/master/PRIVACY.md`,
-          'Measurements and quantities depend on the scale you set: check them before relying on them. redcolumn comes with no warranty.',
+          msg('redcolumn {aPP_VERSION}: PDF markup and takeoff for construction drawings.', { aPP_VERSION: APP_VERSION }),
+          msg('Open source under the Apache License 2.0. Third-party notices: ') + `${PROJECT_URL}/blob/master/THIRD_PARTY_NOTICES.md`,
+          msg('Your documents stay {value}; there is no redcolumn server or account. Privacy policy: ', { value: desktop() ? msg('on this computer') : msg('in this browser') }) + `${PROJECT_URL}/blob/master/PRIVACY.md`,
+          msg('Measurements and quantities depend on the scale you set: check them before relying on them. redcolumn comes with no warranty.'),
           'redcolumn is not affiliated with or endorsed by Bluebeam, Inc. or Nemetschek. Bluebeam and Revu are their trademarks.',
         ].join('\n\n'),
       ),
@@ -8934,7 +9165,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
     multiply: () => setMultiplyFor(pane),
     deleteSelection: () => {
       const n = toolsState.selected.size;
-      if (n && (!settings.get().confirmDelete || confirm(`Delete ${n} markup${n === 1 ? '' : 's'}?`))) activeTools?.deleteSelected();
+      if (n && (!settings.get().confirmDelete || confirm(msg('Delete {n, plural, one {# markup} other {# markups}}?', { n })))) activeTools?.deleteSelected();
     },
     selectAll: () => activeTools?.select(markups.map((m) => m.id)),
     sound: () => setSoundOpen('sound'),
@@ -8960,20 +9191,20 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
           }
         }
         if (!specs.length) {
-          setNotice('No fill-in lines, boxes or check boxes were found that are not fields already.');
+          setNotice(msg('No fill-in lines, boxes or check boxes were found that are not fields already.'));
           return;
         }
-        if (!confirm(`Create ${specs.length} form field${specs.length === 1 ? '' : 's'} (${specs.filter((s) => s.type === 'checkbox').length} check boxes) where the page has fill-in lines and boxes? They can be renamed or deleted in the Forms panel.`)) return;
+        if (!confirm(msg('Create {count} form {count2, plural, one {field} other {fields}} ({count3} check boxes) where the page has fill-in lines and boxes? They can be renamed or deleted in the Forms panel.', { count: specs.length, count2: specs.length, count3: specs.filter((s) => s.type === 'checkbox').length }))) return;
         const ok = await editForm(cur.file.id, 'Creating fields', (bytes) => createFields(bytes, specs));
         if (ok) {
           showPanel('forms');
-          setNotice(`Created ${specs.length} field${specs.length === 1 ? '' : 's'}.`);
+          setNotice(msg('Created {count, plural, one {# field} other {# fields}}.', { count: specs.length }));
         }
-      })().catch((err) => setError(`Finding fields failed: ${err instanceof Error ? err.message : String(err)}`)),
+      })().catch((err) => setError(msg('Finding fields failed: {value}', { value: err instanceof Error ? err.message : String(err) }))),
     archivePdfA: () =>
       void (async () => {
         const cur = activeOpen;
-        if (!cur || !(await rewriteSigned(cur.doc, 'An archive copy (PDF/A)'))) return;
+        if (!cur || !(await rewriteSigned(cur.doc, msg('An archive copy (PDF/A)')))) return;
         const { archiveAsPdfA } = await import('./documents/pdfa');
         const { embedFontFile } = await import('./documents/archiveFonts');
         const base = cur.file.name.replace(/\.pdf$/i, '');
@@ -8984,14 +9215,14 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         const done = changes.length ? ` ${changes.join(' ')}` : '';
         if (!blocking.length) {
           download(`${base} (PDF-A).pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
-          setNotice(`Saved ${base} (PDF-A).pdf as PDF/A-2b.${done}`);
+          setNotice(msg('Saved {base} (PDF-A).pdf as PDF/A-2b.{done}', { base, done }));
           return;
         }
         // It would not pass a validator, so it is not marked PDF/A; saving it is the user's choice.
-        if (!confirm(`${cur.file.name} cannot be made a valid PDF/A:\n\n${blocking.join('\n\n')}\n\nSave an archive copy anyway? It will not be marked as PDF/A.`)) return;
+        if (!confirm(msg('{name} cannot be made a valid PDF/A:\n\n{blocking}\n\nSave an archive copy anyway? It will not be marked as PDF/A.', { name: cur.file.name, blocking: blocking.join('\n\n') }))) return;
         download(`${base} (archive).pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
-        setError(`Saved ${base} (archive).pdf, not marked as PDF/A: ${blocking.join(' ')}${done}`);
-      })().catch((err) => setError(`PDF/A failed: ${err instanceof Error ? err.message : String(err)}`)),
+        setError(msg('Saved {base} (archive).pdf, not marked as PDF/A: {blocking}{done}', { base, blocking: blocking.join(' '), done }));
+      })().catch((err) => setError(msg('PDF/A failed: {value}', { value: err instanceof Error ? err.message : String(err) }))),
     install: () => setInstallOpen(true),
     help: (what) => {
       const open = (path: string) => window.open(`${PROJECT_URL}${path}`, '_blank', 'noopener');
@@ -9009,27 +9240,23 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
         if (host) {
           void host.checkForUpdates().then((r) => {
             if (r.status === 'available' && r.url) {
-              if (confirm(`redcolumn ${r.latest} is available. You have ${r.current}.
-
-Open the download page? Run the new installer to update; your documents and markups are kept.`)) window.open(r.url, '_blank', 'noopener');
-            } else if (r.status === 'downloading') setNotice(`redcolumn ${r.latest} is downloading in the background (${r.percent ?? 0}%). It installs when you close redcolumn.`);
+              if (confirm(msg('redcolumn {latest} is available. You have {current}.\n\nOpen the download page? Run the new installer to update; your documents and markups are kept.', { latest: String(r.latest), current: r.current }))) window.open(r.url, '_blank', 'noopener');
+            } else if (r.status === 'downloading') setNotice(msg('redcolumn {latest} is downloading in the background ({value}%). It installs when you close redcolumn.', { latest: String(r.latest), value: r.percent ?? 0 }));
             else if (r.status === 'ready') {
-              if (confirm(`redcolumn ${r.latest} is ready to install. You have ${r.current}.
-
-Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate();
-            } else if (r.status === 'unavailable') setNotice('Could not check for updates (offline?).');
-            else setNotice(`You have the latest version (${r.current}).`);
-          }).catch(() => setNotice('Could not check for updates (offline?).'));
+              if (confirm(msg('redcolumn {latest} is ready to install. You have {current}.\n\nRestart now to update? Your documents and markups are kept.', { latest: String(r.latest), current: r.current }))) restartIntoUpdate();
+            } else if (r.status === 'unavailable') setNotice(msg('Could not check for updates (offline?).'));
+            else setNotice(msg('You have the latest version ({current}).', { current: r.current }));
+          }).catch(() => setNotice(msg('Could not check for updates (offline?).')));
           return;
         }
         void navigator.serviceWorker
           ?.getRegistration()
           .then(async (reg) => {
-            if (!reg) return setNotice('Updates are checked automatically when the app is installed.');
+            if (!reg) return setNotice(msg('Updates are checked automatically when the app is installed.'));
             await reg.update();
-            setNotice(reg.waiting || reg.installing ? 'A new version is downloading; it loads by itself when you are not in the middle of something.' : 'You have the latest version.');
+            setNotice(reg.waiting || reg.installing ? msg('A new version is downloading; it loads by itself when you are not in the middle of something.') : msg('You have the latest version.'));
           })
-          .catch(() => setNotice('Could not check for updates (offline?).'));
+          .catch(() => setNotice(msg('Could not check for updates (offline?).')));
       }
     },
     hideSelection: () => {
@@ -9049,7 +9276,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     offset: () => activeTools?.setTool('offset'),
     cadTool: (tool) => activeTools?.setTool(tool),
     join: () => {
-      if (!activeTools?.joinSelected()) setNotice('Nothing to join: select lines or polylines whose ends meet');
+      if (!activeTools?.joinSelected()) setNotice(msg('Nothing to join: select lines or polylines whose ends meet'));
     },
     explode: () => void activeTools?.explodeSelected(),
     selectSimilar: () => void activeTools?.selectSimilar(),
@@ -9151,7 +9378,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     process: (kind) => setProcessKind(kind),
     unflatten: () => {
       const cur = activeOpen;
-      if (cur) void runProcess(cur, { kind: 'unflatten' }, 'Before Unflatten').then((msg) => msg && setNotice(msg)).catch((err) => setError(`Unflatten failed: ${err instanceof Error ? err.message : String(err)}`));
+      if (cur) void runProcess(cur, { kind: 'unflatten' }, 'Before Unflatten').then((msg) => msg && setNotice(msg)).catch((err) => setError(msg('Unflatten failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
     },
     compare: () => setCompareOpen('compare'),
     semanticCompare: () => showPanel('ai'),
@@ -9222,18 +9449,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       if (!cur) return;
       const marks = cur.store.all().filter((m) => m.type === 'redaction');
       if (!marks.length) {
-        setNotice('Nothing is marked for redaction: use Tools › Redaction › Mark for Redaction, or Search › Mark for redaction.');
+        setNotice(msg('Nothing is marked for redaction: use Tools › Redaction › Mark for Redaction, or Search › Mark for redaction.'));
         return;
       }
       setRedactFor({ pane: paneB ? 'b' : 'a', count: marks.length });
     },
     repair: () => {
       const cur = activeOpen;
-      if (cur) void runProcess(cur, { kind: 'repair' }, 'Before Repair').then((msg) => msg && setNotice(msg)).catch((err) => setError(`Repair failed: ${err instanceof Error ? err.message : String(err)}`));
+      if (cur) void runProcess(cur, { kind: 'repair' }, 'Before Repair').then((msg) => msg && setNotice(msg)).catch((err) => setError(msg('Repair failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
     },
     deletePages: () => {
       const pages = currentPageOps();
-      if (!confirm(`Delete page ${pages[0]! + 1}? Markups on it are deleted too.`)) return;
+      if (!confirm(msg('Delete page {page}? Markups on it are deleted too.', { page: pages[0]! + 1 }))) return;
       showPanel('pages');
       void applyPageOps([{ type: 'delete', pages }]);
     },
@@ -9257,7 +9484,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     portals: () => setPortalDialog({ pane: paneB ? 'b' : 'a' }),
     breakPortalLink: () => {
       activeOpen?.store.breakPortalLinks(selectedMarkups.filter((m) => m.portalLink).map((m) => m.id));
-      setNotice('The selected markups are no longer mirrored: they are ordinary markups on their page now.');
+      setNotice(msg('The selected markups are no longer mirrored: they are ordinary markups on their page now.'));
     },
     takeoffReports: () => {
       setReportsError(null);
@@ -9289,7 +9516,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     flowShape: (kind) => activeTools?.setFlowShape(kind),
     addNextShape: (side) => activeTools?.addNextShape(side),
     connectShapes: () => {
-      if (activeTools && !activeTools.connectSelected()) setNotice('The selected shapes are already connected.');
+      if (activeTools && !activeTools.connectSelected()) setNotice(msg('The selected shapes are already connected.'));
     },
     connectorRoute: (route) => activeTools?.setConnectorRoute(route),
     model3d: (action) => activeModel?.view.controls()?.run(action),
@@ -9316,7 +9543,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       await openStored(file, bytes, activePaneRef.current);
       void refreshLibrary();
     } catch (err) {
-      setError(`New from template failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('New from template failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
   /** File › New PDF from Template: picks a template document and a name for the copy. */
@@ -9325,7 +9552,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     if (!templates.length) return;
     const choice = templates.length === 1 ? templates[0]! : await pickTemplate(templates);
     if (!choice) return;
-    const name = await askText('New PDF from Template', choice.name.replace(/\.pdf$/i, '') + ' copy.pdf', { label: `A new document from the template "${choice.name}".`, confirm: 'Create' });
+    const name = await askText(msg('New PDF from Template'), choice.name.replace(/\.pdf$/i, '') + ' copy.pdf', { label: msg('A new document from the template "{name}".', { name: choice.name }), confirm: msg('Create') });
     if (name) await copyTemplate(choice, name);
   };
   /** File › New PDF › Start from: a built-in template, or a copy of one in the library. */
@@ -9341,7 +9568,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       const { buildTemplate } = await import('./documents/pdfTemplates');
       await openCreated(`${t.name}.pdf`, (await buildTemplate(t.id, req.count)).slice().buffer);
     } catch (err) {
-      setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Creating the PDF failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
   /** File › New PDF › Import Template: a PDF from disk, added to the library as a template. */
@@ -9352,7 +9579,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       await refreshLibrary();
       return stored.id;
     } catch (err) {
-      setError(`Importing the template failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Importing the template failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
       return null;
     }
   };
@@ -9366,14 +9593,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       const name = cur.file.name.replace(/\.pdf$/i, '') + ' (markups).pdf';
       const file = new File([out as BlobPart], name, { type: 'application/pdf' });
       if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ files: [file], title: cur.file.name, text: `${cur.file.name}, with markups` });
+        await navigator.share({ files: [file], title: cur.file.name, text: msg('{name}, with markups', { name: cur.file.name }) });
         return;
       }
       download(name, file);
       window.location.href = `mailto:?subject=${encodeURIComponent(cur.file.name)}&body=${encodeURIComponent(`Attached: ${name}\n`)}`;
-      setNotice(`Saved ${name}; attach it to the new email.`);
+      setNotice(msg('Saved {name}; attach it to the new email.', { name }));
     } catch (err) {
-      if ((err as Error)?.name !== 'AbortError') setError(`Sharing failed: ${err instanceof Error ? err.message : String(err)}`);
+      if ((err as Error)?.name !== 'AbortError') setError(msg('Sharing failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -9401,7 +9628,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       const found = markupsFromXfdf(await file.text(), (i) => (matrices[i] ? invertMatrix(matrices[i]) : null)).filter((m) => m.pageIndex < cur.doc.pages.length);
       addImported(cur, found, file.name);
     } catch (err) {
-      setError(`XFDF ${dir} failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('XFDF {dir} failed: {value}', { dir, value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -9430,9 +9657,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         },
       });
       addImported(cur, markups, file.name);
-      if (skipped.length) setError(`${skipped.length} annotation${skipped.length === 1 ? '' : 's'} in ${file.name} could not be imported: ${skipped.slice(0, 5).join('; ')}${skipped.length > 5 ? '; …' : ''}`);
+      if (skipped.length) setError(msg('{count, plural, one {# annotation} other {# annotations}} in {name} could not be imported: {slice}{value}', { count: skipped.length, name: file.name, slice: skipped.slice(0, 5).join('; '), value: skipped.length > 5 ? '; …' : '' }));
     } catch (err) {
-      setError(`FDF ${dir} failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('FDF {dir} failed: {value}', { dir, value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -9453,7 +9680,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       }
       addImported(cur, found, file.name);
     } catch (err) {
-      setError(`Importing markups failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Importing markups failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -9469,9 +9696,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       // The markups as saving writes them; links stay out, as Revu leaves them out of BAX.
       const xml = await exportBax(await annotatedBytes(cur, { links: false }), { pageLabels: baxLabels(cur) });
       download(`${cur.file.name.replace(/\.pdf$/i, '')}.bax`, new Blob([xml], { type: 'application/xml' }));
-      setNotice('Markups exported as a Bluebeam BAX file. In Revu: Markups › Import Markups.');
+      setNotice(msg('Markups exported as a Bluebeam BAX file. In Revu: Markups › Import Markups.'));
     } catch (err) {
-      setError(`Exporting markups failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Exporting markups failed: {value}', { value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
@@ -9494,7 +9721,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       const found = await readPdfAnnotations(inj.bytes.slice().buffer, store);
       const mine = found.markups.filter((m) => m.pdfAnnot && inj.added[m.pageIndex]?.includes(m.pdfAnnot.index));
       if (!mine.length) {
-        setNotice(`${file.name} has no markups for this document${inj.offPage ? ` (${inj.offPage} are on pages it does not have)` : ''}.`);
+        setNotice(msg('{name} has no markups for this document{value}.', { name: file.name, value: inj.offPage ? ' ' + msg('({offPage} are on pages it does not have)', { offPage: inj.offPage }) : '' }));
         return;
       }
       // Column values by name, onto this document's columns (missing ones added as text columns).
@@ -9554,17 +9781,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         }
       });
       if (columns.length !== set.columns.length || statuses.length !== set.statuses.length) store.setColumnSet({ columns, statuses });
-      const parts = [added && `${added} added`, updated && `${updated} updated`, same && `${same} already up to date`].filter(Boolean).join(', ');
-      setNotice(`Imported ${file.name}: ${parts}${inj.offPage ? `; ${inj.offPage} on pages this document does not have were left out` : ''}.`);
+      const parts = [added && `${added} added`, updated && `${updated} updated`, same && msg('{same} already up to date', { same })].filter(Boolean).join(', ');
+      setNotice(msg('Imported {name}: {parts}{value}.', { name: file.name, parts, value: inj.offPage ? msg('; {offPage} on pages this document does not have were left out', { offPage: inj.offPage }) : '' }));
     } catch (err) {
-      setError(`Importing ${file.name} failed: ${err instanceof Error ? err.message : String(err)}`);
+      setError(msg('Importing {name} failed: {value}', { name: file.name, value: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   /** Adds imported markups as one undo step: new ids, except where the same markup is already here (updated instead). */
   const addImported = (cur: OpenFile, found: readonly Markup[], from: string) => {
     if (!found.length) {
-      setNotice(`${from} has no markups to import.`);
+      setNotice(msg('{from} has no markups to import.', { from }));
       return;
     }
     const store = cur.store;
@@ -9578,7 +9805,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         updated++;
       } else store.add(m);
     }
-    setNotice(`Imported ${found.length} markup${found.length === 1 ? '' : 's'} from ${from}${updated ? ` (${updated} updated in place)` : ''}.`);
+    setNotice(msg('Imported {count, plural, one {# markup} other {# markups}} from {from}{value}.', { count: found.length, from, value: updated ? ' ' + msg('({updated} updated in place)', { updated }) : '' }));
   };
 
   /** File › Publish and Export › Page Images. */
@@ -9631,7 +9858,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       }
       setPublishFor(null);
     } catch (err) {
-      setError(`${req.kind === 'pdf' ? 'Publish' : 'Export'} failed: ${err instanceof Error ? err.message : String(err)}`);
+      const error = err instanceof Error ? err.message : String(err);
+      setError(req.kind === 'pdf' ? msg('Publish failed: {error}', { error }) : msg('Export failed: {error}', { error }));
     } finally {
       job.end();
     }
@@ -9700,6 +9928,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     tool: toolsState.tool,
     settings: prefs,
     openTabCount: (tabPaneOf(pane) === 'b' ? tabsB : tabsA).length,
+    hasClosedTabs: closedTabs.length > 0,
     leftTab,
     rightTab,
     bottomTab,
@@ -9718,7 +9947,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   commandsRef.current = commandMap;
 
   /** A side's panel rail: click a panel to show it; drag it along the rail, or onto the other side, to move it. */
-  const panelRail = (side: DockSide, items: typeof RAIL) => {
+  const panelRail = (side: DockSide, items: ReturnType<typeof RAIL>) => {
     const shown = side === 'left' ? leftOpen : rightOpen;
     const open = shown ? (side === 'left' ? leftTab : rightTab) : null;
     const labelled = railLabels[side];
@@ -9727,7 +9956,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     return (
     <nav
       className={['rail', side, labelled ? 'labelled' : '', railDrag?.side === side && !railDrag.over ? 'drop-target' : ''].filter(Boolean).join(' ')}
-      aria-label={side === 'left' ? 'Panels' : 'Right panels'}
+      aria-label={side === 'left' ? msg('Panels') : msg('Right panels')}
       onDragOver={(e) => dragOverSide(e, side)}
       onDrop={(e) => dropOnSide(e, side)}
     >
@@ -9735,15 +9964,15 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <button
         type="button"
         className="rail-toggle"
-        title={labelled ? 'Collapse the panel names' : 'Show the panel names'}
-        aria-label={labelled ? 'Collapse the panel names' : 'Show the panel names'}
+        title={labelled ? msg('Collapse the panel names') : msg('Show the panel names')}
+        aria-label={labelled ? msg('Collapse the panel names') : msg('Show the panel names')}
         aria-pressed={labelled}
         onClick={() => toggleRailLabels(side)}
       >
         <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
           <path fill="none" stroke="currentColor" strokeWidth="1.6" d={pointsLeft ?'M10 3 5 8l5 5' : 'M6 3l5 5-5 5'} />
         </svg>
-        <span className="rail-label">Collapse</span>
+        <span className="rail-label">{msg('Collapse')}</span>
       </button>
       )}
       {items.map(({ id, title, icon, experimental }) => (
@@ -9756,7 +9985,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             railDrag?.over === id ? (railDrag.after ? 'drop-after' : 'drop-before') : '',
             experimental ? 'experimental' : '',
           ].filter(Boolean).join(' ')}
-          title={experimental ? `${title} (Experimental)` : title}
+          title={experimental ? msg('{title} (Experimental)', { title }) : title}
           aria-pressed={open === id}
           data-panel={id}
           draggable
@@ -9782,10 +10011,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         >
           {icon}
           <span className="rail-label">{title}</span>
-          {experimental && <span className="rail-exp">Exp</span>}
+          {experimental && <span className="rail-exp">{msg('Exp')}</span>}
         </button>
       ))}
-      {!items.length && railDrag && <div className="rail-drop-hint">Dock here</div>}
+      {!items.length && railDrag && <div className="rail-drop-hint">{msg('Dock here')}</div>}
     </nav>
     );
   };
@@ -9795,7 +10024,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
     const tab = side === 'left' ? leftTab : rightTab;
     if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side) return null;
     // A 3D panel left open when the last model closed gives the space back to the drawing.
-    if (!anyModelOpen && RAIL.find((r) => r.id === tab)?.needsModel) return null;
+    if (!anyModelOpen && RAIL().find((r) => r.id === tab)?.needsModel) return null;
     const width = side === 'left' ? shownWidths.left : shownWidths.right;
     const close = () => (side === 'left' ? setLeftOpen(false) : setRightOpen(false));
     return (
@@ -9808,19 +10037,19 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         <h2
           style={tab === 'layers' ? { display: 'none' } : undefined}
           draggable
-          title="Drag to the left or right side of the window to dock this panel there"
+          title={msg('Drag to the left or right side of the window to dock this panel there')}
           onDragStart={(e) => startPanelDrag(e, tab)}
           onDragEnd={() => setRailDrag(null)}
         >
-          {LEFT_TITLES[tab]}
+          {leftTitles()[tab]}
           {tab === 'markups' && (
-            <button className="drawer-popout" aria-label="Dock the Markups list at the bottom" title="Dock at the bottom of the window" draggable={false} onClick={undockMarkups}>
+            <button className="drawer-popout" aria-label={msg('Dock the Markups list at the bottom')} title={msg('Dock at the bottom of the window')} draggable={false} onClick={undockMarkups}>
               <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
                 <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M2 2.5h12v11H2zM2 10h12" />
               </svg>
             </button>
           )}
-          <button className="drawer-close" aria-label="Close the panel" title="Close" draggable={false} onClick={close}>
+          <button className="drawer-close" aria-label={msg('Close the panel')} title={msg('Close')} draggable={false} onClick={close}>
             ×
           </button>
         </h2>
@@ -9855,7 +10084,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     for (const h of hits)
                       for (const r of h.rects)
                         store.add({ id: crypto.randomUUID(), type: 'redaction', pageIndex: h.pageIndex, points: [[r.x - 1, r.y - 1], [r.x + r.w + 1, r.y + r.h + 1]], style, subject: 'Search redaction', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now });
-                    setNotice(`Marked ${hits.length} match${hits.length === 1 ? '' : 'es'} for redaction. Tools › Redaction › Apply Redactions removes them.`);
+                    setNotice(msg('Marked {count, plural, one {# match} other {# matches}} for redaction. Tools › Redaction › Apply Redactions removes them.', { count: hits.length }));
                   }
                 : undefined
             }
@@ -9879,7 +10108,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     });
                     store.checkpoint();
                     store.batch(() => made.forEach((m) => store.add(m)));
-                    setNotice(`Counted ${found.length} match${found.length === 1 ? '' : 'es'}${tool ? ` with ${tool.name}` : ''}.`);
+                    setNotice(msg('Counted {count, plural, one {# match} other {# matches}}{value}.', { count: found.length, value: tool ? ' ' + msg('with {name}', { name: tool.name }) : '' }));
                   }
                 : undefined
             }
@@ -9892,9 +10121,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         ) : tab === 'markups' ? (
           markupsPopped ? (
             <div className="popout-note">
-              <p>The Markups list is open in its own window.</p>
+              <p>{msg('The Markups list is open in its own window.')}</p>
               <button type="button" className="btn small" onClick={() => setMarkupsPopped(false)}>
-                Bring it back
+                {msg('Bring it back')}
               </button>
             </div>
           ) : (
@@ -9936,18 +10165,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onFill={(name, value) => activeOpen && void fillFields(activeOpen.file.id, { [name]: value })}
             onUpdate={async (name, changes: FieldChanges) => {
               if (!activeOpen) return;
-              await editForm(activeOpen.file.id, 'Changing the field', async (bytes) => (await import('./documents/forms')).updateField(bytes, name, changes));
+              await editForm(activeOpen.file.id, msg('Changing the field'), async (bytes) => (await import('./documents/forms')).updateField(bytes, name, changes));
               if (changes.name) setSelectedField(changes.name);
             }}
             onDelete={(name) => {
-              if (!activeOpen || !confirm(`Delete the field "${name}"?`)) return;
-              void editForm(activeOpen.file.id, 'Deleting the field', async (bytes) => (await import('./documents/forms')).removeFields(bytes, [name]));
+              if (!activeOpen || !confirm(msg('Delete the field "{name}"?', { name }))) return;
+              void editForm(activeOpen.file.id, msg('Deleting the field'), async (bytes) => (await import('./documents/forms')).removeFields(bytes, [name]));
               setSelectedField(null);
             }}
-            onReorder={(names) => activeOpen && void editForm(activeOpen.file.id, 'Changing the tab order', async (bytes) => (await import('./documents/forms')).setTabOrder(bytes, names))}
+            onReorder={(names) => activeOpen && void editForm(activeOpen.file.id, msg('Changing the tab order'), async (bytes) => (await import('./documents/forms')).setTabOrder(bytes, names))}
             onReset={() => {
-              if (!activeOpen || !confirm('Clear every field of this form?')) return;
-              void editForm(activeOpen.file.id, 'Resetting the form', async (bytes) => (await import('./documents/forms')).resetForm(bytes));
+              if (!activeOpen || !confirm(msg('Clear every field of this form?'))) return;
+              void editForm(activeOpen.file.id, msg('Resetting the form'), async (bytes) => (await import('./documents/forms')).resetForm(bytes));
             }}
             onExport={(format) => {
               const model = activeOpen && formModels[activeOpen.file.hash];
@@ -9968,18 +10197,18 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 try {
                   data = /\.csv$/i.test(file.name) ? fromCsv(text) : /\.json$/i.test(file.name) ? Object.fromEntries(Object.entries(JSON.parse(text) as Record<string, unknown>).map(([k, v]) => [k, Array.isArray(v) ? v.join('\n') : String(v ?? '')])) : fromXfdf(text);
                 } catch {
-                  setError(`${file.name} could not be read as form data.`);
+                  setError(msg('{name} could not be read as form data.', { name: file.name }));
                   return;
                 }
                 const known = new Set(model.fields.filter((f) => f.type !== 'button' && f.type !== 'signature').map((f) => f.name));
                 const values = Object.fromEntries(Object.entries(data).filter(([k]) => known.has(k)));
                 const n = Object.keys(values).length;
                 if (!n) {
-                  setNotice(`None of the fields in ${file.name} are in this form.`);
+                  setNotice(msg('None of the fields in {name} are in this form.', { name: file.name }));
                   return;
                 }
                 await fillFields(activeOpen.file.id, values);
-                setNotice(`Filled in ${n} field${n === 1 ? '' : 's'} from ${file.name}.`);
+                setNotice(msg('Filled in {n, plural, one {# field} other {# fields}} from {name}.', { n, name: file.name }));
               })();
             }}
           />
@@ -10040,7 +10269,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               const was = hiddenPdfLayers[id] ?? [];
               if (was.length === pdf.length && was.every((x) => pdf.includes(x))) return;
               setHiddenPdfLayers((all) => ({ ...all, [id]: pdf }));
-              void showPdfLayers(cur, new Set(pdf)).catch((err) => setError(`Showing layers failed: ${err instanceof Error ? err.message : String(err)}`));
+              void showPdfLayers(cur, new Set(pdf)).catch((err) => setError(msg('Showing layers failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
             }}
             onFaded={(markup) => {
               const id = activeOpen?.file.id;
@@ -10194,7 +10423,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     const s = activeOpen.store.manualStitch();
                     const adopted = adoptDetected(currentStitch, s.lines);
                     activeOpen.store.setManualStitch({ ...s, lines: [...s.lines, ...adopted] });
-                    setNotice(`${adopted.length / 2} detected join${adopted.length === 2 ? '' : 's'} can now be edited.`);
+                    setNotice(msg('{count} detected join{value2} can now be edited.', { count: adopted.length / 2, value2: adopted.length === 2 ? '' : 's' }));
                   }
                 : null
             }
@@ -10319,31 +10548,31 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             }}
             onCheckRevocation={async (c) => {
               const { buildChain, checkRevocation } = await import('./documents/pki');
-              if (!c.certificates.length) throw new Error('The signature carries no certificate');
+              if (!c.certificates.length) throw new Error(msg('The signature carries no certificate'));
               const chain = await buildChain(c.certificates[0]!, c.certificates);
               const r = await checkRevocation(chain, pkiFetch);
-              const when = r.at ? ` (as of ${r.at.toLocaleString()})` : '';
+              const when = r.at ? ' ' + msg('(as of {at})', { at: r.at.toLocaleString() }) : '';
               const trust = r.verified ? '' : ' The answer’s signature could not be checked.';
               return r.status === 'good'
-                ? `Not revoked, says the certificate authority’s ${r.via}${when}.${trust}`
+                ? msg('Not revoked, says the certificate authority’s {via}{when}.{trust}', { via: r.via, when, trust })
                 : r.status === 'revoked'
                   ? `Revoked${r.revokedAt ? ` on ${r.revokedAt.toLocaleString()}` : ''} (${r.via}).${c.signedAt && r.revokedAt && c.signedAt < r.revokedAt ? ' It was signed before that.' : ''}${trust}`
-                  : `The ${r.via} responder does not know this certificate.`;
+                  : msg('The {via} responder does not know this certificate.', { via: r.via });
             }}
             {...(desktop()?.pkiFetch
               ? {
                   onAddLtv: async (c: SignatureCheck) => {
-                    if (!activeOpen) throw new Error('No document is open');
+                    if (!activeOpen) throw new Error(msg('No document is open'));
                     let note: string | null = null;
                     const ok = await editForm(
                       activeOpen.file.id,
-                      'Adding long-term validation',
+                      msg('Adding long-term validation'),
                       async (bytes) => {
                         const out = await addLtv(new Uint8Array(bytes), { fields: [c.field] });
-                        note = out.problems.length ? `Added, but not for all of it: ${out.problems.join('; ')}` : null;
+                        note = out.problems.length ? msg('Added, but not for all of it: {problems}', { problems: out.problems.join('; ') }) : null;
                         return out.bytes;
                       },
-                      'Before adding long-term validation',
+                      `Before adding long-term validation`,
                       true,
                     );
                     return ok ? (note ?? 'Long-term validation added: the chain and revocation answers are kept in the PDF.') : 'LTV not added.';
@@ -10385,7 +10614,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             onRemove={(f) => void removeFile(f).then(() => forgetHandle(f.id)).then(refreshLibrary)}
           />
         )}
-        <div className="panel-split" role="separator" aria-orientation="vertical" aria-label="Resize side panel" title="Drag to resize, click to collapse" onPointerDown={(e) => onSideResize(side, e)} />
+        <div className="panel-split" role="separator" aria-orientation="vertical" aria-label={msg('Resize side panel')} title={msg('Drag to resize, click to collapse')} onPointerDown={(e) => onSideResize(side, e)} />
       </aside>
     );
   };
@@ -10416,7 +10645,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
 
   // The Markups list sits beside the side panels, or spans the window below them.
   const bottomDock = !dockOpen ? (
-    <button type="button" className="dock-edge" aria-label="Open the Markups list" title="Open the Markups list" onClick={() => setDockOpen(true)} />
+    <button type="button" className="dock-edge" aria-label={msg('Open the Markups list')} title={msg('Open the Markups list')} onClick={() => setDockOpen(true)} />
   ) : (
     <aside
       className="bottom-dock"
@@ -10433,13 +10662,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         setRailDrag(null);
       }}
     >
-      <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label="Resize markups panel" title="Drag to resize, click to collapse" onPointerDown={onDockSplit} />
+      <div className="dock-split" role="separator" aria-orientation="horizontal" aria-label={msg('Resize markups panel')} title={msg('Drag to resize, click to collapse')} onPointerDown={onDockSplit} />
       <div className="tabs">
         <button
           type="button"
           className="dock-width-toggle"
-          title={dockFull ? 'Fit the panel between the side panels' : 'Extend the panel across the full width'}
-          aria-label={dockFull ? 'Fit the panel between the side panels' : 'Extend the panel across the full width'}
+          title={dockFull ? msg('Fit the panel between the side panels') : msg('Extend the panel across the full width')}
+          aria-label={dockFull ? msg('Fit the panel between the side panels') : msg('Extend the panel across the full width')}
           aria-pressed={dockFull}
           onClick={() => updateWorkspace((w) => ({ ...w, dockFullWidth: !w.dockFullWidth }))}
         >
@@ -10453,13 +10682,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               role="tab"
               aria-selected={bottomTab === 'markups'}
               className={bottomTab === 'markups' ? 'active' : ''}
-              title="Drag to a side of the window to dock the Markups list there"
+              title={msg('Drag to a side of the window to dock the Markups list there')}
               draggable
               onDragStart={(e) => startPanelDrag(e, 'markups')}
               onDragEnd={() => setRailDrag(null)}
               onClick={() => setBottomTab('markups')}
             >
-              Markups
+              {msg('Markups')}
             </button>
           )}
           <button
@@ -10468,17 +10697,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             className={bottomTab === 'links' ? 'active' : ''}
             onClick={() => setBottomTab('links')}
           >
-            Links{links.some((l) => l.status === 'review') ? ' •' : ''}
+            {msg('Links{value}', { value: links.some((l) => l.status === 'review') ? ' •' : '' })}
           </button>
         </div>
         {bottomTab === 'markups' && !markupsPopped && (
-          <button type="button" className="drawer-popout" aria-label="Open the Markups list in its own window" title="Open in its own window" onClick={() => setMarkupsPopped(true)}>
+          <button type="button" className="drawer-popout" aria-label={msg('Open the Markups list in its own window')} title={msg('Open in its own window')} onClick={() => setMarkupsPopped(true)}>
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
               <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M9 2h5v5M14 2 7.5 8.5M12 10v3.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5H6" />
             </svg>
           </button>
         )}
-        <button className="drawer-close" aria-label="Close the Markups list" title="Close" onClick={() => setShowBottom(false)}>
+        <button className="drawer-close" aria-label={msg('Close the Markups list')} title={msg('Close')} onClick={() => setShowBottom(false)}>
           ×
         </button>
       </div>
@@ -10502,9 +10731,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           />
         ) : markupsPopped ? (
           <div className="popout-note">
-            <p>The Markups list is open in its own window.</p>
+            <p>{msg('The Markups list is open in its own window.')}</p>
             <button type="button" className="btn small" onClick={() => setMarkupsPopped(false)}>
-              Bring it back
+              {msg('Bring it back')}
             </button>
           </div>
         ) : (
@@ -10611,10 +10840,27 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           // Whatever is selected: the Markup Format tab edits what they share, together (style needs two or more).
           selection: toolsState.tool === 'select' && activeOpen && toolsState.selected.size > 0 ? { markups: markups.filter((m) => toolsState.selected.has(m.id)), store: activeOpen.store } : null,
           layerNames: [...new Set([...markups.flatMap((m) => (m.layer ? [m.layer] : [])), ...(activeOpen ? addedMarkupLayers(activeOpen.file.hash) : [])])],
-          askLayer: () => askText('New Markup Layer', '', { label: 'Markups go on it. Layers show and hide in the Layers panel, and are PDF layers in saved files.', confirm: 'Create' }).then((name) => name?.trim() || null),
+          askLayer: () => askText(msg('New Markup Layer'), '', { label: msg('Markups go on it. Layers show and hide in the Layers panel, and are PDF layers in saved files.'), confirm: msg('Create') }).then((name) => name?.trim() || null),
           textType,
           textMarkupStyle: selectedText?.type === 'table' && toolsState.tableCells?.id === selectedText.id ? (activeTools?.selectedCellStyle() ?? selectedText.style) : selectedText?.style,
           enabled: !!activeOpen && !activeReadOnly,
+          // Units & Scale shows while measuring: a measure tool is active, or measurements are selected.
+          unitsScale:
+            activeOpen && (MEASURE_TOOLS.some((t) => t.tool === toolsState.tool) || selectedMarkups.some((m) => isMeasureKind(m.type)))
+              ? {
+                  scale: scales[pageIndex] ?? null,
+                  disabled: activeReadOnly,
+                  onPreset: (scale) => activeOpen.store.setScale([pageIndex], withDefaultUnits(scale)),
+                  onCustom: () => {
+                    setCustomScalePage(pageIndex);
+                    setCustomScalePane(paneB ? 'b' : 'a');
+                  },
+                  onUnitsChanged: () => {
+                    const current = scales[pageIndex];
+                    if (current) activeOpen.store.setScale([pageIndex], scaleInDefaultUnits(current));
+                  },
+                }
+              : null,
           visibleTools: ws.toolbarTools,
           author,
           onPlaceStamp: (s) => placeStamp(s),
@@ -10642,7 +10888,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       <div className="body">
         {panelRail('left', leftRail)}
         {sidePanel('left')}
-        {!leftOpen && <button type="button" className="panel-edge" aria-label="Open the side panel" title="Open the side panel" onClick={() => setLeftOpen(true)} />}
+        {!leftOpen && <button type="button" className="panel-edge" aria-label={msg('Open the side panel')} title={msg('Open the side panel')} onClick={() => setLeftOpen(true)} />}
         <div className="workspace">
           <div id="rc-project-slot" className="rc-project-slot" />
           <div className={`panes${split ? ' split' : ''}${split && splitHorizontal ? ' horizontal' : ''}`}>
@@ -10732,7 +10978,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 {open && suggestion?.fileId === open.file.id && (
                   <div className="slow-drawing standard-suggestion" role="status">
                     <p>
-                      This looks like a <b>{suggestion.standard.name}</b> set: {Math.round(suggestion.fit * 100)}% of the sheets checked fit that drawing standard.
+                      {keyed(msgParts('This looks like a {b} set: {round}% of the sheets checked fit that drawing standard.', { b: <b>{suggestion.standard.name}</b>, round: Math.round(suggestion.fit * 100) }))}
                     </p>
                     <div className="slow-drawing-actions">
                       <button
@@ -10743,7 +10989,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                           setSuggestion(null);
                         }}
                       >
-                        Not this set
+                        {msg('Not this set')}
                       </button>
                       <button
                         type="button"
@@ -10751,10 +10997,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                         onClick={() => {
                           const { standard } = suggestion;
                           setSuggestion(null);
-                          void readWithStandard(open, standard).then(() => setNotice(`${open.file.name} is read with ${standard.name}.`));
+                          void readWithStandard(open, standard).then(() => setNotice(msg('{name} is read with {name2}.', { name: open.file.name, name2: standard.name })));
                         }}
                       >
-                        Use {suggestion.standard.name}
+                        {msg('Use {name}', { name: suggestion.standard.name })}
                       </button>
                     </div>
                   </div>
@@ -10768,7 +11014,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   className={splitHorizontal ? 'split-h' : 'split-v'}
                   role="separator"
                   aria-orientation={splitHorizontal ? 'horizontal' : 'vertical'}
-                  aria-label="Resize split"
+                  aria-label={msg('Resize split')}
                   onPointerDown={onSplitResize}
                 />
                 <div
@@ -10803,7 +11049,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   >
                     <canvas ref={canvasBRef} />
                     {modelB && <ModelStage view={modelB.view} />}
-                    {!openB && !modelB && <div className="hint">Drop a PDF here or File → Open Recent</div>}
+                    {!openB && !modelB && <div className="hint">{msg('Drop a PDF here or File → Open Recent')}</div>}
                     {openB?.store.readOnly && <div className="readonly-banner">{readOnlyReason(openB, snapshots)}</div>}
                     {openB && recoveredOnOpen.has(openB.file.id) && !recoveredKept.has(openB.file.id) && hasUnsavedChanges(openB) && (
                       <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(openB.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(openB)} />
@@ -10840,7 +11086,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   done++;
                 }
                 const missed = scales.length - done;
-                setNotice(`Set the scale on ${done} page${done === 1 ? '' : 's'}${missed ? `; ${missed} had no readable scale in the boxes and were left as they were` : ''}.`);
+                setNotice(msg('Set the scale on {done, plural, one {# page} other {# pages}}{value}.', { done, value: missed ? msg('; {missed} had no readable scale in the boxes and were left as they were', { missed }) : '' }));
                 setLabelMode(null);
               }}
             />
@@ -10861,7 +11107,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               onApply={(spec) => {
                 const o = labelPaneParts.o!;
                 setLabelMode(null);
-                void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(`Bulk redact failed: ${err instanceof Error ? err.message : String(err)}`));
+                void runRedact(o, labelMode.pane === 'b', 'erase', spec.areas, undefined, spec).catch((err) => setError(msg('Bulk redact failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
               }}
             />
           )}
@@ -10875,10 +11121,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               onShow={(targetId, page) => {
                 setApplyStitch(false);
                 const target = pdfTabs([...tabsA, ...tabsB]).find((t) => t.file.id === targetId);
-                if (!target || target.file.id !== activeOpen.file.id) return setNotice(`Switch to ${target?.file.name ?? 'that document'} to see its stitched sheets.`);
+                if (!target || target.file.id !== activeOpen.file.id) return setNotice(msg('Switch to {value} to see its stitched sheets.', { value: target?.file.name ?? msg('that document') }));
                 const group = mergeStitch(target.store.stitchGroups(), withViewportRegions(target.store.manualStitch(), target.store.allViewports())).find((g) => g.placements.some((p) => p.pageIndex === page));
                 if (group) openStitch(group, page);
-                else setNotice('That sheet is not joined to another: check its match lines in the Stitching panel.');
+                else setNotice(msg('That sheet is not joined to another: check its match lines in the Stitching panel.'));
               }}
               onClose={() => setApplyStitch(false)}
             />
@@ -10913,16 +11159,16 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                       const known = new Set(o.store.allLinks().map((l) => l.id));
                       for (const [linkId, ok] of checks) if (known.has(linkId)) o.store.setLinkStatus(linkId, ok ? 'accepted' : 'rejected');
                       const read = Object.values(o.store.allSheets()).filter((s) => s.source === 'standard').length;
-                      setNotice(standard ? `Read ${o.file.name} with ${standard.name}: ${read} of ${o.doc.pages.length} sheet numbers from its title block.` : `${o.file.name} is read from its text again.`);
+                      setNotice(standard ? msg('Read {name} with {name2}: {read} of {count} sheet numbers from its title block.', { name: o.file.name, name2: standard.name, read, count: o.doc.pages.length }) : msg('{name} is read from its text again.', { name: o.file.name }));
                     });
                   }}
                   onStitch={() => {
                     void restitch(o).then(() => {
                       const groups = o.store.stitchGroups();
-                      setNotice(groups.length ? `Stitched ${o.file.name}: ${groups.length} group${groups.length === 1 ? '' : 's'} of plans joined along their match lines. Open them from the Stitching panel.` : `No plans in ${o.file.name} could be stitched from their match lines.`);
+                      setNotice(groups.length ? msg('Stitched {name}: {count, plural, one {# group} other {# groups}} of plans joined along their match lines. Open them from the Stitching panel.', { name: o.file.name, count: groups.length }) : msg('No plans in {name} could be stitched from their match lines.', { name: o.file.name }));
                     });
                   }}
-                  onUseNone={() => void readWithStandard(o, null).then(() => setNotice(`${o.file.name} is read from its text again.`))}
+                  onUseNone={() => void readWithStandard(o, null).then(() => setNotice(msg('{name} is read from its text again.', { name: o.file.name })))}
                   onImport={(file) =>
                     void file
                       .text()
@@ -10930,7 +11176,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                         const standard = parseStandardFile(content);
                         const known = profiles.active().state.drawingStandards.some((s) => s.id === standard.id);
                         updateWorkspace((w) => ({ ...w, drawingStandards: [...w.drawingStandards.filter((s) => s.id !== standard.id), standard] }));
-                        setNotice(`${known ? 'Updated' : 'Added'} the drawing standard "${standard.name}".`);
+                        setNotice(msg('{value} the drawing standard "{name}".', { value: known ? msg('Updated') : msg('Added'), name: standard.name }));
                       })
                       .catch((err) => setError(err instanceof Error ? err.message : String(err)))
                   }
@@ -10959,7 +11205,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     if (!project) return;
                     void project
                       .setStandard(standard ? exportStandard(standard) : null, standard?.name)
-                      .then(() => setNotice(standard ? `Every file in ${project.getSnapshot().manifest.name} is now read with ${standard.name}.` : `${project.getSnapshot().manifest.name} no longer has a drawing standard.`))
+                      .then(() => setNotice(standard ? msg('Every file in {name} is now read with {name2}.', { name: project.getSnapshot().manifest.name, name2: standard.name }) : msg('{name} no longer has a drawing standard.', { name: project.getSnapshot().manifest.name })))
                       .catch((err) => setError(err instanceof Error ? err.message : String(err)));
                   }}
                   onClose={() => setSetup(null)}
@@ -10969,7 +11215,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               return (
                 <PopOutWindow
                   name="redcolumn-standards"
-                  title="Set up drawing standard"
+                  title={msg('Set up drawing standard')}
                   width={Math.min(1500, Math.round(window.screen.availWidth * 0.9))}
                   height={Math.min(1000, Math.round(window.screen.availHeight * 0.9))}
                   onClose={(reason) => {
@@ -11009,7 +11255,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   );
                   const n = named.renamed + named.added;
                   if (n) store.setBookmarks(named.tree);
-                  setNotice(`Named ${n} bookmark${n === 1 ? '' : 's'}${named.added && named.renamed ? ` (${named.added} new)` : ''}${named.skipped.length ? `; ${named.skipped.length} page${named.skipped.length === 1 ? '' : 's'} had no text in the boxes and ${named.skipped.length === 1 ? 'was' : 'were'} left as ${named.skipped.length === 1 ? 'it was' : 'they were'}` : ''}.`);
+                  setNotice(msg('Named {n, plural, one {# bookmark} other {# bookmarks}}{value}{value2}.', { n, value: named.added && named.renamed ? ' ' + msg('({added} new)', { added: named.added }) : '', value2: named.skipped.length ? msg('; {count, plural, one {# page} other {# pages}} had no text in the boxes and {value} left as {value2}', { count: named.skipped.length, value: named.skipped.length === 1 ? msg('was') : msg('were'), value2: named.skipped.length === 1 ? msg('it was') : msg('they were') }) : '' }));
                   setLabelMode(null);
                   return;
                 }
@@ -11021,7 +11267,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   done++;
                 }
                 const missed = labels.length - done;
-                setNotice(`Labelled ${done} page${done === 1 ? '' : 's'}${missed ? `; ${missed} had no text in the boxes and were left as they were` : ''}.`);
+                setNotice(msg('Labelled {done, plural, one {# page} other {# pages}}{value}.', { done, value: missed ? msg('; {missed} had no text in the boxes and were left as they were', { missed }) : '' }));
                 setLabelMode(null);
               }}
             />
@@ -11029,7 +11275,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           {showBottom && !dockFull && bottomDock}
         </div>
         {rightRail.length > 0 && !rightShown && (
-          <button type="button" className="panel-edge right" aria-label="Open the right side panel" title="Open the right side panel" onClick={() => commandActions.toggleRight()} />
+          <button type="button" className="panel-edge right" aria-label={msg('Open the right side panel')} title={msg('Open the right side panel')} onClick={() => commandActions.toggleRight()} />
         )}
         {sidePanel('right')}
         {(rightRail.length > 0 || (railDrag && !narrowScreen())) && panelRail('right', rightRail)}
@@ -11062,7 +11308,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             const cur = paneParts(pane).o;
             if (!cur) return;
             const marks = cur.store.all().filter((m) => m.type === 'redaction');
-            void runRedact(cur, pane === 'b', 'redact', marks.map((m) => ({ pageIndex: m.pageIndex, rect: boundsOf(m.points) })), options).catch((err) => setError(`Redaction failed: ${err instanceof Error ? err.message : String(err)}`));
+            void runRedact(cur, pane === 'b', 'redact', marks.map((m) => ({ pageIndex: m.pageIndex, rect: boundsOf(m.points) })), options).catch((err) => setError(msg('Redaction failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
           }}
         />
       )}
@@ -11083,8 +11329,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               }
               const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', '-');
               await openCreated(`Scan ${stamp}.pdf`, (await pdf.save()).slice().buffer);
-              setNotice(`Created a ${pages.length}-page PDF from the camera. Document › OCR makes its text searchable.`);
-            })().catch((err) => setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`));
+              setNotice(msg('Created a {count}-page PDF from the camera. Document › OCR makes its text searchable.', { count: pages.length }));
+            })().catch((err) => setError(msg('Creating the PDF failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
           }}
         />
       )}
@@ -11128,7 +11374,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setSoundOpen(false);
             void fileToAttachment(file).then((attachment) => {
               activeTools?.setTool('attachment', { attachment, subject: kind === 'video' ? 'Video' : 'Sound', once: true });
-              setNotice(`Click where the ${kind === 'video' ? 'video' : 'sound'} note goes.`);
+              setNotice(msg('Click where the {value} note goes.', { value: kind === 'video' ? msg('video') : msg('sound') }));
             }, (err) => setError(err instanceof Error ? err.message : String(err)));
           }}
         />
@@ -11164,7 +11410,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               void ctl.engine
                 .createPdf(Array.from({ length: req.count }, () => ({ width: req.width, height: req.height })))
                 .then((bytes) => openCreated('Untitled.pdf', bytes))
-                .catch((err) => setError(`Creating the PDF failed: ${err instanceof Error ? err.message : String(err)}`));
+                .catch((err) => setError(msg('Creating the PDF failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
           }}
         />
       )}
@@ -11203,8 +11449,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             setDocPropsOpen(false);
             void readFile(cur.file.hash)
               .then((bytes) => setDocumentInfo(bytes, info))
-              .then((bytes) => swapDocument(cur, paneB, bytes, undefined, undefined, 'Change document properties'))
-              .catch((err) => setError(`Saving document properties failed: ${err instanceof Error ? err.message : String(err)}`));
+              .then((bytes) => swapDocument(cur, paneB, bytes, undefined, undefined, msg('Change document properties')))
+              .catch((err) => setError(msg('Saving document properties failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
           }}
         />
       )}
@@ -11306,11 +11552,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {captureView && (
         <div className="modal-backdrop" onMouseDown={() => setCaptureView(null)}>
           <div className="modal capture-view" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && setCaptureView(null)}>
-            <h3>Capture</h3>
-            <img src={captureView} alt="The markup as captured" />
+            <h3>{msg('Capture')}</h3>
+            <img src={captureView} alt={msg('The markup as captured')} />
             <div className="actions">
               <button type="button" className="btn primary" autoFocus onClick={() => setCaptureView(null)}>
-                Close
+                {msg('Close')}
               </button>
             </div>
           </div>
@@ -11324,7 +11570,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           const parent = replyTo.parentId ? m.replies?.find((r) => r.id === replyTo.parentId) : undefined;
           return (
             <CommentDialog
-              title={parent ? `Reply to ${parent.author || 'reply'}` : `Reply to ${m.subject || MARKUP_LABELS[m.type]}`}
+              title={parent ? msg('Reply to {value}', { value: parent.author || msg('reply') }) : msg('Reply to {value}', { value: m.subject || MARKUP_LABELS[m.type] })}
               initial=""
               onClose={() => setReplyTo(null)}
               onSave={(text) => {
@@ -11343,17 +11589,17 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onCancel={() => setHeaderFooter(null)}
           onApply={async (spec, pages) => {
             const cur = activeOpen;
-            if (studioDocOf(cur.file.id)) throw new Error('A Live Session document is shared with others, so its pages cannot be changed here.');
+            if (studioDocOf(cur.file.id)) throw new Error(msg('A Live Session document is shared with others, so its pages cannot be changed here.'));
             const { addHeaderFooter } = await import('./documents/headerFooter');
             const date = new Date().toLocaleDateString();
             const bytes = await addHeaderFooter(await readFile(cur.file.hash), pages, spec, (i) => ({ label: cur.store.allSheets()[i]?.number || String(i + 1), file: cur.file.name, date }));
-            await swapDocument(cur, paneB, bytes.slice().buffer, undefined, undefined, 'Add header and footer');
+            await swapDocument(cur, paneB, bytes.slice().buffer, undefined, undefined, msg('Add header and footer'));
             setHeaderFooter(null);
           }}
           onRemove={async () => {
             const cur = activeOpen;
             const { removeHeaderFooter } = await import('./documents/headerFooter');
-            await swapDocument(cur, paneB, (await removeHeaderFooter(await readFile(cur.file.hash))).slice().buffer, undefined, undefined, 'Remove header and footer');
+            await swapDocument(cur, paneB, (await removeHeaderFooter(await readFile(cur.file.hash))).slice().buffer, undefined, undefined, msg('Remove header and footer'));
             setHeaderFooter(null);
           }}
         />
@@ -11366,6 +11612,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           currentId={activeOpen?.file.id ?? null}
           currentPage={pageIndex}
           preview={previewPage}
+          openPage={openPickerPage}
+          onImportFile={importLibraryFile}
           onCancel={() => setCompareOpen(null)}
           onRun={(spec) => {
             setCompareOpen(null);
@@ -11378,13 +11626,13 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           name={activeOpen.file.name}
           onCancel={() => setSecurityOpen(false)}
           onSave={async (settings) => {
-            if (!(await rewriteSigned(activeOpen.doc, 'A protected copy'))) return;
+            if (!(await rewriteSigned(activeOpen.doc, msg('A protected copy')))) return;
             const { encryptPdf } = await import('./documents/security');
             // With its markups, as a saved copy always has them.
             const bytes = await encryptPdf(await annotatedBytes(activeOpen), settings);
             download(`${activeOpen.file.name.replace(/\.pdf$/i, '')} (protected).pdf`, new Blob([bytes as BlobPart], { type: 'application/pdf' }));
             setSecurityOpen(false);
-            setNotice(`Saved a protected copy of ${activeOpen.file.name}${settings.openPassword ? ': it needs its password to open' : ''}.`);
+            setNotice(msg('Saved a protected copy of {name}{value}.', { name: activeOpen.file.name, value: settings.openPassword ? msg(': it needs its password to open') : '' }));
           }}
         />
       )}
@@ -11400,14 +11648,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onSign={async (c) => {
             // A .p12 password is checked before anything else happens; a card checks its PIN when it signs.
             const record = digitalIds.list().find((r) => r.id === c.idId);
-            if (!record) throw new Error('Choose a Digital ID');
+            if (!record) throw new Error(msg('Choose a Digital ID'));
             (await import('./documents/signers')).signerFor(record, c.password);
             if (!record.token) rememberPassword(record.id, c.password);
             if (!signFor.fieldName && c.where === 'draw') {
               pendingSign.current = c;
               activeTools?.setTool('formField');
               setSignFor(null);
-              setNotice('Drag a box on the page where the signature goes.');
+              setNotice(msg('Drag a box on the page where the signature goes.'));
               return;
             }
             await runSign(activeOpen.file.id, c, signFor.fieldName ? { fieldName: signFor.fieldName } : {});
@@ -11474,7 +11722,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 // OneDrive shares the session folder and emails the link.
                 await session.invite?.(emails);
                 setInviteSession(null);
-                setNotice(`Shared the session with ${emails.join(', ')}.`);
+                setNotice(msg('Shared the session with {emails}.', { emails: emails.join(', ') }));
               }}
             />
           );
@@ -11494,7 +11742,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               oneDriveAvailable={oneDriveSharingEnabled}
               sendBack={session.meta.documents.flatMap((d) => {
                 const src = sourceOf(endFor.sessionId, d.id);
-                return src ? [{ docId: d.id, name: d.name, target: `update ${src.name} in your library` }] : [];
+                return src ? [{ docId: d.id, name: d.name, target: msg('update {name} in your library', { name: src.name }) }] : [];
               })}
               busy={studioBusy}
               progress={endProgress}
@@ -11516,9 +11764,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           const docName = session?.meta.documents.find((d) => d.id === e.docId)?.name;
           return (
             <div className="markup-alert" role="alert">
-              <b>⚠ Markup Alert from {e.author}</b>
+              <b>{msg('⚠ Markup Alert from {author}', { author: e.author })}</b>
               <span>{e.text}</span>
-              {docName && <span className="hint">{docName}, page {(e.page ?? 0) + 1}</span>}
+              {docName && <span className="hint">{msg('{docName}, page {page}', { docName, page: (e.page ?? 0) + 1 })}</span>}
               <div className="row">
                 {e.docId && (
                   <button
@@ -11532,11 +11780,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                       });
                     }}
                   >
-                    Show
+                    {msg('Show')}
                   </button>
                 )}
                 <button className="btn small" onClick={() => setMarkupAlert(null)}>
-                  Dismiss
+                  {msg('Dismiss')}
                 </button>
               </div>
             </div>
@@ -11586,7 +11834,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 // The library keeps one entry per content: the same content is opened, not renamed.
                 const same = library.find((x) => x.hash === r.hash);
                 if (same) {
-                  if (same.id === f.id) setNotice('That revision is the same as the current version.');
+                  if (same.id === f.id) setNotice(msg('That revision is the same as the current version.'));
                   void openFromLibrary(same);
                   return;
                 }
@@ -11595,12 +11843,12 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   .catch((err) => setError(err instanceof Error ? err.message : String(err)));
               }}
               onRestore={(r) => {
-                if (!confirm(`Go back to the version of ${new Date(r.savedAt).toLocaleString()}? Markups stay on their page numbers; the current version is kept as a revision.`)) return;
+                if (!confirm(msg('Go back to the version of {date}? Markups stay on their page numbers; the current version is kept as a revision.', { date: new Date(r.savedAt).toLocaleString() }))) return;
                 setRevisionsOf(null);
                 void restoreRevision(f.id, r);
               }}
               onDelete={(r) => {
-                if (confirm('Delete this revision from the device?')) void removeRevision(f.id, r.hash).then(refreshLibrary);
+                if (confirm(msg('Delete this revision from the device?'))) void removeRevision(f.id, r.hash).then(refreshLibrary);
               }}
             />
           );
@@ -11659,9 +11907,9 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onCancel={() => setProcessKind(null)}
           onApply={async (spec) => {
             // The contents before are kept as a revision: these changes cannot be undone otherwise.
-            const msg = await runProcess(activeOpen, spec, `Before ${PROCESS_TITLES[spec.kind]}`);
+            const note = await runProcess(activeOpen, spec, `Before ${PROCESS_ENGLISH[spec.kind]}`);
             const changed = (await listFiles()).find((f) => f.id === activeOpen.file.id)?.hash !== activeOpen.file.hash;
-            if (msg) setNotice(changed ? `${msg} Document › Revisions brings back the version before.` : msg);
+            if (note) setNotice(changed ? msg('{note} Document › Revisions brings back the version before.', { note }) : note);
             setProcessKind(null);
           }}
         />
@@ -11785,7 +12033,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                 }
                 o.store.checkpoint();
                 o.store.batch(() => made.forEach((m) => o.store.add(m)));
-                setNotice(`Added ${made.length} markup${made.length === 1 ? '' : 's'} from Symbol Search.`);
+                setNotice(msg('Added {count, plural, one {# markup} other {# markups}} from Symbol Search.', { count: made.length }));
                 close();
               }}
             />
@@ -11810,7 +12058,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                   const r = h.match.rect;
                   o.store.add({ id: crypto.randomUUID(), type: 'hyperlink', pageIndex: h.pageIndex, points: [[r.x, r.y], [r.x + r.w, r.y + r.h]], style: { ...DEFAULT_STYLES.hyperlink }, link, subject: 'Symbol Search', status: 'none', author: authorRef.current, createdAt: now, modifiedAt: now });
                 }
-                setNotice(`Added ${vsLinks.hits.length} hyperlink${vsLinks.hits.length === 1 ? '' : 's'} from Symbol Search.`);
+                setNotice(msg('Added {count, plural, one {# hyperlink} other {# hyperlinks}} from Symbol Search.', { count: vsLinks.hits.length }));
                 setVsLinks(null);
               }}
               fileId={o.file.id}
@@ -11866,7 +12114,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           stamp={stampToFill}
           author={author}
           title={stampToFill.name}
-          applyLabel="Place"
+          applyLabel={msg('Place')}
           onCancel={() => setStampToFill(null)}
           onApply={(values) => {
             setStampToFill(null);
@@ -11885,8 +12133,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               stamp={{ name: m.subject ?? 'Stamp', ...formStamp(m.stamp)! }}
               author={form.placed.user}
               initial={form.values}
-              title={m.subject ?? 'Stamp'}
-              applyLabel="Update"
+              title={m.subject ?? msg('Stamp')}
+              applyLabel={msg('Update')}
               onCancel={() => setStampEdit(null)}
               onApply={(values) => {
                 setStampEdit(null);
@@ -11941,7 +12189,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           if (!store || !m) return null;
           return (
             <CommentDialog
-              title={`${MARKUP_LABELS[m.type]} comment`}
+              title={msg('{mARKUP_LABELS} comment', { mARKUP_LABELS: MARKUP_LABELS[m.type] })}
               initial={m.comment ?? ''}
               onClose={() => setCommentEdit(null)}
               onSave={(text) => {
@@ -11960,6 +12208,24 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       )}
       {paletteOpen && <CommandPalette commands={commands} onClose={() => setPaletteOpen(false)} />}
       {lineStylesOpen && <LineStylesDialog onClose={() => setLineStylesOpen(false)} />}
+      {countSymbolsOpen && (
+        <CountSymbolsDialog
+          author={author}
+          selectedMarkups={activeOpen ? activeOpen.store.all().filter((m) => (activeTools?.getState().selected ?? new Set()).has(m.id)) : []}
+          onUse={(sym) => {
+            if (!activeTools) return;
+            const st = activeTools.getState();
+            const chosen = activeOpen ? activeOpen.store.all().filter((m) => st.selected.has(m.id)) : [];
+            if (chosen.length && chosen.every((m) => m.type === 'count')) {
+              activeTools.applyStyle(chosen.map((m) => m.id), { countShape: undefined, countSymbol: structuredClone(sym) });
+            } else {
+              activeTools.setDefaultStyle('count', { countShape: undefined, countSymbol: structuredClone(sym) });
+              if (st.tool !== 'count') activeTools.setTool('count');
+            }
+          }}
+          onClose={() => setCountSymbolsOpen(false)}
+        />
+      )}
       {revuMigrationOpen && (
         <RevuMigrationDialog
           onClose={() => setRevuMigrationOpen(false)}
@@ -12094,7 +12360,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             // One undo step for the whole script.
             store.checkpoint();
             store.batch(() => changes.forEach((c) => store.update(c.id, c.patch)));
-            setNotice(`Script applied: ${changes.length} markup${changes.length === 1 ? '' : 's'} changed. Undo takes it back.`);
+            setNotice(msg('Script applied: {count, plural, one {# markup} other {# markups}} changed. Undo takes it back.', { count: changes.length }));
           }}
           onClose={() => setScriptsOpen(false)}
         />
@@ -12122,8 +12388,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               for (const vp of viewports) store.setViewport(vp);
             });
             activeTools?.setRegions([]);
-            const parts = [scaled.length ? `set the scale on ${scaled.length} page${scaled.length === 1 ? '' : 's'}` : '', viewports.length ? `added ${viewports.length} viewport${viewports.length === 1 ? '' : 's'}` : ''].filter(Boolean);
-            setNotice(`From the title blocks: ${parts.join(' and ')}. Undo takes it back.`);
+            const parts = [scaled.length ? msg('set the scale on {count, plural, one {# page} other {# pages}}', { count: scaled.length }) : '', viewports.length ? `added ${viewports.length} viewport${viewports.length === 1 ? '' : 's'}` : ''].filter(Boolean);
+            setNotice(msg('From the title blocks: {parts}. Undo takes it back.', { parts: parts.join(' and ') }));
           }}
           onClose={() => {
             activeTools?.setRegions([]);
@@ -12217,7 +12483,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               if (file.assemblies.length) store.setAssemblies(mergeAssemblies(store.assemblies(), file.assemblies));
               store.setEstimating(mergeEstimating(store.estimating(), file));
             });
-            return `Imported ${file.templates.length} template${file.templates.length === 1 ? '' : 's'}, ${file.assemblies.length} assembl${file.assemblies.length === 1 ? 'y' : 'ies'}, ${file.items.length} item${file.items.length === 1 ? '' : 's'} and ${file.productLists.length} product list${file.productLists.length === 1 ? '' : 's'} from ${f.name}.`;
+            return msg('Imported {count, plural, one {# template} other {# templates}}, {count2, plural, one {# assembly} other {# assemblies}}, {count3, plural, one {# item} other {# items}} and {count4} product {count5, plural, one {list} other {lists}} from {name}.', { count: file.templates.length, count2: file.assemblies.length, count3: file.items.length, count4: file.productLists.length, count5: file.productLists.length, name: f.name });
           }}
           onExport={() => {
             const doc = documentFile(activeOpen.store);
@@ -12334,7 +12600,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               for (const [id, patch] of patches) store.update(id, patch);
             });
             store.checkpoint();
-            setNotice(`Imported ${importExcel.fileName}: ${changes.length} change${changes.length === 1 ? '' : 's'} to ${patches.size} markup${patches.size === 1 ? '' : 's'}. Undo takes them back in one step.`);
+            setNotice(msg('Imported {fileName}: {count, plural, one {# change} other {# changes}} to {size, plural, one {# markup} other {# markups}}. Undo takes them back in one step.', { fileName: importExcel.fileName, count: changes.length, size: patches.size }));
             setImportExcel(null);
           }}
           onClose={() => setImportExcel(null)}
@@ -12386,7 +12652,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               // A shared template gets an id of its own here: it never replaces one of this person's.
               return { ...parseTemplateFile(await file.text()), id: crypto.randomUUID() };
             } catch (err) {
-              setError(err instanceof Error ? err.message : `${file.name} could not be read.`);
+              setError(err instanceof Error ? err.message : msg('{name} could not be read.', { name: file.name }));
               return null;
             }
           }}
@@ -12399,7 +12665,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
                     if (!picked) return null;
                     return { id: picked.id, name: picked.name, problems: checkClientFile(await readWorkbook(picked.bytes), draft).problems };
                   } catch (err) {
-                    setError(err instanceof Error ? err.message : 'That file could not be read.');
+                    setError(err instanceof Error ? err.message : msg('That file could not be read.'));
                     return null;
                   }
                 }
@@ -12433,7 +12699,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           inDesktopApp={!!desktop()}
           onConnectLocal={(title, quantities) => void (async () => sheetSync.connectLocal(title, syncTable, quantities ? [await quantitiesSheet()] : [], quantities, localExcel()?.read ? visibleListColumns.map((c) => c.key) : undefined))()}
           onSetQuantities={sheetSync.setQuantities}
-          onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : 'Could not open the workbook.'))}
+          onOpenLocal={() => sheetSync.link && void localExcel()?.open(sheetSync.link.id).catch((err: unknown) => setNotice(err instanceof Error ? err.message : msg('Could not open the workbook.')))}
           onShowLocal={() => sheetSync.link && void localExcel()?.show(sheetSync.link.id).catch(() => undefined)}
           onSyncNow={() => void sheetSync.syncNow()}
           onStop={sheetSync.disconnect}
@@ -12449,14 +12715,14 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
           onInstall={(pack, source) => {
             const { counts, saved } = installPack(pack, source);
             const added = describeCounts(counts);
-            if (!saved) setError(`Added ${pack.name}, but this browser would not keep all of it (a private window, or storage is full).`);
+            if (!saved) setError(msg('Added {name}, but this browser would not keep all of it (a private window, or storage is full).', { name: pack.name }));
             return added;
           }}
           onHelp={() => window.open(`${import.meta.env.BASE_URL}help/index.html#community-library`, '_blank', 'noopener')}
           onClose={() => setLibraryOpen(false)}
         />
       )}
-      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
+      {prefsOpen && <PreferencesDialog author={author} onAuthor={persistAuthor} onRestart={restartApp} initialCategory={prefsCategory?.category} initialTab={prefsCategory?.tab} initialQuery={prefsCategory?.query} onClose={() => setPrefsOpen(false)} />}
       {profilesOpen && (
         <ProfilesDialog
           documentColumns={activeOpen ? columnSet : null}
@@ -12470,10 +12736,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
       {markupsPopped && (
         <PopOutWindow
           name="redcolumn-markups"
-          title="Markups"
+          title={msg('Markups')}
           onClose={(reason) => {
             setMarkupsPopped(false);
-            if (reason === 'blocked') setNotice('The browser blocked the new window. Allow pop-ups for this site and try again.');
+            if (reason === 'blocked') setNotice(msg('The browser blocked the new window. Allow pop-ups for this site and try again.'));
           }}
         >
           <div className="app popout" onContextMenuCapture={() => setCtxInPopOut(true)}>
@@ -12481,10 +12747,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               <div className="tabs">
                 <div className="dock-tablist" role="tablist">
                   <button role="tab" aria-selected="true" className="active">
-                    Markups
+                    {msg('Markups')}
                   </button>
                 </div>
-                <button type="button" className="drawer-popout" title="Put the list back in the app" aria-label="Put the Markups list back in the app" onClick={() => setMarkupsPopped(false)}>
+                <button type="button" className="drawer-popout" title={msg('Put the list back in the app')} aria-label={msg('Put the Markups list back in the app')} onClick={() => setMarkupsPopped(false)}>
                   ⇲
                 </button>
               </div>
@@ -12526,10 +12792,10 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   );
 }
 
-const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean; needsModel?: boolean }[] = [
+const RAIL = lazy((): { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean; needsModel?: boolean }[] => [
   {
     id: 'model3d',
-    title: '3D Model',
+    title: msg('3D Model'),
     experimental: true,
     needsModel: true,
     icon: (
@@ -12540,7 +12806,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'model3dProps',
-    title: '3D Properties',
+    title: msg('3D Properties'),
     experimental: true,
     needsModel: true,
     icon: (
@@ -12551,7 +12817,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'markups',
-    title: 'Markups',
+    title: msg('Markups'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M2 3.5h12M2 8h12M2 12.5h12" />
@@ -12560,7 +12826,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'files',
-    title: 'File Access',
+    title: msg('File Access'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M3 2h6l2 2v10H3V2zm6 0v2h2" />
@@ -12569,7 +12835,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'pages',
-    title: 'Thumbnails',
+    title: msg('Thumbnails'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M2 2h5v6H2V2zm7 0h5v6H9V2zM2 9h5v5H2V9zm7 0h5v5H9V9z" />
@@ -12578,7 +12844,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'bookmarks',
-    title: 'Bookmarks',
+    title: msg('Bookmarks'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M4 2h8v12l-4-2-4 2V2z" />
@@ -12587,7 +12853,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'toolchest',
-    title: 'Tool Library',
+    title: msg('Tool Library'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M2 6h12v8H2V6zm3-3h6l1 3H4l1-3z" />
@@ -12596,7 +12862,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'properties',
-    title: 'Properties',
+    title: msg('Properties'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M3 3h10v2H3V3zm0 4h10v2H3V7zm0 4h7v2H3v-2z" />
@@ -12605,7 +12871,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'layers',
-    title: 'Layers',
+    title: msg('Layers'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M8 2l7 4-7 4-7-4 7-4zm0 9 7-4v2l-7 4-7-4V7l7 4z" />
@@ -12614,7 +12880,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'measurements',
-    title: 'Measurements',
+    title: msg('Measurements'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M2 7h12v2H2V7zm0-4h2v10H2V3zm10 0h2v10h-2V3z" />
@@ -12623,7 +12889,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'signatures',
-    title: 'Signatures',
+    title: msg('Signatures'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M2 12c2-4 4-6 6-6s2 3 4 3 2-2 2-2v5H2v0z" />
@@ -12632,7 +12898,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'spaces',
-    title: 'Spaces',
+    title: msg('Spaces'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M2 2h12v12H2zM2 8h6V2M8 8v6" />
@@ -12641,8 +12907,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'stitching',
-    title: 'Stitching',
-    experimental: true,
+    title: msg('Stitching'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M1.5 3.5h6v9h-6zM8.5 3.5h6v9h-6z" />
@@ -12652,8 +12917,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'ai',
-    title: 'Compare',
-    experimental: true,
+    title: msg('Compare'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M1.5 2.5h4.5v11H1.5zM10 2.5h4.5v11H10z" />
@@ -12663,7 +12927,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'geospatial',
-    title: 'Geospatial',
+    title: msg('Geospatial'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
@@ -12673,7 +12937,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'flags',
-    title: 'Flags',
+    title: msg('Flags'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M3 2h1v12H3V2zm2 0h8l-2 3 2 3H5V2z" />
@@ -12682,7 +12946,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'search',
-    title: 'Search',
+    title: msg('Search'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M7 2a5 5 0 0 1 3.9 8.1l2.5 2.5-1.4 1.4-2.5-2.5A5 5 0 1 1 7 2zm0 2a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" />
@@ -12691,7 +12955,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'forms',
-    title: 'Forms',
+    title: msg('Forms'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M2.5 3.5h11v3h-11zM2.5 9.5h11v3h-11z" />
@@ -12701,7 +12965,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'sets',
-    title: 'Sets',
+    title: msg('Sets'),
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M5 2.5h8.5v10M3.5 4h8.5v10H3.5z" />
@@ -12710,7 +12974,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'projects',
-    title: 'Projects',
+    title: msg('Projects'),
     experimental: true,
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
@@ -12720,7 +12984,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   },
   {
     id: 'sessions',
-    title: 'Sessions',
+    title: msg('Sessions'),
     experimental: true,
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
@@ -12728,5 +12992,5 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
       </svg>
     ),
   },
-];
+]);
 

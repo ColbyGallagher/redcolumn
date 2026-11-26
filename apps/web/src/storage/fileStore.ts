@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 /**
  * On-device PDF library backed by the Origin Private File System. File contents are stored by the
  * SHA-256 of their bytes, so re-opening the same file finds its existing entry and markups. Each
@@ -134,7 +135,7 @@ export async function replaceFileContent(id: string, bytes: ArrayBuffer): Promis
   let oldHash: string | null = null;
   const entry = await updateIndex((entries) => {
     const current = entries.find((e) => e.id === id);
-    if (!current) throw new Error('Document not found in the library');
+    if (!current) throw new Error(msg('Document not found in the library'));
     oldHash = current.hash;
     const next: StoredFile = { ...current, hash, size: bytes.byteLength, lastOpenedAt: Date.now() };
     return { entries: entries.map((e) => (e.id === id ? next : e)), result: next };

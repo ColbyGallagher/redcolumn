@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useMemo, useState } from 'react';
 import { spaceName, spacesContaining, spaceTree, type Markup } from '@nb/markup';
 import { formatArea, type Scale } from '@nb/measure';
@@ -44,24 +46,23 @@ export function SpacesPanel({ markups, selected, pageLabel, scaleOf, editable, s
       <div className="panel-toolbar">
         {editable && (
           <>
-            <button className="btn small" title="Click the outline of a room or zone" onClick={onAdd}>
-              + Add Space
+            <button className="btn small" title={msg('Click the outline of a room or zone')} onClick={onAdd}>
+              {msg('+ Add Space')}
             </button>
-            <button className="btn small" title="Rename" disabled={!sel} onClick={() => setRenaming(sel!.id)}>
+            <button className="btn small" title={msg('Rename')} disabled={!sel} onClick={() => setRenaming(sel!.id)}>
               ✎
             </button>
-            <button className="btn small" title="Delete the Space (its markups stay)" disabled={!sel} onClick={() => onDelete(sel!.id)}>
+            <button className="btn small" title={msg('Delete the Space (its markups stay)')} disabled={!sel} onClick={() => onDelete(sel!.id)}>
               ×
             </button>
           </>
         )}
         <label className="field">
-          <input type="checkbox" checked={showSpaces} onChange={(e) => onShowSpaces(e.target.checked)} />
-          Show
+          {keyed(msgParts('{input}Show', { input: <input type="checkbox" checked={showSpaces} onChange={(e) => onShowSpaces(e.target.checked)} /> }))}
         </label>
       </div>
       {!rows.length ? (
-        <p className="empty">No Spaces. A Space is a named room or zone; markups inside it are grouped by it in the Markups list.</p>
+        <p className="empty">{msg('No Spaces. A Space is a named room or zone; markups inside it are grouped by it in the Markups list.')}</p>
       ) : (
         <ul className="bookmark-list bookmark-tree">
           {rows.flatMap(({ space: s, depth }, i) => [
@@ -76,7 +77,7 @@ export function SpacesPanel({ markups, selected, pageLabel, scaleOf, editable, s
               {renaming === s.id ? (
                 <InlineName
                   initial={spaceName(s)}
-                  placeholder="Space name"
+                  placeholder={msg('Space name')}
                   onDone={(name) => {
                     setRenaming(null);
                     if (name) onRename(s.id, name);
@@ -90,7 +91,7 @@ export function SpacesPanel({ markups, selected, pageLabel, scaleOf, editable, s
                 >
                   <span className="swatch" style={{ background: s.style.fill ?? s.style.stroke }} />
                   <span className="name">{spaceName(s)}</span>
-                  <span className="num" title="Markups in this Space">
+                  <span className="num" title={msg('Markups in this Space')}>
                     {counts.get(s.id) ?? 0}
                   </span>
                   <span className="area">{formatArea(spaceArea(s.points, scaleOf(s)), scaleOf(s))}</span>

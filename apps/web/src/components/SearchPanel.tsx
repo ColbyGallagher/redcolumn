@@ -1,3 +1,5 @@
+import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { searchText, type PageText, type SearchHit, type SheetInfo } from '@nb/sheets';
 import { CountToolDialog } from './CountToolDialog';
@@ -53,23 +55,23 @@ export interface SearchMemory {
 
 const DEFAULT_OPTIONS: SearchOptions = { includeSubfolders: false, pages: true, filenames: false, properties: false, fields: true, markups: false, caseSensitive: false, wholeWord: false, meaning: true };
 
-const OPTION_LABELS: [keyof SearchOptions, string][] = [
-  ['includeSubfolders', 'Include Subfolders'],
-  ['pages', 'Search Pages'],
-  ['filenames', 'Search Filenames'],
-  ['properties', 'Search File Properties'],
-  ['fields', 'Search Form Fields'],
-  ['markups', 'Search Markups'],
-  ['caseSensitive', 'Case Sensitive'],
-  ['wholeWord', 'Whole Words Only'],
-  ['meaning', 'Search by Meaning'],
-];
+const OPTION_LABELS = lazy((): [keyof SearchOptions, string][] => [
+  ['includeSubfolders', msg('Include Subfolders')],
+  ['pages', msg('Search Pages')],
+  ['filenames', msg('Search Filenames')],
+  ['properties', msg('Search File Properties')],
+  ['fields', msg('Search Form Fields')],
+  ['markups', msg('Search Markups')],
+  ['caseSensitive', msg('Case Sensitive')],
+  ['wholeWord', msg('Whole Words Only')],
+  ['meaning', msg('Search by Meaning')],
+]);
 
 /** Whether an option applies to a scope: subfolders only to a folder, file names only to several files. */
 const applies = (option: keyof SearchOptions, scope: SearchScope) =>
   option === 'includeSubfolders' ? scope === 'folder' : option === 'filenames' ? scope !== 'document' && scope !== 'page' : option === 'meaning' ? scope !== 'page' : true;
 
-const KIND_LABELS: Record<HitKind, string> = { text: 'Page', field: 'Form field', markup: 'Markup', filename: 'File name', property: 'Property', meaning: 'Related' };
+const KIND_LABELS = lazy((): Record<HitKind, string> => ({ text: msg('Page'), field: msg('Form field'), markup: msg('Markup'), filename: msg('File name'), property: msg('Property'), meaning: msg('Related') }));
 
 /** Pages listed under Related at most, and the words of each one's passage shown. */
 const RELATED_LIMIT = 10;
@@ -262,7 +264,7 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
     const ranked = all.filter((d) => rankOf(d) !== undefined).sort((a, b) => rankOf(a)! - rankOf(b)!);
     const docs = [...ranked, ...all.filter((d) => rankOf(d) === undefined)];
     for (const [n, doc] of docs.entries()) {
-      const status = (what: string) => id === run.current && setProgress(docs.length > 1 ? `Searching ${n + 1} of ${docs.length}: ${doc.name}${what ? ` (${what})` : ''}` : what || 'Searching');
+      const status = (what: string) => id === run.current && setProgress(docs.length > 1 ? (what ? msg('Searching {number} of {count}: {name} ({step})', { number: n + 1, count: docs.length, name: doc.name, step: what }) : msg('Searching {number} of {count}: {name}', { number: n + 1, count: docs.length, name: doc.name })) : what || msg('Searching'));
       status('');
       const tag = (kind: HitKind) => (h: SearchHit | null): DocHit[] => (h ? [{ ...h, docId: doc.id, docName: doc.name, kind }] : []);
       const onPage = (p: number) => doc.page === undefined || p === doc.page;
@@ -277,7 +279,7 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
             const wanted = (candidates[doc.indexKey]?.pages ?? []).filter((p) => doc.page === undefined || p === doc.page);
             pages = wanted.length ? await searchIndex.pages(doc.indexKey, wanted) : [];
           }
-          pages ??= await doc.text((done, total) => status(`reading text ${done}/${total}`));
+          pages ??= await doc.text((done, total) => status(msg('reading text {done}/{total}', { done, total })));
           if (id !== run.current) return;
           const searched = doc.page === undefined ? pages : pages.map((p, i) => (i === doc.page ? p : { ...p, words: [] }));
           own.push(...searchText(searched, q, { wholeWord: options.wholeWord, caseSensitive: options.caseSensitive }).flatMap(tag('text')));
@@ -362,7 +364,7 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
   };
 
   const scopeLabel = (s: SearchScope) =>
-    s === 'document' ? 'Current Document' : s === 'page' ? `Current Page (${sheets[currentPage]?.number ?? `Page ${currentPage + 1}`})` : s === 'open' ? 'All Open Documents' : s === 'recents' ? 'Recents' : 'Folder';
+    s === 'document' ? msg('Current Document') : s === 'page' ? msg('Current Page ({page})', { page: sheets[currentPage]?.number ?? msg('Page {page}', { page: currentPage + 1 }) }) : s === 'open' ? msg('All Open Documents') : s === 'recents' ? msg('Recents') : msg('Folder');
 
   // Matches by document, in the order searched.
   const groups = new Map<string, { name: string; items: { hit: DocHit; index: number }[] }>();
@@ -375,9 +377,9 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
   const redactable = (hits ?? []).filter((h) => h.docId === activeId && h.kind === 'text');
 
   const where = (h: DocHit) => {
-    if (h.pageIndex < 0) return KIND_LABELS[h.kind];
-    const page = (h.docId === activeId ? sheets[h.pageIndex]?.number : null) ?? `Page ${h.pageIndex + 1}`;
-    return h.kind === 'text' ? page : `${page} · ${KIND_LABELS[h.kind]}`;
+    if (h.pageIndex < 0) return KIND_LABELS()[h.kind];
+    const page = (h.docId === activeId ? sheets[h.pageIndex]?.number : null) ?? msg('Page {page}', { page: h.pageIndex + 1 });
+    return h.kind === 'text' ? page : `${page} · ${KIND_LABELS()[h.kind]}`;
   };
 
   // Matches in the front document's page text can be counted.
@@ -409,7 +411,7 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
     !shown(h) ? null : (
     <li key={i} className={countable(h) ? 'search-hit-row' : undefined}>
       {countable(h) && (
-        <input type="checkbox" className="search-check" aria-label={`Check ${where(h)}: ${h.snippet.slice(h.matchStart, h.matchEnd)}`} checked={checked.has(i)} onChange={(e) => toggle(i, e.target.checked)} />
+        <input type="checkbox" className="search-check" aria-label={msg('Check {where}: {snippet}', { where: where(h), snippet: h.snippet.slice(h.matchStart, h.matchEnd) })} checked={checked.has(i)} onChange={(e) => toggle(i, e.target.checked)} />
       )}
       <button className={`search-hit${i === selected ? ' active' : ''}`} onClick={() => open(i)}>
         <span className="num">{where(h)}</span>
@@ -437,7 +439,7 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
           <input
             ref={inputRef}
             value={query}
-            placeholder="Search text"
+            placeholder={msg('Search text')}
             onChange={(e) => {
               setQuery(e.target.value);
               reset();
@@ -447,8 +449,8 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
             <button
               type="button"
               className="search-clear"
-              aria-label="Clear the search"
-              title="Clear"
+              aria-label={msg('Clear the search')}
+              title={msg('Clear')}
               onClick={() => {
                 setQuery('');
                 reset();
@@ -460,12 +462,12 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
           )}
         </span>
         <button className="btn small" type="submit">
-          {hits?.length && query.trim() && !progress ? 'Next' : 'Search'}
+          {hits?.length && query.trim() && !progress ? msg('Next') : msg('Search')}
         </button>
       </form>
       <div className="search-scope">
         <select
-          aria-label="Where to search"
+          aria-label={msg('Where to search')}
           value={scope}
           onChange={(e) => {
             const next = e.target.value as SearchScope;
@@ -482,9 +484,9 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
         </select>
         {scope === 'folder' && (
           <div className="search-folder">
-            <span title={folder ? `${folder.files.length} PDF${folder.files.length === 1 ? '' : 's'}` : undefined}>{folder ? folder.name : 'No folder chosen'}</span>
+            <span title={folder ? msg('{count, plural, one {# PDF} other {# PDFs}}', { count: folder.files.length }) : undefined}>{folder ? folder.name : msg('No folder chosen')}</span>
             <button className="btn small" type="button" onClick={chooseFolder}>
-              Choose…
+              {msg('Choose…')}
             </button>
           </div>
         )}
@@ -502,13 +504,13 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
             if (!all.length) return;
             const pathOf = (f: File) => (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name;
             const files = all.filter((f) => /\.pdf$/i.test(f.name)).map((file) => ({ file, path: pathOf(file) }));
-            setFolder({ name: pathOf(all[0]!).split('/')[0] || 'Folder', files });
+            setFolder({ name: pathOf(all[0]!).split('/')[0] || msg('Folder'), files });
             reset();
           }}
         />
       </div>
       <div className="search-opts">
-        {OPTION_LABELS.map(([key, label]) => {
+        {OPTION_LABELS().map(([key, label]) => {
           // Only where the model is: the desktop app.
           if (key === 'meaning' && !semantic?.available) return null;
           const on = applies(key, scope);
@@ -522,11 +524,11 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
       </div>
       <button className="search-results-head" aria-expanded={showResults} onClick={() => setShowResults(!showResults)}>
         <span className="chev">{showResults ? '▾' : '▸'}</span>
-        Results
+        {msg('Results')}
         {hits && hits.length > 0 && (
           <span className="count">
             {hits.length}
-            {grouped && groups.size > 1 ? ` in ${groups.size} files` : ''}
+            {grouped && groups.size > 1 ? ' ' + msg('in {count} files', { count: groups.size }) : ''}
           </span>
         )}
       </button>
@@ -535,15 +537,19 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
           {progress && <p className="empty">{progress}</p>}
           {respelt && !!hits?.length && !progress && (
             <p className="empty search-respelt">
-              No matches for “{respelt.from}”. Showing matches for “{respelt.to}”.
+              {msg('No matches for “{from}”. Showing matches for “{to}”.', { from: respelt.from, to: respelt.to })}
             </p>
           )}
           {hits && !progress && (
             <p className="empty">
-              {hits.length === 0 ? 'No matches.' : `${hits.length} match${hits.length === 1 ? '' : 'es'}${grouped ? ` in ${groups.size} file${groups.size === 1 ? '' : 's'}` : ` on ${new Set(hits.map((h) => h.pageIndex)).size} page(s)`}`}
+              {hits.length === 0
+                ? msg('No matches.')
+                : grouped
+                  ? msg('{count, plural, one {# match} other {# matches}} in {files, plural, one {# file} other {# files}}', { count: hits.length, files: groups.size })
+                  : msg('{count, plural, one {# match} other {# matches}} on {pages, plural, one {# page} other {# pages}}', { count: hits.length, pages: new Set(hits.map((h) => h.pageIndex)).size })}
               {redactable.length > 0 && onRedactAll && (
-                <button className="btn small" title="Mark every match on this document's pages for redaction (Tools › Redaction › Apply Redactions removes them)" onClick={() => onRedactAll(redactable)}>
-                  Mark for redaction
+                <button className="btn small" title={msg('Mark every match on this document\'s pages for redaction (Tools › Redaction › Apply Redactions removes them)')} onClick={() => onRedactAll(redactable)}>
+                  {msg('Mark for redaction')}
                 </button>
               )}
             </p>
@@ -551,17 +557,17 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
           {hits && !progress && countablePages.length > 0 && (
             <div className="search-count-bar">
               <button className="btn small" type="button" onClick={() => setChecked(new Set([...checked, ...shownCountable]))}>
-                Select All
+                {msg('Select All')}
               </button>
               <button className="btn small" type="button" onClick={() => setChecked(new Set([...checked].filter((i) => !shownCountable.includes(i))))}>
-                Select None
+                {msg('Select None')}
               </button>
               {countablePages.length > 1 && (
-                <select aria-label="Show results on page" value={pageFilter} onChange={(e) => setPageFilter(Number(e.target.value))}>
-                  <option value={-1}>All pages</option>
+                <select aria-label={msg('Show results on page')} value={pageFilter} onChange={(e) => setPageFilter(Number(e.target.value))}>
+                  <option value={-1}>{msg('All pages')}</option>
                   {countablePages.map((p) => (
                     <option key={p} value={p}>
-                      {sheets[p]?.number ?? `Page ${p + 1}`}
+                      {sheets[p]?.number ?? msg('Page {number}', { number: p + 1 })}
                     </option>
                   ))}
                 </select>
@@ -570,10 +576,10 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
                 className="btn small"
                 type="button"
                 disabled={checkedCount === 0 || readOnly}
-                title={readOnly ? 'This document is read-only' : 'Turn the checked results into a count'}
+                title={readOnly ? msg('This document is read-only') : msg('Turn the checked results into a count')}
                 onClick={() => setPickCount(true)}
               >
-                Apply Count to Checked…
+                {msg('Apply Count to Checked…')}
               </button>
             </div>
           )}
@@ -596,8 +602,8 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
           )}
           {related.length > 0 && !progress && (
             <div className="search-related">
-              <p className="search-related-head" title="Pages about the search in other words (search by meaning)">
-                Related pages
+              <p className="search-related-head" title={msg('Pages about the search in other words (search by meaning)')}>
+                {msg('Related pages')}
               </p>
               <ul>
                 {related.map((h, i) => (
@@ -613,7 +619,7 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
           )}
           {semantic?.available && options.meaning && semantic.total > 0 && semantic.done < semantic.total && hits && !progress && (
             <p className="empty search-meaning-progress">
-              Reading pages for search by meaning: {semantic.done} of {semantic.total}
+              {msg('Reading pages for search by meaning: {done} of {total}', { done: semantic.done, total: semantic.total })}
             </p>
           )}
         </>
