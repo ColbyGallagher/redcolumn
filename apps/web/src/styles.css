@@ -6331,6 +6331,12 @@ select[size] {
 .view-cube-face {
   position: absolute;
   inset: 0;
+  backface-visibility: hidden;
+}
+
+.view-cube-side {
+  position: absolute;
+  inset: 0;
   display: grid;
   place-items: center;
   padding: 0;
@@ -6339,13 +6345,34 @@ select[size] {
   color: var(--text);
   background: color-mix(in srgb, var(--panel) 85%, transparent);
   border: 1px solid var(--border);
-  backface-visibility: hidden;
+  border-radius: 0;
   cursor: pointer;
 }
 
-.view-cube-face:hover {
+.view-cube-side:hover {
   background: var(--surface-hover);
   color: var(--accent);
+}
+
+/* A cube corner: a small square in each face's corner; the three squares of one corner light together. */
+.view-cube-corner {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.view-cube-corner.tl { left: 0; top: 0; }
+.view-cube-corner.tr { right: 0; top: 0; }
+.view-cube-corner.bl { left: 0; bottom: 0; }
+.view-cube-corner.br { right: 0; bottom: 0; }
+.view-cube-corner:hover,
+.view-cube-corner.hot {
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  outline: 1px solid var(--accent);
 }
 
 .view-cube-iso {
@@ -6372,6 +6399,115 @@ select[size] {
   gap: 2px;
   padding: 4px 0;
   font-size: 12px;
+}
+.m3d-subtabs {
+  display: flex;
+  gap: 4px;
+  padding: 2px 8px 4px;
+}
+.m3d-subtabs .btn.active {
+  background: var(--accent-soft, rgba(47, 155, 255, 0.18));
+  border-color: var(--accent, #2f9bff);
+}
+.m3d-view-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2, transparent);
+}
+.m3d-view-thumb {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: #1e1e1e;
+  border-radius: 3px;
+  overflow: hidden;
+  cursor: pointer;
+  aspect-ratio: 16 / 9;
+}
+.m3d-view-thumb img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.m3d-display-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.m3d-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.m3d-field select {
+  flex: 1;
+  min-width: 0;
+}
+.m3d-slider {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.m3d-slider > span {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted, #888);
+}
+.m3d-slider > span strong {
+  color: var(--text);
+  font-weight: 500;
+}
+.m3d-slider input[type='range'] {
+  width: 100%;
+  margin: 0;
+}
+.m3d-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.m3d-federate {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.m3d-lib-picker {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2, transparent);
+  max-height: 140px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.m3d-lib-picker .m3d-name {
+  width: 100%;
+  text-align: left;
+  padding: 3px 6px;
+  border-radius: 3px;
+}
+.m3d-lib-picker .m3d-name:hover {
+  background: var(--hover, rgba(255, 255, 255, 0.06));
+}
+.m3d-progress {
+  margin: 0;
+  padding: 2px 4px;
+  color: var(--muted, #888);
+  font-size: 11px;
 }
 .m3d-empty {
   padding: 12px;

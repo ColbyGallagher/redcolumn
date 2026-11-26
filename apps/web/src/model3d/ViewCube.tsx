@@ -1,14 +1,53 @@
-import { useSyncExternalStore } from 'react';
-import type { ViewDirection } from '@nb/model3d';
+import { useState, useSyncExternalStore } from 'react';
+import type { CornerDirection, ViewDirection } from '@nb/model3d';
 import type { ModelView } from '../documents/openTabs';
 
-const FACES: { dir: ViewDirection; label: string; transform: string }[] = [
+type Face = 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right';
+
+const FACES: { dir: Face; label: string; transform: string }[] = [
   { dir: 'top', label: 'Top', transform: 'rotateX(90deg)' },
   { dir: 'bottom', label: 'Bottom', transform: 'rotateX(-90deg)' },
   { dir: 'front', label: 'S', transform: '' },
   { dir: 'back', label: 'N', transform: 'rotateY(180deg)' },
   { dir: 'right', label: 'E', transform: 'rotateY(90deg)' },
   { dir: 'left', label: 'W', transform: 'rotateY(-90deg)' },
+];
+
+/** How each face's rotation turns a point on it (CSS axes: x right, y down, z toward the viewer). */
+const ROTATE: Record<Face, (v: [number, number, number]) => [number, number, number]> = {
+  top: ([x, y, z]) => [x, -z, y],
+  bottom: ([x, y, z]) => [x, z, -y],
+  front: (v) => v,
+  back: ([x, y, z]) => [-x, y, -z],
+  right: ([x, y, z]) => [z, y, -x],
+  left: ([x, y, z]) => [-z, y, x],
+};
+
+const CORNER_NAMES: Record<CornerDirection, string> = {
+  'top-ne': 'Top north-east',
+  'top-nw': 'Top north-west',
+  'top-se': 'Top south-east',
+  'top-sw': 'Top south-west',
+  'bottom-ne': 'Bottom north-east',
+  'bottom-nw': 'Bottom north-west',
+  'bottom-se': 'Bottom south-east',
+  'bottom-sw': 'Bottom south-west',
+};
+
+/**
+ * The cube corner a face's corner is on: `u` and `v` are -1 or 1 across and down the face. In the
+ * scene up is +Y (CSS -y), east +X (CSS +x) and south +Z (CSS +z, the S face toward the viewer).
+ */
+export function cornerOf(face: Face, u: -1 | 1, v: -1 | 1): CornerDirection {
+  const [x, y, z] = ROTATE[face]([u, v, 1]);
+  return `${y < 0 ? 'top' : 'bottom'}-${z > 0 ? 's' : 'n'}${x > 0 ? 'e' : 'w'}` as CornerDirection;
+}
+
+const CORNERS: { u: -1 | 1; v: -1 | 1; pos: string }[] = [
+  { u: -1, v: -1, pos: 'tl' },
+  { u: 1, v: -1, pos: 'tr' },
+  { u: -1, v: 1, pos: 'bl' },
+  { u: 1, v: 1, pos: 'br' },
 ];
 
 /**
@@ -22,9 +61,12 @@ export function cubeTransform(yaw: number, pitch: number): string {
 
 /**
  * A small cube in the corner of the 3D view that turns with the camera, so it is clear which way is
- * north and up; clicking a face looks from that side, and the corner button gives an isometric view.
+ * north and up. Clicking a face looks from that side; clicking one of the cube's eight corners looks
+ * from that corner (an isometric view from above or below), and the button under it gives the usual
+ * isometric view.
  */
 export function ViewCube({ view }: { view: ModelView }) {
+  const [hot, setHot] = useState<CornerDirection | null>(null);
   const key = useSyncExternalStore(view.subscribe, () => {
     const o = view.controls()?.orientation();
     return o ? cubeTransform(o.yaw, o.pitch) : '';
@@ -35,9 +77,27 @@ export function ViewCube({ view }: { view: ModelView }) {
     <div className="view-cube" aria-label="View cube">
       <div className="view-cube-body" style={{ transform: `translateZ(-24px) ${key}` }}>
         {FACES.map((f) => (
-          <button key={f.dir} type="button" className={`view-cube-face ${f.dir}`} style={{ transform: `${f.transform} translateZ(24px)` }} title={`${f.dir[0]!.toUpperCase()}${f.dir.slice(1)} view`} onClick={() => look(f.dir)}>
-            {f.label}
-          </button>
+          <div key={f.dir} className={`view-cube-face ${f.dir}`} style={{ transform: `${f.transform} translateZ(24px)` }}>
+            <button type="button" className="view-cube-side" title={`${f.dir[0]!.toUpperCase()}${f.dir.slice(1)} view`} onClick={() => look(f.dir)}>
+              {f.label}
+            </button>
+            {CORNERS.map((c) => {
+              const corner = cornerOf(f.dir, c.u, c.v);
+              return (
+                <button
+                  key={c.pos}
+                  type="button"
+                  className={`view-cube-corner ${c.pos}${hot === corner ? ' hot' : ''}`}
+                  data-corner={corner}
+                  title={`${CORNER_NAMES[corner]} isometric view`}
+                  aria-label={`${CORNER_NAMES[corner]} isometric view`}
+                  onPointerEnter={() => setHot(corner)}
+                  onPointerLeave={() => setHot((h) => (h === corner ? null : h))}
+                  onClick={() => look(corner)}
+                />
+              );
+            })}
+          </div>
         ))}
       </div>
       <button type="button" className="view-cube-iso" title="Isometric view" onClick={() => look('iso')}>

@@ -44,7 +44,13 @@ export type LeftTab =
   | 'projects'
   | 'markups'
   | 'model3d'
-  | 'model3dProps';
+  | 'model3dViews'
+  | 'model3dSets'
+  | 'model3dIssues'
+  | 'model3dSheets'
+  | 'model3dReview'
+  | 'model3dProps'
+  | 'model3dDisplay';
 export type BottomTab = 'markups' | 'links';
 
 export const LEFT_TITLES: Record<LeftTab, string> = {
@@ -67,8 +73,14 @@ export const LEFT_TITLES: Record<LeftTab, string> = {
   sessions: 'Sessions',
   projects: 'Projects',
   markups: 'Markups',
-  model3d: '3D Model',
-  model3dProps: '3D Properties',
+  model3d: 'Model Tree',
+  model3dViews: 'Views',
+  model3dSets: 'Sets & Appearance',
+  model3dIssues: 'Issues',
+  model3dSheets: 'Sheets',
+  model3dReview: 'Takeoff & Compare',
+  model3dProps: 'Properties',
+  model3dDisplay: 'Display & Scene',
 };
 
 export interface RecentFile {
@@ -687,20 +699,37 @@ export function MenuBar({ commands, author, onAuthorChange, recents, profiles, a
             <Sep />
             <Submenu label="Panels">
               <Cmd id="window.files" />
-              <Cmd id="window.pages" />
-              <Cmd id="window.bookmarks" />
-              <Cmd id="window.toolchest" />
-              <Cmd id="window.properties" />
-              <Cmd id="window.layers" />
-              <Cmd id="window.measurements" />
-              <Cmd id="window.spaces" />
-              <Cmd id="window.signatures" />
-              <Cmd id="window.search" />
-              <Cmd id="window.forms" />
-              <Cmd id="window.sets" />
-              <Cmd id="window.sessions" />
-              <Cmd id="window.markups" />
-              <Cmd id="window.links" />
+              {commands.get('window.model3d')?.enabled ? (
+                <>
+                  <Sep />
+                  <Cmd id="window.model3d" />
+                  <Cmd id="window.model3dViews" />
+                  <Cmd id="window.model3dSets" />
+                  <Cmd id="window.model3dIssues" />
+                  <Cmd id="window.model3dSheets" />
+                  <Cmd id="window.model3dReview" />
+                  <Sep />
+                  <Cmd id="window.model3dProps" />
+                  <Cmd id="window.model3dDisplay" />
+                </>
+              ) : (
+                <>
+                  <Cmd id="window.pages" />
+                  <Cmd id="window.bookmarks" />
+                  <Cmd id="window.toolchest" />
+                  <Cmd id="window.properties" />
+                  <Cmd id="window.layers" />
+                  <Cmd id="window.measurements" />
+                  <Cmd id="window.spaces" />
+                  <Cmd id="window.signatures" />
+                  <Cmd id="window.search" />
+                  <Cmd id="window.forms" />
+                  <Cmd id="window.sets" />
+                  <Cmd id="window.sessions" />
+                  <Cmd id="window.markups" />
+                  <Cmd id="window.links" />
+                </>
+              )}
             </Submenu>
           </>
         );

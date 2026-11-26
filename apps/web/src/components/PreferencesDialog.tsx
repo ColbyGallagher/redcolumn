@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
 import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
+import { MOUSE_BINDINGS } from '@nb/model3d/controls';
 import { THEMES } from '../theme/themes';
 import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, DEFAULT_UNIT_CHOICES, gridUnitOf, settings, switchUnitSystem, type SetTag, type SetTemplate, type Settings, type UnitSystem } from '../settings/settings';
 import { addToDictionary, personalWords, removeFromDictionary } from '../spelling/spell';
@@ -22,7 +23,7 @@ import { digitalIds, restoreIdBackup, type IdBackup } from '../documents/digital
  * discards them.
  */
 
-export type Category = 'general' | 'account' | 'interface' | 'tools' | 'sets' | 'importExport' | 'advanced' | 'mcp';
+export type Category = 'general' | 'account' | 'interface' | 'tools' | 'sets' | 'model3d' | 'importExport' | 'advanced' | 'mcp';
 
 const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: string }[] }[] = [
   {
@@ -70,6 +71,11 @@ const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: stri
     ],
   },
   {
+    id: 'model3d',
+    label: '3D',
+    tabs: [{ id: 'model3dNavigation', label: 'Navigation' }],
+  },
+  {
     id: 'importExport',
     label: 'Import/Export',
     tabs: [{ id: 'images', label: 'Images' }],
@@ -107,6 +113,7 @@ const CATEGORY_ICONS: Record<Category, ReactNode> = {
   interface: catIcon('M2 2.5h12v11H2zM2 5.5h12M5 5.5v8'),
   tools: catIcon('M10.5 2.5 13.5 5.5 6 13H3v-3zM9 4l3 3'),
   sets: catIcon('M4 2.5h8v8H4zM2 5v8.5h8.5'),
+  model3d: catIcon('M8 2 13.5 5v6L8 14 2.5 11V5zM2.5 5 8 8l5.5-3M8 8v6'),
   importExport: catIcon('M5 2.5v8M2.5 8 5 10.5 7.5 8M11 13.5v-8M8.5 8 11 5.5 13.5 8'),
   advanced: catIcon('M8 1.8v2M8 12.2v2M1.8 8h2M12.2 8h2M3.6 3.6 5 5M11 11l1.4 1.4M3.6 12.4 5 11M11 5l1.4-1.4M8 5.5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z'),
   account: catIcon('M8 2.5a2.75 2.75 0 1 1 0 5.5 2.75 2.75 0 0 1 0-5.5zM2.5 14c.6-2.8 2.8-4.5 5.5-4.5s4.9 1.7 5.5 4.5'),
@@ -816,6 +823,41 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           {check('setAutoTagSheetType', 'Automatically Tag Sheet Type based on Sheet Number')}
         </div>
       </>
+    ),
+    // 3D
+    model3dNavigation: () => (
+      <Grid>
+        {head('Mouse Controls')}
+        {select('model3dPan', 'Pan', MOUSE_BINDINGS)}
+        {select('model3dOrbit', 'Orbit', MOUSE_BINDINGS)}
+        {d.model3dPan === d.model3dOrbit && (
+          <C>
+            <span className="pref-note">Pan and Orbit are set to the same button; Orbit will take priority until one is changed.</span>
+          </C>
+        )}
+        <C>
+          {check('model3dZoomToCursor', 'Zoom to Cursor', {
+            title: 'Zooms toward the surface under the pointer, scaling speed by distance so you slow down as you get closer and never pass through objects',
+          })}
+        </C>
+        <C>
+          {check('model3dOrbitAtCursor', 'Orbit Around Cursor', {
+            title: 'Uses the surface point under the pointer as the centre of rotation when starting an orbit',
+          })}
+        </C>
+        <C>
+          {check('model3dShowPivot', 'Show Orbit Pivot Marker', {
+            title: 'Displays a subtle marker at the orbit centre while orbiting',
+          })}
+        </C>
+        {head('Speed & Feel')}
+        {num('model3dZoomSpeed', 'Zoom Speed', { min: 1, max: 10 })}
+        <C>{check('model3dInvertZoom', 'Reverse Zoom Direction')}</C>
+        {num('model3dOrbitSpeed', 'Orbit Sensitivity', { min: 1, max: 10 })}
+        <C>{check('model3dInvertOrbitY', 'Invert Vertical Orbit')}</C>
+        {num('model3dPanSpeed', 'Pan Sensitivity', { min: 1, max: 10 })}
+        {num('model3dSmoothing', 'Smooth Damping', { min: 0, max: 10, unit: '(0: instant)' })}
+      </Grid>
     ),
     // Import/Export
     images: () => (

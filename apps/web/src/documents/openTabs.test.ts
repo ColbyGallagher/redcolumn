@@ -4,7 +4,7 @@ import { pdfOf, pdfTabs, type OpenFile, type OpenModel, type OpenTab } from './o
 
 const file = (id: string) => ({ id, name: `${id}.pdf`, hash: id }) as unknown as OpenFile['file'];
 const pdf = (id: string): OpenFile => ({ file: file(id), doc: {} as OpenFile['doc'], store: {} as OpenFile['store'] });
-const model = (id: string): OpenModel => ({ kind: 'model', file: file(id), view: { element: {} as HTMLElement, setVisible: () => {}, dispose: () => {}, controls: () => null, subscribe: () => () => {} } });
+const model = (id: string): OpenModel => ({ kind: 'model', file: file(id), view: { element: {} as HTMLElement, setVisible: () => {}, dispose: () => {}, controls: () => null, subscribe: () => () => {}, addModel: async () => {} } });
 
 test('pdfOf keeps PDF tabs and drops model tabs', () => {
   const a = pdf('a');

@@ -2,17 +2,19 @@
  * The 3D view's commands (issue #191), for the 3D ribbon tab, the command palette and shortcuts.
  * They are enabled only while a model is in front and has loaded.
  */
-import type { ModelAction, ModelState, ModelTool, ViewDirection } from '@nb/model3d';
+import { CORNER_DIRECTIONS, type ModelAction, type ModelState, type ModelTool, type ViewDirection } from '@nb/model3d/controls';
 import type { Command } from './appCommands';
 
-const DIRECTIONS: [ViewDirection, string][] = [
+/** The views the ribbon's Views drop-down lists: the six sides, the default isometric, then the cube's eight corners. */
+export const DIRECTIONS: readonly (readonly [ViewDirection, string])[] = [
   ['top', 'Top'],
+  ['bottom', 'Bottom'],
   ['front', 'Front'],
   ['back', 'Back'],
   ['left', 'Left'],
   ['right', 'Right'],
-  ['bottom', 'Bottom'],
   ['iso', 'Isometric'],
+  ...CORNER_DIRECTIONS.map(([d, label]) => [d, `Isometric ${label}`] as const),
 ];
 
 const TOOLS: [ModelTool, string, string][] = [

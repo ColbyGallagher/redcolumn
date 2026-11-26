@@ -1,5 +1,6 @@
 import { Children, createContext, Fragment, isValidElement, useContext, useEffect, useReducer, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import type { ModelAction, ModelViewEntry } from '@nb/model3d';
+import type { ModelAction, ModelViewEntry, ViewDirection } from '@nb/model3d';
+import { DIRECTIONS as MODEL_DIRECTIONS } from '../commands/model3dCommands';
 import { createPortal } from 'react-dom';
 import type { Command } from '../commands/appCommands';
 import { settings, useSettings } from '../settings/settings';
@@ -85,6 +86,7 @@ const ICONS: Record<string, ReactNode> = {
   'model3d.measureArea': ic('M2.5 3.5h11v9h-11z', <path d="M2.5 12.5 13.5 3.5" strokeDasharray="1.5 1.3" />),
   'model3d.measureAngle': ic('M2 13.5h12M2 13.5 11 3M6.5 13.5a4.5 4.5 0 0 0-1.3-3.2'),
   'model3d.measureVolume': ic(BOX_ICON),
+  'model3d.view.iso': ic(BOX_ICON, <path d="M8 7.5 13 5" strokeDasharray="1.2 1.2" />),
   'model3d.clearMeasurements': ic('M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.7 9h5.6l.7-9'),
   'model3d.closeView': ic(BOX_ICON),
   'edit.paste': MENU_ICONS.paste,
@@ -606,6 +608,59 @@ function TemplatesMenu() {
   );
 }
 
+/**
+ * 3D › Views: one drop-down with every direction to look from (the six sides, isometric and the
+ * view cube's eight corners), so the group stays narrow. Each entry runs its `model3d.view.*` command.
+ */
+function ModelDirectionsMenu() {
+  const { commands, done } = useContext(Ctx);
+  const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const iso = commands.get('model3d.view.iso');
+  const entry = (direction: ViewDirection, label: string): MenuEntry => {
+    const c = commands.get(`model3d.view.${direction}`);
+    return {
+      label,
+      disabled: !c?.enabled,
+      onClick: () => {
+        c?.run();
+        done();
+      },
+    };
+  };
+  const sides = MODEL_DIRECTIONS.slice(0, 7);
+  const corners = MODEL_DIRECTIONS.slice(7);
+  const open = (el: HTMLElement) => {
+    const r = el.getBoundingClientRect();
+    setMenu({
+      x: r.left,
+      y: r.bottom,
+      items: [
+        ...sides.slice(0, 6).map(([d, label]) => entry(d, `${label} View`)),
+        SEP,
+        entry('iso', 'Isometric View'),
+        { label: 'Isometric Corners', items: corners.map(([d, label]) => entry(d, label.replace(/^Isometric /, ''))) },
+      ],
+    });
+  };
+  return (
+    <>
+      <button
+        type="button"
+        className="btn tool rb-btn large"
+        data-ribbon-menu="model3d.views"
+        disabled={!iso?.enabled}
+        aria-haspopup="menu"
+        title={!iso?.enabled && iso?.hint ? iso.hint : 'Look from a side, from above or below, or from a corner'}
+        onClick={(e) => open(e.currentTarget)}
+      >
+        <span className="rb-icon">{ICONS['model3d.view.iso']}</span>
+        <span className="rb-label">Views ▾</span>
+      </button>
+      {menu && <ContextMenu menu={menu} onClose={() => setMenu(null)} />}
+    </>
+  );
+}
+
 /** Takeoff › Assembly: the assembly picker and its Variables drop-down (see RibbonAssembly). */
 function TakeoffAssembly() {
   const { toolbar } = useContext(Ctx);
@@ -830,18 +885,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
             </Group>
             <Group label="Views">
-              <Stack>
-                <Cmd id="model3d.view.top" label="Top" />
-                <Cmd id="model3d.view.front" label="Front" />
-              </Stack>
-              <Stack>
-                <Cmd id="model3d.view.left" label="Left" />
-                <Cmd id="model3d.view.right" label="Right" />
-              </Stack>
-              <Stack>
-                <Cmd id="model3d.view.back" label="Back" />
-                <Cmd id="model3d.view.iso" label="Isometric" />
-              </Stack>
+              <ModelDirectionsMenu />
               <Stack>
                 <ModelViewPicker model={model3d ?? null} />
                 <Cmd id="model3d.closeView" />

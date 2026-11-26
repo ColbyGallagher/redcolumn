@@ -191,7 +191,16 @@ import { planForSheet, samePlan, sheetForPlan } from './model3d/viewSync';
 import { modelLinework } from './model3d/onDrawing';
 import { modelLayers, type ModelLayer } from './geospatial/modelOnSheet';
 import type { GeoModel } from './geospatial/model';
-import { Model3dPanel, Model3dPropertiesPanel } from './model3d/Model3dPanel';
+import {
+  Model3dIssuesPanel,
+  Model3dPropertiesPanel,
+  Model3dReviewPanel,
+  Model3dSetsPanel,
+  Model3dSheetsPanel,
+  Model3dTreePanel,
+  Model3dViewsPanel,
+} from './model3d/Model3dPanel';
+import { Model3dDisplayPanel } from './model3d/DisplayPanel';
 import { gridAtPage, ringAround, type SheetHit } from './model3d/links';
 import { useIssueSync } from './model3d/useIssueSync';
 import type { SheetSource } from './model3d/sheetOverlays';
@@ -759,10 +768,12 @@ const PANEL_DRAG_TYPE = 'application/x-rc-panel';
 const panelSide = (id: LeftTab): DockSide => (!narrowScreen() && profiles.active().state.rightPanels.includes(id) ? 'right' : 'left');
 
 /** The first panel the profile docks on a side, which that side panel starts on. */
-const firstPanelOn = (side: DockSide): LeftTab | undefined => {
+const firstPanelOn = (side: DockSide, forModel = false): LeftTab | undefined => {
   const ws = profiles.active().state;
-  // 3D panels come and go with models, so a side never starts on one.
-  return RAIL.find(({ id, needsModel }) => !needsModel && panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked))?.id;
+  return RAIL.find(({ id, scope }) => {
+    const inScope = scope === 'shared' || (forModel ? scope === '3d' : scope !== '3d');
+    return inScope && panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked);
+  })?.id;
 };
 
 /** Progress within one of `count` steps of a job, as part of the whole. */
@@ -1068,10 +1079,10 @@ export function App() {
   const [measureDefaults, setMeasureDefaults] = useState<MeasureDefaults>({ subject: '', label: '' });
   const measureDefaultsRef = useRef(measureDefaults);
   measureDefaultsRef.current = measureDefaults;
-  // The side panels' open state and tab are remembered between sessions.
-  const readSavedPanel = (side: DockSide) => {
+  // The side panels' open state and tab are remembered between sessions, separately for PDF and 3D modes.
+  const readSavedPanel = (side: DockSide, keyPrefix = 'nb.panel') => {
     try {
-      const saved = JSON.parse(localStorage.getItem(`nb.panel.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
+      const saved = JSON.parse(localStorage.getItem(`${keyPrefix}.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
       const tab = saved?.tab && saved.tab in LEFT_TITLES && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
       return { tab, open: typeof saved?.open === 'boolean' ? saved.open : null };
     } catch {
@@ -1088,14 +1099,23 @@ export function App() {
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
   const [rightTab, setRightTab] = useState<LeftTab>(() => saved.right.tab ?? firstPanelOn('right') ?? 'properties');
   const [rightOpen, setRightOpen] = useState(() => saved.right.open ?? !!firstPanelOn('right'));
-  useEffect(() => {
-    try {
-      localStorage.setItem('nb.panel.left', JSON.stringify({ tab: leftTab, open: leftOpen }));
-      localStorage.setItem('nb.panel.right', JSON.stringify({ tab: rightTab, open: rightOpen }));
-    } catch {
-      /* storage off limits: the layout lasts for this session */
-    }
-  }, [leftTab, leftOpen, rightTab, rightOpen]);
+  const modePanelsRef = useRef<{
+    pdf: { leftTab: LeftTab; leftOpen: boolean; rightTab: LeftTab; rightOpen: boolean };
+    model3d: { leftTab: LeftTab; leftOpen: boolean; rightTab: LeftTab; rightOpen: boolean };
+  } | null>(null);
+  if (!modePanelsRef.current) {
+    const saved3dL = readSavedPanel('left', 'nb.panel3d');
+    const saved3dR = readSavedPanel('right', 'nb.panel3d');
+    modePanelsRef.current = {
+      pdf: { leftTab, leftOpen, rightTab, rightOpen },
+      model3d: {
+        leftTab: saved3dL.tab ?? firstPanelOn('left', true) ?? 'model3d',
+        leftOpen: narrowScreen() ? false : (saved3dL.open ?? true),
+        rightTab: saved3dR.tab ?? firstPanelOn('right', true) ?? 'model3dProps',
+        rightOpen: narrowScreen() ? false : (saved3dR.open ?? !!firstPanelOn('right', true)),
+      },
+    };
+  }
   const [rightWidth, setRightWidth] = useState(() => savedLayout?.rightWidth ?? DEFAULT_LAYOUT.rightWidth);
   // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
@@ -8131,6 +8151,7 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
   /** The panel rail's panels in the profile's order (unlisted ones keep their default place at the end). */
   // The Markups list is a rail panel only while docked in a side panel (it starts in the bottom dock).
   const anyModelOpen = tabsA.some((t) => t.kind === 'model') || tabsB.some((t) => t.kind === 'model');
+  const isModelActive = !!(paneB && (openB || modelB) ? modelB : modelA);
 
   // Open models drawn on sheets registered to a map (issue #191): their plan linework, read from the
   // IFC without the 3D viewer, placed through each sheet's own registration.
@@ -8173,18 +8194,44 @@ Remove it from the recent files?`)) removeFromRecents([file.id]);
       });
     }
   }, [ctl, ctlB, sheetModels, geoRegionsA, geoRegionsB]);
-  // The first model opened brings its properties up, where that side has nothing else open.
-  const hadModel = useRef(anyModelOpen);
+  // Swap side panels cleanly between PDF mode and 3D mode, remembering each mode's open tabs.
+  const prevModelActive = useRef(isModelActive);
   useEffect(() => {
-    if (anyModelOpen && !hadModel.current && !ws.hiddenPanels.includes('model3dProps')) {
-      const side = panelSide('model3dProps');
-      if (!(side === 'left' ? leftOpen : rightOpen)) showPanel('model3dProps');
+    const store = modePanelsRef.current!;
+    if (prevModelActive.current !== isModelActive) {
+      const fromKey = prevModelActive.current ? 'model3d' : 'pdf';
+      const toKey = isModelActive ? 'model3d' : 'pdf';
+      store[fromKey] = { leftTab, leftOpen, rightTab, rightOpen };
+      const target = store[toKey];
+      const pick = (side: DockSide, tab: LeftTab) => {
+        const entry = RAIL.find((r) => r.id === tab);
+        const inScope = entry && (entry.scope === 'shared' || (isModelActive ? entry.scope === '3d' : entry.scope !== '3d'));
+        if (inScope && panelSide(tab) === side && !ws.hiddenPanels.includes(tab)) return tab;
+        return firstPanelOn(side, isModelActive) ?? tab;
+      };
+      setLeftTab(pick('left', target.leftTab));
+      setLeftOpen(narrowScreen() ? false : target.leftOpen);
+      setRightTab(pick('right', target.rightTab));
+      setRightOpen(narrowScreen() ? false : target.rightOpen);
+      prevModelActive.current = isModelActive;
+      return;
     }
-    hadModel.current = anyModelOpen;
-    // Only the coming and going of models matters here.
+    const modeKey = isModelActive ? 'model3d' : 'pdf';
+    store[modeKey] = { leftTab, leftOpen, rightTab, rightOpen };
+    const prefix = isModelActive ? 'nb.panel3d' : 'nb.panel';
+    try {
+      localStorage.setItem(`${prefix}.left`, JSON.stringify({ tab: leftTab, open: leftOpen }));
+      localStorage.setItem(`${prefix}.right`, JSON.stringify({ tab: rightTab, open: rightOpen }));
+    } catch {
+      /* storage off limits: the layout lasts for this session */
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anyModelOpen]);
-  const orderedRail = RAIL.filter(({ id, needsModel }) => (id !== 'markups' || ws.markupsDocked) && (!needsModel || anyModelOpen)).sort((a, b) => {
+  }, [isModelActive, leftTab, leftOpen, rightTab, rightOpen]);
+  const orderedRail = RAIL.filter(({ id, scope }) => {
+    if (id === 'markups' && !ws.markupsDocked) return false;
+    if (scope === 'shared') return true;
+    return isModelActive ? scope === '3d' : scope !== '3d';
+  }).sort((a, b) => {
     const ia = ws.panelOrder.indexOf(a.id);
     const ib = ws.panelOrder.indexOf(b.id);
     return (ia < 0 ? RAIL.length + RAIL.indexOf(a) : ia) - (ib < 0 ? RAIL.length + RAIL.indexOf(b) : ib);
@@ -9794,8 +9841,8 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   const sidePanel = (side: DockSide) => {
     const tab = side === 'left' ? leftTab : rightTab;
     if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side) return null;
-    // A 3D panel left open when the last model closed gives the space back to the drawing.
-    if (!anyModelOpen && RAIL.find((r) => r.id === tab)?.needsModel) return null;
+    // Only panels belonging to the active mode (PDF vs 3D) render in the sidebar.
+    if (!(side === 'left' ? leftRail : rightRail).some((r) => r.id === tab)) return null;
     const width = side === 'left' ? shownWidths.left : shownWidths.right;
     const close = () => (side === 'left' ? setLeftOpen(false) : setRightOpen(false));
     return (
@@ -10200,16 +10247,60 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
             }
           />
         ) : tab === 'model3d' ? (
-          <Model3dPanel
+          <Model3dTreePanel
+            view={activeModel?.view ?? null}
+            libraryModels={library.filter(isModelFile)}
+            onAddModelFiles={async (files, onProgress) => {
+              if (!activeModel) return;
+              for (const f of files) {
+                const bytes = await f.arrayBuffer();
+                const stored = await saveFile(f.name, bytes);
+                await activeModel.view.addModel(stored, bytes, onProgress);
+              }
+              void refreshLibrary();
+            }}
+            onAddLibraryModel={async (file, onProgress) => {
+              if (!activeModel) return;
+              const bytes = await readFile(file.hash);
+              if (!bytes) throw new Error('That model file is no longer in local storage.');
+              await activeModel.view.addModel(file, bytes, onProgress);
+            }}
+            onNotice={setNotice}
+          />
+        ) : tab === 'model3dViews' ? (
+          <Model3dViewsPanel view={activeModel?.view ?? null} fileHash={activeModel?.file.hash ?? null} />
+        ) : tab === 'model3dSets' ? (
+          <Model3dSetsPanel
+            view={activeModel?.view ?? null}
+            onDownload={(name, text) => download(name, new Blob([text], { type: 'application/json' }))}
+            onNotice={setNotice}
+          />
+        ) : tab === 'model3dIssues' ? (
+          <Model3dIssuesPanel
             view={activeModel?.view ?? null}
             fileHash={activeModel?.file.hash ?? null}
             sheets={mapSheets()}
-            onDownload={(name, text) => download(name, new Blob([text], { type: 'application/json' }))}
+            onSaveFile={(name, data) => download(name, data)}
+            onNotice={setNotice}
+          />
+        ) : tab === 'model3dSheets' ? (
+          <Model3dSheetsPanel view={activeModel?.view ?? null} fileHash={activeModel?.file.hash ?? null} sheets={mapSheets()} />
+        ) : tab === 'model3dReview' ? (
+          <Model3dReviewPanel
+            view={activeModel?.view ?? null}
             onSaveFile={(name, data) => download(name, data)}
             onNotice={setNotice}
           />
         ) : tab === 'model3dProps' ? (
           <Model3dPropertiesPanel view={activeModel?.view ?? null} sheets={mapSheets()} onOpenSheet={openSheetAt} />
+        ) : tab === 'model3dDisplay' ? (
+          <Model3dDisplayPanel
+            view={activeModel?.view ?? null}
+            onOpenNavPrefs={() => {
+              setPrefsCategory({ category: 'model3d', tab: 'model3dNavigation' });
+              setPrefsOpen(true);
+            }}
+          />
         ) : tab === 'flags' ? (
           <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flagLabel') : null} />
         ) : (tab === 'projects' || tab === 'sessions') && !desktop() ? (
@@ -11026,7 +11117,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
               }}
             />
           )}
-          {showBottom && !dockFull && bottomDock}
+          {showBottom && !isModelActive && !dockFull && bottomDock}
         </div>
         {rightRail.length > 0 && !rightShown && (
           <button type="button" className="panel-edge right" aria-label="Open the right side panel" title="Open the right side panel" onClick={() => commandActions.toggleRight()} />
@@ -11034,7 +11125,7 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
         {sidePanel('right')}
         {(rightRail.length > 0 || (railDrag && !narrowScreen())) && panelRail('right', rightRail)}
       </div>
-      {showBottom && dockFull && bottomDock}
+      {showBottom && !isModelActive && dockFull && bottomDock}
       <StatusBar
         viewer={v ?? null}
         rotation={(paneB ? statsB : stats)?.rotation ?? 0}
@@ -12526,12 +12617,11 @@ Restart now to update? Your documents and markups are kept.`)) restartIntoUpdate
   );
 }
 
-const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean; needsModel?: boolean }[] = [
+const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean; scope?: 'pdf' | '3d' | 'shared' }[] = [
   {
     id: 'model3d',
-    title: '3D Model',
-    experimental: true,
-    needsModel: true,
+    title: 'Model Tree',
+    scope: '3d',
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M2.5 4.5 8 1.8l5.5 2.7v7L8 14.2l-5.5-2.7zM2.5 4.5 8 7.2l5.5-2.7M8 7.2v7" />
@@ -12539,13 +12629,75 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
     ),
   },
   {
+    id: 'model3dViews',
+    title: 'Views',
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M2 5h2.5l1-1.5h5L11.5 5H14v8H2z" />
+        <circle cx="8" cy="9" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      </svg>
+    ),
+  },
+  {
+    id: 'model3dSets',
+    title: 'Sets & Appearance',
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M2.5 3h11l-4.2 5v4.5l-2.6 1V8z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'model3dIssues',
+    title: 'Issues',
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M2.5 3h11v8H6.5l-3 2.5V11h-1z" />
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" d="M8 5.2v2.3M8 9.2h.01" />
+      </svg>
+    ),
+  },
+  {
+    id: 'model3dSheets',
+    title: 'Sheets',
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M2 10.5 8 13.5l6-3M2 7.5 8 10.5l6-3M2 4.5 8 1.8l6 2.7-6 3z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'model3dReview',
+    title: 'Takeoff & Compare',
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M2.5 2.5h11v11h-11zM2.5 6h11M6.5 6v7.5M10.5 6v7.5" />
+      </svg>
+    ),
+  },
+  {
     id: 'model3dProps',
-    title: '3D Properties',
-    experimental: true,
-    needsModel: true,
+    title: 'Properties',
+    scope: '3d',
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M2 2.5h12v11H2zM2 6h12M2 9.5h12M6.5 2.5v11" />
+      </svg>
+    ),
+  },
+  {
+    id: 'model3dDisplay',
+    title: 'Display & Scene',
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <circle cx="8" cy="8" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3" />
       </svg>
     ),
   },
@@ -12561,6 +12713,7 @@ const RAIL: { id: LeftTab; title: string; icon: ReactNode; experimental?: boolea
   {
     id: 'files',
     title: 'File Access',
+    scope: 'shared',
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M3 2h6l2 2v10H3V2zm6 0v2h2" />
