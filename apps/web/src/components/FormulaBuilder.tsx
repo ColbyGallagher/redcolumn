@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { FUNCTION_DOCS } from '../columns/formula';
@@ -72,19 +73,19 @@ export function FormulaBuilder({ item, unit, formula, groups, problem, result, r
         onClose();
       }}
     >
-      <div className="modal asm-formula-dialog formula-builder" role="dialog" aria-label="Formula Builder" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal asm-formula-dialog formula-builder" role="dialog" aria-label={msg('Formula Builder')} onMouseDown={(e) => e.stopPropagation()}>
         <div className="columns-head">
-          <h3>Formula Builder: {item || 'Untitled item'}</h3>
+          <h3>{msg('Formula Builder: {value}', { value: item || msg('Untitled item') })}</h3>
         </div>
         <p className="hint-text">
-          The quantity of {item || 'this item'} for each measurement, in {unit || 'its unit'}. Click a name, function or operator to put it in at the cursor. A formula must give a number; Yes/No switches count as 1 and 0.
+          {msg('The quantity of {value} for each measurement, in {value2}. Click a name, function or operator to put it in at the cursor. A formula must give a number; Yes/No switches count as 1 and 0.', { value: item || 'this item', value2: unit || 'its unit' })}
         </p>
         <textarea
           ref={box}
           autoFocus
           rows={5}
           className="col-formula asm-formula-big"
-          aria-label={`Formula for ${item}, Formula Builder`}
+          aria-label={msg('Formula for {item}, Formula Builder', { item })}
           value={formula}
           readOnly={readOnly}
           aria-invalid={!!problem}
@@ -103,19 +104,19 @@ export function FormulaBuilder({ item, unit, formula, groups, problem, result, r
           ) : result ? (
             result.error ? (
               <em className="col-error">
-                For {resultLabel}: {result.error}
+                {msg('For {resultLabel}: {error}', { resultLabel, error: result.error })}
               </em>
             ) : (
               <span className="fb-result">
-                For {resultLabel}: <strong data-testid="formula-result">{fmt(result.rounded)}</strong> {unit}
-                {result.base !== null && result.base !== result.rounded && <span className="muted"> ({fmt(result.base)} before waste and rounding)</span>}
+                {msg('For')} {resultLabel}: <strong data-testid="formula-result">{fmt(result.rounded)}</strong> {unit}
+                {result.base !== null && result.base !== result.rounded && <span className="muted"> {msg('({fmt} before waste and rounding)', { fmt: fmt(result.base) })}</span>}
               </span>
             )
           ) : (
-            <span className="muted">The formula is valid. Select a measurement before opening the Assemblies window to see its result here.</span>
+            <span className="muted">{msg('The formula is valid. Select a measurement before opening the Assemblies window to see its result here.')}</span>
           )}
         </div>
-        <div className="fb-ops" aria-label="Operators">
+        <div className="fb-ops" aria-label={msg('Operators')}>
           {OPERATORS.map((o) => (
             <button key={o.label} type="button" className="btn small" disabled={readOnly} title={o.text.trim()} onMouseDown={(e) => e.preventDefault()} onClick={() => insert(o.text)}>
               {o.label}
@@ -123,7 +124,7 @@ export function FormulaBuilder({ item, unit, formula, groups, problem, result, r
           ))}
         </div>
         <div className="fb-columns">
-          <div className="fb-props" aria-label="Properties">
+          <div className="fb-props" aria-label={msg('Properties')}>
             {groups
               .filter((g) => g.names.length)
               .map((g) => (
@@ -139,8 +140,8 @@ export function FormulaBuilder({ item, unit, formula, groups, problem, result, r
                 </div>
               ))}
           </div>
-          <ul className="fb-functions" aria-label="Functions">
-            {FUNCTION_DOCS.map((f) => (
+          <ul className="fb-functions" aria-label={msg('Functions')}>
+            {FUNCTION_DOCS().map((f) => (
               <li key={f.name}>
                 <button type="button" className="asm-ref" title={f.hint} disabled={readOnly} onMouseDown={(e) => e.preventDefault()} onClick={() => insert(`${f.name}()`, 1)}>
                   {f.signature}
@@ -153,7 +154,7 @@ export function FormulaBuilder({ item, unit, formula, groups, problem, result, r
         <div className="actions columns-actions">
           <span className="grow" />
           <button type="button" className="btn primary" onClick={onClose}>
-            Done
+            {msg('Done')}
           </button>
         </div>
       </div>

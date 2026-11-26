@@ -1,9 +1,11 @@
+import { msg } from '@nb/i18n';
 import { useRef, useState } from 'react';
 import {
   applyBookmarkTemplate,
   bookmarkPos,
   bookmarksFromLabels,
   DEFAULT_BOOKMARK_TEMPLATE,
+  filterBookmarkRows,
   findBookmark,
   flattenBookmarks,
   indentBookmark,
@@ -54,6 +56,7 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
   const [selected, setSelected] = useState<string | null>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [query, setQuery] = useState('');
   const [placeSel, setPlaceSel] = useState<string | null>(null);
   const [renamingPlace, setRenamingPlace] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
@@ -61,17 +64,24 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
   const { bookmarkTemplates } = useWorkspace();
   const templates = [DEFAULT_BOOKMARK_TEMPLATE, ...bookmarkTemplates.filter((t) => t.name !== DEFAULT_BOOKMARK_TEMPLATE.name)];
 
-  if (!pageCount) return <p className="empty">Open a PDF to see bookmarks.</p>;
+  if (!pageCount) return <p className="empty">{msg('Open a PDF to see bookmarks.')}</p>;
 
   const sel = selected ? findBookmark(bookmarks, selected) : null;
   const pos = sel ? bookmarkPos(bookmarks, sel.id) : null;
-  // Rows under a collapsed bookmark are hidden.
-  const rows: { bookmark: Bookmark; depth: number }[] = [];
-  let hideBelow = Infinity;
-  for (const row of flattenBookmarks(bookmarks)) {
-    if (row.depth > hideBelow) continue;
-    hideBelow = collapsed.has(row.bookmark.id) ? row.depth : Infinity;
-    rows.push(row);
+  const trimmedQuery = query.trim();
+  const filtering = trimmedQuery.length > 0;
+  // When filtering, use filterBookmarkRows without mutating `collapsed` so clearing restores it.
+  const rows: { bookmark: Bookmark; depth: number; matched: boolean }[] = [];
+  if (filtering) {
+    rows.push(...filterBookmarkRows(bookmarks, trimmedQuery, pageLabel));
+  } else {
+    // Rows under a collapsed bookmark are hidden.
+    let hideBelow = Infinity;
+    for (const row of flattenBookmarks(bookmarks)) {
+      if (row.depth > hideBelow) continue;
+      hideBelow = collapsed.has(row.bookmark.id) ? row.depth : Infinity;
+      rows.push({ ...row, matched: true });
+    }
   }
 
   const add = (child: boolean) => {
@@ -84,19 +94,26 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
     setRenaming(b.id);
   };
   const fromLabels = () => {
-    if (bookmarks.length && !confirm('Replace the bookmarks with one per page, named by page label?')) return;
+    if (bookmarks.length && !confirm(msg('Replace the bookmarks with one per page, named by page label?'))) return;
     onBookmarks(bookmarksFromLabels(Array.from({ length: pageCount }, (_, i) => pageLabel(i)), newId));
     setSelected(null);
   };
   const applyTemplate = (t: BookmarkTemplate) => {
-    if (bookmarks.length && !confirm(`Replace the bookmarks with the "${t.name}" template?`)) return;
+    if (bookmarks.length && !confirm(msg('Replace the bookmarks with the "{name}" template?', { name: t.name }))) return;
     const { tree, unmatched } = applyBookmarkTemplate(t, Array.from({ length: pageCount }, (_, i) => ({ pageIndex: i, label: pageLabel(i) })), newId);
     onBookmarks(tree);
     setSelected(null);
     setNote(
       tree.length
-        ? `Filed ${pageCount - unmatched.length} of ${pageCount} pages under "${t.name}".${unmatched.length ? ` ${unmatched.length} had no sheet number that fits: ${unmatched.slice(0, 5).map((i) => pageLabel(i) || `page ${i + 1}`).join(', ')}${unmatched.length > 5 ? '…' : ''}.` : ''}`
-        : `No page has a sheet number that fits "${t.name}" (pages are filed by numbers like A-101 or C-205).`,
+        ? msg('Filed {filed} of {total} pages under "{name}".', { filed: pageCount - unmatched.length, total: pageCount, name: t.name }) +
+            (unmatched.length
+              ? ' ' +
+                msg('{count, plural, one {# had} other {# had}} no sheet number that fits: {pages}.', {
+                  count: unmatched.length,
+                  pages: unmatched.slice(0, 5).map((i) => pageLabel(i) || msg('page {page}', { page: i + 1 })).join(', ') + (unmatched.length > 5 ? '…' : ''),
+                })
+              : '')
+        : msg('No page has a sheet number that fits "{name}" (pages are filed by numbers like A-101 or C-205).', { name: t.name }),
     );
   };
   const addPlace = () => {
@@ -112,38 +129,38 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
     <div className="bookmarks-panel">
       {editable && (
         <div className="panel-toolbar">
-          <button className="btn small" title="Add a bookmark to the current view, after the selected one" onClick={() => add(false)}>
-            + Add
+          <button className="btn small" title={msg('Add a bookmark to the current view, after the selected one')} onClick={() => add(false)}>
+            {msg('+ Add')}
           </button>
-          <button className="btn small" title="Add a bookmark under the selected one" disabled={!sel} onClick={() => add(true)}>
-            + Child
+          <button className="btn small" title={msg('Add a bookmark under the selected one')} disabled={!sel} onClick={() => add(true)}>
+            {msg('+ Child')}
           </button>
-          <button className="btn small" title="Rename" disabled={!sel} onClick={() => setRenaming(sel!.id)}>
+          <button className="btn small" title={msg('Rename')} disabled={!sel} onClick={() => setRenaming(sel!.id)}>
             ✎
           </button>
-          <button className="btn small" title="Point the bookmark at the current view" disabled={!sel} onClick={() => onBookmarks(updateBookmark(bookmarks, sel!.id, currentView()))}>
+          <button className="btn small" title={msg('Point the bookmark at the current view')} disabled={!sel} onClick={() => onBookmarks(updateBookmark(bookmarks, sel!.id, currentView()))}>
             ⌖
           </button>
           {onEditAction && (
-            <button className="btn small" title="Action: a page, a Place, a web page or another document" disabled={!sel} onClick={() => onEditAction(sel!.id)}>
+            <button className="btn small" title={msg('Action: a page, a Place, a web page or another document')} disabled={!sel} onClick={() => onEditAction(sel!.id)}>
               🔗
             </button>
           )}
-          <button className="btn small" title="Move up" disabled={!pos || pos.index === 0} onClick={() => onBookmarks(shiftBookmark(bookmarks, sel!.id, -1))}>
+          <button className="btn small" title={msg('Move up')} disabled={!pos || pos.index === 0} onClick={() => onBookmarks(shiftBookmark(bookmarks, sel!.id, -1))}>
             ↑
           </button>
-          <button className="btn small" title="Move down" disabled={!sel} onClick={() => onBookmarks(shiftBookmark(bookmarks, sel!.id, 1))}>
+          <button className="btn small" title={msg('Move down')} disabled={!sel} onClick={() => onBookmarks(shiftBookmark(bookmarks, sel!.id, 1))}>
             ↓
           </button>
-          <button className="btn small" title="Nest under the bookmark above" disabled={!pos || pos.index === 0} onClick={() => onBookmarks(indentBookmark(bookmarks, sel!.id))}>
+          <button className="btn small" title={msg('Nest under the bookmark above')} disabled={!pos || pos.index === 0} onClick={() => onBookmarks(indentBookmark(bookmarks, sel!.id))}>
             →
           </button>
-          <button className="btn small" title="Move out of its parent" disabled={!pos?.parentId} onClick={() => onBookmarks(outdentBookmark(bookmarks, sel!.id))}>
+          <button className="btn small" title={msg('Move out of its parent')} disabled={!pos?.parentId} onClick={() => onBookmarks(outdentBookmark(bookmarks, sel!.id))}>
             ←
           </button>
           <button
             className="btn small"
-            title="Delete the bookmark and those under it"
+            title={msg('Delete the bookmark and those under it')}
             disabled={!sel}
             onClick={() => {
               onBookmarks(removeBookmark(bookmarks, sel!.id));
@@ -152,18 +169,18 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
           >
             ×
           </button>
-          <button className="btn small" title="Create a bookmark for every page from its page label" onClick={fromLabels}>
-            From labels
+          <button className="btn small" title={msg('Create a bookmark for every page from its page label')} onClick={fromLabels}>
+            {msg('From labels')}
           </button>
           {onFromRegions && (
-            <button className="btn small" title="Name a bookmark for every page from the text in boxes you draw on the title block" onClick={onFromRegions}>
-              From regions…
+            <button className="btn small" title={msg('Name a bookmark for every page from the text in boxes you draw on the title block')} onClick={onFromRegions}>
+              {msg('From regions…')}
             </button>
           )}
           <select
             className="btn small"
-            aria-label="Bookmark template"
-            title="File the pages under a bookmark template, by their sheet numbers"
+            aria-label={msg('Bookmark template')}
+            title={msg('File the pages under a bookmark template, by their sheet numbers')}
             value=""
             onChange={(e) => {
               const v = e.target.value;
@@ -172,14 +189,14 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
             }}
           >
             <option value="" disabled>
-              Template…
+              {msg('Template…')}
             </option>
             {templates.map((t) => (
               <option key={t.name} value={`t:${t.name}`}>
-                Apply {t.name}
+                {msg('Apply {name}', { name: t.name })}
               </option>
             ))}
-            <option value="import">Import template…</option>
+            <option value="import">{msg('Import template…')}</option>
           </select>
           <input
             ref={importRef}
@@ -194,36 +211,73 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
           />
         </div>
       )}
+      <div className="bookmark-filter">
+        <input
+          type="text"
+          placeholder={msg('Filter bookmarks…')}
+          aria-label={msg('Filter bookmarks…')}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === 'Escape' && query) {
+              e.preventDefault();
+              setQuery('');
+            }
+          }}
+        />
+        {query && (
+          <button
+            type="button"
+            className="btn small bookmark-filter-clear"
+            aria-label={msg('Clear bookmark filter')}
+            title={msg('Clear')}
+            onClick={() => setQuery('')}
+          >
+            ×
+          </button>
+        )}
+      </div>
       {note && (
         <p className="pref-hint" role="status" onClick={() => setNote(null)}>
           {note}
         </p>
       )}
       {!rows.length ? (
-        <p className="empty">No bookmarks. {editable ? 'Add one for the current view, or create them from page labels or from boxes on the title block.' : ''}</p>
+        <p className="empty">
+          {filtering
+            ? msg('No bookmarks match "{query}".', { query: trimmedQuery })
+            : editable
+              ? msg('No bookmarks. Add one for the current view, or create them from page labels or from boxes on the title block.')
+              : msg('No bookmarks.')}
+        </p>
       ) : (
         <ul className="bookmark-list bookmark-tree" role="tree">
-          {rows.map(({ bookmark: b, depth }) => (
+          {rows.map(({ bookmark: b, depth, matched }) => (
             <li key={b.id} role="treeitem" aria-level={depth + 1} aria-selected={b.id === selected} style={{ paddingLeft: depth * 14 }}>
               {b.children.length ? (
-                <button
-                  className="twisty"
-                  aria-label={collapsed.has(b.id) ? 'Expand' : 'Collapse'}
-                  onClick={() => {
-                    const next = new Set(collapsed);
-                    if (!next.delete(b.id)) next.add(b.id);
-                    setCollapsed(next);
-                  }}
-                >
-                  {collapsed.has(b.id) ? '▸' : '▾'}
-                </button>
+                filtering ? (
+                  <span className="twisty" aria-hidden="true">▾</span>
+                ) : (
+                  <button
+                    className="twisty"
+                    aria-label={collapsed.has(b.id) ? msg('Expand') : msg('Collapse')}
+                    onClick={() => {
+                      const next = new Set(collapsed);
+                      if (!next.delete(b.id)) next.add(b.id);
+                      setCollapsed(next);
+                    }}
+                  >
+                    {collapsed.has(b.id) ? '▸' : '▾'}
+                  </button>
+                )
               ) : (
                 <span className="twisty" />
               )}
               {renaming === b.id ? (
                 <InlineName
                   initial={b.title}
-                  placeholder="Bookmark title"
+                  placeholder={msg('Bookmark title')}
                   onDone={(title) => {
                     setRenaming(null);
                     if (title) onBookmarks(updateBookmark(bookmarks, b.id, { title }));
@@ -231,15 +285,15 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
                 />
               ) : (
                 <button
-                  className={`bookmark${b.id === selected ? ' active' : ''}${b.pageIndex === currentPage ? ' current' : ''}`}
-                  title={b.action ? (b.action.kind === 'url' ? b.action.url : b.action.kind === 'file' ? `${b.action.name}, page ${b.action.pageIndex + 1}` : 'A Place') : `${pageLabel(b.pageIndex)}${b.rect && b.rect.w > 0 ? ' (zoomed view)' : ''}`}
+                  className={`bookmark${b.id === selected ? ' active' : ''}${b.pageIndex === currentPage ? ' current' : ''}${!matched ? ' ancestor' : ''}`}
+                  title={b.action ? (b.action.kind === 'url' ? b.action.url : b.action.kind === 'file' ? msg('{name}, page {page}', { name: b.action.name, page: b.action.pageIndex + 1 }) : msg('A Place')) : b.rect && b.rect.w > 0 ? msg('{page} (zoomed view)', { page: pageLabel(b.pageIndex) }) : pageLabel(b.pageIndex)}
                   onClick={() => {
                     setSelected(b.id);
                     onGo(b);
                   }}
                   onDoubleClick={() => editable && setRenaming(b.id)}
                 >
-                  <span className="name">{b.title || '(untitled)'}</span>
+                  <span className="name">{b.title || msg('(untitled)')}</span>
                 </button>
               )}
             </li>
@@ -247,18 +301,18 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
         </ul>
       )}
 
-      <h4 className="panel-subhead">Places</h4>
+      <h4 className="panel-subhead">{msg('Places')}</h4>
       {editable && (
         <div className="panel-toolbar">
-          <button className="btn small" title="Name the current view as a Place that hyperlinks can jump to" onClick={addPlace}>
-            + Add Place
+          <button className="btn small" title={msg('Name the current view as a Place that hyperlinks can jump to')} onClick={addPlace}>
+            {msg('+ Add Place')}
           </button>
-          <button className="btn small" title="Rename" disabled={!place} onClick={() => setRenamingPlace(place!.id)}>
+          <button className="btn small" title={msg('Rename')} disabled={!place} onClick={() => setRenamingPlace(place!.id)}>
             ✎
           </button>
           <button
             className="btn small"
-            title="Move the Place to the current view (links to it follow)"
+            title={msg('Move the Place to the current view (links to it follow)')}
             disabled={!place}
             onClick={() => onPlaces(places.map((p) => (p.id === place!.id ? { ...p, ...currentView() } : p)))}
           >
@@ -266,7 +320,7 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
           </button>
           <button
             className="btn small"
-            title="Delete the Place (links to it stop working)"
+            title={msg('Delete the Place (links to it stop working)')}
             disabled={!place}
             onClick={() => {
               onPlaces(places.filter((p) => p.id !== place!.id));
@@ -278,7 +332,7 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
         </div>
       )}
       {!places.length ? (
-        <p className="empty">No Places. A Place is a named view that hyperlinks jump to; move it and the links follow.</p>
+        <p className="empty">{msg('No Places. A Place is a named view that hyperlinks jump to; move it and the links follow.')}</p>
       ) : (
         <ul className="bookmark-list">
           {places.map((p) => (
@@ -286,7 +340,7 @@ export function BookmarksPanel({ bookmarks, places, pageCount, currentPage, page
               {renamingPlace === p.id ? (
                 <InlineName
                   initial={p.name}
-                  placeholder="Place name"
+                  placeholder={msg('Place name')}
                   onDone={(name) => {
                     setRenamingPlace(null);
                     if (name) onPlaces(places.map((q) => (q.id === p.id ? { ...q, name } : q)));

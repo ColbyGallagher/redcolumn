@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useState } from 'react';
 import { FILTER_OPS, type AdvancedFilter, type FilterOp, type FilterRule, type ListColumn } from '../columns/listColumns';
 
@@ -33,36 +34,36 @@ export function FilterBuilderDialog({ columns, initial, onApply, onCancel }: Pro
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Filter Builder</h3>
+        <h3>{msg('Filter Builder')}</h3>
         <div className="row match-row">
-          Show markups that match
-          <select value={match} onChange={(e) => setMatch(e.target.value as 'all' | 'any')} aria-label="Match">
-            <option value="all">all</option>
-            <option value="any">any</option>
+          {msg('Show markups that match')}
+          <select value={match} onChange={(e) => setMatch(e.target.value as 'all' | 'any')} aria-label={msg('Match')}>
+            <option value="all">{msg('all')}</option>
+            <option value="any">{msg('any')}</option>
           </select>
-          of these conditions:
+          {msg('of these conditions:')}
         </div>
         <div className="rules">
           {rules.map((r, i) => {
             const op = FILTER_OPS.find((o) => o.value === r.op)!;
             return (
               <div key={i} className="rule">
-                <select value={r.key} aria-label="Column" onChange={(e) => update(i, { key: e.target.value })}>
+                <select value={r.key} aria-label={msg('Column')} onChange={(e) => update(i, { key: e.target.value })}>
                   {columns.map((c) => (
                     <option key={c.key} value={c.key}>
                       {c.label}
                     </option>
                   ))}
                 </select>
-                <select value={r.op} aria-label="Condition" onChange={(e) => update(i, { op: e.target.value as FilterOp })}>
+                <select value={r.op} aria-label={msg('Condition')} onChange={(e) => update(i, { op: e.target.value as FilterOp })}>
                   {FILTER_OPS.map((o) => (
                     <option key={o.value} value={o.value}>
                       {o.label}
                     </option>
                   ))}
                 </select>
-                {op.needsValue ? <input value={r.value} aria-label="Value" placeholder="Value" autoFocus={i === rules.length - 1} onChange={(e) => update(i, { value: e.target.value })} /> : <span className="grow" />}
-                <button type="button" className="btn small" title="Remove this condition" onClick={() => setRules(rules.filter((_, k) => k !== i))}>
+                {op.needsValue ? <input value={r.value} aria-label={msg('Value')} placeholder={msg('Value')} autoFocus={i === rules.length - 1} onChange={(e) => update(i, { value: e.target.value })} /> : <span className="grow" />}
+                <button type="button" className="btn small" title={msg('Remove this condition')} onClick={() => setRules(rules.filter((_, k) => k !== i))}>
                   ×
                 </button>
               </div>
@@ -70,18 +71,18 @@ export function FilterBuilderDialog({ columns, initial, onApply, onCancel }: Pro
           })}
         </div>
         <button type="button" className="btn small" onClick={() => setRules([...rules, { key: rules.at(-1)?.key ?? columns[0]?.key ?? 'subject', op: 'contains', value: '' }])}>
-          + Add condition
+          {msg('+ Add condition')}
         </button>
         <div className="actions">
           <button type="button" className="btn" onClick={() => onApply(null)} disabled={!initial}>
-            Clear
+            {msg('Clear')}
           </button>
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary">
-            Apply
+            {msg('Apply')}
           </button>
         </div>
       </form>

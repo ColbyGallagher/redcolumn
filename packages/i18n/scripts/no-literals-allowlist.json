@@ -1,0 +1,38 @@
+{
+  "files": [
+    {
+      "glob": "apps/web/src/desktop/assistant*.ts",
+      "reason": "MCP assistant protocol descriptions and tool schemas stay in English"
+    },
+    {
+      "glob": "apps/desktop/src/assistant/**",
+      "reason": "MCP assistant CLI, server and setup page stay in English"
+    }
+  ],
+  "strings": [
+    {
+      "text": "#rrggbb",
+      "reason": "CSS hex colour input format syntax"
+    },
+    {
+      "text": "ft-in",
+      "reason": "Feet-and-inches measurement unit symbol"
+    },
+    {
+      "text": "Helvetica",
+      "reason": "Standard PDF font name: the option value the header/footer code looks up"
+    },
+    {
+      "text": "Times",
+      "reason": "Standard PDF font name: the option value the header/footer code looks up"
+    },
+    {
+      "text": "Courier",
+      "reason": "Standard PDF font name: the option value the header/footer code looks up"
+    },
+    {
+      "text": "redcolumn",
+      "reason": "Product name; also the literal default Excel protection password"
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+import { normalizeNumberText } from '@nb/i18n';
+
 /**
  * Parses what a person types into a rotation field: plain degrees, a road-style percentage fall
  * (`2%`) or a ratio (`1:50`).
@@ -35,7 +37,8 @@ export function gradeReadout(clockwiseDegrees: number): string | undefined {
 /** `turn` is how plain degrees (and the returned `degrees`) are measured: clockwise (default) or counter-clockwise on paper. */
 export function parseRotationInput(text: string, turn: Turn = 'clockwise'): RotationParse {
   const out = (math: number) => (turn === 'ccw' ? math || 0 : norm(-math));
-  const t = text.trim().replace(/−/g, '-');
+  // Numbers in the chosen format: 2,5% and 45,5° in German.
+  const t = normalizeNumberText(text.trim()).replace(/−/g, '-');
   if (!t) return { ok: false, error: 'Type an angle, a percentage such as 2% or a ratio such as 1:50.' };
 
   const deg = DEGREES.exec(t);

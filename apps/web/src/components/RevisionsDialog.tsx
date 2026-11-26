@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import type { FileRevision, StoredFile } from '../storage/fileStore';
 
 interface Props {
@@ -25,7 +26,7 @@ export function RevisionsDialog({ file, onOpen, onRestore, onDelete, onClose }: 
           if (e.key === 'Escape') onClose();
         }}
       >
-        <h3>Revisions of {file.name}</h3>
+        <h3>{msg('Revisions of {name}', { name: file.name })}</h3>
         {list.length ? (
           <table className="revision-list">
             <tbody>
@@ -38,14 +39,14 @@ export function RevisionsDialog({ file, onOpen, onRestore, onDelete, onClose }: 
                     </div>
                   </td>
                   <td className="revision-actions">
-                    <button className="btn small" onClick={() => onOpen(r)} title="Open this version as its own document, e.g. to compare it">
-                      Open
+                    <button className="btn small" onClick={() => onOpen(r)} title={msg('Open this version as its own document, e.g. to compare it')}>
+                      {msg('Open')}
                     </button>
-                    <button className="btn small" onClick={() => onRestore(r)} title="Go back to this version; the current one is kept as a revision">
-                      Restore
+                    <button className="btn small" onClick={() => onRestore(r)} title={msg('Go back to this version; the current one is kept as a revision')}>
+                      {msg('Restore')}
                     </button>
-                    <button className="btn small flat" onClick={() => onDelete(r)} title="Delete this revision from the device">
-                      Delete
+                    <button className="btn small flat" onClick={() => onDelete(r)} title={msg('Delete this revision from the device')}>
+                      {msg('Delete')}
                     </button>
                   </td>
                 </tr>
@@ -53,12 +54,12 @@ export function RevisionsDialog({ file, onOpen, onRestore, onDelete, onClose }: 
             </tbody>
           </table>
         ) : (
-          <p>No earlier versions are kept yet. Slip Sheet keeps the set as it was before each run.</p>
+          <p>{msg('No earlier versions are kept yet. Slip Sheet keeps the set as it was before each run.')}</p>
         )}
         <div className="actions">
           <span className="spacer" />
           <button className="btn primary" onClick={onClose}>
-            Close
+            {msg('Close')}
           </button>
         </div>
       </div>

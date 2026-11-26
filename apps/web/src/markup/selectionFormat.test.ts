@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TYPE_INFO, type MarkupType } from '@nb/markup';
-import { commonCapabilities, FOLLOW_START, followFormat, isMixed, styleMixed, type FormatFollow } from './selectionFormat.ts';
+import { commonCapabilities, FOLLOW_START, followFormat, isCloudPlusSelection, isMixed, sharedDepth, styleMixed, type FormatFollow } from './selectionFormat.ts';
 
 test('a mixed selection shares only the fields every type has', () => {
   // An area and a count both fill and label with a font; only the area hatches and dashes.
@@ -40,6 +40,15 @@ test('values are mixed only when they differ', () => {
   assert.equal(styleMixed([s(), s('dashed')], 'dash', (d) => d ?? 'solid'), true);
   assert.equal(styleMixed([s(), s()], 'dash'), false);
   assert.equal(styleMixed([s(undefined), s('dashed')], 'width'), false);
+});
+
+test('Cloud+ selection matches clouds paired with callouts only', () => {
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'callout' }]), true);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'callout' }, { type: 'cloud' }, { type: 'callout' }]), true);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }]), false);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'cloud' }]), false);
+  assert.equal(isCloudPlusSelection([{ type: 'callout' }, { type: 'callout' }]), false);
+  assert.equal(isCloudPlusSelection([{ type: 'cloud' }, { type: 'callout' }, { type: 'rect' }]), false);
 });
 
 const select = (s: FormatFollow, key: string, extra: { contextual?: boolean; busy?: boolean } = {}) => followFormat(s, { type: 'selection', key, contextual: true, busy: false, ...extra });
@@ -112,4 +121,15 @@ test('a Format tab the user picked is not taken back when the tool is put down',
   s = followFormat(s, { type: 'pick', format: false });
   s = followFormat(s, { type: 'tool', active: false, contextual: true });
   assert.equal(s.onFormat, false);
+});
+
+test('the Depth field is for selections of volumes only, and reads Mixed where their depths differ', () => {
+  const volume = (depth?: number) => ({ type: 'volume' as const, depth });
+  assert.equal(sharedDepth([]), null);
+  assert.equal(sharedDepth([volume(1), { type: 'area' as const, depth: 1 }]), null);
+  assert.deepEqual(sharedDepth([volume(2), volume(2)]), { meters: 2, mixed: false });
+  assert.deepEqual(sharedDepth([volume(), volume()]), { meters: undefined, mixed: false });
+  assert.deepEqual(sharedDepth([volume(2), volume()]), { meters: undefined, mixed: true });
+  // 3 ft and 36 in come to metres a last float digit apart: still one depth.
+  assert.equal(sharedDepth([volume(3 * 0.3048), volume(36 * 0.0254)])!.mixed, false);
 });

@@ -121,6 +121,8 @@ export interface ViewState {
   panX: number;
   panY: number;
   mode: LayoutMode;
+  /** Clockwise quarter turns of the view (View → Rotate View), which belongs to the document shown. */
+  rotation: number;
 }
 
 /**
@@ -503,8 +505,10 @@ export class TileViewer {
     return best;
   }
 
-  setDocument(doc: PdfDocument) {
+  /** Shows `doc` from its first page, with the view turned `turns` clockwise quarter turns (by default, as it is). */
+  setDocument(doc: PdfDocument, turns = this.turns) {
     this.doc = doc;
+    this.turns = ((turns % 4) + 4) % 4;
     this.stitchLayout = null;
     this.clearTiles();
     this.costs.clear();
@@ -909,14 +913,16 @@ export class TileViewer {
 
   /** Current page and camera, for back/forward navigation. */
   getView(): ViewState {
-    return { pageIndex: this.pageIndex, zoom: this.zoom, panX: this.panX, panY: this.panY, mode: this.mode };
+    return { pageIndex: this.pageIndex, zoom: this.zoom, panX: this.panX, panY: this.panY, mode: this.mode, rotation: this.turns };
   }
 
   setView(view: ViewState) {
+    const turned = view.rotation !== this.turns;
+    this.turns = view.rotation;
     if (view.mode === 'stitch' && this.stitchLayout) {
-      if (this.mode !== 'stitch') this.setStitch(this.stitchLayout);
+      if (this.mode !== 'stitch' || turned) this.setStitch(this.stitchLayout);
       this.pageIndex = view.pageIndex;
-    } else if (view.mode !== 'stitch' && (this.mode !== view.mode || view.pageIndex !== this.pageIndex)) {
+    } else if (view.mode !== 'stitch' && (turned || this.mode !== view.mode || view.pageIndex !== this.pageIndex)) {
       this.pageMode = view.mode === 'continuous' ? 'continuous' : 'single';
       this.showPages(view.pageIndex);
     }

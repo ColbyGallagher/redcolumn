@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useLayoutEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { cssFont, setTableCell, tableCellFormat, tableCellRect, tableCellStyle, tableOf, tableRegion, textColor, type Markup, type MarkupStore } from '@nb/markup';
 import { useSettings } from '../settings/settings';
@@ -90,7 +91,7 @@ export function TableCellEditor({ markup, row, col, typed, store, viewer, onDone
       spellCheck={spellCheck}
       ref={ref}
       className="text-editor"
-      aria-label={`Row ${row + 1}, column ${col + 1}`}
+      aria-label={msg('Row {number}, column {number2}', { number: row + 1, number2: col + 1 })}
       defaultValue={typed ?? table.cells[row]?.[col] ?? ''}
       style={{
         left: x0,

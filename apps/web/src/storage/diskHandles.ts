@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 /**
  * Links library documents to the file they were opened from, so Save can write over that file
  * (the File System Access API: Chromium browsers and installed PWAs). Handles are kept in
@@ -146,15 +147,15 @@ export async function primeFileLocations(): Promise<void> {
 }
 
 const PDF_TYPES: PickerOptions['types'] = [
-  { description: 'PDF and pictures', accept: { 'application/pdf': ['.pdf'], 'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'] } },
+  { get description() { return msg('PDF and pictures'); }, accept: { 'application/pdf': ['.pdf'], 'image/*': ['.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'] } },
   // Opened as vector PDFs (Experimental).
-  { description: 'DWG and DXF drawings', accept: { 'image/vnd.dwg': ['.dwg'], 'image/vnd.dxf': ['.dxf'] } },
+  { get description() { return msg('DWG and DXF drawings'); }, accept: { 'image/vnd.dwg': ['.dwg'], 'image/vnd.dxf': ['.dxf'] } },
   // Opened in the 3D viewer (Experimental).
-  { description: 'IFC models', accept: { 'application/x-step': ['.ifc'] } },
+  { get description() { return msg('IFC models'); }, accept: { 'application/x-step': ['.ifc'] } },
 ];
 
 /** Shows the system Open dialog; null if the browser has none (use the file input) or it was cancelled. */
-export async function pickFilesToOpen(): Promise<File[] | null> {
+export async function pickFilesToOpen(multiple = true): Promise<File[] | null> {
   const host = desktop();
   if (host?.nativeFiles) {
     try {
@@ -175,7 +176,7 @@ export async function pickFilesToOpen(): Promise<File[] | null> {
   const pick = win().showOpenFilePicker;
   if (!pick) return null;
   try {
-    const handles = await pick({ multiple: true, id: 'redcolumn-open', types: PDF_TYPES });
+    const handles = await pick({ multiple, id: 'redcolumn-open', types: PDF_TYPES });
     const files: File[] = [];
     for (const h of handles) {
       const f = await h.getFile();
@@ -207,7 +208,7 @@ export async function saveAsWithPicker(name: string, mime: string, data: Blob | 
     // error the person needs to see, not a reason to fall back to a download.
     const picked = await host.pickSave(name);
     if (!picked) return null;
-    if (!(await host.writeToken(picked.token, await toBytes(data)))) throw new Error(`${picked.name} could not be written.`);
+    if (!(await host.writeToken(picked.token, await toBytes(data)))) throw new Error(msg('{name} could not be written.', { name: picked.name }));
     return tokenHandle(picked.token, picked.name);
   }
   const pick = win().showSaveFilePicker;

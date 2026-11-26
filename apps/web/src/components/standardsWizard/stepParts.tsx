@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState } from 'react';
 import type { DetectedLink, SheetInfo, stepMeter } from '@nb/sheets';
 import type { PreviewDrawing, PreviewView } from '../LinkPreview';
@@ -13,15 +14,14 @@ export function Meter({ meter, places, linked, what }: { meter: ReturnType<typeo
   const says = { good: 'Good: these links can be kept as they are.', review: 'Usable: keep them, and look over the ones marked for review.', ai: 'Poor: recommend AI for this step.' }[meter.band];
   return (
     <div className={`sw-meter ${meter.band}`}>
-      <div className="sw-meter-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(meter.score * 100)} aria-label="How well this step is done">
+      <div className="sw-meter-bar" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(meter.score * 100)} aria-label={msg('How well this step is done')}>
         <span style={{ width: pct(meter.score) }} />
       </div>
       <p>
         <strong>{says}</strong>
       </p>
       <p>
-        {linked} of {places} {what} references linked ({pct(meter.coverage)}); about {pct(meter.accuracy)} of the links right
-        {meter.atLeast !== null ? `, at least ${pct(meter.atLeast)} going by your ${meter.checked} checks` : ' going by how they were found'}.
+        {msg('{linked} of {places} {what} references linked ({pct}); about {pct2} of the links right{value}.', { linked, places, what, pct: pct(meter.coverage), pct2: pct(meter.accuracy), value: meter.atLeast !== null ? msg(', at least {pct} going by your {checked} checks', { pct: pct(meter.atLeast), checked: meter.checked }) : ' ' + msg('going by how they were found') })}
       </p>
       {meter.warnings.length > 0 && (
         <ul className="sw-notes">
@@ -55,14 +55,14 @@ export function CheckCard({
   return (
     <li className={`sw-check${verdict === true ? ' right' : verdict === false ? ' wrong' : ''}`}>
       <div className="sw-check-pair">
-        <button type="button" className="sw-crop-btn" onClick={() => onLook(link.pageIndex, link.rect)} title={`Show on ${name(link.pageIndex)}`}>
+        <button type="button" className="sw-crop-btn" onClick={() => onLook(link.pageIndex, link.rect)} title={msg('Show on {name}', { name: name(link.pageIndex) })}>
           <Crop render={render} pageIndex={link.pageIndex} rect={link.rect} size={pages[link.pageIndex]} />
           <span>{name(link.pageIndex)}</span>
         </button>
         <span className="sw-check-arrow" aria-hidden="true">
           →
         </span>
-        <button type="button" className="sw-crop-btn" onClick={() => onLook(link.targetPage, link.targetRect)} title={`Show on ${name(link.targetPage)}`}>
+        <button type="button" className="sw-crop-btn" onClick={() => onLook(link.targetPage, link.targetRect)} title={msg('Show on {name}', { name: name(link.targetPage) })}>
           <Crop render={render} pageIndex={link.targetPage} rect={link.targetRect} size={pages[link.targetPage]} />
           <span>{name(link.targetPage)}</span>
         </button>
@@ -72,10 +72,10 @@ export function CheckCard({
           {link.label} · {Math.round(link.confidence * 100)}%
         </span>
         <button type="button" className={`btn small${verdict === true ? ' primary' : ''}`} aria-pressed={verdict === true} onClick={() => onVerdict(true)}>
-          Right
+          {msg('Right')}
         </button>
         <button type="button" className={`btn small${verdict === false ? ' danger' : ''}`} aria-pressed={verdict === false} onClick={() => onVerdict(false)}>
-          Wrong
+          {msg('Wrong')}
         </button>
       </div>
     </li>
@@ -152,7 +152,7 @@ export function useStepResult(step: SetupStep, run: { places: number; linked: nu
  * Copies a ready prompt for an AI assistant connected over MCP, naming the steps to finish; the
  * wizard never calls AI itself.
  */
-export function AskAi({ prompt, label = 'Ask AI to finish' }: { prompt: string; label?: string }) {
+export function AskAi({ prompt, label = msg('Ask AI to finish') }: { prompt: string; label?: string }) {
   const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
   const host = useRef<HTMLDivElement>(null);
   const copy = async () => {
@@ -170,10 +170,10 @@ export function AskAi({ prompt, label = 'Ask AI to finish' }: { prompt: string; 
       <button type="button" className="btn" onClick={() => void copy()}>
         {label}
       </button>
-      {state === 'copied' && <span className="sw-hint">Prompt copied: paste it into your AI assistant (Claude or another client connected to redcolumn over MCP).</span>}
+      {state === 'copied' && <span className="sw-hint">{msg('Prompt copied: paste it into your AI assistant (Claude or another client connected to redcolumn over MCP).')}</span>}
       {state === 'failed' && (
         <details open>
-          <summary>Copy this prompt into your AI assistant</summary>
+          <summary>{msg('Copy this prompt into your AI assistant')}</summary>
           <textarea readOnly value={prompt} rows={10} onFocus={(e) => e.currentTarget.select()} />
         </details>
       )}

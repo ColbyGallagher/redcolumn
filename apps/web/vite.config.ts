@@ -7,6 +7,7 @@ import react from '@vitejs/plugin-react';
 import { VitePWA, type ManifestOptions } from 'vite-plugin-pwa';
 import { buildManifest } from './src/offline/manifest.ts';
 import { appCsp, redirectCsp } from './src/security/csp.ts';
+import { compileCatalog, parsePo } from '../../packages/i18n/src/po.ts';
 
 const require = createRequire(import.meta.url);
 
@@ -80,10 +81,10 @@ function chunkFileNames(chunk: { moduleIds?: readonly string[] }) {
   return chunk.moduleIds?.length && chunk.moduleIds.every((id) => MODEL3D_CODE.test(id)) ? 'model3d/[name]-[hash].js' : 'assets/[name]-[hash].js';
 }
 
-/** Spell checking's English dictionaries (Hunspell files from npm), served at spell/en-US.aff, spell/en-GB.dic and so on. */
+/** Spell checking's dictionaries (Hunspell files from npm), served at spell/en-US.aff, spell/fr-FR.dic and so on. */
 function spellAssets(): Plugin {
   const files: Record<string, string> = {};
-  for (const [code, pkg] of [['en-US', 'dictionary-en'], ['en-GB', 'dictionary-en-gb'], ['en-AU', 'dictionary-en-au']]) {
+  for (const [code, pkg] of [['en-US', 'dictionary-en'], ['en-GB', 'dictionary-en-gb'], ['en-AU', 'dictionary-en-au'], ['de-DE', 'dictionary-de'], ['fr-FR', 'dictionary-fr']]) {
     const dir = dirname(require.resolve(pkg!));
     files[`${code}.aff`] = `${dir}/index.aff`;
     files[`${code}.dic`] = `${dir}/index.dic`;
@@ -101,6 +102,20 @@ function spellAssets(): Plugin {
     },
     generateBundle() {
       for (const [name, file] of Object.entries(files)) this.emitFile({ type: 'asset', fileName: `spell/${name}`, source: readFileSync(file) });
+    },
+  };
+}
+
+/**
+ * Translation catalogs (packages/i18n/catalogs/*.po) imported as modules: each compiles to its
+ * translations only, and is loaded on demand when its language is chosen (src/i18n/start.ts).
+ */
+function poCatalogs(): Plugin {
+  return {
+    name: 'po-catalogs',
+    transform(code, id) {
+      if (!id.split('?')[0]!.endsWith('.po')) return null;
+      return { code: `export default ${JSON.stringify(compileCatalog(parsePo(code)))};`, map: null };
     },
   };
 }
@@ -165,6 +180,7 @@ export default defineConfig({
     ocrAssets(),
     spellAssets(),
     model3dAssets(),
+    poCatalogs(),
     landingPage(),
     securityMeta(),
     VitePWA({
@@ -223,6 +239,8 @@ export default defineConfig({
   // pre-bundling in development would move.
   optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
   build: {
+    // dist/.vite/manifest.json: the chunk graph scripts/check-bundle.mjs reads.
+    manifest: true,
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('index.html', import.meta.url)),

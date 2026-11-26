@@ -23,6 +23,15 @@ In the desktop app, an AI client on your computer (Copilot, Claude, Codex or Cur
 - Most tools take a **document** (name or id). Leave it out and the drawing on screen is used.
 - **Mistakes are safe.** When a client sends many items at once, redcolumn checks all of them first. One bad item means nothing is changed.
 
+## Compact mode
+
+redcolumn exposes 50 tools by default. To keep your AI client's context smaller, tick **Compact tool list (fewer tokens)** in {{File > Preferences…}} › **MCP** (or pass `--compact` to the MCP command).
+
+In compact mode, `tools/list` returns 10 everyday tools (`list_open_documents`, `get_page`, `get_page_image`, `get_page_text`, `list_markups`, `place_markups`, `update_markups`, `set_markups`, `list_commands`, `run_command`) plus two discovery tools:
+
+- `tool_search` — lists all tools compactly (`name`, `title`, `annotations`) when called without `query`, or searches by keyword across tool names, titles, and descriptions to return full descriptions and input schemas.
+- `tool_call` — runs any redcolumn tool by `name` with its `arguments` object (clients can also call any tool directly by name).
+
 ## All the tools
 
 | Tool | What it does | Page |

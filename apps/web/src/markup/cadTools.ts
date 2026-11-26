@@ -39,31 +39,16 @@ import {
   type Rect,
   relinkCopies,
 } from '@nb/markup';
+import { msg, parseNumber } from '@nb/i18n';
 import { settings } from '../settings/settings';
 import { parseRotationInput } from './rotationInput';
 
 export type CadTool = 'move' | 'copy' | 'scale' | 'trim' | 'extend' | 'break' | 'lengthen' | 'fillet' | 'chamfer' | 'mirror' | 'arrayPolar' | 'arrayPath' | 'divide' | 'rotateRef' | 'align' | 'stretch';
 
-export const CAD_TOOL_LABELS: Record<CadTool, string> = {
-  move: 'Move',
-  copy: 'Copy by Base Point',
-  scale: 'Scale',
-  trim: 'Trim',
-  extend: 'Extend',
-  break: 'Break',
-  lengthen: 'Lengthen',
-  fillet: 'Fillet',
-  chamfer: 'Chamfer',
-  mirror: 'Mirror',
-  arrayPolar: 'Polar Array',
-  arrayPath: 'Path Array',
-  divide: 'Divide / Measure',
-  rotateRef: 'Rotate',
-  align: 'Align to Points',
-  stretch: 'Stretch',
-};
+/** The CAD Modify tools (their names: `cadToolName`). */
+export const CAD_TOOLS = Object.keys({ move: true, copy: true, scale: true, trim: true, extend: true, break: true, lengthen: true, fillet: true, chamfer: true, mirror: true, arrayPolar: true, arrayPath: true, divide: true, rotateRef: true, align: true, stretch: true } satisfies Record<CadTool, true>) as CadTool[];
 
-export const isCadTool = (t: string): t is CadTool => t in CAD_TOOL_LABELS;
+export const isCadTool = (t: string): t is CadTool => (CAD_TOOLS as readonly string[]).includes(t);
 
 /** Tools that work on the selection (picked by the first click when there is none). */
 const ON_SELECTION: ReadonlySet<CadTool> = new Set<CadTool>(['move', 'copy', 'scale', 'mirror', 'arrayPolar', 'arrayPath', 'rotateRef', 'align']);
@@ -197,19 +182,24 @@ function signedLength(ctx: CadContext, text: string, m: Markup): number | null {
 
 /** A fillet radius or chamfer distance: empty is zero (a sharp corner). */
 function cornerSize(ctx: CadContext, text: string, m: Markup): number | null {
-  return text.trim() === '' || Number(text) === 0 ? 0 : ctx.length(text, m);
+  return text.trim() === '' || parseNumber(text) === 0 ? 0 : ctx.length(text, m);
+}
+
+/** A plain number typed in the chosen number format (`0,5` in German); empty is 0, anything else NaN. */
+function typedNumber(text: string): number {
+  return parseNumber(text) ?? (text.trim() ? Number.NaN : 0);
 }
 
 /** Both arms of a Fillet or Chamfer between two different markups, or why not. */
 function cornerBetween(ctx: CadContext, tool: 'fillet' | 'chamfer', m1: Markup, at1: Point, m2: Markup, at2: Point, size: number): CadResult {
   const closed = (m: Markup) => !['line', 'arrow', 'polyline', 'length', 'polylength'].includes(m.type);
-  if (closed(m1) || closed(m2)) return { error: 'Pick two segments of the same outline, or two open lines' };
+  if (closed(m1) || closed(m2)) return { error: msg('Pick two segments of the same outline, or two open lines') };
   const s1 = nearestOnPath(m1.points, at1).segment;
   const s2 = nearestOnPath(m2.points, at2).segment;
   const p = { a: m1.points[s1]!, b: m1.points[s1 + 1]!, click: at1 };
   const q = { a: m2.points[s2]!, b: m2.points[s2 + 1]!, click: at2 };
   const cut = cornerCut(p, q, size, tool === 'chamfer');
-  if (!cut) return { error: size ? 'The lines are parallel, or too short for that size' : 'The lines are parallel' };
+  if (!cut) return { error: size ? msg('The lines are parallel, or too short for that size') : msg('The lines are parallel') };
   const out = none();
   // Each markup's end on the corner side moves; it must be the end of the path.
   const moved = (m: Markup, s: number, keep: Point, to: Point): Point[] | null => {
@@ -222,7 +212,7 @@ function cornerBetween(ctx: CadContext, tool: 'fillet' | 'chamfer', m1: Markup, 
   };
   const a = moved(m1, s1, cut.keepP, cut.endP);
   const b = moved(m2, s2, cut.keepQ, cut.endQ);
-  if (!a || !b) return { error: 'Pick the end segments of the lines' };
+  if (!a || !b) return { error: msg('Pick the end segments of the lines') };
   out.update.push([m1.id, { points: a }], [m2.id, { points: b }]);
   const select = [m1.id, m2.id];
   if (size > 0) {
@@ -235,13 +225,13 @@ function cornerBetween(ctx: CadContext, tool: 'fillet' | 'chamfer', m1: Markup, 
 
 function cornerClick(ctx: CadContext, tool: 'fillet' | 'chamfer', picks: CadPick[], p: Point): CadResult {
   const hit = ctx.hit(p);
-  if (!hit || ctx.frozen(hit) || !canCorner(hit)) return { error: 'Click a line, polyline or polygon segment' };
+  if (!hit || ctx.frozen(hit) || !canCorner(hit)) return { error: msg('Click a line, polyline or polygon segment') };
   if (!picks.length) return { picks: [{ at: p, id: hit.id }] };
   const first = ctx.page.find((m) => m.id === picks[0]!.id);
   if (!first) return { picks: [] };
   const s = settings.get();
   const size = cornerSize(ctx, tool === 'fillet' ? s.filletRadius : s.chamferDistance, first);
-  if (size === null) return { error: `The ${tool === 'fillet' ? 'radius' : 'distance'} is not a length` };
+  if (size === null) return { error: tool === 'fillet' ? msg('The radius is not a length') : msg('The distance is not a length') };
   if (hit.id !== first.id) return cornerBetween(ctx, tool, first, picks[0]!.at, hit, p, size);
   // Two segments of one path: the corner between them.
   const closed = !['line', 'arrow', 'polyline', 'length', 'polylength'].includes(hit.type);
@@ -253,10 +243,10 @@ function cornerClick(ctx: CadContext, tool: 'fillet' | 'chamfer', picks: CadPick
   else if (closed ? (s2 + 1) % n === s1 : s2 + 1 === s1) vertex = s1;
   // The first and last segments of a path that ends where it starts meet at its closing corner.
   const closing = vertex < 0 && closesOnItself(hit) && Math.min(s1, s2) === 0 && Math.max(s1, s2) === n - 2;
-  if (vertex < 0 && !closing) return { error: 'Pick two segments that meet' };
-  if (!size) return { error: `Set a ${tool === 'fillet' ? 'radius' : 'distance'} to round a corner of one path` };
+  if (vertex < 0 && !closing) return { error: msg('Pick two segments that meet') };
+  if (!size) return { error: tool === 'fillet' ? msg('Set a radius to round a corner of one path') : msg('Set a distance to round a corner of one path') };
   const r = closing ? cornerClosing(hit, size, tool === 'chamfer') : cornerVertex(hit, vertex, size, tool === 'chamfer');
-  if (!r) return { error: 'Too big for that corner' };
+  if (!r) return { error: msg('Too big for that corner') };
   return { done: { update: [[hit.id, { points: r.points, ...(r.bulges ? { bulges: r.bulges } : {}) }]], add: [], remove: [] }, select: [hit.id], again: true };
 }
 
@@ -316,7 +306,7 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
   const s = settings.get();
   if (ON_SELECTION.has(tool) && !ctx.selected.length) {
     const hit = ctx.hit(p);
-    return hit && !ctx.frozen(hit) ? { select: ctx.group(hit) } : { error: 'Click a markup, or select some first' };
+    return hit && !ctx.frozen(hit) ? { select: ctx.group(hit) } : { error: msg('Click a markup, or select some first') };
   }
   switch (tool) {
     case 'move':
@@ -328,12 +318,12 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
       if (typed) {
         // A typed distance goes the way the pointer points (AutoCAD's direct distance entry).
         const distance = ctx.length(typed, ctx.selected[0] ?? null, [dx, dy]);
-        if (distance === null) return { error: 'The distance is not a length' };
+        if (distance === null) return { error: msg('The distance is not a length') };
         const len = Math.hypot(dx, dy);
-        if (len < 1e-6) return { error: 'Point the way to go first' };
+        if (len < 1e-6) return { error: msg('Point the way to go first') };
         [dx, dy] = [(dx / len) * distance, (dy / len) * distance];
       }
-      if (Math.hypot(dx, dy) < 1e-9) return { error: 'Pick a point away from the base' };
+      if (Math.hypot(dx, dy) < 1e-9) return { error: msg('Pick a point away from the base') };
       const t = translation(dx, dy);
       if (tool === 'move') return transformSelection(ctx, [t], false);
       // Copy stays on from the same base, each click placing another; the originals stay selected.
@@ -343,8 +333,8 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
     case 'scale': {
       const typed = s.scaleFactor.trim();
       if (typed) {
-        const k = Number(typed);
-        if (!(k > 0) || !Number.isFinite(k)) return { error: 'The factor must be a number above 0' };
+        const k = typedNumber(typed);
+        if (!(k > 0) || !Number.isFinite(k)) return { error: msg('The factor must be a number above 0') };
         return transformSelection(ctx, [scalingAbout(p, k)], false);
       }
       // By reference: the base, a point at the current size, and where that point goes.
@@ -353,29 +343,29 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
       const [base, ref, to] = picked.map((x) => x.at) as [Point, Point, Point];
       const from = Math.hypot(...sub(ref, base));
       const onto = Math.hypot(...sub(to, base));
-      if (from < 1e-6 || onto < 1e-6) return { error: 'Pick points away from the base' };
+      if (from < 1e-6 || onto < 1e-6) return { error: msg('Pick points away from the base') };
       return transformSelection(ctx, [scalingAbout(base, onto / from)], false);
     }
     case 'trim':
     case 'extend': {
       const hit = ctx.hit(p);
-      if (!hit || ctx.frozen(hit) || !canCut(hit)) return { error: 'Click a line or polyline' };
+      if (!hit || ctx.frozen(hit) || !canCut(hit)) return { error: msg('Click a line or polyline') };
       const trim = (tool === 'trim') !== ctx.shift;
       const out = none();
       if (trim) {
         const pieces = trimPath(hit.points, edges(ctx, hit), p);
-        if (!pieces) return { error: 'Nothing crosses it there' };
+        if (!pieces) return { error: msg('Nothing crosses it there') };
         return { done: out, select: splitInto(ctx, hit, pieces, out), again: true };
       }
       const pts = extendPath(hit.points, edges(ctx, hit), p);
-      if (!pts) return { error: 'Nothing lies ahead of that end' };
+      if (!pts) return { error: msg('Nothing lies ahead of that end') };
       out.update.push([hit.id, { points: pts }]);
       return { done: out, select: [hit.id], again: true };
     }
     case 'break': {
       if (!picks.length) {
         const hit = ctx.hit(p);
-        if (!hit || ctx.frozen(hit) || !canCut(hit)) return { error: 'Click a line or polyline' };
+        if (!hit || ctx.frozen(hit) || !canCut(hit)) return { error: msg('Click a line or polyline') };
         return { picks: [{ at: nearestOnPath(hit.points, p).point, id: hit.id }] };
       }
       const m = ctx.page.find((x) => x.id === picks[0]!.id);
@@ -385,13 +375,13 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
     }
     case 'lengthen': {
       const hit = ctx.hit(p);
-      if (!hit || ctx.frozen(hit) || !canCut(hit)) return { error: 'Click near the end of a line or polyline' };
-      const value = s.lengthenMode === 'percent' ? Number(s.lengthenValue) : s.lengthenMode === 'delta' ? signedLength(ctx, s.lengthenValue, hit) : ctx.length(s.lengthenValue, hit);
-      if (value === null || !Number.isFinite(value) || s.lengthenValue.trim() === '') return { error: 'Type the length first' };
+      if (!hit || ctx.frozen(hit) || !canCut(hit)) return { error: msg('Click near the end of a line or polyline') };
+      const value = s.lengthenMode === 'percent' ? typedNumber(s.lengthenValue) : s.lengthenMode === 'delta' ? signedLength(ctx, s.lengthenValue, hit) : ctx.length(s.lengthenValue, hit);
+      if (value === null || !Number.isFinite(value) || s.lengthenValue.trim() === '') return { error: msg('Type the length first') };
       // Worked out with the page stretched by a separate Y scale, so the typed length is a real one.
       const [to, back] = stretching(ctx, hit);
       const pts = lengthenPath(hit.points.map(to), to(p), s.lengthenMode, value);
-      if (!pts) return { error: 'That would leave nothing' };
+      if (!pts) return { error: msg('That would leave nothing') };
       return { done: { update: [[hit.id, { points: pts.map(back) }]], add: [], remove: [] }, select: [hit.id], again: true };
     }
     case 'fillet':
@@ -400,7 +390,7 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
     case 'mirror': {
       if (!picks.length) return { picks: [{ at: p }] };
       const a = picks[0]!.at;
-      if (Math.hypot(...sub(p, a)) < 1e-6) return { error: 'Pick a second point on the mirror line' };
+      if (Math.hypot(...sub(p, a)) < 1e-6) return { error: msg('Pick a second point on the mirror line') };
       return transformSelection(ctx, [mirrorAcross(a, p)], s.mirrorKeep, true, s.mirrorPictures);
     }
     case 'rotateRef': {
@@ -415,7 +405,7 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
       const picked = [...picks, { at: p }];
       if (picked.length < 3) return { picks: picked };
       const t = rotationByReference(picked.map((x) => x.at) as [Point, Point, Point]);
-      if (!t) return { error: 'Pick points away from the base' };
+      if (!t) return { error: msg('Pick points away from the base') };
       return transformSelection(ctx, [t], false);
     }
     case 'align': {
@@ -423,21 +413,21 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
       if (picked.length < 4) return { picks: picked };
       const [s1, d1, s2, d2] = picked.map((x) => x.at) as [Point, Point, Point, Point];
       const t = alignment(s1, d1, s2, d2, s.alignScale);
-      if (!t) return { error: 'The two points of each pair must be apart' };
+      if (!t) return { error: msg('The two points of each pair must be apart') };
       return transformSelection(ctx, [t], false);
     }
     case 'arrayPolar': {
       const ref = selectionCentre(ctx.selected);
       const ts = polarArray(p, s.arrayCount, s.arrayAngle, s.arrayRotate, ref);
-      if (!ts.length) return { error: 'Set more than one item' };
+      if (!ts.length) return { error: msg('Set more than one item') };
       return transformSelection(ctx, ts, true);
     }
     case 'arrayPath': {
       const hit = ctx.hit(p);
       const path = hit && !ctx.selected.some((m) => m.id === hit.id) ? pathOf(hit) : null;
-      if (!hit || !path) return { error: 'Click the line or outline to array along' };
+      if (!hit || !path) return { error: msg('Click the line or outline to array along') };
       const ts = pathArray(path.points, path.closed, s.arrayCount, s.arrayAlign, selectionCentre(ctx.selected));
-      if (!ts.length) return { error: 'That path has no length' };
+      if (!ts.length) return { error: msg('That path has no length') };
       // The originals take the first place along the path; copies fill the rest.
       const moved = transformSelection(ctx, ts.slice(0, 1), false);
       const copies = transformSelection(ctx, ts.slice(1), true, false);
@@ -446,23 +436,23 @@ export function cadClick(tool: CadTool, picks: CadPick[], p: Point, ctx: CadCont
     case 'divide': {
       const hit = ctx.hit(p);
       const path = hit ? pathOf(hit) : null;
-      if (!hit || !path) return { error: 'Click a line or outline to divide' };
+      if (!hit || !path) return { error: msg('Click a line or outline to divide') };
       let by: { count: number } | { spacing: number };
       if (s.divideMode === 'spacing') {
         const spacing = ctx.length(s.divideSpacing, hit);
-        if (spacing === null) return { error: 'Type the spacing first' };
+        if (spacing === null) return { error: msg('Type the spacing first') };
         by = { spacing };
       } else by = { count: s.divideCount };
       const [to, back] = stretching(ctx, hit);
       const marks = divisionPoints(path.points.map(to), path.closed, by);
-      if (!marks.length) return { error: 'No marks fit along it' };
+      if (!marks.length) return { error: msg('No marks fit along it') };
       const count = ctx.create('count', marks.map((x) => back(x.point)));
       return { done: { update: [], add: [count], remove: [] }, select: [count.id], again: true };
     }
     case 'stretch': {
       const picked = [...picks, { at: p }];
       if (picked.length < 4) {
-        if (picked.length === 2 && !stretchTargets(ctx, windowOf(picked[0]!.at, p)).length) return { error: 'No points inside that window' };
+        if (picked.length === 2 && !stretchTargets(ctx, windowOf(picked[0]!.at, p)).length) return { error: msg('No points inside that window') };
         return { picks: picked };
       }
       const win = windowOf(picked[0]!.at, picked[1]!.at);
@@ -518,39 +508,39 @@ export function cadPickTarget(tool: CadTool, picks: CadPick[], p: Point, ctx: Ca
 /** What the next click with the tool does, for the tool bar. */
 export function cadPrompt(tool: CadTool, picks: CadPick[], ctx: Pick<CadContext, 'selected' | 'shift'>): string {
   const s = settings.get();
-  if (ON_SELECTION.has(tool) && !ctx.selected.length) return 'Click a markup to work on, or select some first';
+  if (ON_SELECTION.has(tool) && !ctx.selected.length) return msg('Click a markup to work on, or select some first');
   const n = picks.length;
   switch (tool) {
     case 'move':
     case 'copy':
-      return n ? (s.moveDistance.trim() ? `Point the way and click to ${tool} ${s.moveDistance.trim()}` : `Click where to ${tool} it to`) : 'Click the base point';
+      return n ? (s.moveDistance.trim() ? (tool === 'move' ? msg('Point the way and click to move {distance}', { distance: s.moveDistance.trim() }) : msg('Point the way and click to copy {distance}', { distance: s.moveDistance.trim() })) : tool === 'move' ? msg('Click where to move it to') : msg('Click where to copy it to')) : msg('Click the base point');
     case 'scale':
-      return !n ? (s.scaleFactor.trim() ? `Click the base point to scale ×${s.scaleFactor.trim()}` : 'Click the base point') : n === 1 ? 'Click a point at the current size' : 'Click where that point goes';
+      return !n ? (s.scaleFactor.trim() ? msg('Click the base point to scale ×{factor}', { factor: s.scaleFactor.trim() }) : msg('Click the base point')) : n === 1 ? msg('Click a point at the current size') : msg('Click where that point goes');
     case 'trim':
-      return 'Click the part of a line to cut away · Shift: extend instead';
+      return msg('Click the part of a line to cut away · Shift: extend instead');
     case 'extend':
-      return 'Click near the end of a line to extend · Shift: trim instead';
+      return msg('Click near the end of a line to extend · Shift: trim instead');
     case 'break':
-      return n ? 'Click the second break point (the same point splits it)' : 'Click a line at the first break point';
+      return n ? msg('Click the second break point (the same point splits it)') : msg('Click a line at the first break point');
     case 'lengthen':
-      return 'Click near the end to change';
+      return msg('Click near the end to change');
     case 'fillet':
     case 'chamfer':
-      return n ? 'Click the second line or segment' : 'Click the first line or segment';
+      return n ? msg('Click the second line or segment') : msg('Click the first line or segment');
     case 'mirror':
-      return n ? 'Click the second point of the mirror line' : 'Click the first point of the mirror line';
+      return n ? msg('Click the second point of the mirror line') : msg('Click the first point of the mirror line');
     case 'rotateRef':
-      return !n ? (s.rotateAngle.trim() ? `Click the base point to turn ${s.rotateAngle.trim()}${/[%:]/.test(s.rotateAngle) ? '' : '°'}` : 'Click the base point') : n === 1 ? 'Click the reference direction' : 'Click the new direction';
+      return !n ? (s.rotateAngle.trim() ? msg('Click the base point to turn {angle}', { angle: s.rotateAngle.trim() + (/[%:]/.test(s.rotateAngle) ? '' : '°') }) : msg('Click the base point')) : n === 1 ? msg('Click the reference direction') : msg('Click the new direction');
     case 'align':
-      return ['Click the first source point', 'Click where it goes', 'Click the second source point', 'Click where that goes'][n]!;
+      return [msg('Click the first source point'), msg('Click where it goes'), msg('Click the second source point'), msg('Click where that goes')][n]!;
     case 'arrayPolar':
-      return 'Click the centre of the array';
+      return msg('Click the centre of the array');
     case 'arrayPath':
-      return 'Click the path to array along';
+      return msg('Click the path to array along');
     case 'divide':
-      return 'Click a line or outline to mark along';
+      return msg('Click a line or outline to mark along');
     case 'stretch':
-      return ['Click a corner of the crossing window', 'Click the opposite corner', 'Click the base point', 'Click the second point'][n]!;
+      return [msg('Click a corner of the crossing window'), msg('Click the opposite corner'), msg('Click the base point'), msg('Click the second point')][n]!;
   }
 }
 

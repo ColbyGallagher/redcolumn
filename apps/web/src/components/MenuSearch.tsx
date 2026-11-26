@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
@@ -16,7 +17,8 @@ const TOOL_ICONS = new Map<string, ReactNode>([...MARKUP_TOOLS, ...MEASURE_TOOLS
 /** How well a preference matches: every word in its label, tab or category; label matches rank first. */
 function settingScore(s: PrefEntry, words: string[]): number {
   const label = s.label.toLowerCase();
-  const hay = `${label} ${s.tabLabel.toLowerCase()} ${s.categoryLabel.toLowerCase()} preferences settings`;
+  // The label first (ranking reads its position), then the tab and category, and the words people search with.
+  const hay = `${label} ${s.tabLabel.toLowerCase()} ${s.categoryLabel.toLowerCase()} preferences settings ${msg('preferences settings').toLowerCase()}`;
   let total = 0;
   for (const w of words) {
     const at = hay.indexOf(w);
@@ -163,8 +165,8 @@ export function MenuSearch({ commands, onOpenSetting, onDone }: Props) {
         ref={input}
         type="search"
         value={query}
-        placeholder="Search tools and settings"
-        aria-label="Search tools, commands and settings"
+        placeholder={msg('Search tools and settings')}
+        aria-label={msg('Search tools, commands and settings')}
         role="combobox"
         aria-expanded={shown}
         aria-controls="menu-search-list"
@@ -193,13 +195,13 @@ export function MenuSearch({ commands, onOpenSetting, onDone }: Props) {
         }}
       />
       {shown && (
-        <ul id="menu-search-list" className="menu-search-drop" ref={list} role="listbox" aria-label="Results">
+        <ul id="menu-search-list" className="menu-search-drop" ref={list} role="listbox" aria-label={msg('Results')}>
           {results.map((r, i) => (
             <FragmentWithHead key={i} head={i === 0 && r.kind === 'command' ? 'Tools & Commands' : i === firstSetting ? 'Settings' : null}>
               {row(r, i)}
             </FragmentWithHead>
           ))}
-          {!results.length && <li className="empty">{prefIndex ? 'Nothing matches' : 'Searching…'}</li>}
+          {!results.length && <li className="empty">{prefIndex ? msg('Nothing matches') : msg('Searching…')}</li>}
         </ul>
       )}
       {wantIndex && !prefIndex && <PreferencesDialog author="" onAuthor={noop} onClose={noop} onIndex={onIndex} />}
