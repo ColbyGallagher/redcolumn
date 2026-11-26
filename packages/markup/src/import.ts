@@ -1,7 +1,7 @@
 import { sanitizeAiOrigin } from './aiReview';
 import { isLinkKind, type DetectedLink, type LinkKind } from '@nb/sheets';
 import { bulgeThrough, type Scale } from '@nb/measure';
-import { DEFAULT_STYLES, labelPatch, isTextType, MARKUP_TYPES, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
+import { DEFAULT_STYLES, flagTip, labelPatch, isTextType, MARKUP_TYPES, type Markup, type MarkupStyle, type MarkupType, type Point, type Reply } from './model';
 import { COUNT_STYLE_FROM_PDF } from './countSymbol';
 import {
   arr,
@@ -721,6 +721,35 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       [Math.max(p[0], q[0]), Math.max(p[1], q[1])],
     ];
   };
+  // Bluebeam's turned box: /Rotation is clockwise degrees, /Rect the turned box's bounds, and the
+  // appearance's /BBox the box before turning (about the same centre). Both lie in user space, so
+  // the box turns with the sheet too. Text reads along user x turned by the annotation's own
+  // /Rotate (Revu sets it to the sheet's turn to keep a text box upright there, and leaves it 0 when
+  // the text turned with the sheet); in user space that text box has width and height swapped.
+  // `text`: the turn counts even without /Rotation, since which way the words run matters.
+  const turnedBox = (insets: number[], text = false): { points: Point[]; rotation: number } | null => {
+    if (rect.length !== 4) return null;
+    const turn = num(r.Rotation) ?? 0;
+    const turned = turn % 360 !== 0;
+    if (!turned && !text) return null;
+    const ab = turned ? nums(r.APBBox) : rect;
+    if (ab.length !== 4) return null;
+    const ins = insets.length === 4 ? insets : [width / 2, width / 2, width / 2, width / 2];
+    const bw = Math.abs(ab[2]! - ab[0]!) - ins[0]! - ins[2]!;
+    const bh = Math.abs(ab[3]! - ab[1]!) - ins[1]! - ins[3]!;
+    if (!(bw > 0 && bh > 0)) return null;
+    const own = text ? (((num(r.Rotate) ?? 0) % 360) + 360) % 360 : 0;
+    // How far the sheet turns user space on the page: user x as a page-space vector.
+    const o = toPage(0, 0);
+    const ux = toPage(1, 0);
+    const pageTurn = (Math.atan2(ux[1] - o[1], ux[0] - o[0]) * 180) / Math.PI;
+    const rotation = (Math.round(((((turn + pageTurn - own) % 360) + 360) % 360) * 1e6) / 1e6) % 360;
+    // Upright and unturned: the plain box already says it all.
+    if (!turned && rotation === 0) return null;
+    const [w, h] = own % 180 ? [bh, bw] : [bw, bh];
+    const c = toPage((rect[0]! + rect[2]!) / 2, (rect[1]! + rect[3]!) / 2);
+    return { points: [[c[0] - w / 2, c[1] - h / 2], [c[0] + w / 2, c[1] + h / 2]], rotation };
+  };
   const labelStyle: Partial<MarkupStyle> = {
     ...(textStyle.fontSize ? { fontSize: textStyle.fontSize } : {}),
     ...(textStyle.fontFamily ? { fontFamily: textStyle.fontFamily } : {}),
@@ -809,10 +838,25 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
           return [{ type: 'callout', points: [cl[0]!, knee, box[0]!, box[1]!], filled: true, style: { ...style, ...leader, startCap: ending, endCap: 'none' } }];
         }
       }
-      if (intent === 'FreeTextTypeWriter') return [{ type: 'typewriter', points: box, filled: false, style: { ...style, width: 0, fill: null } }];
+      if (intent === 'FreeTextTypeWriter') {
+        const turned = turnedBox(rd, true);
+        return [{ type: 'typewriter', points: turned?.points ?? box, filled: false, style: { ...style, width: 0, fill: null }, ...(turned?.rotation ? { extra: { rotation: turned.rotation } } : {}) }];
+      }
       if (r.Flag !== undefined || str(r.Subj) === 'Flag') {
         // Bluebeam's flag: its point fills /RD's wide left inset; the box keeps the other margins.
-        const margin = rd.length === 4 ? rd[1]! : 0;
+        // The smallest inset is the margin (Revu's upright flag on a turned sheet has the wide one on top).
+        const margin = rd.length === 4 ? Math.min(...rd) : 0;
+        const turned = turnedBox([margin, margin, margin, margin], true);
+        if (turned) {
+          // Ours turns about its text, right of the point: start the box where that lands it on Revu's.
+          const [p, q] = turned.points as [Point, Point];
+          const half = flagTip({ x: p[0], y: p[1], w: q[0] - p[0], h: q[1] - p[1] }) / 2;
+          const a = (turned.rotation * Math.PI) / 180;
+          const dx = half * Math.cos(a) - half;
+          const dy = half * Math.sin(a);
+          const points: Point[] = [[p[0] + dx, p[1] + dy], [q[0] + dx, q[1] + dy]];
+          return [{ type: 'flagLabel', points, filled: true, style, extra: { rotation: turned.rotation } }];
+        }
         const full = rect.length === 4 ? [toPage(rect[0]! + margin, rect[1]! + margin), toPage(rect[2]! - margin, rect[3]! - margin)] : box;
         const flag: Point[] = [
           [Math.min(full[0]![0], full[1]![0]), Math.min(full[0]![1], full[1]![1])],
@@ -820,31 +864,8 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
         ];
         return [{ type: 'flagLabel', points: flag, filled: true, style }];
       }
-      // Bluebeam's turned text box: /Rotation is clockwise degrees, /Rect the turned box's bounds, and
-      // the appearance's /BBox the box before turning (about the same centre).
-      const turn = num(r.Rotation);
-      const ab = nums(r.APBBox);
-      if (turn && turn % 360 !== 0 && ab.length === 4 && rect.length === 4) {
-        const ins = rd.length === 4 ? rd : [width / 2, width / 2, width / 2, width / 2];
-        const w = Math.abs(ab[2]! - ab[0]!) - ins[0]! - ins[2]!;
-        const h = Math.abs(ab[3]! - ab[1]!) - ins[1]! - ins[3]!;
-        if (w > 0 && h > 0) {
-          const c = toPage((rect[0]! + rect[2]!) / 2, (rect[1]! + rect[3]!) / 2);
-          // A turned page turns the box with it: user x and y as page-space vectors say by how much.
-          const o = toPage(0, 0);
-          const ux = toPage(1, 0);
-          const uy = toPage(0, 1);
-          const pageTurn = (Math.atan2(ux[1] - o[1], ux[0] - o[0]) * 180) / Math.PI;
-          const half: Point = [(w * Math.abs(ux[0] - o[0]) + h * Math.abs(uy[0] - o[0])) / 2, (w * Math.abs(ux[1] - o[1]) + h * Math.abs(uy[1] - o[1])) / 2];
-          return [{
-            type: 'text',
-            points: [[c[0] - half[0], c[1] - half[1]], [c[0] + half[0], c[1] + half[1]]],
-            filled: !!color,
-            style,
-            extra: { rotation: (((turn + pageTurn) % 360) + 360) % 360 },
-          }];
-        }
-      }
+      const turned = turnedBox(rd, true);
+      if (turned) return [{ type: 'text', points: turned.points, filled: !!color, style, ...(turned.rotation ? { extra: { rotation: turned.rotation } } : {}) }];
       return [{ type: 'text', points: box, filled: !!color, style }];
     }
     case 'Ink': {
@@ -882,9 +903,14 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       const image = embedded ?? shot;
       if (intent === 'SquareImage' || embedded) {
         // The embedded photo sits inside the border. A snapshot of the appearance already includes it.
-        const points: Point[] = embedded ? innerBox() : [[a.rect.x, a.rect.y], [a.rect.x + a.rect.w, a.rect.y + a.rect.h]];
-        return [{ type: 'image', points, filled: false, style: { ...base, fill: null, ...(embedded ? {} : { width: 0 }) }, ...(image ? { extra: { image } } : {}) }];
+        // A snapshot pictures the turned appearance in its bounds, so only the embedded photo turns.
+        const turned = embedded ? turnedBox(rd) : null;
+        const points: Point[] = turned ? turned.points : embedded ? innerBox() : [[a.rect.x, a.rect.y], [a.rect.x + a.rect.w, a.rect.y + a.rect.h]];
+        const extra = { ...(image ? { image } : {}), ...(turned?.rotation ? { rotation: turned.rotation } : {}) };
+        return [{ type: 'image', points, filled: false, style: { ...base, fill: null, ...(embedded ? {} : { width: 0 }) }, ...(Object.keys(extra).length ? { extra } : {}) }];
       }
+      const turned = turnedBox(rd);
+      if (turned) return [{ type: 'rect', points: turned.points, filled: true, style: { ...base, ...fill }, ...(turned.rotation ? { extra: { rotation: turned.rotation } } : {}) }];
       return [{ type: 'rect', points: innerBox(), filled: true, style: { ...base, ...fill } }];
     }
     case 'Circle': {
@@ -913,6 +939,8 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
         const radius = (q[0] - p[0] + q[1] - p[1]) / 4;
         return [{ type: 'diameter', points: [[cx - radius, cy], [cx + radius, cy]], filled: false, measure: true, style: { ...base, ...fill, ...labelStyle } }];
       }
+      const turned = turnedBox(rd);
+      if (turned) return [{ type: 'ellipse', points: turned.points, filled: true, style: { ...base, ...fill }, ...(turned.rotation ? { extra: { rotation: turned.rotation } } : {}) }];
       return [{ type: 'ellipse', points: [p, q], filled: true, style: { ...base, ...fill } }];
     }
     case 'Polygon': {
