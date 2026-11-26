@@ -239,6 +239,8 @@ export default defineConfig({
   // pre-bundling in development would move.
   optimizeDeps: { exclude: ['@sqlite.org/sqlite-wasm'] },
   build: {
+    // dist/.vite/manifest.json: the chunk graph scripts/check-bundle.mjs reads.
+    manifest: true,
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('index.html', import.meta.url)),

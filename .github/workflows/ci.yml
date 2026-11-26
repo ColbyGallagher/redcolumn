@@ -82,6 +82,11 @@ jobs:
       - name: Build
         run: pnpm build
 
+      # The 3D viewer must stay out of the main entry's static imports, and the start-up bundle must
+      # not grow more than 5% over scripts/bundle-baseline.json (docs/model3d-plan.md).
+      - name: Bundle guard
+        run: pnpm check:bundle
+
       # High and critical advisories in what ships fail the run. Exceptions, each with its reason,
       # are in pnpm-workspace.yaml (auditConfig.ignoreGhsas).
       - name: Audit production dependencies

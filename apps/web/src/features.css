@@ -6527,6 +6527,13 @@ tr.hidden-markup td {
   white-space: nowrap;
 }
 
+.asm-round-each {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.9em;
+}
+
 .asm-menu-head {
   padding: 6px 10px 2px;
   border-top: 1px solid var(--border);

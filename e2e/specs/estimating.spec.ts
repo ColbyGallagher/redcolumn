@@ -88,7 +88,8 @@ test.describe('estimating', () => {
     await page.keyboard.press('Escape');
     await page.evaluate((id) => window.__nb.tools.select([id]), area!.id);
     await app.panel('Measurements');
-    await page.getByLabel('Assembly', { exact: true }).selectOption({ label: 'Lined wall' });
+    // The Measurements panel's picker (the Markup properties group has one too).
+    await page.getByRole('complementary').filter({ hasText: 'Measurement Properties' }).getByLabel('Assembly', { exact: true }).selectOption({ label: 'Lined wall' });
     const inputs = page.getByRole('dialog', { name: 'Assembly inputs' });
     await expect(inputs.getByLabel('Input Layers')).toHaveValue('2');
     await expect(inputs.getByLabel('Input Both Sides')).toHaveValue('1');
@@ -132,6 +133,16 @@ test.describe('estimating', () => {
     // 25 sf x 3 x 2 / 32 = 4.6875, +10% = 5.15625: 6 sheets; with the room's 200 x 3 x 2 / 32 x 1.1 = 41.25, 46.40625 in all: 47.
     await app.cmd('tools.quantities');
     await expect(sheets.locator('td').nth(5)).toHaveText('47');
+    await totals.getByRole('button', { name: 'Close', exact: true }).click();
+
+    // Rounding each measurement up first, as for offcuts that cannot be used elsewhere: 42 + 6 = 48.
+    await app.cmd('takeoff.items');
+    await row.getByLabel('Item round up each measurement').check();
+    await items.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(items).toBeHidden();
+    await app.cmd('tools.quantities');
+    await expect(sheets.locator('td').nth(5)).toHaveText('48');
+    await expect(sheets).toContainText('720.00');
     await totals.getByRole('button', { name: 'Close', exact: true }).click();
 
     // takeoff.templates: Manage Templates lists it.
