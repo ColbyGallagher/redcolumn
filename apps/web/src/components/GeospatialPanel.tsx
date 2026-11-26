@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
 import type { MarkupStore, Point, StoredStitchGroup } from '@nb/markup';
 import { crsById, PROJECTED_CRS, type GeoRegion } from '@nb/measure';
@@ -184,7 +186,7 @@ export function GeospatialPanel(props: Props) {
         const fitted = placementFromPairs(a.model, a.page, b.model, b.page, scale ?? undefined);
         const free = placementFromPairs(a.model, a.page, b.model, b.page);
         if (!fitted || !free) {
-          onNotice('The two points are too close together: pick points further apart.');
+          onNotice(msg('The two points are too close together: pick points further apart.'));
           setPairs([]);
           setMode('pickModel');
           return;
@@ -194,8 +196,13 @@ export function GeospatialPanel(props: Props) {
         setMode('none');
         const off = scale ? free.scale / scale - 1 : 0;
         onNotice(
-          `Model aligned: rotated ${(fitted.rotation * DEG).toFixed(3)}°.` +
-            (Math.abs(off) > 0.005 ? ` The points are ${Math.abs(off * 100).toFixed(1)}% ${off > 0 ? 'further apart' : 'closer together'} on the sheet than on the model at the sheet's scale: check the scale, or the points picked.` : ''),
+          msg('Model aligned: rotated {angle}°.', { angle: (fitted.rotation * DEG).toFixed(3) }) +
+            (Math.abs(off) > 0.005
+              ? ' ' +
+                (off > 0
+                  ? msg("The points are {percent}% further apart on the sheet than on the model at the sheet's scale: check the scale, or the points picked.", { percent: Math.abs(off * 100).toFixed(1) })
+                  : msg("The points are {percent}% closer together on the sheet than on the model at the sheet's scale: check the scale, or the points picked.", { percent: Math.abs(off * 100).toFixed(1) }))
+              : ''),
         );
         return;
       }
@@ -289,48 +296,49 @@ export function GeospatialPanel(props: Props) {
     }
     store.setPagesGeo(byPage);
     setMode('none');
-    const which = sheets.length === 1 ? pageLabel(sheets[0]!.pageIndex) : `${sheets.length} sheets (${sheets.map((s) => pageLabel(s.pageIndex)).join(', ')})`;
-    onNotice(`${which} ${sheets.length === 1 ? 'is' : 'are'} registered in ${crs.name}. Save the PDF to write it into the file.`);
+    onNotice(
+      sheets.length === 1
+        ? msg('{page} is registered in {name}. Save the PDF to write it into the file.', { page: pageLabel(sheets[0]!.pageIndex), name: crs.name })
+        : msg('{count, plural, one {# sheet} other {# sheets}} ({pages}) are registered in {name}. Save the PDF to write it into the file.', { count: sheets.length, pages: sheets.map((s) => pageLabel(s.pageIndex)).join(', '), name: crs.name }),
+    );
   };
   const unregister = (p: number) => {
     store?.setPageGeo(p, []);
-    onNotice(`${pageLabel(p)} is no longer registered to a map.`);
+    onNotice(msg('{pageLabel} is no longer registered to a map.', { pageLabel: pageLabel(p) }));
   };
 
   const pageRegions = regions.filter((r) => r.pageIndex === pageIndex);
-  const describe = (r: GeoRegion) => r.crs ?? (r.epsg ? `EPSG:${r.epsg}` : 'Unknown coordinate system');
-  const step = pairs.length && pairs[pairs.length - 1]!.model && !pairs[pairs.length - 1]!.page ? `Click the same point on the drawing (P${pairs.length}).` : `Click a point on the model (M${pairs.filter((p) => p.page).length + 1}) — it snaps to the nearest vertex.`;
+  const describe = (r: GeoRegion) => r.crs ?? (r.epsg ? `EPSG:${r.epsg}` : msg('Unknown coordinate system'));
+  const step = pairs.length && pairs[pairs.length - 1]!.model && !pairs[pairs.length - 1]!.page ? msg('Click the same point on the drawing (P{number}).', { number: pairs.length }) : msg('Click a point on the model (M{number}) — it snaps to the nearest vertex.', { number: pairs.filter((p) => p.page).length + 1 });
   const registered = new Set(regions.map((r) => r.pageIndex));
 
   /** Why "All stitched sheets" is off: the sheet on screen is in no stitch of two or more sheets. */
   const whyNoStitch = () => {
     const stitching = (
       <button className="link-button" onClick={props.onShowStitching}>
-        Stitching panel
+        {msg('Stitching panel')}
       </button>
     );
     const elsewhere = stitchGroups.filter((g) => g.placements.length > 1);
     const lines = props.matchLines.filter((l) => l.pageIndex === pageIndex);
     if (lines.length && lines.every((l) => !l.matchTo))
-      return <>{pageLabel(pageIndex)} has match lines, but none is paired with a line on another sheet: set “Match to…” for each in the {stitching}.</>;
+      return <>{keyed(msgParts('{pageLabel} has match lines, but none is paired with a line on another sheet: set “Match to…” for each in the {stitching}.', { pageLabel: pageLabel(pageIndex), stitching }))}</>;
     if (elsewhere.length)
       return (
         <>
-          {pageLabel(pageIndex)} is not in a stitch. Stitched sheets:{' '}
-          {elsewhere.map((g, i) => (
+          {keyed(msgParts('{pageLabel} is not in a stitch. Stitched sheets: {list}.', { pageLabel: pageLabel(pageIndex), list: elsewhere.map((g, i) => (
             <span key={i}>
               {i > 0 && '; '}
               <button className="link-button" onClick={() => onGoTo(g.placements[0]!.pageIndex)}>
                 {g.placements.map((p) => pageLabel(p.pageIndex)).join(', ')}
               </button>
             </span>
-          ))}
-          .
+          )) }))}
         </>
       );
     return (
       <>
-        To register a set of plans in one go, join them with match lines in the {stitching} first. (Stitch to New Page makes a single flat page, which is registered on its own.)
+        {keyed(msgParts('To register a set of plans in one go, join them with match lines in the {stitching} first. (Stitch to New Page makes a single flat page, which is registered on its own.)', { stitching }))}
       </>
     );
   };
@@ -339,26 +347,25 @@ export function GeospatialPanel(props: Props) {
   return (
     <div className="geo-panel">
       <section>
-        <h3 className="panel-subhead">This sheet</h3>
+        <h3 className="panel-subhead">{msg('This sheet')}</h3>
         {pageRegions.length ? (
           pageRegions.map((r) => (
             <div key={r.id} className="geo-registered">
-              <span className="geo-badge">Geospatial</span>
+              <span className="geo-badge">{msg('Geospatial')}</span>
               <span className="geo-crs">{describe(r)}</span>
               {editable && (
-                <button className="btn small" title="Take the map registration off this sheet" onClick={() => unregister(pageIndex)}>
-                  Remove
+                <button className="btn small" title={msg('Take the map registration off this sheet')} onClick={() => unregister(pageIndex)}>
+                  {msg('Remove')}
                 </button>
               )}
             </div>
           ))
         ) : (
-          <p className="empty">{pageLabel(pageIndex)} is not registered to a map.</p>
+          <p className="empty">{msg('{pageLabel} is not registered to a map.', { pageLabel: pageLabel(pageIndex) })}</p>
         )}
         {registered.size > 0 && (
           <p className="geo-pages">
-            Registered:{' '}
-            {[...registered]
+            {keyed(msgParts('Registered: {list}', { list: [...registered]
               .sort((a, b) => a - b)
               .map((p, i) => (
                 <span key={p}>
@@ -367,35 +374,34 @@ export function GeospatialPanel(props: Props) {
                     {pageLabel(p)}
                   </button>
                 </span>
-              ))}
+              )) }))}
           </p>
         )}
       </section>
 
       <section>
-        <h3 className="panel-subhead">1. Sheets</h3>
-        <div className="geo-frame" role="radiogroup" aria-label="Align over">
+        <h3 className="panel-subhead">{msg('1. Sheets')}</h3>
+        <div className="geo-frame" role="radiogroup" aria-label={msg('Align over')}>
           <label className="field">
-            <input type="radio" name="geo-frame" checked={frame === 'sheet'} disabled={!editable} onChange={() => switchFrame('sheet')} />
-            This sheet only
+            {keyed(msgParts('{input}This sheet only', { input: <input type="radio" name="geo-frame" checked={frame === 'sheet'} disabled={!editable} onChange={() => switchFrame('sheet')} /> }))}
           </label>
-          <label className="field" title={hereGroup || group ? 'Line the model up once over the stitched sheets; every sheet in the stitch is registered' : 'Stitch the plans first'}>
+          <label className="field" title={hereGroup || group ? msg('Line the model up once over the stitched sheets; every sheet in the stitch is registered') : msg('Stitch the plans first')}>
             <input type="radio" name="geo-frame" checked={frame === 'stitch'} disabled={!editable || !(hereGroup || group)} onChange={() => switchFrame('stitch')} />
-            All stitched sheets{hereGroup ? ` (${hereGroup.placements.length})` : ''}
+            {hereGroup ? msg('All stitched sheets ({count})', { count: hereGroup.placements.length }) : msg('All stitched sheets')}
           </label>
         </div>
         {!hereGroup && !group && <p className="geo-hint">{whyNoStitch()}</p>}
         {frame === 'stitch' && group && !stitched && (
           <div className="panel-toolbar">
             <button className="btn small" onClick={() => props.onOpenStitched(anchor)}>
-              Open Stitched View
+              {msg('Open Stitched View')}
             </button>
           </div>
         )}
       </section>
 
       <section>
-        <h3 className="panel-subhead">2. Model or CAD file</h3>
+        <h3 className="panel-subhead">{msg('2. Model or CAD file')}</h3>
         <input
           ref={fileInput}
           type="file"
@@ -409,26 +415,26 @@ export function GeospatialPanel(props: Props) {
         />
         {!hereScaled && (
           <div className="geo-needs-scale">
-            <p className="geo-warning">Set {pageLabel(pageIndex)}’s scale first: the model is laid over the drawing at that scale.</p>
+            <p className="geo-warning">{msg('Set {pageLabel}’s scale first: the model is laid over the drawing at that scale.', { pageLabel: pageLabel(pageIndex) })}</p>
             <div className="panel-toolbar">
               <button className="btn small" disabled={!editable} onClick={props.onSetScale}>
-                Set Scale…
+                {msg('Set Scale…')}
               </button>
               {props.onCalibrate && (
-                <button className="btn small" disabled={!editable} title="Click two points a known distance apart" onClick={props.onCalibrate}>
-                  Calibrate
+                <button className="btn small" disabled={!editable} title={msg('Click two points a known distance apart')} onClick={props.onCalibrate}>
+                  {msg('Calibrate')}
                 </button>
               )}
             </div>
           </div>
         )}
         <div className="panel-toolbar">
-          <button className="btn small" disabled={!editable || loading || !hereScaled} title={hereScaled ? 'IFC 4.3, LandXML, DXF or GeoJSON' : 'Set the sheet’s scale first'} onClick={() => fileInput.current?.click()}>
-            {loading ? 'Reading…' : model ? 'Open Another…' : 'Open Model…'}
+          <button className="btn small" disabled={!editable || loading || !hereScaled} title={hereScaled ? msg('IFC 4.3, LandXML, DXF or GeoJSON') : msg('Set the sheet’s scale first')} onClick={() => fileInput.current?.click()}>
+            {loading ? msg('Reading…') : model ? msg('Open Another…') : msg('Open Model…')}
           </button>
           {model && (
             <button className="btn small" onClick={close}>
-              Close
+              {msg('Close')}
             </button>
           )}
         </div>
@@ -438,7 +444,7 @@ export function GeospatialPanel(props: Props) {
               {model.name}
             </div>
             <div className="geo-model-meta">
-              {model.format} · {model.paths.length.toLocaleString()} lines · {model.points.length.toLocaleString()} points
+              {msg('{format} · {lines, plural, one {# line} other {# lines}} · {points, plural, one {# point} other {# points}}', { format: model.format, lines: model.paths.length, points: model.points.length })}
               {model.crsName ? ` · ${model.crsName}` : ''}
             </div>
             {model.warnings.map((w) => (
@@ -448,14 +454,14 @@ export function GeospatialPanel(props: Props) {
             ))}
           </div>
         ) : (
-          <p className="empty">Open an IFC 4.3, LandXML, DXF or GeoJSON file in a known coordinate system to line it up with the drawing.</p>
+          <p className="empty">{msg('Open an IFC 4.3, LandXML, DXF or GeoJSON file in a known coordinate system to line it up with the drawing.')}</p>
         )}
       </section>
 
       <section>
-        <h3 className="panel-subhead">3. Coordinate system</h3>
-        <select className="geo-crs-select" aria-label="Coordinate system" value={crsId} disabled={!editable} onChange={(e) => setCrsId(e.target.value)}>
-          <optgroup label="Australia — GDA2020">
+        <h3 className="panel-subhead">{msg('3. Coordinate system')}</h3>
+        <select className="geo-crs-select" aria-label={msg('Coordinate system')} value={crsId} disabled={!editable} onChange={(e) => setCrsId(e.target.value)}>
+          <optgroup label={msg('Australia — GDA2020')}>
             {PROJECTED_CRS.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.id}) · {c.area}
@@ -463,70 +469,77 @@ export function GeospatialPanel(props: Props) {
             ))}
           </optgroup>
         </select>
-        {model?.crs && model.crs.id !== crsId && <p className="geo-warning">The file says {model.crs.name}.</p>}
-        {model && !model.crs && model.crsName && <p className="geo-warning">The file names “{model.crsName}”, which is not offered: choose the zone its coordinates are in.</p>}
+        {model?.crs && model.crs.id !== crsId && <p className="geo-warning">{msg('The file says {name}.', { name: model.crs.name })}</p>}
+        {model && !model.crs && model.crsName && <p className="geo-warning">{msg('The file names “{crsName}”, which is not offered: choose the zone its coordinates are in.', { crsName: model.crsName })}</p>}
       </section>
 
       {model && (
         <section>
-          <h3 className="panel-subhead">4. Line it up</h3>
-          {!placement && <p className="geo-warning">Set {pageLabel(anchor)}’s scale, then press Reset.</p>}
+          <h3 className="panel-subhead">{msg('4. Line it up')}</h3>
+          {!placement && <p className="geo-warning">{msg('Set {pageLabel}’s scale, then press Reset.', { pageLabel: pageLabel(anchor) })}</p>}
           {placement && !onSheets && (
             <p className="geo-warning">
-              The model is on {inStitch ? `the stitch of ${pageLabel(anchor)}` : pageLabel(anchor)}.{' '}
-              <button className="link-button" onClick={() => (inStitch ? props.onOpenStitched(anchor) : onGoTo(anchor))}>
-                Go there
-              </button>{' '}
-              or{' '}
-              <button className="link-button" disabled={!editable || !hereScaled} onClick={() => reset()}>
-                bring it here
-              </button>
-              .
+              {inStitch ? msg('The model is on the stitch of {page}.', { page: pageLabel(anchor) }) : msg('The model is on {page}.', { page: pageLabel(anchor) })}{' '}
+              {keyed(
+                msgParts('{goThere} or {bringItHere}.', {
+                  goThere: (
+                    <button className="link-button" onClick={() => (inStitch ? props.onOpenStitched(anchor) : onGoTo(anchor))}>
+                      {msg('Go there')}
+                    </button>
+                  ),
+                  bringItHere: (
+                    <button className="link-button" disabled={!editable || !hereScaled} onClick={() => reset()}>
+                      {msg('bring it here')}
+                    </button>
+                  ),
+                }),
+              )}
             </p>
           )}
           <div className="panel-toolbar">
-            <button className={`btn small${mode === 'move' ? ' active' : ''}`} disabled={!editable || !placement} title="Drag the model over the drawing" onClick={() => setMode(mode === 'move' ? 'none' : 'move')}>
-              Move
+            <button className={`btn small${mode === 'move' ? ' active' : ''}`} disabled={!editable || !placement} title={msg('Drag the model over the drawing')} onClick={() => setMode(mode === 'move' ? 'none' : 'move')}>
+              {msg('Move')}
             </button>
             <button
               className={`btn small${mode === 'pickModel' || mode === 'pickPage' ? ' active' : ''}`}
               disabled={!editable || !placement}
-              title="Pick two points on the model and the same two points on the drawing; the model is moved and turned to match (its scale is the sheet's)"
+              title={msg('Pick two points on the model and the same two points on the drawing; the model is moved and turned to match (its scale is the sheet\'s)')}
               onClick={() => {
                 setPairs([]);
                 setMode(mode === 'pickModel' || mode === 'pickPage' ? 'none' : 'pickModel');
               }}
             >
-              Align by 2 Points
+              {msg('Align by 2 Points')}
             </button>
-            <button className="btn small" disabled={!editable || !hereScaled} title="Centre the model over the drawing again" onClick={() => reset()}>
-              Reset
+            <button className="btn small" disabled={!editable || !hereScaled} title={msg('Centre the model over the drawing again')} onClick={() => reset()}>
+              {msg('Reset')}
             </button>
           </div>
           {(mode === 'pickModel' || mode === 'pickPage') && <p className="geo-step">{step}</p>}
           {placement && (
             <div className="geo-fields">
               <label className="field">
-                Rotation
-                <NumberField value={placement.rotation * DEG} digits={4} disabled={!editable} onCommit={setRotation} />°
+                {keyed(msgParts('Rotation{numberfield}°', { numberfield: <NumberField value={placement.rotation * DEG} digits={4} disabled={!editable} onCommit={setRotation} /> }))}
               </label>
-              <span className="field geo-scale" title={`From ${pageLabel(anchor)}’s scale`}>
-                Scale 1:{Math.round(ratioOfScale(placement.scale / (anchorSheet ? worldPerPoint(anchorSheet.toWorld) : 1))).toLocaleString()}
+              <span className="field geo-scale" title={msg('From {pageLabel}’s scale', { pageLabel: pageLabel(anchor) })}>
+                {msg('Scale 1:{round}', { round: Math.round(ratioOfScale(placement.scale / (anchorSheet ? worldPerPoint(anchorSheet.toWorld) : 1))) })}
               </span>
             </div>
           )}
           {placement && (
             <div className="panel-toolbar">
-              <button className="btn small" disabled={!editable} title="Turn the model so grid north points up the sheet" onClick={() => setRotation(0)}>
-                North Up
+              <button className="btn small" disabled={!editable} title={msg('Turn the model so grid north points up the sheet')} onClick={() => setRotation(0)}>
+                {msg('North Up')}
               </button>
             </div>
           )}
           {problems.map((p) => (
             <p key={p.pageIndex} className="geo-warning">
               {p.problem === 'none'
-                ? `${pageLabel(p.pageIndex)} has no scale: it is registered where it sits in the stitch.`
-                : `${pageLabel(p.pageIndex)}’s scale is ${Math.abs((p.ratio! - 1) * 100).toFixed(1)}% ${p.ratio! > 1 ? 'larger' : 'smaller'} than ${pageLabel(anchor)}’s in the stitch: check its scale or its join.`}
+                ? msg('{pageLabel} has no scale: it is registered where it sits in the stitch.', { pageLabel: pageLabel(p.pageIndex) })
+                : p.ratio! > 1
+                  ? msg('{page}’s scale is {percent}% larger than {other}’s in the stitch: check its scale or its join.', { page: pageLabel(p.pageIndex), percent: Math.abs((p.ratio! - 1) * 100).toFixed(1), other: pageLabel(anchor) })
+                  : msg('{page}’s scale is {percent}% smaller than {other}’s in the stitch: check its scale or its join.', { page: pageLabel(p.pageIndex), percent: Math.abs((p.ratio! - 1) * 100).toFixed(1), other: pageLabel(anchor) })}
             </p>
           ))}
         </section>
@@ -534,16 +547,16 @@ export function GeospatialPanel(props: Props) {
 
       {model && placement && (
         <section>
-          <h3 className="panel-subhead">5. Make it geospatial</h3>
+          <h3 className="panel-subhead">{msg('5. Make it geospatial')}</h3>
           <p className="geo-hint">
             {inStitch
-              ? `Each of the ${sheets.length} stitched sheets is registered over its drawing area, from where it sits in the stitch.`
-              : `The whole of ${pageLabel(anchor)} is registered.`}{' '}
-            Other apps then show latitude and longitude across {inStitch ? 'them' : 'it'} in {crs?.name ?? '—'}.
+              ? msg('Each of the {count} stitched sheets is registered over its drawing area, from where it sits in the stitch.', { count: sheets.length })
+              : msg('The whole of {pageLabel} is registered.', { pageLabel: pageLabel(anchor) })}{' '}
+            {inStitch ? msg('Other apps then show latitude and longitude across them in {crs}.', { crs: crs?.name ?? '—' }) : msg('Other apps then show latitude and longitude across it in {crs}.', { crs: crs?.name ?? '—' })}
           </p>
           <div className="panel-toolbar">
             <button className="btn small primary" disabled={!editable || !crs || !sheets.length} onClick={register}>
-              {inStitch ? `Georeference ${sheets.length} Sheets` : `Georeference ${pageLabel(anchor)}`}
+              {inStitch ? msg('{count, plural, one {Georeference # Sheet} other {Georeference # Sheets}}', { count: sheets.length }) : msg('Georeference {pageLabel}', { pageLabel: pageLabel(anchor) })}
             </button>
           </div>
         </section>

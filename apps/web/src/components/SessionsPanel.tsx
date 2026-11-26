@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { microsoftUser, oneDriveSharingEnabled, setStaySignedInToMicrosoft, signInWithMicrosoft, signOutOfMicrosoft, staySignedInToMicrosoft, subscribeMicrosoftUser } from '../studio/drive/onedrive';
 import { forgetRecentSession, recentSessions, restoreRecentSession, type SessionRef } from '../studio/local';
@@ -192,8 +194,8 @@ function SessionList({
   const rows = recent.map((r) => {
     const j = joined.find((x) => x.session.id === r.id);
     const meta = j?.snapshot.meta ?? null;
-    const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? 'Ended' : j.snapshot.meta.status === 'finished' ? 'Closed' : 'Joined') : r.removed ? 'Removed' : r.backend === 'folder' ? 'Folder' : 'OneDrive';
-    const access = j ? (j.snapshot.isHost ? 'Host' : ACCESS_SHORT[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
+    const status = j ? (j.snapshot.meta.ended || j.snapshot.removed ? msg('Ended') : j.snapshot.meta.status === 'finished' ? msg('Closed') : msg('Joined')) : r.removed ? msg('Removed') : r.backend === 'folder' ? msg('Folder') : 'OneDrive';
+    const access = j ? (j.snapshot.isHost ? msg('Host') : ACCESS_SHORT()[myAccess({ meta: j.snapshot.meta, me, isHost: false })]) : null;
     return { ref: r, joined: j, meta, status, usable: true, access };
   });
   const notJoinedCount = rows.filter((row) => !row.joined && !row.ref.removed).length;
@@ -209,14 +211,14 @@ function SessionList({
   return (
     <div className="sessions rc-studio">
       <StudioHeader
-        title="All Sessions"
+        title={msg('All Sessions')}
         onRefresh={() => setRefresh((n) => n + 1)}
         plus={
           <StudioMenu
-            label="New session"
+            label={msg('New session')}
             items={[
-              { label: 'Start session', onClick: onStartDialog, disabled: busy || !online },
-              { label: 'Join session…', onClick: onJoinDialog, disabled: busy || !online },
+              { label: msg('Start session'), onClick: onStartDialog, disabled: busy || !online },
+              { label: msg('Join session…'), onClick: onJoinDialog, disabled: busy || !online },
             ]}
           />
         }
@@ -226,52 +228,51 @@ function SessionList({
         value={tab}
         onChange={setTab}
         tabs={[
-          { id: 'joined', label: 'Joined' },
-          { id: 'not', label: 'Not Joined', count: notJoinedCount },
-          { id: 'deleted', label: 'Deleted' },
+          { id: 'joined', label: msg('Joined') },
+          { id: 'not', label: msg('Not Joined'), count: notJoinedCount },
+          { id: 'deleted', label: msg('Deleted') },
         ]}
       />
 
-      <StudioHelp id="sessions" title="How sessions work">
-        <p>A session lets several people look at the same PDFs and mark them up together at the same time, from different places. Everyone sees the others' markups and chat within seconds.</p>
-        <h4>Where it lives</h4>
+      <StudioHelp id="sessions" title={msg('How sessions work')}>
+        <p>{msg('A session lets several people look at the same PDFs and mark them up together at the same time, from different places. Everyone sees the others\' markups and chat within seconds.')}</p>
+        <h4>{msg('Where it lives')}</h4>
         <p>
-          The person who starts the session (the host) signs in to their OneDrive. redcolumn makes one shared folder there and puts the PDFs in it. Your documents are kept in that folder, not on a redcolumn server, and when the host ends the session the folder's files
-          are removed.
+          {msg('The person who starts the session (the host) signs in to their OneDrive. redcolumn makes one shared folder there and puts the PDFs in it. Your documents are kept in that folder, not on a redcolumn server, and when the host ends the session the folder\'s files are removed.')}
         </p>
         {folderAvailable && (
           <p>
-            In the desktop app the host can instead choose a shared folder on their computer: a OneDrive, Teams or Dropbox folder, or a network drive. Nobody signs in. Everyone who can open that folder joins by choosing it in Join, and changes arrive as fast as the folder syncs.
+            {msg('In the desktop app the host can instead choose a shared folder on their computer: a OneDrive, Teams or Dropbox folder, or a network drive. Nobody signs in. Everyone who can open that folder joins by choosing it in Join, and changes arrive as fast as the folder syncs.')}
           </p>
         )}
-        <h4>Accounts you need</h4>
+        <h4>{msg('Accounts you need')}</h4>
         <ul>
-          <li>A Microsoft account (personal, work or school). The host and guests all sign in with one.</li>
-          <li>Guests join with a link or an email invitation from the host. They do not need to pay for anything.</li>
-          <li>The sign-in button is at the bottom of this list. Your email is shown to others so they know who made which markup.</li>
+          <li>{msg('A Microsoft account (personal, work or school). The host and guests all sign in with one.')}</li>
+          <li>{msg('Guests join with a link or an email invitation from the host. They do not need to pay for anything.')}</li>
+          <li>{msg('The sign-in button is at the bottom of this list. Your email is shown to others so they know who made which markup.')}</li>
         </ul>
-        <h4>What the app can reach</h4>
+        <h4>{msg('What the app can reach')}</h4>
         <ul>
-          <li>Microsoft: it asks your permission each time it needs more, such as opening a shared folder. You can sign out whenever you like.</li>
-          <li>Your name and email, so markups and chat show who wrote them.</li>
+          <li>{msg('Microsoft: it asks your permission each time it needs more, such as opening a shared folder. You can sign out whenever you like.')}</li>
+          <li>{msg('Your name and email, so markups and chat show who wrote them.')}</li>
         </ul>
-        <p>If you lose your internet connection, keep working. Your markups are saved on this device and sent when you are back online.</p>
+        <p>{msg('If you lose your internet connection, keep working. Your markups are saved on this device and sent when you are back online.')}</p>
       </StudioHelp>
 
       {invite && (
         <div className="session-invite">
-          <b>You're invited to a Live Session in OneDrive.</b>
+          <b>{msg('You\'re invited to a Live Session in OneDrive.')}</b>
           <p>
             {oneDriveAvailable
-              ? 'Joining signs you in to Microsoft (a personal, work or school account).'
-              : 'OneDrive sharing is turned off in this copy of the app, so it cannot join this session.'}
+              ? msg('Joining signs you in to Microsoft (a personal, work or school account).')
+              : msg('OneDrive sharing is turned off in this copy of the app, so it cannot join this session.')}
           </p>
           <div className="row">
             <button className="btn primary" disabled={busy || !oneDriveAvailable} onClick={() => void onJoin(invite)}>
-              Join session
+              {msg('Join session')}
             </button>
             <button className="btn small flat" onClick={onDismissInvite}>
-              Not now
+              {msg('Not now')}
             </button>
           </div>
         </div>
@@ -280,7 +281,7 @@ function SessionList({
       <div className="rc-scroll">
       {shown.length === 0 ? (
         <p className="rc-empty">
-          {tab === 'deleted' ? 'No deleted sessions.' : tab === 'not' ? 'Sessions you have not joined are listed here.' : recent.length ? 'You are not in a session right now.' : 'Sessions you start or join appear here.'}
+          {tab === 'deleted' ? msg('No deleted sessions.') : tab === 'not' ? msg('Sessions you have not joined are listed here.') : recent.length ? msg('You are not in a session right now.') : msg('Sessions you start or join appear here.')}
         </p>
       ) : (
         <ul className="rc-list">
@@ -310,20 +311,20 @@ function SessionList({
                         setRefresh((n) => n + 1);
                       }}
                     >
-                      Restore
+                      {msg('Restore')}
                     </button>
                   ) : (
                     <>
                       <button type="button" className="rc-join" disabled={blocked} onClick={() => void onJoin(ref).then((ok) => ok && onFocus(ref.id))}>
-                        Join
+                        {msg('Join')}
                       </button>
                       <button
                         type="button"
                         className="rc-x"
-                        title="Remove from your sessions. Restore it from Deleted."
-                        aria-label="Remove"
+                        title={msg('Remove from your sessions. Restore it from Deleted.')}
+                        aria-label={msg('Remove')}
                         onClick={() => {
-                          if (!confirm(`Remove ${name} from your Sessions? The session is not deleted, and you can restore it from Deleted.`)) return;
+                          if (!confirm(msg('Remove {name} from your Sessions? The session is not deleted, and you can restore it from Deleted.', { name }))) return;
                           forgetRecentSession(ref.id);
                           setRefresh((n) => n + 1);
                         }}
@@ -338,10 +339,10 @@ function SessionList({
           })}
         </ul>
       )}
-      {busy && <p className="rc-empty">Connecting…</p>}
+      {busy && <p className="rc-empty">{msg('Connecting…')}</p>}
       {error && <p className="session-error">{error}</p>}
       <p className="rc-note">
-        You appear as <b>{me}</b>.
+        {keyed(msgParts('You appear as {b}.', { b: <b>{me}</b> }))}
       </p>
       <MicrosoftIdentity onChanged={() => setRefresh((n) => n + 1)} />
       </div>
@@ -442,8 +443,8 @@ function InSession({
     <div className="sessions rc-studio in-session">
       <div className="rc-session-top">
         <div className="rc-session-switch">
-          <select aria-label="Session" value={session.id} onChange={(e) => onFocus(e.target.value || null)} title={status === 'online' ? 'Connected' : status === 'connecting' ? 'Connecting…' : 'Offline: changes sync when you reconnect'}>
-            <option value="">All Sessions</option>
+          <select aria-label={msg('Session')} value={session.id} onChange={(e) => onFocus(e.target.value || null)} title={status === 'online' ? msg('Connected') : status === 'connecting' ? msg('Connecting…') : msg('Offline: changes sync when you reconnect')}>
+            <option value="">{msg('All Sessions')}</option>
             {joined.map((j) => (
               <option key={j.session.id} value={j.session.id}>
                 {j.snapshot.backend === 'folder' ? j.snapshot.meta.name : `${j.snapshot.meta.name} — ${studioIdText(j.snapshot.meta.id)}`}
@@ -451,55 +452,57 @@ function InSession({
             ))}
           </select>
           <StudioMenu
-            label="Session commands"
+            label={msg('Session commands')}
             icon={<KebabIcon />}
             items={[
-              ...(isHost && !finished && !ended ? [{ label: 'Session settings', onClick: onSettings }] : []),
-              ...(onInviteEmail && !inFolder && (isHost || allows(meta, 'invite')) ? [{ label: 'Share invitations', onClick: () => onInviteEmail(meta.id), disabled: !online }] : []),
-              ...(!inFolder && (isHost || allows(meta, 'invite')) ? [{ label: copied === 'link' ? 'Link copied' : 'Copy invitation link', onClick: () => copy('link', snapshot.inviteLink) }] : []),
-              ...(inFolder && onShowFolder ? [{ label: 'Show session folder', onClick: () => onShowFolder(session.id) }] : []),
-              { label: 'Session report', onClick: () => onReport(session.id, 'pdf') },
-              { label: 'Record as CSV', onClick: () => onReport(session.id, 'csv') },
-              { label: 'All comments', onClick: () => onReport(session.id, 'comments') },
-              { label: 'Leave session', onClick: () => onLeave(session.id), danger: true },
-              ...(isHost && session.end && !ended ? [{ label: 'End session…', onClick: () => onEnd(session.id), disabled: busy || !online, danger: true }] : []),
+              ...(isHost && !finished && !ended ? [{ label: msg('Session settings'), onClick: onSettings }] : []),
+              ...(onInviteEmail && !inFolder && (isHost || allows(meta, 'invite')) ? [{ label: msg('Share invitations'), onClick: () => onInviteEmail(meta.id), disabled: !online }] : []),
+              ...(!inFolder && (isHost || allows(meta, 'invite')) ? [{ label: copied === 'link' ? msg('Link copied') : msg('Copy invitation link'), onClick: () => copy('link', snapshot.inviteLink) }] : []),
+              ...(inFolder && onShowFolder ? [{ label: msg('Show session folder'), onClick: () => onShowFolder(session.id) }] : []),
+              { label: msg('Session report'), onClick: () => onReport(session.id, 'pdf') },
+              { label: msg('Record as CSV'), onClick: () => onReport(session.id, 'csv') },
+              { label: msg('All comments'), onClick: () => onReport(session.id, 'comments') },
+              { label: msg('Leave session'), onClick: () => onLeave(session.id), danger: true },
+              ...(isHost && session.end && !ended ? [{ label: msg('End session…'), onClick: () => onEnd(session.id), disabled: busy || !online, danger: true }] : []),
             ]}
           />
         </div>
-        {snapshot.email && <p className="rc-banner">You are {snapshot.email}</p>}
-        {!finished && meta.expiresAt ? <p className="rc-banner">Closes {new Date(meta.expiresAt).toLocaleString()}</p> : null}
-        {denied && <p className="session-error">The host has removed your access to this session.</p>}
+        {snapshot.email && <p className="rc-banner">{msg('You are {email}', { email: snapshot.email })}</p>}
+        {!finished && meta.expiresAt ? <p className="rc-banner">{msg('Closes {date}', { date: new Date(meta.expiresAt).toLocaleString() })}</p> : null}
+        {denied && <p className="session-error">{msg('The host has removed your access to this session.')}</p>}
         {needsAuth && (
           <div className="rc-banner">
-            {`Signed out of Microsoft. Your edits are kept here and saved when you reconnect.`}{' '}
+            {msg('Signed out of Microsoft. Your edits are kept here and saved when you reconnect.')}{' '}
             <button className="rc-text-btn" onClick={() => session.reconnect && onRun(() => session.reconnect!())}>
-              Reconnect
+              {msg('Reconnect')}
             </button>
           </div>
         )}
-        {viewOnly && <p className="rc-banner">View only: the session folder is shared with you read-only.</p>}
+        {viewOnly && <p className="rc-banner">{msg('View only: the session folder is shared with you read-only.')}</p>}
         {!ended && snapshot.localSave && (
-          <div className={snapshot.localSave === 'error' ? 'session-error' : 'rc-banner'} role="status" aria-label="Session sync status">
+          <div className={snapshot.localSave === 'error' ? 'session-error' : 'rc-banner'} role="status" aria-label={msg('Session sync status')}>
             {snapshot.localSave === 'error'
-              ? 'Changes could not be saved on this device. Keep redcolumn open and retry.'
+              ? msg('Changes could not be saved on this device. Keep redcolumn open and retry.')
               : snapshot.localSave === 'saving'
-                ? 'Saving changes on this device…'
+                ? msg('Saving changes on this device…')
                 : snapshot.pendingChanges
-                  ? `Saved on this device · ${snapshot.pendingChanges} updates waiting to sync${snapshot.syncing ? ' (syncing…)' : ''}.`
+                  ? snapshot.syncing
+                    ? msg('Saved on this device · {count, plural, one {# update} other {# updates}} waiting to sync (syncing…).', { count: snapshot.pendingChanges })
+                    : msg('Saved on this device · {count, plural, one {# update} other {# updates}} waiting to sync.', { count: snapshot.pendingChanges })
                   : inFolder
-                    ? 'No pending changes on this device. Delivery to other reviewers depends on your folder sync.'
-                    : 'No pending changes on this device. Writes to OneDrive are complete.'}
-            {(snapshot.localSave === 'error' || !!snapshot.pendingChanges) && <button className="rc-text-btn" onClick={() => session.retry()}>Retry sync</button>}
+                    ? msg('No pending changes on this device. Delivery to other reviewers depends on your folder sync.')
+                    : msg('No pending changes on this device. Writes to OneDrive are complete.')}
+            {(snapshot.localSave === 'error' || !!snapshot.pendingChanges) && <button className="rc-text-btn" onClick={() => session.retry()}>{msg('Retry sync')}</button>}
           </div>
         )}
-        {!isHost && access === 'view' && !finished && !denied && <p className="rc-banner">You can view documents and chat. The host has not given you comment access.</p>}
-        {finished && !ended && <p className="rc-banner">Closed {meta.endedAt ? new Date(meta.endedAt).toLocaleString() : ''}. Documents are read-only.</p>}
-        {ended && <p className="session-error">The host ended this session and removed its files. Documents you have open stay read-only until you close them.</p>}
-        {status === 'offline' && !finished && !denied && !ended && <p className="rc-banner">Offline. Keep working: markups sync when the connection returns.</p>}
+        {!isHost && access === 'view' && !finished && !denied && <p className="rc-banner">{msg('You can view documents and chat. The host has not given you comment access.')}</p>}
+        {finished && !ended && <p className="rc-banner">{meta.endedAt ? msg('Closed {date}. Documents are read-only.', { date: new Date(meta.endedAt).toLocaleString() }) : msg('Closed. Documents are read-only.')}</p>}
+        {ended && <p className="session-error">{msg('The host ended this session and removed its files. Documents you have open stay read-only until you close them.')}</p>}
+        {status === 'offline' && !finished && !denied && !ended && <p className="rc-banner">{msg('Offline. Keep working: markups sync when the connection returns.')}</p>}
 
         <section>
           <button type="button" className="rc-sec-h" aria-expanded={open.people} onClick={() => toggle('people')}>
-            <Caret open={open.people} /> Attendees
+            {keyed(msgParts('{caret} Attendees', { caret: <Caret open={open.people} /> }))}
           </button>
           {open.people && (
             <>
@@ -507,13 +510,13 @@ function InSession({
                 value={who}
                 onChange={setWho}
                 tabs={[
-                  { id: 'joined', label: 'Joined' },
-                  { id: 'not', label: 'Not Joined', count: pendingPeople.length },
+                  { id: 'joined', label: msg('Joined') },
+                  { id: 'not', label: msg('Not Joined'), count: pendingPeople.length },
                 ]}
               />
               {who === 'joined' ? (
                 <>
-                  <div className="rc-group">Online ({onlinePeople.length})</div>
+                  <div className="rc-group">{msg('Online ({count})', { count: onlinePeople.length })}</div>
                   <ul className="rc-people">
                     {onlinePeople.map((p) => (
                       <li key={p.email ?? p.name}>
@@ -521,13 +524,13 @@ function InSession({
                           <PersonIcon />
                           <span className="rc-name">
                             {p.name}
-                            {p.here?.self ? ' (you)' : ''}
+                            {p.here?.self ? ' ' + msg('(you)') : ''}
                           </span>
                         </button>
                       </li>
                     ))}
                   </ul>
-                  <div className="rc-group dim">Offline ({offlinePeople.length})</div>
+                  <div className="rc-group dim">{msg('Offline ({count})', { count: offlinePeople.length })}</div>
                   <ul className="rc-people dim">
                     {offlinePeople.map((p) => (
                       <li key={p.email ?? p.name} className="rc-person dim" title={p.email && p.email !== p.name ? p.email : undefined}>
@@ -539,7 +542,7 @@ function InSession({
                 </>
               ) : (
                 <ul className="rc-people dim">
-                  {pendingPeople.length === 0 && <li className="rc-empty">No one is waiting to join.</li>}
+                  {pendingPeople.length === 0 && <li className="rc-empty">{msg('No one is waiting to join.')}</li>}
                   {pendingPeople.map((p) => (
                     <li key={p.email ?? p.name} className="rc-person dim" title={p.email && p.email !== p.name ? p.email : undefined}>
                       <PersonIcon />
@@ -555,14 +558,14 @@ function InSession({
         <section>
           <div className="rc-sec-bar">
             <button type="button" className="rc-sec-h" aria-expanded={open.docs} onClick={() => toggle('docs')}>
-              <Caret open={open.docs} /> Documents
+              {keyed(msgParts('{caret} Documents', { caret: <Caret open={open.docs} /> }))}
             </button>
             {session.canAddDocuments && (
               <StudioMenu
-                label="Add documents"
+                label={msg('Add documents')}
                 items={[
-                  ...(localDocName ? [{ label: `Add ${localDocName}`, onClick: () => onAddCurrent(session.id), disabled: busy }] : []),
-                  { label: 'Add PDFs…', onClick: () => fileRef.current?.click(), disabled: busy },
+                  ...(localDocName ? [{ label: msg('Add {localDocName}', { localDocName }), onClick: () => onAddCurrent(session.id), disabled: busy }] : []),
+                  { label: msg('Add PDFs…'), onClick: () => fileRef.current?.click(), disabled: busy },
                 ]}
               />
             )}
@@ -583,43 +586,34 @@ function InSession({
           )}
           {open.docs && (
             <ul className="rc-docs">
-              {meta.documents.length === 0 && <li className="rc-empty">{session.canAddDocuments ? 'Add a PDF to share it.' : 'No documents yet.'}</li>}
+              {meta.documents.length === 0 && <li className="rc-empty">{session.canAddDocuments ? msg('Add a PDF to share it.') : msg('No documents yet.')}</li>}
               {meta.documents.map((d) => {
                 const key = `${session.id}:${d.id}`;
                 const active = activeDoc?.sessionId === session.id && activeDoc.docId === d.id;
                 return (
                   <li key={d.id} className={active ? 'rc-doc on' : 'rc-doc'}>
-                    <button type="button" className="rc-doc-main" disabled={denied} onClick={() => onOpenDocument(session.id, d.id)} title={`Added by ${d.addedBy}${openDocs.has(key) ? ' · open in a tab' : ''}`}>
+                    <button type="button" className="rc-doc-main" disabled={denied} onClick={() => onOpenDocument(session.id, d.id)} title={openDocs.has(key) ? msg('Added by {name} · open in a tab', { name: d.addedBy }) : msg('Added by {name}', { name: d.addedBy })}>
                       <DocIcon />
                       <span className="rc-name">{d.name}</span>
                     </button>
                     <span className="rc-doc-actions">
                         {isHost && !finished && (
-                          <label className="rc-mini" title="Update to a new revision">
-                            Update
-                            <input
-                              type="file"
-                              accept="application/pdf,.pdf"
-                              hidden
-                              onChange={(e) => {
-                                const f = e.target.files?.[0];
-                                e.target.value = '';
-                                if (f && confirm(`Update ${d.name} to ${f.name}? Everyone's markups stay on the same pages of the new revision.`)) onUpdateDocument(session.id, d.id, f);
-                              }}
-                            />
+                          <label className="rc-mini" title={msg('Update to a new revision')}>
+                            {msg('Update')}
+                            <input type="file" accept="application/pdf,.pdf" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f && confirm(msg('Update {name} to {name2}? Everyone\'s markups stay on the same pages of the new revision.', { name: d.name, name2: f.name }))) onUpdateDocument(session.id, d.id, f); }} />
                           </label>
                         )}
                         {isHost && !finished && (
                           <button
                             type="button"
                             className="rc-mini"
-                            title="Remove from session"
+                            title={msg('Remove from session')}
                             onClick={(e) => {
                               e.stopPropagation();
-                              if (confirm(`Remove ${d.name} from the session? Its markups are kept but it is no longer listed.`)) onRun(() => session.removeDocument(d.id));
+                              if (confirm(msg('Remove {name} from the session? Its markups are kept but it is no longer listed.', { name: d.name }))) onRun(() => session.removeDocument(d.id));
                             }}
                           >
-                            Remove
+                            {msg('Remove')}
                           </button>
                         )}
                     </span>
@@ -670,9 +664,9 @@ function RecordView({
         value={tab}
         onChange={setTab}
         tabs={[
-          { id: 'record', label: 'Record' },
-          { id: 'alerts', label: 'Notifications' },
-          { id: 'pending', label: 'Pending', count: pending.length },
+          { id: 'record', label: msg('Record') },
+          { id: 'alerts', label: msg('Notifications') },
+          { id: 'pending', label: msg('Pending'), count: pending.length },
         ]}
       />
       <ol
@@ -683,26 +677,26 @@ function RecordView({
           pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24;
         }}
       >
-        {tab === 'pending' && pending.length === 0 && <li className="rc-empty">No pending invitations.</li>}
+        {tab === 'pending' && pending.length === 0 && <li className="rc-empty">{msg('No pending invitations.')}</li>}
         {tab === 'pending' &&
           pending.map((p) => (
             <li key={p.email ?? p.name}>
               <PersonIcon />
               <span>
-                <b>{p.name}</b>: Not joined yet
+                {keyed(msgParts('{b}: Not joined yet', { b: <b>{p.name}</b> }))}
               </span>
             </li>
           ))}
-        {tab !== 'pending' && shown.length === 0 && <li className="rc-empty">{tab === 'alerts' ? 'No notifications.' : 'Nothing yet.'}</li>}
+        {tab !== 'pending' && shown.length === 0 && <li className="rc-empty">{tab === 'alerts' ? msg('No notifications.') : msg('Nothing yet.')}</li>}
         {tab !== 'pending' &&
           shown.map((e) => {
             const target = e.docId && docName(e.docId) ? e.docId : null;
-            const text = e.kind === 'alert' ? `Markup alert${target ? ` (${docName(target)})` : ''}: ${e.text}` : e.text;
+            const text = e.kind === 'alert' ? (target ? msg('Markup alert ({document}): {text}', { document: docName(target), text: e.text }) : msg('Markup alert: {text}', { text: e.text })) : e.text;
             return (
               <li key={e.id}>
                 <PersonIcon />
                 {target && (e.kind === 'markup' || e.kind === 'alert') ? (
-                  <button type="button" className="link" onClick={() => onGoTo(target, e.page ?? null)} title="Show on the drawing">
+                  <button type="button" className="link" onClick={() => onGoTo(target, e.page ?? null)} title={msg('Show on the drawing')}>
                     <b>{e.author}</b>: {text}
                   </button>
                 ) : (
@@ -725,9 +719,9 @@ function RecordView({
             pinned.current = true;
           }}
         >
-          <input value={draft} onChange={(ev) => setDraft(ev.target.value)} placeholder="Chat" aria-label="Chat" maxLength={2000} />
+          <input value={draft} onChange={(ev) => setDraft(ev.target.value)} placeholder={msg('Chat')} aria-label={msg('Chat')} maxLength={2000} />
           <button type="submit" disabled={!draft.trim()}>
-            Send
+            {msg('Send')}
           </button>
         </form>
       )}
@@ -745,14 +739,14 @@ function MicrosoftIdentity({ onChanged }: { onChanged: () => void }) {
     <div className="cloud-identity">
       {user ? (
         <>
-          <span title={`${user.name}. ${stay ? 'Kept signed in on this device.' : 'Signed in for this tab only; closing it signs you out.'}`}>
-            Microsoft: <b>{user.email}</b>
+          <span title={`${user.name}. ${stay ? msg('Kept signed in on this device.') : msg('Signed in for this tab only; closing it signs you out.')}`}>
+            {keyed(msgParts('Microsoft: {b}', { b: <b>{user.email}</b> }))}
           </span>
-          <button className="btn small flat" onClick={() => void signOutOfMicrosoft().then(onChanged)} title="Forget the sign-in in redcolumn">
-            Sign out
+          <button className="btn small flat" onClick={() => void signOutOfMicrosoft().then(onChanged)} title={msg('Forget the sign-in in redcolumn')}>
+            {msg('Sign out')}
           </button>
-          <button className="btn small flat" onClick={() => void signOutOfMicrosoft({ everywhere: true }).then(onChanged)} title="Also end the Microsoft session in this browser">
-            Sign out everywhere
+          <button className="btn small flat" onClick={() => void signOutOfMicrosoft({ everywhere: true }).then(onChanged)} title={msg('Also end the Microsoft session in this browser')}>
+            {msg('Sign out everywhere')}
           </button>
         </>
       ) : (
@@ -762,23 +756,15 @@ function MicrosoftIdentity({ onChanged }: { onChanged: () => void }) {
             setError(null);
             signInWithMicrosoft().then(onChanged, (err: unknown) => setError(err instanceof Error ? err.message : String(err)));
           }}
-          title="Needed to start or join sessions in OneDrive"
+          title={msg('Needed to start or join sessions in OneDrive')}
         >
-          Sign in with Microsoft
+          {msg('Sign in with Microsoft')}
         </button>
       )}
       {/* The desktop app keeps the sign-in in the system keychain instead. */}
       {!user && !desktop() && (
-        <label title="Off: closing this tab signs you out of Microsoft. On: the sign-in is kept in this browser for up to a day.">
-          <input
-            type="checkbox"
-            checked={stay}
-            onChange={(e) => {
-              setStaySignedInToMicrosoft(e.target.checked);
-              setStay(e.target.checked);
-            }}
-          />{' '}
-          Stay signed in on this device
+        <label title={msg('Off: closing this tab signs you out of Microsoft. On: the sign-in is kept in this browser for up to a day.')}>
+          {keyed(msgParts('{input} Stay signed in on this device', { input: <input type="checkbox" checked={stay} onChange={(e) => { setStaySignedInToMicrosoft(e.target.checked); setStay(e.target.checked); }} /> }))}
         </label>
       )}
       {error && <p className="session-error">{error}</p>}

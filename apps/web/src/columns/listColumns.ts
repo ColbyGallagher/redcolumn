@@ -1,5 +1,6 @@
 import { isMeasureKind, isTextType, markupLabel, MARKUP_LABELS, measureProps, spacePath, threadReplies, type Assembly, type CustomColumn, type Markup, type MarkupStatusDef, type Reply } from '@nb/markup';
 import { areaUnitOf, DEFAULT_SCALE, effectiveSlopeFactor, formatArea, formatLength, formatMeasure, formatSlope, formatVolume, measureDetails, measureValue, METERS_PER_UNIT, planValue, quantityOf, slopeApplies, slopeIsFlat, toDisplayQuantity, volumeUnitOf, type Scale } from '@nb/measure';
+import { formatFixed, formatTrimmed, parseNumber as parseTypedNumber } from '@nb/i18n';
 import type { SheetInfo } from '@nb/sheets';
 import { evalFormula, FormulaError, type Value } from './formula';
 
@@ -137,11 +138,26 @@ export interface CellContext {
 
 const cell = (text: string, num: number | null = null): Cell => ({ text, num });
 
+/** A number typed in a filter, in the chosen number format (`2,5` in German), with any `$` ignored. */
 function parseNumber(s: string): number | null {
+  return parseTypedNumber(s.replace(/\$/g, ''));
+}
+
+/**
+ * A number stored in a markup's field: always written the JavaScript way (`1.125`), by number inputs
+ * and Excel sync, whatever the number format. Group commas and `$` are ignored.
+ */
+function storedNumber(s: string): number | null {
   const n = Number(s.replace(/[,$\s]/g, ''));
   return s.trim() !== '' && Number.isFinite(n) ? n : null;
 }
 
+/** A number for a cell, in the chosen number format (`1,25` in German), so filters read it back the same. */
+function cellNumber(n: number, decimals?: number): string {
+  return decimals !== undefined ? formatFixed(n, decimals, false) : formatTrimmed(n, 6, false);
+}
+
+/** A number as data (CSV and the like): the JavaScript way, whatever the number format. */
 export function formatNumber(n: number, decimals?: number): string {
   return decimals !== undefined ? n.toFixed(decimals) : String(Math.round(n * 1e6) / 1e6);
 }
@@ -232,8 +248,8 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
     const raw = m.fields?.[c.id] ?? '';
     if (c.type === 'formula') formulas.push(c);
     else if (c.type === 'number') {
-      const n = parseNumber(raw);
-      out[customKey(c.id)] = cell(n !== null ? formatNumber(n, c.decimals) : raw, n);
+      const n = storedNumber(raw);
+      out[customKey(c.id)] = cell(n !== null ? cellNumber(n, c.decimals) : raw, n);
     } else if (c.type === 'checkmark') {
       const on = raw === 'true';
       out[customKey(c.id)] = { text: on ? '✓' : '', num: on ? 1 : 0 };
@@ -241,6 +257,8 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
       const t = raw ? Date.parse(raw) : Number.NaN;
       out[customKey(c.id)] = { text: raw && !Number.isNaN(t) ? new Date(t).toLocaleDateString(undefined, { timeZone: 'UTC' }) : raw, num: Number.isNaN(t) ? null : t };
     } else {
+      // Text and choice values are typed as words, so a number in one is read in the chosen number
+      // format (`2,5` in German), as a filter is.
       out[customKey(c.id)] = cell(raw, parseNumber(raw));
     }
   }
@@ -272,7 +290,7 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
       'error' in res
         ? { text: '', num: null, error: res.error }
         : typeof res.value === 'number'
-          ? { text: formatNumber(res.value, c.decimals), num: res.value }
+          ? { text: cellNumber(res.value, c.decimals), num: res.value }
           : { text: String(res.value), num: null };
     out[key] = result;
     return result;

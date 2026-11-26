@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useState } from 'react';
 import { parsePageRange } from '../documents/printPdf';
 
@@ -28,20 +29,20 @@ export function DeletePagesDialog({ pageCount, selected, onDelete, onCancel }: P
   const parsed = which === 'range' ? parsePageRange(range, pageCount) : selected;
   const pages = parsed && parsed.length ? parsed : null;
   const problem = !pages
-    ? 'Enter a page range such as 1-3, 5.'
+    ? msg('Enter a page range such as 1-3, 5.')
     : which === 'range' && !range.trim()
-      ? 'Enter the pages to delete.'
+      ? msg('Enter the pages to delete.')
       : pages.length >= pageCount
-        ? 'A document needs at least one page: leave one out.'
+        ? msg('A document needs at least one page: leave one out.')
         : null;
-  const what = selected.length > 1 ? `Selected pages (${describe(selected)})` : `This page (${describe(selected)})`;
+  const what = selected.length > 1 ? msg('Selected pages ({describe})', { describe: describe(selected) }) : msg('This page ({describe})', { describe: describe(selected) });
 
   return (
     <div className="modal-backdrop" onMouseDown={onCancel}>
       <form
         className="modal page-tools print-dialog"
         role="dialog"
-        aria-label="Delete Pages"
+        aria-label={msg('Delete Pages')}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
@@ -52,35 +53,35 @@ export function DeletePagesDialog({ pageCount, selected, onDelete, onCancel }: P
           if (!problem && pages) onDelete(pages);
         }}
       >
-        <h3>Delete Pages</h3>
+        <h3>{msg('Delete Pages')}</h3>
         <fieldset>
-          <legend>Pages</legend>
+          <legend>{msg('Pages')}</legend>
           <label className="row">
             <input type="radio" checked={which === 'selected'} onChange={() => setWhich('selected')} />
             {what}
           </label>
           <label className="row">
             <input type="radio" checked={which === 'range'} onChange={() => setWhich('range')} />
-            Range
+            {msg('Range')}
             <input
               type="text"
               value={range}
-              aria-label="Page range"
-              placeholder={`e.g. 1-3, 5 (of ${pageCount})`}
+              aria-label={msg('Page range')}
+              placeholder={msg('e.g. 1-3, 5 (of {pageCount})', { pageCount })}
               onFocus={() => setWhich('range')}
               onChange={(e) => setRange(e.target.value)}
             />
           </label>
         </fieldset>
-        <p className="muted">Markups on the deleted pages are deleted too.</p>
+        <p className="muted">{msg('Markups on the deleted pages are deleted too.')}</p>
         {problem && <p className="print-error">{problem}</p>}
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!!problem} autoFocus>
-            Delete {pages && !problem ? (pages.length > 1 ? `${pages.length} pages` : 'page') : ''}
+            {pages && !problem ? msg('Delete {count, plural, one {page} other {# pages}}', { count: pages.length }) : msg('Delete')}
           </button>
         </div>
       </form>

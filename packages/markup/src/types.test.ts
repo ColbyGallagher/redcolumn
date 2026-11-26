@@ -8,6 +8,7 @@ import { importAnnotations, type ImportableAnnotation } from './import.ts';
 import { readPdfExtras } from './pdfExtras.ts';
 import { DEFAULT_STYLES, MARKUP_TYPES, type Markup, type MarkupType, type Point } from './model.ts';
 import { TYPE_INFO } from './types.ts';
+import { assertValidPdf } from '../test/qpdf.ts';
 
 /** Enough points to draw each type. */
 function sample(type: MarkupType): Point[] {
@@ -49,6 +50,7 @@ test('every markup type exports to a PDF annotation and comes back exactly, repl
     modifiedAt: i,
   }));
   const bytes = await exportWithAnnotations(original.buffer as ArrayBuffer, markups);
+  assertValidPdf(bytes, 'exportWithAnnotations all markup types');
   // Read each annotation's markup data back as pdf-core does, and import it.
   const out = await PDFDocument.load(bytes);
   const annots = out.getPage(0).node.Annots()!;
@@ -90,6 +92,7 @@ test('a reply to a reply points at that reply in the PDF', async () => {
   ];
   const blank = await doc.save();
   const bytes = await exportWithAnnotations(blank.buffer as ArrayBuffer, markups);
+  assertValidPdf(bytes, 'exportWithAnnotations nested replies');
   const out = await PDFDocument.load(bytes);
   const annots = out.getPage(0).node.Annots()!;
   const dicts = annots.asArray().map((r) => out.context.lookup(r, PDFDict));

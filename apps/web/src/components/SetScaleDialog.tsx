@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import {
   DECIMAL_PRECISIONS,
@@ -14,7 +16,7 @@ import {
   type Scale,
 } from '@nb/measure';
 import { SCALE_GROUPS, unitsFor, useSettings } from '../settings/settings';
-import { PAPER_UNITS, closeScale, loadPresets, matchPreset, pagesOf, precisionText, precisionValue, rangeText, writePresets, type SavedPreset } from '../measure/scalePresets';
+import { PAPER_UNITS, closeScale, loadPresets, committedFormat, matchPreset, pagesOf, precisionText, precisionValue, rangeText, writePresets, type SavedPreset } from '../measure/scalePresets';
 
 interface Props {
   /** Scale of the first page the dialog acts on, used to fill the fields. */
@@ -42,7 +44,7 @@ interface Side {
 
 function sideOf(scale: Scale): Side {
   const p = scaleParts(scale);
-  return { paper: formatScaleNumber(p.paper), paperUnit: p.paperUnit, real: formatScaleNumber(p.real), realUnit: p.realUnit };
+  return { paper: formatScaleNumber(p.paper, true), paperUnit: p.paperUnit, real: formatScaleNumber(p.real, true), realUnit: p.realUnit };
 }
 
 /** Bluebeam's Set Page Scale: pages, a preset or custom equation, an optional separate Y scale, and precision. */
@@ -89,8 +91,7 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
 
   const built = ((): Scale | null => {
     if (!xBase) return null;
-    const feetInches = precValue[0] === 'f';
-    const precision = Number(precValue.slice(1));
+    const { feetInches, precision } = committedFormat(precValue, xBase.unit, scale);
     const builtin = SCALE_PRESETS.find((p) => closeScale(p.scale, xBase));
     const next: Scale = { ...(builtin?.scale ?? xBase), feetInches, precision };
     // Area and volume wording set elsewhere stays with the page.
@@ -118,13 +119,13 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
     // A scale from the other measurement system (a metric ratio while working in imperial) still has to appear.
     const outside = current && !groups.includes(current.group);
     return (
-      <select className="scale-preset" aria-label={`${axis} scale preset`} value={value} onChange={(e) => onChange(e.target.value)}>
+      <select className="scale-preset" aria-label={msg('{axis} scale preset', { axis })} value={value} onChange={(e) => onChange(e.target.value)}>
         <option value="" disabled>
-          Choose a preset
+          {msg('Choose a preset')}
         </option>
         {outside && <option value={current.label}>{current.label}</option>}
         {saved.length > 0 && (
-          <optgroup label="Saved">
+          <optgroup label={msg('Saved')}>
             {saved.map((s) => (
               <option key={s.label} value={`saved:${s.label}`}>
                 {s.label}
@@ -149,8 +150,8 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
     const units = unitsFor(system, LENGTH_UNITS, side.realUnit);
     return (
       <div className="scale-eq">
-        <input aria-label={`${axis} paper length`} value={side.paper} aria-invalid={!parseScaleNumber(side.paper)} onChange={(e) => set({ ...side, paper: e.target.value })} />
-        <select aria-label={`${axis} paper unit`} value={side.paperUnit} onChange={(e) => set({ ...side, paperUnit: e.target.value as PaperUnit })}>
+        <input aria-label={msg('{axis} paper length', { axis })} value={side.paper} aria-invalid={!parseScaleNumber(side.paper)} onChange={(e) => set({ ...side, paper: e.target.value })} />
+        <select aria-label={msg('{axis} paper unit', { axis })} value={side.paperUnit} onChange={(e) => set({ ...side, paperUnit: e.target.value as PaperUnit })}>
           {PAPER_UNITS.map((u) => (
             <option key={u} value={u}>
               {u}
@@ -158,8 +159,8 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
           ))}
         </select>
         <span className="scale-eq-sign">=</span>
-        <input aria-label={`${axis} real length`} value={side.real} aria-invalid={!parseScaleNumber(side.real)} onChange={(e) => set({ ...side, real: e.target.value })} />
-        <select aria-label={`${axis} real unit`} value={side.realUnit} onChange={(e) => set({ ...side, realUnit: e.target.value as LengthUnit })}>
+        <input aria-label={msg('{axis} real length', { axis })} value={side.real} aria-invalid={!parseScaleNumber(side.real)} onChange={(e) => set({ ...side, real: e.target.value })} />
+        <select aria-label={msg('{axis} real unit', { axis })} value={side.realUnit} onChange={(e) => set({ ...side, realUnit: e.target.value as LengthUnit })}>
           {units.map((u) => (
             <option key={u} value={u}>
               {u}
@@ -175,7 +176,7 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
       <form
         className="modal scale-dialog"
         role="dialog"
-        aria-label="Apply scale to pages"
+        aria-label={msg('Apply scale to pages')}
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
@@ -186,25 +187,25 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Apply Scale to Pages</h3>
+        <h3>{msg('Apply Scale to Pages')}</h3>
         <div className="scale-grid">
-          <span className="scale-k">Pages:</span>
+          <span className="scale-k">{msg('Pages:')}</span>
           <div className="scale-pages">
             <div className="row">
-              <select aria-label="Pages" value={pagesMode} onChange={(e) => setPagesMode(e.target.value as PagesMode)}>
-                <option value="current">Current ({currentPage + 1})</option>
-                {selected.length > 1 && <option value="selected">Selected ({rangeText(selected)})</option>}
-                <option value="all">All ({pageCount})</option>
-                <option value="range">Page range…</option>
+              <select aria-label={msg('Pages')} value={pagesMode} onChange={(e) => setPagesMode(e.target.value as PagesMode)}>
+                <option value="current">{msg('Current ({page})', { page: currentPage + 1 })}</option>
+                {selected.length > 1 && <option value="selected">{msg('Selected ({rangeText})', { rangeText: rangeText(selected) })}</option>}
+                <option value="all">{msg('All ({pageCount})', { pageCount })}</option>
+                <option value="range">{msg('Page range…')}</option>
               </select>
               {pagesMode === 'range' && (
-                <input autoFocus aria-label="Page range" placeholder="e.g. 3-5 or 1,5" value={pagesText} aria-invalid={pagesText !== '' && !pages} onChange={(e) => setPagesText(e.target.value)} />
+                <input autoFocus aria-label={msg('Page range')} placeholder={msg('e.g. 3-5 or 1,5')} value={pagesText} aria-invalid={pagesText !== '' && !pages} onChange={(e) => setPagesText(e.target.value)} />
               )}
             </div>
-            <small>e.g. 3-5 or 1,5</small>
+            <small>{msg('e.g. 3-5 or 1,5')}</small>
           </div>
 
-          <span className="scale-k">Scale:</span>
+          <span className="scale-k">{msg('Scale:')}</span>
           <div className="scale-mode">
             <label className="check">
               <input type="radio" name="scale-mode" checked={mode === 'preset'}
@@ -217,20 +218,20 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
                   if (typedY) setYPreset(presetKey(typedY, saved));
                 }}
               />{' '}
-              Preset
+              {msg('Preset')}
             </label>
             <label className="check">
-              <input type="radio" name="scale-mode" checked={mode === 'custom'} onChange={() => setMode('custom')} /> Custom
+              {keyed(msgParts('{input} Custom', { input: <input type="radio" name="scale-mode" checked={mode === 'custom'} onChange={() => setMode('custom')} /> }))}
             </label>
             <span className="spacer" />
-            <button type="button" className="btn small" disabled={!onCalibrate} title="Draw a line of known length on the page" onClick={() => onCalibrate?.()}>
-              Calibrate
+            <button type="button" className="btn small" disabled={!onCalibrate} title={msg('Draw a line of known length on the page')} onClick={() => onCalibrate?.()}>
+              {msg('Calibrate')}
             </button>
             <button
               type="button"
               className="btn small"
               disabled={!canSave}
-              title={canSave ? 'Save this scale in the preset list' : 'This scale is already a preset'}
+              title={canSave ? msg('Save this scale in the preset list') : msg('This scale is already a preset')}
               onClick={() => {
                 if (!built) return;
                 const label = scaleEquation(built);
@@ -239,7 +240,7 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
                 setSaved(next);
               }}
             >
-              + Add Preset
+              {msg('+ Add Preset')}
             </button>
           </div>
 
@@ -283,11 +284,11 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
                 }
               }}
             />
-            Separate Y Scale
+            {msg('Separate Y Scale')}
           </label>
 
-          <span className="scale-k">Precision:</span>
-          <select aria-label="Precision" value={precValue} onChange={(e) => setPrec(e.target.value)}>
+          <span className="scale-k">{msg('Precision:')}</span>
+          <select aria-label={msg('Precision')} value={precValue} onChange={(e) => setPrec(e.target.value)}>
             {DECIMAL_PRECISIONS.map((p) => (
               <option key={`d${p}`} value={`d${p}`}>
                 {precisionText(`d${p}`)}
@@ -303,10 +304,10 @@ export function SetScaleDialog({ scale, pageCount, currentPage, selected, initia
         </div>
         <div className="actions">
           <button type="submit" className="btn primary" disabled={!pages?.length || !built}>
-            Apply Scale
+            {msg('Apply Scale')}
           </button>
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
         </div>
       </form>

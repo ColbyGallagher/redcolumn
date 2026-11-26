@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   DEFAULT_LINE_SETS,
@@ -125,13 +127,13 @@ function RowButtons({ index, count, what, onMove, onRemove, extra }: { index: nu
   return (
     <span className="ls-row-buttons">
       {extra}
-      <button type="button" className="btn small flat" aria-label={`Move ${what} up`} title="Move up" disabled={index === 0} onClick={() => onMove(index - 1)}>
+      <button type="button" className="btn small flat" aria-label={msg('Move {what} up', { what })} title={msg('Move up')} disabled={index === 0} onClick={() => onMove(index - 1)}>
         ↑
       </button>
-      <button type="button" className="btn small flat" aria-label={`Move ${what} down`} title="Move down" disabled={index === count - 1} onClick={() => onMove(index + 1)}>
+      <button type="button" className="btn small flat" aria-label={msg('Move {what} down', { what })} title={msg('Move down')} disabled={index === count - 1} onClick={() => onMove(index + 1)}>
         ↓
       </button>
-      <button type="button" className="btn small flat" aria-label={`Remove ${what}`} title="Remove" onClick={onRemove}>
+      <button type="button" className="btn small flat" aria-label={msg('Remove {what}', { what })} title={msg('Remove')} onClick={onRemove}>
         ×
       </button>
     </span>
@@ -175,7 +177,7 @@ function SymbolCanvas({ c, onChange }: { c: Extract<DraftComponent, { kind: 'vec
       height={size}
       viewBox={`0 0 ${size} ${size}`}
       role="img"
-      aria-label="Symbol outline: click to add a point"
+      aria-label={msg('Symbol outline: click to add a point')}
       onClick={(e) => {
         const box = e.currentTarget.getBoundingClientRect();
         const x = Math.round((((e.clientX - box.left) / box.width) * size - size / 2) / unit / 0.5) * 0.5;
@@ -200,34 +202,34 @@ function ComponentFields({ c, onChange }: { c: DraftComponent; onChange: (c: Dra
     case 'space':
       return (
         <label className="ls-field">
-          Length <Num label="Length" value={c.width} min={0} onChange={(width) => onChange({ ...c, width })} />
+          {keyed(msgParts('Length {num}', { num: <Num label={msg('Length')} value={c.width} min={0} onChange={(width) => onChange({ ...c, width })} /> }))}
         </label>
       );
     case 'text':
       return (
         <>
           <label className="ls-field">
-            Text <input aria-label="Text" value={c.text} style={{ width: 70 }} onChange={(e) => onChange({ ...c, text: e.target.value })} />
+            {keyed(msgParts('Text {input}', { input: <input aria-label={msg('Text')} value={c.text} style={{ width: 70 }} onChange={(e) => onChange({ ...c, text: e.target.value })} /> }))}
           </label>
           <label className="ls-field">
-            Font
-            <select aria-label="Font" value={/times/i.test(c.font) ? 'Times-Roman' : /courier/i.test(c.font) ? 'Courier' : 'Helvetica'} onChange={(e) => onChange({ ...c, font: e.target.value })}>
-              <option value="Helvetica">Sans</option>
-              <option value="Times-Roman">Serif</option>
-              <option value="Courier">Mono</option>
+            {msg('Font')}
+            <select aria-label={msg('Font')} value={/times/i.test(c.font) ? 'Times-Roman' : /courier/i.test(c.font) ? 'Courier' : 'Helvetica'} onChange={(e) => onChange({ ...c, font: e.target.value })}>
+              <option value="Helvetica">{msg('Sans')}</option>
+              <option value="Times-Roman">{msg('Serif')}</option>
+              <option value="Courier">{msg('Mono')}</option>
             </select>
           </label>
           <label className="ls-field">
-            Size <Num label="Font size" value={c.size} min={0.5} onChange={(size) => onChange({ ...c, size })} width={56} />
+            {keyed(msgParts('Size {num}', { num: <Num label={msg('Font size')} value={c.size} min={0.5} onChange={(size) => onChange({ ...c, size })} width={56} /> }))}
           </label>
           <label className="ls-check">
-            <input type="checkbox" checked={c.bold} onChange={(e) => onChange({ ...c, bold: e.target.checked })} /> Bold
+            {keyed(msgParts('{input} Bold', { input: <input type="checkbox" checked={c.bold} onChange={(e) => onChange({ ...c, bold: e.target.checked })} /> }))}
           </label>
           <label className="ls-check">
-            <input type="checkbox" checked={c.italic} onChange={(e) => onChange({ ...c, italic: e.target.checked })} /> Italic
+            {keyed(msgParts('{input} Italic', { input: <input type="checkbox" checked={c.italic} onChange={(e) => onChange({ ...c, italic: e.target.checked })} /> }))}
           </label>
-          <label className="ls-check" title="Turn the text over on lines drawn right to left, so it never reads upside down">
-            <input type="checkbox" checked={c.upright} onChange={(e) => onChange({ ...c, upright: e.target.checked })} /> Keep upright
+          <label className="ls-check" title={msg('Turn the text over on lines drawn right to left, so it never reads upside down')}>
+            {keyed(msgParts('{input} Keep upright', { input: <input type="checkbox" checked={c.upright} onChange={(e) => onChange({ ...c, upright: e.target.checked })} /> }))}
           </label>
         </>
       );
@@ -235,17 +237,17 @@ function ComponentFields({ c, onChange }: { c: DraftComponent; onChange: (c: Dra
       return (
         <div className="ls-symbol">
           <div className="ls-symbol-props">
-            <label className="ls-field" title="Length along the line before the symbol's origin">
-              Left <Num label="Length before the origin" value={c.left} min={0} onChange={(left) => onChange({ ...c, left })} />
+            <label className="ls-field" title={msg('Length along the line before the symbol\'s origin')}>
+              {keyed(msgParts('Left {num}', { num: <Num label={msg('Length before the origin')} value={c.left} min={0} onChange={(left) => onChange({ ...c, left })} /> }))}
             </label>
-            <label className="ls-field" title="Length along the line after the symbol's origin">
-              Right <Num label="Length after the origin" value={c.right} min={0} onChange={(right) => onChange({ ...c, right })} />
+            <label className="ls-field" title={msg('Length along the line after the symbol\'s origin')}>
+              {keyed(msgParts('Right {num}', { num: <Num label={msg('Length after the origin')} value={c.right} min={0} onChange={(right) => onChange({ ...c, right })} /> }))}
             </label>
             <label className="ls-field">
-              Scale <Num label="Symbol scale" value={c.scale} min={0.05} step={0.1} onChange={(scale) => onChange({ ...c, scale })} />
+              {keyed(msgParts('Scale {num}', { num: <Num label={msg('Symbol scale')} value={c.scale} min={0.05} step={0.1} onChange={(scale) => onChange({ ...c, scale })} /> }))}
             </label>
             <label className="ls-check">
-              <input type="checkbox" checked={c.fill} onChange={(e) => onChange({ ...c, fill: e.target.checked })} /> Filled
+              {keyed(msgParts('{input} Filled', { input: <input type="checkbox" checked={c.fill} onChange={(e) => onChange({ ...c, fill: e.target.checked })} /> }))}
             </label>
           </div>
           <div className="ls-symbol-body">
@@ -254,7 +256,7 @@ function ComponentFields({ c, onChange }: { c: DraftComponent; onChange: (c: Dra
               <table>
                 <thead>
                   <tr>
-                    <th>Point</th>
+                    <th>{msg('Point')}</th>
                     <th>X</th>
                     <th>Y</th>
                     <th />
@@ -266,20 +268,20 @@ function ComponentFields({ c, onChange }: { c: DraftComponent; onChange: (c: Dra
                     return (
                       <tr key={i}>
                         <td>
-                          <select aria-label={`Point ${i + 1} type`} value={i === 0 ? 'start' : p.type} disabled={i === 0} onChange={(e) => set({ type: e.target.value as SymbolPoint['type'] })}>
-                            <option value="start">Move to</option>
-                            <option value="line">Line to</option>
-                            <option value="curve">Curve</option>
+                          <select aria-label={msg('Point {number} type', { number: i + 1 })} value={i === 0 ? 'start' : p.type} disabled={i === 0} onChange={(e) => set({ type: e.target.value as SymbolPoint['type'] })}>
+                            <option value="start">{msg('Move to')}</option>
+                            <option value="line">{msg('Line to')}</option>
+                            <option value="curve">{msg('Curve')}</option>
                           </select>
                         </td>
                         <td>
-                          <Num label={`Point ${i + 1} x`} value={p.x} onChange={(x) => set({ x })} width={52} />
+                          <Num label={msg('Point {number} x', { number: i + 1 })} value={p.x} onChange={(x) => set({ x })} width={52} />
                         </td>
                         <td>
-                          <Num label={`Point ${i + 1} y`} value={p.y} onChange={(y) => set({ y })} width={52} />
+                          <Num label={msg('Point {number} y', { number: i + 1 })} value={p.y} onChange={(y) => set({ y })} width={52} />
                         </td>
                         <td>
-                          <button type="button" className="btn small flat" aria-label={`Remove point ${i + 1}`} onClick={() => onChange({ ...c, points: c.points.filter((_, j) => j !== i) })}>
+                          <button type="button" className="btn small flat" aria-label={msg('Remove point {number}', { number: i + 1 })} onClick={() => onChange({ ...c, points: c.points.filter((_, j) => j !== i) })}>
                             ×
                           </button>
                         </td>
@@ -288,10 +290,10 @@ function ComponentFields({ c, onChange }: { c: DraftComponent; onChange: (c: Dra
                   })}
                 </tbody>
               </table>
-              <p className="pref-hint">Click the grid to add a point; Shift-click starts a new stroke. Curves take three points: two control points, then the end.</p>
+              <p className="pref-hint">{msg('Click the grid to add a point; Shift-click starts a new stroke. Curves take three points: two control points, then the end.')}</p>
               {c.points.length > 0 && (
                 <button type="button" className="btn small" onClick={() => onChange({ ...c, points: [] })}>
-                  Clear points
+                  {msg('Clear points')}
                 </button>
               )}
             </div>
@@ -307,24 +309,23 @@ function LineEditor({ line, index, count, onChange, onMove, onRemove }: { line: 
   return (
     <fieldset className="ls-line">
       <legend>
-        Line {index + 1}
-        <RowButtons index={index} count={count} what={`line ${index + 1}`} onMove={onMove} onRemove={onRemove} />
+        {keyed(msgParts('Line {number}{rowbuttons}', { number: index + 1, rowbuttons: <RowButtons index={index} count={count} what={msg('line {number}', { number: index + 1 })} onMove={onMove} onRemove={onRemove} /> }))}
       </legend>
-      <label className="ls-field" title="Distance to the left of the drawn path (negative: to the right)">
-        Offset <Num label={`Line ${index + 1} offset`} value={line.offset} onChange={(offset) => onChange({ ...line, offset })} />
+      <label className="ls-field" title={msg('Distance to the left of the drawn path (negative: to the right)')}>
+        {keyed(msgParts('Offset {num}', { num: <Num label={msg('Line {number} offset', { number: index + 1 })} value={line.offset} onChange={(offset) => onChange({ ...line, offset })} /> }))}
       </label>
-      {line.components.length === 0 && <p className="pref-hint">No components: this line draws solid.</p>}
+      {line.components.length === 0 && <p className="pref-hint">{msg('No components: this line draws solid.')}</p>}
       <ol className="ls-components">
         {line.components.map((c, i) => (
           <li key={i}>
             <span className="ls-kind">{DRAFT_COMPONENT_KINDS.find((k) => k.kind === c.kind)!.label}</span>
             <ComponentFields c={c} onChange={(n) => setComponents(line.components.map((x, j) => (j === i ? n : x)))} />
-            <RowButtons index={i} count={line.components.length} what={`component ${i + 1}`} onMove={(to) => setComponents(move(line.components, i, to))} onRemove={() => setComponents(line.components.filter((_, j) => j !== i))} />
+            <RowButtons index={i} count={line.components.length} what={msg('component {number}', { number: i + 1 })} onMove={(to) => setComponents(move(line.components, i, to))} onRemove={() => setComponents(line.components.filter((_, j) => j !== i))} />
           </li>
         ))}
       </ol>
       <div className="ls-add">
-        <select aria-label="Component type to add" value={adding} onChange={(e) => setAdding(e.target.value as DraftComponent['kind'])}>
+        <select aria-label={msg('Component type to add')} value={adding} onChange={(e) => setAdding(e.target.value as DraftComponent['kind'])}>
           {DRAFT_COMPONENT_KINDS.map((k) => (
             <option key={k.kind} value={k.kind}>
               {k.label}
@@ -332,7 +333,7 @@ function LineEditor({ line, index, count, onChange, onMove, onRemove }: { line: 
           ))}
         </select>
         <button type="button" className="btn small" onClick={() => setComponents([...line.components, newComponent(adding)])}>
-          Add component
+          {msg('Add component')}
         </button>
       </div>
     </fieldset>
@@ -344,16 +345,16 @@ function StyleEditor({ editing, takenNames, onSave, onCancel }: { editing: Editi
   const changed = JSON.stringify(draft) !== JSON.stringify(editing.draft);
   /** Leaves the editor, asking first when there are changes to lose. */
   const cancel = () => {
-    if (!changed || confirm('Discard the changes to this line style?')) onCancel();
+    if (!changed || confirm(msg('Discard the changes to this line style?'))) onCancel();
   };
   const [lineWidth, setLineWidth] = useState(2);
-  const problem = draftProblem(draft) ?? (takenNames.includes(draft.name.trim()) ? 'Another line style in this set has that name.' : null);
+  const problem = draftProblem(draft) ?? (takenNames.includes(draft.name.trim()) ? msg('Another line style in this set has that name.') : null);
   const preview = fromDraft(draft);
   const setLines = (lines: DraftLine[]) => setDraft({ ...draft, lines });
   return (
     <div className="modal-backdrop" onMouseDown={cancel}>
-      <div className="modal line-styles-dialog" role="dialog" aria-label="Edit line style" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && cancel()}>
-        <h3>{editing.styleIndex === null ? 'New line style' : 'Edit line style'}</h3>
+      <div className="modal line-styles-dialog" role="dialog" aria-label={msg('Edit line style')} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && cancel()}>
+        <h3>{editing.styleIndex === null ? msg('New line style') : msg('Edit line style')}</h3>
         <form
           className="ls-editor"
           // The number boxes' steps are for the arrows only: any value is fine, and draftProblem says what is not.
@@ -364,19 +365,17 @@ function StyleEditor({ editing, takenNames, onSave, onCancel }: { editing: Editi
           }}
         >
           <div className="form-grid">
-            <label htmlFor="ls-name">Name</label>
+            <label htmlFor="ls-name">{msg('Name')}</label>
             <input id="ls-name" value={draft.name} autoFocus onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
             <span />
-            <label className="ls-check" title="Lengths, offsets and text sizes are multiples of the line width, so the pattern keeps its proportions on thicker lines">
-              <input type="checkbox" checked={draft.scaleWithWidth} onChange={(e) => setDraft({ ...draft, scaleWithWidth: e.target.checked })} /> Scale with line width
+            <label className="ls-check" title={msg('Lengths, offsets and text sizes are multiples of the line width, so the pattern keeps its proportions on thicker lines')}>
+              {keyed(msgParts('{input} Scale with line width', { input: <input type="checkbox" checked={draft.scaleWithWidth} onChange={(e) => setDraft({ ...draft, scaleWithWidth: e.target.checked })} /> }))}
             </label>
           </div>
           <div className="ls-preview-box">
             <LineStylePreview style={preview} width={420} height={90} lineWidth={lineWidth} />
             <label className="ls-field">
-              Preview line width
-              <input type="range" min={0.5} max={6} step={0.5} value={lineWidth} onChange={(e) => setLineWidth(Number(e.target.value))} aria-label="Preview line width" />
-              <span>{lineWidth} pt</span>
+              {keyed(msgParts('Preview line width{input}{span}', { input: <input type="range" min={0.5} max={6} step={0.5} value={lineWidth} onChange={(e) => setLineWidth(Number(e.target.value))} aria-label={msg('Preview line width')} />, span: <span>{msg('{lineWidth} pt', { lineWidth })}</span> }))}
             </label>
           </div>
           <div className="ls-lines">
@@ -392,7 +391,7 @@ function StyleEditor({ editing, takenNames, onSave, onCancel }: { editing: Editi
               />
             ))}
             <button type="button" className="btn small" onClick={() => setLines([...draft.lines, { offset: draft.lines.length ? draft.lines[draft.lines.length - 1]!.offset - 2 : 0, components: [] }])}>
-              Add line
+              {msg('Add line')}
             </button>
           </div>
           {problem && (
@@ -402,11 +401,11 @@ function StyleEditor({ editing, takenNames, onSave, onCancel }: { editing: Editi
           )}
           <div className="actions">
             <button type="button" className="btn" onClick={cancel}>
-              Cancel
+              {msg('Cancel')}
             </button>
             <span className="spacer" />
             <button type="submit" className="btn primary" disabled={!!problem}>
-              Save
+              {msg('Save')}
             </button>
           </div>
         </form>
@@ -447,7 +446,7 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
   const namesIn = (index: number | null) => (index === null ? [] : (userSets[index]?.styles ?? []).map((s) => s.name));
 
   const newSet = () => {
-    const title = uniqueName('New Line Style Set', titles);
+    const title = uniqueName(msg('New Line Style Set'), titles);
     updateWorkspace((w) => ({ ...w, lineSets: [...w.lineSets, { title, styles: [] }] }));
     selectSet({ builtIn: false, index: userSets.length });
     setRenaming(title);
@@ -455,7 +454,7 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
 
   const startNew = () => {
     const index = targetSet();
-    setEditing({ setIndex: index, styleIndex: null, draft: { name: uniqueName('New Line Style', namesIn(index)), scaleWithWidth: true, lines: [{ offset: 0, components: [newComponent('dash'), newComponent('space')] }] } });
+    setEditing({ setIndex: index, styleIndex: null, draft: { name: uniqueName(msg('New Line Style'), namesIn(index)), scaleWithWidth: true, lines: [{ offset: 0, components: [newComponent('dash'), newComponent('space')] }] } });
   };
 
   const startCopy = () => {
@@ -483,7 +482,7 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
     setEditing(null);
     setSetRef({ builtIn: false, index: setIndex });
     setPicked(at);
-    setMessage(`Saved ${saved.name}. It is in the Line style pickers under ${title}.`);
+    setMessage(msg('Saved {name}. It is in the Line style pickers under {title}.', { name: saved.name, title }));
   };
 
   if (editing) {
@@ -493,14 +492,14 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal line-styles-dialog" role="dialog" aria-label="Line styles" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && renaming === null && onClose()}>
-        <h3>Line styles</h3>
+      <div className="modal line-styles-dialog" role="dialog" aria-label={msg('Line styles')} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && renaming === null && onClose()}>
+        <h3>{msg('Line styles')}</h3>
         <div className="ls-manager">
           <div className="ls-sets">
-            <ul role="listbox" aria-label="Line style sets">
+            <ul role="listbox" aria-label={msg('Line style sets')}>
               {DEFAULT_LINE_SETS.map((s, i) => (
                 <li key={`b${i}`} role="option" aria-selected={setRef.builtIn && setRef.index === i} className={setRef.builtIn && setRef.index === i ? 'picked' : ''} onClick={() => selectSet({ builtIn: true, index: i })}>
-                  {s.title} <span className="ls-badge">built-in</span>
+                  {s.title} <span className="ls-badge">{msg('built-in')}</span>
                 </li>
               ))}
               {userSets.map((s, i) => {
@@ -509,7 +508,7 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
                   <li key={`u${i}`} role="option" aria-selected={on} className={on ? 'picked' : ''} onClick={() => selectSet({ builtIn: false, index: i })}>
                     {on && renaming !== null ? (
                       <input
-                        aria-label="Set name"
+                        aria-label={msg('Set name')}
                         autoFocus
                         value={renaming}
                         // Clicks in the box stay in it, rather than reselecting the row (which ends the rename).
@@ -543,39 +542,39 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
             </ul>
             <div className="ls-set-actions">
               <button className="btn small" onClick={newSet}>
-                New set
+                {msg('New set')}
               </button>
               <button className="btn small" disabled={setRef.builtIn} onClick={() => set && setRenaming(set.title)}>
-                Rename
+                {msg('Rename')}
               </button>
               <button className="btn small" onClick={() => importRef.current?.click()}>
-                Import…
+                {msg('Import…')}
               </button>
               <button
                 className="btn small"
                 disabled={!set}
-                title="Save this set as a .blx line style set file"
+                title={msg('Save this set as a .blx line style set file')}
                 onClick={() => {
                   if (!set) return;
                   const dropped: Dropped[] = [];
                   void writeBlx(set, dropped).then((xml) => {
                     download(xml, set.title);
-                    setMessage(`Exported ${set.title}.blx.${dropped.length ? ` Not exported: ${dropped.map((d) => `${d.item} (${d.reason})`).join('; ')}.` : ''}`);
+                    setMessage(msg('Exported {title}.blx.{value}', { title: set.title, value: dropped.length ? ' ' + msg('Not exported: {list}.', { list: dropped.map((d) => `${d.item} (${d.reason})`).join('; ') }) : '' }));
                   });
                 }}
               >
-                Export…
+                {msg('Export…')}
               </button>
               <button
                 className="btn small"
                 disabled={setRef.builtIn}
                 onClick={() => {
-                  if (!set || setRef.builtIn || !confirm(`Remove the line style set "${set.title}" and its ${set.styles.length} line styles?`)) return;
+                  if (!set || setRef.builtIn || !confirm(msg('Remove the line style set "{title}" and its {count} line styles?', { title: set.title, count: set.styles.length }))) return;
                   updateWorkspace((w) => ({ ...w, lineSets: w.lineSets.filter((_, i) => i !== setRef.index) }));
                   selectSet(userSets.length > 1 ? { builtIn: false, index: 0 } : { builtIn: true, index: 0 });
                 }}
               >
-                Remove
+                {msg('Remove')}
               </button>
               <input
                 ref={importRef}
@@ -598,7 +597,7 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
                         const imported = { ...parsed, title: uniqueName(parsed.title, [...DEFAULT_LINE_SETS, ...sets].map((s) => s.title)) };
                         sets = [...sets, imported];
                         updateWorkspace((w) => ({ ...w, lineSets: [...w.lineSets, imported] }));
-                        out.push(`Imported ${parsed.styles.length} line style${parsed.styles.length === 1 ? '' : 's'} (${imported.title}).${dropped.length ? ` Left out: ${dropped.map((d) => `${d.item} (${d.reason})`).join('; ')}.` : ''}`);
+                        out.push(msg('Imported {count} line {count2, plural, one {style} other {styles}} ({title}).{value}', { count: parsed.styles.length, count2: parsed.styles.length, title: imported.title, value: dropped.length ? ' ' + msg('Left out: {list}.', { list: dropped.map((d) => `${d.item} (${d.reason})`).join('; ') }) : '' }));
                       } catch (err) {
                         out.push(`${f.name}: ${err instanceof Error ? err.message : String(err)}`);
                       }
@@ -611,7 +610,7 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
             </div>
           </div>
           <div className="ls-styles">
-            <ul role="listbox" aria-label={`Line styles in ${set?.title ?? ''}`}>
+            <ul role="listbox" aria-label={msg('Line styles in {value}', { value: set?.title ?? '' })}>
               {set?.styles.map((s, i) => (
                 <li
                   key={`${s.name}:${i}`}
@@ -625,28 +624,28 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
                   <LineStylePreview style={s} width={200} height={28} />
                 </li>
               ))}
-              {set && !set.styles.length && <li className="ls-empty">No line styles yet: add one with New.</li>}
+              {set && !set.styles.length && <li className="ls-empty">{msg('No line styles yet: add one with New.')}</li>}
             </ul>
             <div className="ls-style-actions">
               <button className="btn small" onClick={startNew}>
-                New…
+                {msg('New…')}
               </button>
               {setRef.builtIn ? (
-                <button className="btn small" disabled={!style} title="Copy into one of your sets to change it" onClick={startCopy}>
-                  Copy and Edit…
+                <button className="btn small" disabled={!style} title={msg('Copy into one of your sets to change it')} onClick={startCopy}>
+                  {msg('Copy and Edit…')}
                 </button>
               ) : (
                 <>
                   <button className="btn small" disabled={!style} onClick={() => style && setEditing({ setIndex: setRef.index, styleIndex: picked, draft: toDraft(style), original: style })}>
-                    Edit…
+                    {msg('Edit…')}
                   </button>
                   <button className="btn small" disabled={!style} onClick={startCopy}>
-                    Duplicate
+                    {msg('Duplicate')}
                   </button>
                   <button
                     className="btn small"
                     disabled={!style || picked === 0}
-                    aria-label="Move line style up"
+                    aria-label={msg('Move line style up')}
                     onClick={() => {
                       editSet(setRef.index, (s) => ({ ...s, styles: move(s.styles, picked, picked - 1) }));
                       setPicked(picked - 1);
@@ -657,7 +656,7 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
                   <button
                     className="btn small"
                     disabled={!style || picked >= (set?.styles.length ?? 0) - 1}
-                    aria-label="Move line style down"
+                    aria-label={msg('Move line style down')}
                     onClick={() => {
                       editSet(setRef.index, (s) => ({ ...s, styles: move(s.styles, picked, picked + 1) }));
                       setPicked(picked + 1);
@@ -669,12 +668,12 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
                     className="btn small"
                     disabled={!style}
                     onClick={() => {
-                      if (!style || !confirm(`Delete the line style "${style.name}"? Markups already drawn with it keep it.`)) return;
+                      if (!style || !confirm(msg('Delete the line style "{name}"? Markups already drawn with it keep it.', { name: style.name }))) return;
                       editSet(setRef.index, (s) => ({ ...s, styles: s.styles.filter((_, i) => i !== picked) }));
                       setPicked(Math.max(0, picked - 1));
                     }}
                   >
-                    Delete
+                    {msg('Delete')}
                   </button>
                 </>
               )}
@@ -689,7 +688,7 @@ export function LineStylesDialog({ onClose }: { onClose: () => void }) {
         <div className="actions">
           <span className="spacer" />
           <button className="btn primary" onClick={onClose}>
-            Done
+            {msg('Done')}
           </button>
         </div>
       </div>

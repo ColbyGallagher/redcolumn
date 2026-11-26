@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { isMeasureKind, type Assembly, type Markup } from '@nb/markup';
 
 /**
@@ -77,8 +78,10 @@ export function assemblyChoice(chosen: readonly Pick<Markup, 'assemblyId' | 'ass
 
 /** Says which measurements a change goes to: "Next markups", "2 measurements selected", "2 measurements (of 3 selected)". */
 export function appliesTo(choice: Pick<AssemblyChoice, 'target' | 'count' | 'selected'>): string {
-  if (choice.target === 'next') return 'Next markups';
-  if (choice.target === 'none') return 'No measurements selected';
-  const n = `${choice.count} measurement${choice.count === 1 ? '' : 's'}`;
-  return choice.selected > choice.count ? `${n} (of ${choice.selected} selected)` : `${n} selected`;
+  if (choice.target === 'next') return msg('Next markups');
+  if (choice.target === 'none') return msg('No measurements selected');
+  const { count, selected } = choice;
+  return selected > count
+    ? msg('{count, plural, one {# measurement} other {# measurements}} (of {selected} selected)', { count, selected })
+    : msg('{count, plural, one {# measurement} other {# measurements}} selected', { count });
 }

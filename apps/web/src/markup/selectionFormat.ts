@@ -39,6 +39,33 @@ export function styleMixed<K extends keyof MarkupStyle>(markups: readonly Pick<M
   return isMixed(markups.map((m) => (resolve ? resolve(m.style[key]) : m.style[key])));
 }
 
+/** Whether two depths (metres; unset is 0) are one: 3 ft and 36 in differ only in the last float digit. */
+export const sameDepth = (a: number | undefined, b: number | undefined): boolean => Math.abs((a ?? 0) - (b ?? 0)) <= 1e-9;
+
+/**
+ * The depth (metres) a selection of volumes shares: null unless every markup is a volume, so the
+ * Depth field only shows where it applies to all of them. `meters` is undefined when they have no
+ * depth, or disagree (mixed).
+ */
+export function sharedDepth(markups: readonly Pick<Markup, 'type' | 'depth'>[]): { meters: number | undefined; mixed: boolean } | null {
+  if (!markups.length || markups.some((m) => m.type !== 'volume')) return null;
+  const mixed = markups.some((m) => !sameDepth(m.depth, markups[0]!.depth));
+  return { meters: mixed ? undefined : markups[0]!.depth || undefined, mixed };
+}
+
+/** Whether a selection consists solely of Cloud+ parts (clouds and callouts, at least one of each). */
+export function isCloudPlusSelection(markups: readonly Pick<Markup, 'type'>[]): boolean {
+  if (markups.length < 2) return false;
+  let hasCloud = false;
+  let hasCallout = false;
+  for (const m of markups) {
+    if (m.type === 'cloud') hasCloud = true;
+    else if (m.type === 'callout') hasCallout = true;
+    else return false;
+  }
+  return hasCloud && hasCallout;
+}
+
 /** The ribbon's tab following the selection. `onFormat`: showing the Markup Format tab. */
 export interface FormatFollow {
   onFormat: boolean;

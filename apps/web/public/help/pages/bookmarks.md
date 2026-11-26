@@ -8,6 +8,10 @@ Click **Bookmarks** on the panel rail, or press [[Alt+B]].
 
 ![The Bookmarks panel](img/bookmarks-panel.png)
 
+## Filter bookmarks
+
+Type in **Filter bookmarks…** at the top of the panel to find bookmarks by title or page label. Parent folders of matching bookmarks stay visible so you can see where each match sits in the tree. Press [[Escape]] or click **×** to clear the filter and restore your previous expand/collapse state.
+
 ## Make a bookmark for every sheet
 
 Click **From labels**. A bookmark is made for each page, named from its [page label](#page-labels) and title.

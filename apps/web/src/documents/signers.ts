@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { desktop } from '../desktop/host';
 import { tokenChain, unlockId, type DigitalIdRecord, type UnlockedId } from './digitalIds';
 import type { Signer } from './pdfSign';
@@ -10,17 +11,17 @@ import type { Signer } from './pdfSign';
 export function signerFor(record: DigitalIdRecord, secret: string | null): UnlockedId | Signer {
   if (!record.token) return unlockId(record, secret ?? '');
   const tokens = desktop()?.tokens;
-  if (!tokens) throw new Error('This Digital ID is on a smart card or USB token, which only the desktop app can use');
+  if (!tokens) throw new Error(msg('This Digital ID is on a smart card or USB token, which only the desktop app can use'));
   const { ref, pinPad } = record.token;
   const pin = pinPad ? null : secret;
-  if (!pin && !pinPad) throw new Error('Enter the card’s PIN');
+  if (!pin && !pinPad) throw new Error(msg('Enter the card’s PIN'));
   // Cards lock after a few wrong PINs (three on most): once the card refuses this PIN, or the
   // person cancels on the reader, the rest of a Bulk Sign fails here without asking the card again.
   let refused: Error | null = null;
   return {
     chainDer: tokenChain(record),
     sign: async (data, hash) => {
-      if (hash === 'SHA-1') throw new Error('Cards sign with SHA-256 or stronger');
+      if (hash === 'SHA-1') throw new Error(msg('Cards sign with SHA-256 or stronger'));
       if (refused) throw refused;
       try {
         return await tokens.sign(ref, hash, data, pin);
