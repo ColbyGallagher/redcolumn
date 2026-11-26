@@ -73,6 +73,16 @@ test('fails: forbidden code inside a chunk the manifest does not name', () => {
   }
 });
 
+test('the served wasm path alone is not a hit; the library beside it still is', () => {
+  const url = 'new URL(`model3d/web-ifc.wasm`, base)';
+  const clean = fixture({ files: { 'assets/a-1.js': url } });
+  assert.deepEqual(inspect(clean.manifest, reader(clean.files)).problems, []);
+  for (const code of [`${url};locate("web-ifc-mt.wasm")`, 'import("model3d/web-ifc-api.js")']) {
+    const { manifest, files } = fixture({ files: { 'assets/a-1.js': code } });
+    assert.deepEqual(inspect(manifest, reader(files)).problems, ['assets/a-1.js (static import of index.html) contains web-ifc'], code);
+  }
+});
+
 test('"three" as a plain word is not a hit', () => {
   const { manifest, files } = fixture({ files: { 'assets/a-1.js': 'const msg = "three pages selected";' } });
   assert.deepEqual(inspect(manifest, reader(files)).problems, []);
