@@ -1,3 +1,4 @@
+import type * as Y from 'yjs';
 import type { GeoRegion, Scale } from '@nb/measure';
 import type { DetectedLink, SheetInfo } from '@nb/sheets';
 import type { AiReviewChange, AiReviewData, ReviewPassSettings } from './aiReview';
@@ -15,6 +16,30 @@ import type { Viewport } from './viewports';
 // facets a document may or may not offer. `MarkupStore` implements all of them; another store can
 // implement the core and only the facets it supports. Code takes the narrowest set it needs, e.g.
 // `MarkupDocument & TakeoffFacet`. Member names match `MarkupStore`'s.
+
+/** Who is making changes, as recorded with what they do (status history, pasted copies). */
+export interface Actor {
+  /** A stable identity, when one is known; null for a name typed in Preferences. */
+  readonly id: string | null;
+  /** The name changes are signed with. */
+  readonly name: string;
+}
+
+/**
+ * What a document needs from the app it is opened in. A document reads these at each use, never
+ * once at open, so the app may change them later (a new name in Preferences applies to the next
+ * change) and may share one context among every document it opens.
+ */
+export interface EditorContext<D = MarkupDocument> {
+  actor: Actor;
+  /** Called after a new markup is added here (not on an edit, an import or a remote change). */
+  onAdded?: ((doc: D, markup: Markup) => void) | null;
+  /**
+   * Called when undo or redo steps over a change to the document's file (page operations, Page
+   * Setup, flattening...): the file's contents should become those stored under `hash` again.
+   */
+  onFileRestored?: ((doc: D, hash: string) => void) | null;
+}
 
 /**
  * What an undo or redo did. `nothing`: there was no step to take. `forbidden`: the document does
@@ -223,4 +248,18 @@ export interface FileStepFacet {
   resetMarkups(markups: readonly Markup[]): void;
   /** Records a change to the file (from `before` to `after`, by hash) as one undo step, with `remap`. */
   fileStep(label: string, before: string, after: string, remap?: () => void): void;
+}
+
+/**
+ * The Yjs document a store keeps its contents in, for code that keeps it in step with other copies
+ * (Live Sessions, Projects) or seeds it from one. Only this facet deals in Yjs types.
+ */
+export interface YjsFacet {
+  readonly yjs: {
+    readonly doc: Y.Doc;
+    /** The whole state, as one update. */
+    encodeState(): Uint8Array;
+    /** Merges an update from another copy; `origin` tells the document's listeners where it came from. */
+    applyUpdate(update: Uint8Array, origin?: unknown): void;
+  };
 }

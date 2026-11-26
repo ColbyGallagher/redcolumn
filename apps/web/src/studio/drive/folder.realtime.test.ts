@@ -90,7 +90,7 @@ test(`real timers: ${ATTENDEES} attendees, check every ${POLL_MS} ms, save ${FLU
           lags.push(Date.now() - m.madeAt);
         }
       });
-      return { s, markups, store: { doc: ydoc, setReadOnly: () => {}, setEditRule: () => {} } as unknown as MarkupStore };
+      return { s, markups, store: { yjs: { doc: ydoc }, setReadOnly: () => {}, setEditRule: () => {} } as unknown as MarkupStore };
     });
     await Promise.all(maps.map((m) => m.s.attach(doc.id, m.store)));
     await sleep(1000);

@@ -3,7 +3,6 @@ import { keyed } from './i18n/keyed';
 import { lazy } from './i18n/lazy';
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
-import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
 import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canBeCountSymbol, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds, symbolFromMarkups } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
@@ -14,6 +13,7 @@ import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './
 import { TileDiagnostics } from './components/TileDiagnostics';
 import { SlowDrawingPrompt } from './components/SlowDrawingPrompt';
 import { hipValleySlope } from './markup/slopePicker';
+import { editorContext } from './markup/editorContext';
 import { cutoutBlocker, cutoutTargetOf } from './markup/cutoutTarget';
 import { parseRotationInput } from './markup/rotationInput';
 import { isMarkupTool, MarkupTools, toolLabel, type FormWidgetHit, type TableDraft, type Tool } from './markup/MarkupTools';
@@ -1574,7 +1574,7 @@ export function App() {
   const authorRef = useRef(author);
   authorRef.current = author;
   // Recorded with every status change, in each document's status history.
-  MarkupStore.author = author;
+  editorContext.actor = { id: null, name: author };
   const activePaneRef = useRef(activePane);
   activePaneRef.current = activePane;
   /** Every Live Session this browser is in; documents from several can be open at once. */
@@ -1899,7 +1899,7 @@ export function App() {
       }
       const pane: Pane = target === 'b' && ctlB ? 'b' : 'a';
       setError(null);
-      const [doc, store] = await Promise.all([ctl.engine.open(bytes), MarkupStore.open(file.id)]);
+      const [doc, store] = await Promise.all([ctl.engine.open(bytes), MarkupStore.open(file.id, { context: editorContext })]);
       // Session documents sync their markups with everyone else in their session.
       const sessionDoc = studioDocOf(file.id);
       const session = sessionDoc ? sessionsRef.current.find((s) => s.id === sessionDoc.sessionId) : null;
@@ -1908,7 +1908,7 @@ export function App() {
         const seed = studioSeeds.current.get(file.id);
         if (seed) {
           studioSeeds.current.delete(file.id);
-          if (session.canMarkup) Y.applyUpdate(store.doc, seed, 'seed');
+          if (session.canMarkup) store.yjs.applyUpdate(seed, 'seed');
         }
       } else if (sessionDoc) {
         store.setReadOnly(true);
@@ -2636,9 +2636,9 @@ export function App() {
   const restoreFileRef = useRef(restoreFile);
   restoreFileRef.current = restoreFile;
   useEffect(() => {
-    MarkupStore.onFileRestored = (store, hash) => void restoreFileRef.current(store, hash);
+    editorContext.onFileRestored = (store, hash) => void restoreFileRef.current(store, hash);
     return () => {
-      MarkupStore.onFileRestored = null;
+      editorContext.onFileRestored = null;
     };
   }, []);
 
@@ -2785,7 +2785,7 @@ export function App() {
       if (tab) return { open: tab, release: () => {} };
       const file = (await listFiles()).find((f) => f.id === fileId);
       if (!file) throw new Error(msg('That document is no longer in the library'));
-      const [doc, store] = await Promise.all([ctl.engine.open(await readFile(file.hash)), MarkupStore.open(file.id)]);
+      const [doc, store] = await Promise.all([ctl.engine.open(await readFile(file.hash)), MarkupStore.open(file.id, { context: editorContext })]);
       await hideImported(doc, store);
       return {
         open: { file, doc, store },
@@ -5027,11 +5027,11 @@ export function App() {
     async (d: DocumentSource): Promise<{ bytes: ArrayBuffer; seed: Uint8Array | null }> => {
       if (d.kind === 'upload') return { bytes: await d.file.arrayBuffer(), seed: null };
       const open = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === d.fileId);
-      if (open) return { bytes: await readFile(open.file.hash), seed: Y.encodeStateAsUpdate(open.store.doc) };
+      if (open) return { bytes: await readFile(open.file.hash), seed: open.store.yjs.encodeState() };
       const stored = library.find((f) => f.id === d.fileId);
       if (!stored) throw new Error(msg('{name} is no longer in the library.', { name: d.name }));
-      const store = await MarkupStore.open(stored.id);
-      const seed = Y.encodeStateAsUpdate(store.doc);
+      const store = await MarkupStore.open(stored.id, { context: editorContext });
+      const seed = store.yjs.encodeState();
       await store.destroy();
       return { bytes: await readFile(stored.hash), seed };
     },
@@ -5139,7 +5139,7 @@ export function App() {
     const fileId = studioFileId(session.id, docId);
     const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
     if (tab) return await use(tab.store);
-    const store = await MarkupStore.open(fileId);
+    const store = await MarkupStore.open(fileId, { context: editorContext });
     try {
       await session.attach(docId, store);
       return await use(store);
@@ -5867,7 +5867,7 @@ export function App() {
         // The folder is read once, for the first file; the rest use what it read.
         const shared = await project.sharedMarkups(file.id, i === 0);
         const { bytes } = await project.download(file.id);
-        const scratch = await MarkupStore.open(`comments:${project.id}:${file.id}`, { persist: false });
+        const scratch = await MarkupStore.open(`comments:${project.id}:${file.id}`, { persist: false, context: editorContext });
         try {
           const found = await readPdfAnnotations(bytes, scratch);
           // Markups this app wrote come back from the shared copy; the PDF adds other tools' ones.
@@ -7156,7 +7156,7 @@ export function App() {
     }
     const waiting: { store: MarkupStore; id: string }[] = [];
     let asking = false;
-    MarkupStore.onAdded = (store, m) => {
+    editorContext.onAdded = (store, m) => {
       if (named || m.author !== authorRef.current) return;
       waiting.push({ store, id: m.id });
       if (asking) return;
@@ -7164,13 +7164,13 @@ export function App() {
       void askText(msg('Your name'), '', { label: msg('Your markups are signed with this name. You can change it later in Preferences.'), confirm: msg('Save') }).then((name) => {
         named = true; // Declined: ask again next time the app starts, not on every markup.
         if (!name) return;
-        MarkupStore.author = name;
+        editorContext.actor = { id: null, name };
         persistAuthor(name);
         for (const w of waiting) if (w.store.get(w.id)) w.store.update(w.id, { author: name });
       });
     };
     return () => {
-      MarkupStore.onAdded = null;
+      editorContext.onAdded = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -9299,7 +9299,7 @@ export function App() {
       const bytes = (await pdf.save()).slice().buffer;
       const file = await saveFile(/\.pdf$/i.test(name) ? name : `${name}.pdf`, bytes);
       // The template's markups come along (new ids).
-      const [from, to] = await Promise.all([MarkupStore.open(choice.id), MarkupStore.open(file.id)]);
+      const [from, to] = await Promise.all([MarkupStore.open(choice.id, { context: editorContext }), MarkupStore.open(file.id, { context: editorContext })]);
       const now = Date.now();
       to.batch(() => from.all().forEach((m) => to.add({ ...m, id: crypto.randomUUID(), author: authorRef.current, createdAt: now, modifiedAt: now })));
       if (from.hasColumnSet()) to.setColumnSet(from.columnSet());

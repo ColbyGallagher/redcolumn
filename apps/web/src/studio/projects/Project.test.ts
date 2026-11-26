@@ -354,7 +354,7 @@ function fakeStore() {
   let readOnly = false;
   let rule: EditRule | null = null;
   return {
-    store: { doc, setReadOnly: (v: boolean) => (readOnly = v), setEditRule: (r: EditRule | null) => (rule = r) } as unknown as MarkupStore,
+    store: { yjs: { doc }, setReadOnly: (v: boolean) => (readOnly = v), setEditRule: (r: EditRule | null) => (rule = r) } as unknown as MarkupStore,
     readOnly: () => readOnly,
     mayEdit: (author: string) => !rule || rule({ author }),
     markups: doc.getMap<{ id: string; type: string; status: string }>('markups'),

@@ -3,13 +3,14 @@ import assert from 'node:assert/strict';
 import * as Y from 'yjs';
 import { MarkupStore } from './store.ts';
 import { DEFAULT_STYLES, type Markup } from './model.ts';
+import type { EditorContext } from './document.ts';
 
 function rect(id: string, x: number): Markup {
   return { id, type: 'rect', pageIndex: 0, points: [[x, 0], [x + 10, 10]], style: { ...DEFAULT_STYLES.rect }, status: 'none', author: '', createdAt: 1, modifiedAt: 1 };
 }
 
-async function storeWith(n: number) {
-  const store = await MarkupStore.open('test', { persist: false });
+async function storeWith(n: number, context?: EditorContext<MarkupStore>) {
+  const store = await MarkupStore.open('test', { persist: false, context });
   store.batch(() => {
     for (let i = 0; i < n; i++) store.add(rect(`m${i}`, i * 20));
   });
@@ -144,31 +145,42 @@ test('two people adding a markup at once settle on different IDs', async () => {
 });
 
 test('a hook hears each new markup, not an edit of one already there', async () => {
-  const store = await MarkupStore.open('test', { persist: false });
   const heard: string[] = [];
-  MarkupStore.onAdded = (_, m) => heard.push(m.id);
-  try {
-    store.add(rect('a', 0));
-    store.add({ ...rect('a', 0), author: 'Sam' });
-    store.update('a', { author: 'Kim' });
-    store.add(rect('b', 20));
-  } finally {
-    MarkupStore.onAdded = null;
-  }
+  const store = await MarkupStore.open('test', { persist: false, context: { actor: { id: null, name: '' }, onAdded: (_, m) => heard.push(m.id) } });
+  store.add(rect('a', 0));
+  store.add({ ...rect('a', 0), author: 'Sam' });
+  store.update('a', { author: 'Kim' });
+  store.add(rect('b', 20));
   assert.deepEqual(heard, ['a', 'b']);
   await store.destroy();
 });
 
+test('the context is read at each change: a name or hook set after opening applies at once, to every store sharing it', async () => {
+  const context: EditorContext<MarkupStore> = { actor: { id: null, name: 'Sam' } };
+  const [one, two] = await Promise.all([MarkupStore.open('c1', { persist: false, context }), MarkupStore.open('c2', { persist: false, context })]);
+  const heard: string[] = [];
+  one.add(rect('a', 0));
+  context.onAdded = (s, m) => heard.push(`${s.key}:${m.id}`);
+  context.actor = { id: null, name: 'Kim' };
+  two.add(rect('b', 0));
+  one.update('a', { status: 'accepted' });
+  two.update('b', { status: 'accepted' });
+  assert.deepEqual(heard, ['c2:b']);
+  assert.deepEqual([one.get('a')!.statusHistory?.at(-1)?.author, two.get('b')!.statusHistory?.at(-1)?.author], ['Kim', 'Kim']);
+  await Promise.all([one.destroy(), two.destroy()]);
+});
+
 test('a page operation is one undo step: undo brings the markups and the file back, redo repeats it', async () => {
   const { planPageOps } = await import('./pages.ts');
-  const store = await MarkupStore.open('test', { persist: false });
+  const context: EditorContext<MarkupStore> = { actor: { id: null, name: '' } };
+  const store = await MarkupStore.open('test', { persist: false, context });
   store.batch(() => {
     store.add(rect('a', 0));
     store.add({ ...rect('b', 0), pageIndex: 1 });
   });
   store.checkpoint();
   const restored: string[] = [];
-  MarkupStore.onFileRestored = (s, hash) => s === store && restored.push(hash);
+  context.onFileRestored = (s, hash) => s === store && restored.push(hash);
   try {
     const sizes = [{ width: 100, height: 100 }, { width: 100, height: 100 }];
     store.fileStep('Delete page 1', 'old', 'new', () => store.remapPages(planPageOps(2, [{ type: 'delete', pages: [0] }]), sizes));
@@ -183,14 +195,14 @@ test('a page operation is one undo step: undo brings the markups and the file ba
     assert.deepEqual(restored, ['old', 'new']);
     assert.deepEqual(store.all().map((m) => [m.id, m.pageIndex]), [['b', 0]]);
   } finally {
-    MarkupStore.onFileRestored = null;
     await store.destroy();
   }
 });
 
 test('pasted copies of pages bring their markups, scale and viewports, in the page operation’s undo step', async () => {
   const { planPageOps } = await import('./pages.ts');
-  const store = await MarkupStore.open('test', { persist: false });
+  const context: EditorContext<MarkupStore> = { actor: { id: null, name: '' } };
+  const store = await MarkupStore.open('test', { persist: false, context });
   try {
     const scale = { metersPerPoint: 0.01, label: '1:100' } as never;
     store.batch(() => {
@@ -207,7 +219,7 @@ test('pasted copies of pages bring their markups, scale and viewports, in the pa
     // Paste after page 2: the copy is page 3.
     const sizes = [{ width: 100, height: 100 }, { width: 100, height: 100 }];
     const ops = [{ type: 'insert' as const, source: 0, at: 2 }];
-    MarkupStore.author = 'Me';
+    context.actor = { id: null, name: 'Me' };
     store.fileStep('Insert pages', 'old', 'new', () => {
       store.remapPages(planPageOps(2, ops, [1]), sizes);
       store.pastePages(clip, 2);
@@ -237,15 +249,15 @@ test('pasted copies of pages bring their markups, scale and viewports, in the pa
     assert.equal(store.hasScale(2), false);
     assert.deepEqual(store.importedAnnotations(), { 0: [3] });
   } finally {
-    MarkupStore.author = '';
     await store.destroy();
   }
 });
 
 test('a file change with nothing to remap is still undoable, and a markup edit after it undoes first', async () => {
-  const store = await storeWith(1);
+  const context: EditorContext<MarkupStore> = { actor: { id: null, name: '' } };
+  const store = await storeWith(1, context);
   const restored: string[] = [];
-  MarkupStore.onFileRestored = (s, hash) => s === store && restored.push(hash);
+  context.onFileRestored = (s, hash) => s === store && restored.push(hash);
   try {
     store.fileStep('Page Setup', 'h1', 'h2');
     store.update('m0', { comment: 'after' });
@@ -260,7 +272,6 @@ test('a file change with nothing to remap is still undoable, and a markup edit a
     store.undo();
     assert.deepEqual(restored, ['h1', 'h1']);
   } finally {
-    MarkupStore.onFileRestored = null;
     await store.destroy();
   }
 });

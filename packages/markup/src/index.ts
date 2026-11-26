@@ -38,7 +38,7 @@ export * from './aiReview';
 export * from './aiGrouping';
 export * from './estimating';
 export { AI_LINK, IMPORT_VERSION, MarkupStore, plainMarkupPersistence, setMarkupPersistence, type MarkupPersistence, type MarkupPersistenceFactory, type ImportedExtras, type LinkStatus, type PageClip, type StoredLink, type StoredStitchGroup, type StoredMatchLine, type StoredManualStitch } from './store';
-export type { AiReviewFacet, DocumentSetup, FileStepFacet, GeoFacet, ImportFacet, LinkFacet, MarkupDocument, PortalFacet, StitchFacet, TakeoffFacet, UndoResult } from './document';
+export type { Actor, AiReviewFacet, DocumentSetup, EditorContext, FileStepFacet, GeoFacet, ImportFacet, LinkFacet, MarkupDocument, PortalFacet, StitchFacet, TakeoffFacet, UndoResult, YjsFacet } from './document';
 export { OPEN_FIELDS, openPatch, ownMarkupsOnly, type EditRule } from './ownership';
 export { countMarkerOutline, flowShapeParts, hitTest, pointInPolygon, layoutText, markupSegments, markupShape, moved, circleBox, polarPoint, resizedBox, segmentPolar, TEXT_LINE_HEIGHT, textLineHeight, TEXT_PADDING, textPadding, translated, withSegment } from './geometry';
 export { applySpanStyle, baseTextStyle, hasSpans, layoutRuns, normalizeSpans, rangeHasFlag, runsWithin, shiftSpans, spansOf, styleRuns, toggleSpanFlag, type BaseTextStyle, type SpanFlag, type SpanStyle, type StyledMeasure, type TextRun, type TextSpan } from './textSpans';

@@ -86,7 +86,7 @@ type M = { id: string; type: string; pageIndex: number; status: string };
 function markupStore() {
   const doc = new Y.Doc();
   return {
-    store: { doc, setReadOnly: () => {}, setEditRule: () => {} } as unknown as MarkupStore,
+    store: { yjs: { doc }, setReadOnly: () => {}, setEditRule: () => {} } as unknown as MarkupStore,
     markups: doc.getMap<M>('markups'),
   };
 }
