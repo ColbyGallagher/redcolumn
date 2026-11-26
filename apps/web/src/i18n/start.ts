@@ -1,5 +1,6 @@
-import { activate, fallbackChain, localeInfo, messagesBeforeActivation, type Catalog } from '@nb/i18n';
-import { browserLanguages, resolveLanguage } from './language';
+import { activate, fallbackChain, localeInfo, messagesBeforeActivation, setNumberLocale, type Catalog } from '@nb/i18n';
+import { mainProcessStrings } from '../desktop/mainStrings';
+import { browserLanguages, resolveLanguage, resolveNumberFormat, systemNumberLocale } from './language';
 
 // Each language's catalog is its own chunk, fetched only when that language is chosen.
 const catalogs = import.meta.glob<Catalog>('../../../../packages/i18n/catalogs/*.po', { import: 'default' });
@@ -15,10 +16,12 @@ async function loadCatalog(code: string): Promise<Catalog> {
 }
 
 /**
- * Chooses the interface language and loads its translations, before the first render (main.tsx).
+ * Chooses the interface language and number format and loads the language's translations, before
+ * the first render (main.tsx).
  * A catalog that fails to load leaves English.
  */
-export async function startI18n(choice: unknown): Promise<void> {
+export async function startI18n(choice: unknown, numberFormat: unknown): Promise<void> {
+  setNumberLocale(resolveNumberFormat(numberFormat, systemNumberLocale()));
   const code = resolveLanguage(choice, browserLanguages());
   let catalog: Catalog = {};
   try {
@@ -27,6 +30,8 @@ export async function startI18n(choice: unknown): Promise<void> {
     console.warn(`i18n: could not load the ${code} translations`, e);
   }
   activate(code, catalog);
+  // The desktop app's own dialogs (Open, Save, sign-in) follow the same language.
+  if (typeof window !== 'undefined') window.redcolumn?.setInterfaceStrings?.(mainProcessStrings());
   const info = localeInfo(code)!;
   document.documentElement.lang = info.rules ?? info.code;
   document.documentElement.dir = info.dir;

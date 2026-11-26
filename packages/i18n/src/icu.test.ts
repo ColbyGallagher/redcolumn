@@ -63,3 +63,9 @@ test('syntax errors', () => {
 test('argNames collects nested names', () => {
   assert.deepEqual([...argNames(parseIcu('{a} {n, plural, one {{b}} other {{c, select, x {{d}} other {}}}}'))].sort(), ['a', 'b', 'c', 'd', 'n']);
 });
+
+test('false and null values show nothing, as they do in JSX', () => {
+  assert.equal(formatIcu(parseIcu('Read on 3 sheets{note}'), { note: false }, 'en'), 'Read on 3 sheets');
+  assert.equal(formatIcu(parseIcu('a{x}b'), { x: null }, 'en'), 'ab');
+  assert.equal(formatIcu(parseIcu('a{x}b'), { x: true }, 'en'), 'atrueb');
+});

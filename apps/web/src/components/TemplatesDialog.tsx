@@ -1,7 +1,10 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState } from 'react';
 import type { Assembly, TakeoffTemplate } from '@nb/markup';
 import { toolLabel, type Tool } from '../markup/MarkupTools';
 import { loadEstimatingLibrary, writeEstimatingLibrary } from '../assemblies/estimatingLibrary';
+import { reorderById, sortAlphabetically } from '../assemblies/ordering';
+import { DragHandle, SortButton, useDragReorder } from './ReorderControls';
 
 interface Props {
   /** The document's templates. */
@@ -42,30 +45,43 @@ export function TemplatesDialog({ initial, assemblies, readOnly, onSave, onUse, 
     writeEstimatingLibrary(next);
   };
   const what = (t: TakeoffTemplate) => [toolLabel(t.tool as Tool), t.preset.subject && `“${t.preset.subject}”`, t.preset.layer && `layer ${t.preset.layer}`].filter(Boolean).join(', ');
+  const tplDrag = useDragReorder(
+    list.map((t) => t.id),
+    readOnly,
+    (from, to, pos) => setList((l) => reorderById(l, from, to, pos)),
+  );
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal columns-dialog estimating-dialog" role="dialog" aria-label="Takeoff Templates" onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
+      <div className="modal columns-dialog estimating-dialog" role="dialog" aria-label={msg('Takeoff Templates')} onMouseDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && onClose()}>
         <div className="columns-head">
-          <h3>Takeoff Templates</h3>
+          <h3>{msg('Takeoff Templates')}</h3>
         </div>
         <p className="hint-text asm-intro">
-          A template is a measuring tool set up for one kind of takeoff: its subject, layer, style, slope and depth, and an assembly with its inputs. Pick one from Takeoff › Templates to arm the tool; each measurement it places gets the assembly. Make one by right-clicking a measurement › Save as Template.
+          {msg('A template is a measuring tool set up for one kind of takeoff: its subject, layer, style, slope and depth, and an assembly with its inputs. Pick one from Takeoff › Templates to arm the tool; each measurement it places gets the assembly. Make one by right-clicking a measurement › Save as Template.')}
         </p>
-        <table className="asm-table est-table" aria-label="Templates in this document">
+        <div className="row est-toolbar">
+          <span className="grow" />
+          <SortButton items={list} getName={(t) => t.name} disabled={readOnly} noun={msg('templates')} onSort={(dir) => setList((l) => sortAlphabetically(l, (t) => t.name, dir))} />
+        </div>
+        <table className="asm-table est-table" aria-label={msg('Templates in this document')}>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Tool</th>
-              <th>Assembly</th>
+              <th className="drag-col" />
+              <th>{msg('Name')}</th>
+              <th>{msg('Tool')}</th>
+              <th>{msg('Assembly')}</th>
               <th />
             </tr>
           </thead>
           <tbody>
             {list.map((t) => (
-              <tr key={t.id}>
+              <tr key={t.id} className={tplDrag.rowClass(t.id)} {...tplDrag.targetProps(t.id)}>
+                <td className="drag-handle-cell">
+                  <DragHandle disabled={readOnly} label={msg('Drag to reorder {name}', { name: t.name || msg('template') })} onDragStart={(e) => tplDrag.start(t.id, e)} onDragEnd={tplDrag.end} />
+                </td>
                 <td>
-                  <input aria-label="Template name" value={t.name} disabled={readOnly} style={{ width: 200 }} aria-invalid={!t.name.trim()} onChange={(e) => setList((l) => l.map((x) => (x.id === t.id ? { ...x, name: e.target.value } : x)))} />
+                  <input aria-label={msg('Template name')} value={t.name} disabled={readOnly} style={{ width: 200 }} aria-invalid={!t.name.trim()} onChange={(e) => setList((l) => l.map((x) => (x.id === t.id ? { ...x, name: e.target.value } : x)))} />
                 </td>
                 <td>{what(t)}</td>
                 <td>
@@ -73,10 +89,10 @@ export function TemplatesDialog({ initial, assemblies, readOnly, onSave, onUse, 
                   {t.inputs && <span className="muted"> ({Object.entries(t.inputs).map(([k, v]) => `${k} ${v}`).join(', ')})</span>}
                 </td>
                 <td className="nowrap">
-                  <button type="button" className="btn small" disabled={readOnly || dirty} title={dirty ? 'Save your changes first' : undefined} onClick={() => onUse(t)}>
-                    Use
+                  <button type="button" className="btn small" disabled={readOnly || dirty} title={dirty ? msg('Save your changes first') : undefined} onClick={() => onUse(t)}>
+                    {msg('Use')}
                   </button>
-                  <button type="button" className="ms-glyph" aria-label={`Delete ${t.name}`} title="Delete from this document" disabled={readOnly} onClick={() => setList((l) => l.filter((x) => x.id !== t.id))}>
+                  <button type="button" className="ms-glyph" aria-label={msg('Delete {name}', { name: t.name })} title={msg('Delete from this document')} disabled={readOnly} onClick={() => setList((l) => l.filter((x) => x.id !== t.id))}>
                     ×
                   </button>
                 </td>
@@ -84,8 +100,8 @@ export function TemplatesDialog({ initial, assemblies, readOnly, onSave, onUse, 
             ))}
             {!list.length && (
               <tr>
-                <td colSpan={4} className="empty">
-                  No templates in this document yet.
+                <td colSpan={5} className="empty">
+                  {msg('No templates in this document yet.')}
                 </td>
               </tr>
             )}
@@ -93,18 +109,18 @@ export function TemplatesDialog({ initial, assemblies, readOnly, onSave, onUse, 
         </table>
         {libraryOnly.length > 0 && (
           <>
-            <h4>In the library (this browser)</h4>
-            <table className="asm-table est-table" aria-label="Templates in the library">
+            <h4>{msg('In the library (this browser)')}</h4>
+            <table className="asm-table est-table" aria-label={msg('Templates in the library')}>
               <tbody>
                 {libraryOnly.map((t) => (
                   <tr key={t.id}>
                     <td style={{ width: 210 }}>{t.name}</td>
                     <td>{what(t)}</td>
                     <td className="nowrap">
-                      <button type="button" className="btn small" disabled={readOnly || dirty} title="Copy it, with its assembly, into this document and arm its tool" onClick={() => onUse(t)}>
-                        Use
+                      <button type="button" className="btn small" disabled={readOnly || dirty} title={msg('Copy it, with its assembly, into this document and arm its tool')} onClick={() => onUse(t)}>
+                        {msg('Use')}
                       </button>
-                      <button type="button" className="ms-glyph" aria-label={`Remove ${t.name} from the library`} title="Remove from the library" onClick={() => removeFromLibrary(t)}>
+                      <button type="button" className="ms-glyph" aria-label={msg('Remove {name} from the library', { name: t.name })} title={msg('Remove from the library')} onClick={() => removeFromLibrary(t)}>
                         ×
                       </button>
                     </td>
@@ -116,19 +132,19 @@ export function TemplatesDialog({ initial, assemblies, readOnly, onSave, onUse, 
         )}
         {message && <p className="columns-message">{message}</p>}
         <div className="actions columns-actions">
-          <button type="button" className="btn small" disabled={readOnly || dirty} title="Add templates (and the assemblies, items and lists they use) from an estimating file" onClick={() => fileRef.current?.click()}>
-            Import…
+          <button type="button" className="btn small" disabled={readOnly || dirty} title={msg('Add templates (and the assemblies, items and lists they use) from an estimating file')} onClick={() => fileRef.current?.click()}>
+            {msg('Import…')}
           </button>
-          <button type="button" className="btn small" disabled={!initial.length || dirty} title="Save this document's templates, with what they use, as a file to share company-wide" onClick={onExport}>
-            Export
+          <button type="button" className="btn small" disabled={!initial.length || dirty} title={msg('Save this document\'s templates, with what they use, as a file to share company-wide')} onClick={onExport}>
+            {msg('Export')}
           </button>
           <span className="grow" />
           <button type="button" className="btn" onClick={onClose}>
-            {readOnly ? 'Close' : 'Cancel'}
+            {readOnly ? msg('Close') : msg('Cancel')}
           </button>
           {!readOnly && (
             <button type="button" className="btn primary" disabled={list.some((t) => !t.name.trim())} onClick={() => onSave(list.map((t) => ({ ...t, name: t.name.trim() })))}>
-              Save
+              {msg('Save')}
             </button>
           )}
         </div>
@@ -137,7 +153,7 @@ export function TemplatesDialog({ initial, assemblies, readOnly, onSave, onUse, 
           type="file"
           accept=".json,application/json"
           hidden
-          aria-label="Import templates file"
+          aria-label={msg('Import templates file')}
           onChange={async (e) => {
             const f = e.target.files?.[0];
             e.target.value = '';

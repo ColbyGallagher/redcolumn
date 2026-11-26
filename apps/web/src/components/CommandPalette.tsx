@@ -1,4 +1,6 @@
+import { msg } from '@nb/i18n';
 import { useMemo, useRef, useState } from 'react';
+import { categoryName } from '../i18n/names';
 import type { Command } from '../commands/appCommands';
 import { shortcutLabel } from '../commands/shortcuts';
 
@@ -10,7 +12,7 @@ interface Props {
 /** How well a command matches the query: every word must appear; earlier and label matches rank first. */
 export function score(c: Pick<Command, 'label' | 'category' | 'id'>, words: string[]): number {
   const label = c.label.toLowerCase();
-  const hay = `${label} ${c.category.toLowerCase()} ${c.id.toLowerCase()}`;
+  const hay = `${label} ${c.category.toLowerCase()} ${categoryName(c.category).toLowerCase()} ${c.id.toLowerCase()}`;
   let total = 0;
   for (const w of words) {
     const at = hay.indexOf(w);
@@ -50,12 +52,12 @@ export function CommandPalette({ commands, onClose }: Props) {
 
   return (
     <div className="modal-backdrop palette-backdrop" onMouseDown={onClose}>
-      <div className="modal palette" role="dialog" aria-label="Find tools and commands" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal palette" role="dialog" aria-label={msg('Find tools and commands')} onMouseDown={(e) => e.stopPropagation()}>
         <input
           autoFocus
           value={query}
-          placeholder="Find a tool or command…"
-          aria-label="Search commands"
+          placeholder={msg('Find a tool or command…')}
+          aria-label={msg('Search commands')}
           aria-controls="palette-list"
           aria-activedescendant={results[active] ? `palette-${results[active]!.id}` : undefined}
           onChange={(e) => {
@@ -86,7 +88,7 @@ export function CommandPalette({ commands, onClose }: Props) {
               onMouseMove={() => setActive(i)}
               onClick={() => runAt(i)}
             >
-              <span className="cat">{c.category}</span>
+              <span className="cat">{categoryName(c.category)}</span>
               <span className="name">
                 {c.label}
                 {c.checked ? ' ✓' : ''}
@@ -94,7 +96,7 @@ export function CommandPalette({ commands, onClose }: Props) {
               {shortcutLabel(c.id) && <kbd>{shortcutLabel(c.id)}</kbd>}
             </li>
           ))}
-          {!results.length && <li className="empty">No matching commands</li>}
+          {!results.length && <li className="empty">{msg('No matching commands')}</li>}
         </ul>
       </div>
     </div>

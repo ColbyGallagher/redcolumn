@@ -38,6 +38,8 @@ export const SOURCE_LOCALE = 'en';
 
 export const LOCALES: readonly LocaleInfo[] = [
   { code: 'en', name: 'English', english: 'English', dir: 'ltr', status: 'source', scripts: ['Latn'], spelling: 'dictionary-en', ocr: 'eng' },
+  { code: 'de', name: 'Deutsch', english: 'German', dir: 'ltr', status: 'preview', scripts: ['Latn'], spelling: 'dictionary-de', ocr: 'deu' },
+  { code: 'fr', name: 'Français', english: 'French', dir: 'ltr', status: 'preview', scripts: ['Latn'], spelling: 'dictionary-fr', ocr: 'fra' },
   // Pseudo-locales: English made longer and accented (finds untranslated text and overflow), and
   // English shown right to left (exercises the direction switch).
   { code: 'en-XA', name: '[Ƥşéûđö Åççéñţş]', english: 'Pseudo (accents)', dir: 'ltr', status: 'pseudo', rules: 'en', pseudo: 'accents', scripts: ['Latn'] },

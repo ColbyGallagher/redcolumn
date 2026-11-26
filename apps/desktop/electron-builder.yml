@@ -87,6 +87,14 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   artifactName: redcolumn-Setup.${ext}
+  # The installer and uninstaller speak the system's language when it is one of these (no picker).
+  # A language added to the app (packages/i18n/src/locales.ts) is added here too.
+  multiLanguageInstaller: true
+  displayLanguageSelector: false
+  installerLanguages:
+    - en_US
+    - de_DE
+    - fr_FR
 # Not signed with a Developer ID or notarized. identity "-" ad-hoc signs it instead: Apple Silicon
 # will not run an unsigned app, and signing re-seals it after the fuses above are flipped.
 mac:

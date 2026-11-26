@@ -3266,6 +3266,23 @@
   border-bottom: 1px solid var(--border);
 }
 
+.bookmarks-panel .bookmark-filter {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bookmarks-panel .bookmark-filter input {
+  flex: 1;
+  min-width: 0;
+}
+
+.bookmarks-panel .bookmark-filter-clear {
+  flex: none;
+}
+
 .bookmark-tree li {
   display: flex;
   align-items: center;
@@ -3280,6 +3297,10 @@
 .bookmark-tree .bookmark {
   grid-template-columns: 1fr;
   padding: 4px 6px;
+}
+
+.bookmark-tree .bookmark.ancestor {
+  opacity: 0.58;
 }
 
 .bookmark.current .name {
@@ -4009,23 +4030,100 @@
 }
 
 .modal.compare-dialog {
-  width: min(580px, calc(100vw - 32px));
+  width: min(640px, calc(100vw - 32px));
   max-height: calc(100vh - 32px);
   overflow-y: auto;
+  overflow-x: hidden;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 
-/* Labels stay on one line; the document pickers take the rest of the row. */
-.compare-dialog > .row {
+.modal.compare-dialog h3 {
+  margin: 0;
+}
+
+.modal.compare-dialog .compare-intro {
+  margin: 0;
+}
+
+.modal.compare-dialog .check {
+  margin-top: 0;
+}
+
+.modal.compare-dialog fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.modal.compare-dialog fieldset .row {
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.modal.compare-dialog .print-hint {
+  margin: 0;
+  white-space: normal;
+}
+
+.modal.compare-dialog .compare-source-row {
+  gap: 24px;
+  padding: 2px 0;
+}
+
+/* Labels stay on one line; the document pickers shrink/truncate to fit beside Browse. */
+.modal.compare-dialog .compare-doc-row {
+  flex-wrap: nowrap;
   white-space: nowrap;
-}
-
-.compare-dialog > .row select {
-  flex: 1;
+  gap: 10px;
   min-width: 0;
 }
 
-.compare-dialog fieldset .row select {
+.modal.compare-dialog .compare-doc-row select {
+  flex: 1 1 0;
+  min-width: 0;
+  width: 0;
+  max-width: none;
+  height: 30px;
+  text-overflow: ellipsis;
+}
+
+.compare-doc-label {
+  min-width: 92px;
+  flex: none;
+}
+
+.compare-browse-btn {
+  flex: none;
+  height: 30px;
+  padding: 0 12px;
+}
+
+.modal.compare-dialog .compare-swap-row {
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.compare-swap-btn {
+  font-size: 12px;
+  height: 28px;
+  padding: 0 12px;
+}
+
+.compare-dialog fieldset:not(.compare-docs) .row select {
   max-width: 280px;
+}
+
+.modal.compare-dialog .actions {
+  margin-top: 4px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
 }
 
 /* Numbers keep their own width instead of stretching across the row (beats .modal input's flex: 1). */
@@ -4956,64 +5054,238 @@ tr.hidden-markup td {
 /* Compare: Align Pages and Select Region */
 .compare-pick-dialog {
   width: min(1100px, calc(100vw - 32px));
+  height: min(820px, calc(100vh - 32px));
+  max-height: calc(100vh - 32px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.compare-pick-dialog.compare-pick-full {
+  width: calc(100vw - 24px);
+  height: calc(100vh - 24px);
+  max-width: none;
+  max-height: calc(100vh - 24px);
+}
+.compare-pick-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: none;
+}
+.compare-pick-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.compare-pick-heading h3 {
+  margin: 0;
+}
+.compare-pick-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.compare-pick-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--surface-sunken);
+  color: var(--muted);
+}
+.compare-pick-step.current {
+  border-color: var(--step-color, var(--accent));
+  color: var(--text);
+}
+.compare-pick-step.done {
+  border-color: color-mix(in srgb, var(--step-color, var(--accent)) 45%, var(--border));
+}
+.compare-pick-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--step-color, var(--accent));
+  color: #fff;
+  font-weight: 700;
+  font-size: 10px;
+}
+.compare-pick-pill {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-weight: 500;
+}
+.compare-pick-pill.active {
+  background: var(--step-color, var(--accent));
+  color: #fff;
+  font-weight: 600;
+}
+.compare-pick-pill.ok {
+  color: var(--text);
+  font-weight: 600;
+}
+.compare-pick-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.compare-pick-guide {
+  flex: 1 1 320px;
+  padding: 6px 10px;
+  border-inline-start: 3px solid var(--accent);
+  border-radius: 3px;
+  background: var(--surface-sunken);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+.compare-pick-guide.ready {
+  border-inline-start-color: #1a8a1a;
+}
+.compare-pick-guide.warn {
+  border-inline-start-color: #d97706;
+}
+.compare-pick-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.compare-pick-controls .check {
+  margin: 0;
+}
+.compare-pick-hint {
+  color: var(--muted);
+  font-size: 11px;
 }
 .compare-pick-pages {
   display: flex;
   gap: 12px;
-  flex-wrap: wrap;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .compare-pick {
-  flex: 1 1 300px;
+  flex: 1 1 0;
   margin: 0;
   min-width: 0;
-}
-.compare-pick figcaption {
-  font-size: 12px;
-  color: var(--muted);
-  margin-bottom: 4px;
-}
-.compare-pick-page {
-  position: relative;
-  max-height: 60vh;
-  max-width: 100%;
-  margin: 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--border);
-  background: #fff;
-  cursor: crosshair;
+  border-radius: 4px;
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+.compare-pick.active-target {
+  border-color: var(--pick-accent, var(--accent));
+  box-shadow: 0 0 0 1px var(--pick-accent, var(--accent));
+}
+.compare-pick-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 12px;
+  color: var(--text);
+  flex: none;
+}
+.compare-pick-title {
+  font-weight: 600;
+}
+.compare-pick-badge {
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+}
+.compare-pick-snap-state {
+  font-size: 11px;
+  color: var(--muted);
+}
+.compare-pick-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.compare-pick-zbtn {
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  font-size: 12px;
+  line-height: 1;
+}
+.compare-pick-zpct {
+  min-width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 11px;
+  color: var(--muted);
+}
+.compare-pick-viewport {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 200px;
+  overflow: hidden;
   touch-action: none;
   user-select: none;
-}
-.compare-pick-page.loading {
-  display: grid;
-  place-items: center;
-  min-height: 200px;
-  color: var(--muted);
+  background: color-mix(in srgb, var(--surface-sunken) 85%, #000 15%);
   cursor: default;
 }
-.compare-pick-page img {
+.compare-pick-viewport.picking {
+  cursor: crosshair;
+}
+.compare-pick-viewport.pan-ready {
+  cursor: grab;
+}
+.compare-pick-viewport.panning {
+  cursor: grabbing;
+}
+.compare-pick-canvas {
   display: block;
   width: 100%;
   height: 100%;
-  pointer-events: none;
 }
-.compare-pick-mark {
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  margin: -9px 0 0 -9px;
-  border: 2px solid;
-  border-radius: 50%;
-  background: var(--tint-strong);
-  color: #000;
-  font: 600 10px/14px system-ui, sans-serif;
-  text-align: center;
-  pointer-events: none;
+.compare-pick-loading {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  min-height: 200px;
+  color: var(--muted);
 }
-.compare-pick-region {
-  position: absolute;
-  border: 2px dashed var(--accent);
-  background: rgba(20, 163, 154, 0.12);
-  pointer-events: none;
+.compare-pick-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text);
+}
+.compare-pick-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+.compare-pick-opacity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.compare-pick-opacity input[type='range'] {
+  width: 76px;
 }
 
 /* Number fields with a dropdown of common values (toolbar line width, opacity, font size, cloud bubbles). */
@@ -6138,8 +6410,90 @@ tr.hidden-markup td {
   width: 100%;
 }
 
-.asm-items td:first-child input {
+.asm-items td.asm-item-name input {
   width: 130px;
+}
+
+.drag-col {
+  width: 22px;
+  padding: 0;
+}
+
+.drag-handle-cell {
+  width: 22px;
+  padding: 0 2px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.drag-handle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 24px;
+  color: var(--muted);
+  cursor: grab;
+  opacity: 0.55;
+  user-select: none;
+  border-radius: 3px;
+}
+
+.drag-handle:hover:not(.disabled) {
+  opacity: 1;
+  color: var(--text);
+  background: var(--hover);
+}
+
+.drag-handle:active:not(.disabled) {
+  cursor: grabbing;
+}
+
+.drag-handle.disabled {
+  cursor: default;
+  opacity: 0.2;
+}
+
+.col-row .drag-handle.list-grip {
+  width: 14px;
+  height: 18px;
+  flex: none;
+}
+
+.columns-list li[draggable='true'] {
+  cursor: grab;
+}
+
+.columns-list li[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.columns-list li.dragging,
+.asm-table tr.dragging {
+  opacity: 0.45;
+}
+
+.columns-list li.drop-before {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.columns-list li.drop-after {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.asm-table tr.drop-before > td {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.asm-table tr.drop-after > td {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.asm-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
 }
 
 .asm-formula {
@@ -6166,6 +6520,13 @@ tr.hidden-markup td {
   align-items: center;
   gap: 4px;
   white-space: nowrap;
+}
+
+.asm-round-each {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.9em;
 }
 
 .asm-menu-head {

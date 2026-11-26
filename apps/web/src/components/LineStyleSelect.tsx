@@ -1,3 +1,5 @@
+import { msg } from '@nb/i18n';
+import { lineDashName } from '../i18n/names';
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { documentLineStyles, LINE_DASHES, type CustomLine, type LineDash, type Markup, type MarkupStyle } from '@nb/markup';
@@ -62,14 +64,14 @@ export function LineStyleSelect({ style, markups, onChange, onPreview, mixed, di
     if (value === 'custom' && !mixed) {
       out.push({
         value: 'custom',
-        label: style.lineStyle ? style.lineStyle.name || 'Custom' : `Custom (${style.dashArray!.map((n) => Math.round(n * 100) / 100).join(' ')})`,
+        label: style.lineStyle ? style.lineStyle.name || msg('Custom') : msg('Custom ({dashes})', { dashes: style.dashArray!.map((n) => Math.round(n * 100) / 100).join(' ') }),
         swatch: style.lineStyle ? { line: style.lineStyle } : { dashArray: style.dashArray },
       });
     }
-    LINE_DASHES.forEach((d) => out.push({ value: d.value, label: d.label, swatch: { dash: d.value } }));
-    inDocument.forEach((l, i) => out.push({ value: `doc:${i}`, label: l.name || 'Custom', swatch: { line: l }, group: 'In this document' }));
+    LINE_DASHES.forEach((d) => out.push({ value: d.value, label: lineDashName(d.value), swatch: { dash: d.value } }));
+    inDocument.forEach((l, i) => out.push({ value: `doc:${i}`, label: l.name || msg('Custom'), swatch: { line: l }, group: msg('In this document') }));
     sets.forEach((set, si) => set.styles.forEach((l, li) => out.push({ value: `line:${si}:${li}`, label: l.name, swatch: { line: l }, group: set.title })));
-    out.push({ value: 'manage', label: 'Manage line styles…', group: 'Actions' });
+    out.push({ value: 'manage', label: msg('Manage line styles…'), group: msg('Actions') });
     out.forEach((it) => {
       if (it.swatch) it.swatchId = swatchKey(it.swatch);
     });
@@ -232,7 +234,7 @@ export function LineStyleSelect({ style, markups, onChange, onPreview, mixed, di
   };
 
   const shown = selected === '' ? undefined : items[selectedIndex];
-  const valueText = mixed ? 'Mixed' : (shown?.label ?? '');
+  const valueText = mixed ? msg('Mixed') : (shown?.label ?? '');
 
   // The option rows never change with the hovered or active row, only the two that do re-render.
   const latest = useRef({ pick, patchFor, items });
@@ -273,7 +275,7 @@ export function LineStyleSelect({ style, markups, onChange, onPreview, mixed, di
         onBlur={() => setOpen(false)}
       >
         <span id={`${uid}-label`} className="ls-sr">
-          Line style
+          {msg('Line style')}
         </span>
         {shown?.swatch && !mixed && <LineStyleSwatch spec={shown.swatch} id={shown.swatchId!} />}
         <span id={`${uid}-value`} className="ls-name">
@@ -286,7 +288,7 @@ export function LineStyleSelect({ style, markups, onChange, onPreview, mixed, di
             ref={listRef}
             id={listId}
             role="listbox"
-            aria-label="Line styles"
+            aria-label={msg('Line styles')}
             className="ls-list"
             style={{ left: box.left, top: box.top, bottom: box.bottom, width: box.width, maxHeight: box.maxHeight }}
             // Clicking an option must not take focus off the picker.

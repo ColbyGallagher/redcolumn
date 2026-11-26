@@ -42,6 +42,8 @@ const NOTES = {
   'node-forge': 'Dual-licensed BSD-3-Clause or GPL-2.0; redcolumn uses it under BSD-3-Clause.',
   'dictionary-en': 'The English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
   'dictionary-en-gb': 'The British English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
+  'dictionary-de': 'The German Hunspell dictionary (igerman98, by Björn Jacke), licensed GPL-2.0 or GPL-3.0. redcolumn ships it unmodified as separate data files (spell/de-DE.aff and spell/de-DE.dic) that the spell checker reads; its source is at https://www.j3e.de/ispell/igerman98/. Its licence is below.',
+  'dictionary-fr': 'The French Hunspell dictionary (Dicollecte, by Olivier R.), licensed MPL-2.0. redcolumn ships it unmodified as separate data files (spell/fr-FR.aff and spell/fr-FR.dic) that the spell checker reads; its source is at https://grammalecte.net/. Its licence is below.',
   'dictionary-en-au': 'The Australian English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
 };
 for (const lang of ['deu', 'eng', 'fra', 'ita', 'nld', 'por', 'spa'])

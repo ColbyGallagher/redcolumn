@@ -36,8 +36,11 @@ test('pseudo-locales', () => {
   assert.equal(formattingLocale(), 'en');
   const s = msg('Save {n, plural, one {# file} other {# files}}', { n: 2 });
   assert.match(s, /^\[\[Šåṽé 2 ƒîļéš ~+\]\]$/);
+  // A closing ellipsis stays last, where code that marks dialog commands looks for it.
+  assert.match(msg('Open…'), /^\[\[Öþéñ ~+\]\]…$/);
   activate('ar-XB');
   assert.equal(currentLocale().dir, 'rtl');
+  assert.ok(msg('Open…').endsWith('…'), 'the closing ellipsis stays last right to left too');
   assert.equal(msg('Hi {name}', { name: 'Ann' }), '‮Hi ‬Ann');
   activate('en');
 });
@@ -63,7 +66,7 @@ test('matching the user’s languages', () => {
   const ptBR: LocaleInfo = { code: 'pt-BR', name: 'Português', english: 'Portuguese', dir: 'ltr', status: 'preview', scripts: ['Latn'] };
   const all = [...LOCALES, de, ptBR];
   assert.equal(matchLocale(['de-AT', 'en'], all), 'de');
-  assert.equal(matchLocale(['fr-FR', 'de'], all), 'de');
+  assert.equal(matchLocale(['es-ES', 'de'], all), 'de');
   assert.equal(matchLocale(['pt-PT'], all), 'pt-BR');
   assert.equal(matchLocale(['ja'], all), 'en');
   assert.equal(matchLocale(['ar'], all), 'en', 'pseudo-locales never match by language');

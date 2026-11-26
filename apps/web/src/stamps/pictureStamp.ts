@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { imageDimensions, imageStamp, imageStampName, MAX_STAMP_IMAGE_BYTES, MAX_STAMP_IMAGE_PIXELS, STAMP_IMAGE_BUDGET, STAMP_IMAGE_SIDES, type StampDef } from '@nb/markup';
 
 /** What the Stamps dialog's file picker offers: stamp PDFs and pictures (SVG is listed so it can be refused with a reason). */
@@ -45,7 +46,7 @@ const MB = 1048576;
 export async function stampFromImage(file: File, env: PictureEnv = browserPictureEnv): Promise<StampDef> {
   if (/svg/i.test(file.type) || /\.svg$/i.test(file.name)) throw new Error('SVG pictures are not supported; use a PNG or JPEG');
   if (!file.size) throw new Error('the file is empty');
-  if (file.size > MAX_STAMP_IMAGE_BYTES) throw new Error(`the picture is over ${Math.round(MAX_STAMP_IMAGE_BYTES / MB)} MB`);
+  if (file.size > MAX_STAMP_IMAGE_BYTES) throw new Error(msg('the picture is over {round} MB', { round: Math.round(MAX_STAMP_IMAGE_BYTES / MB) }));
   // Its size from the header first: a small file can still hold a picture too big to decode.
   let dims = imageDimensions(new Uint8Array(await file.slice(0, 64 * 1024).arrayBuffer()));
   // A JPEG can hold a lot of metadata before its size: read further before giving up.
@@ -54,7 +55,7 @@ export async function stampFromImage(file: File, env: PictureEnv = browserPictur
     if (head[0] === 0xff && head[1] === 0xd8) dims = imageDimensions(new Uint8Array(await file.slice(0, 1024 * 1024).arrayBuffer()));
   }
   if (!dims || !(dims.width > 0) || !(dims.height > 0)) throw new Error('this is not a picture that can be read (PNG, JPEG, GIF, BMP or WebP)');
-  if (dims.width * dims.height > MAX_STAMP_IMAGE_PIXELS) throw new Error(`the picture is too large (${dims.width} x ${dims.height} pixels)`);
+  if (dims.width * dims.height > MAX_STAMP_IMAGE_PIXELS) throw new Error(msg('the picture is too large ({width} x {height} pixels)', { width: dims.width, height: dims.height }));
 
   const first = STAMP_IMAGE_SIDES[0]!;
   let bitmap: PictureBitmap;

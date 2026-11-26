@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
-import { PREVIEW_IDS, toolPreview } from './toolPreviews.ts';
+import { previewIds, toolPreview } from './toolPreviews.ts';
 
 test('every preview names a recording that exists and has a short sentence', () => {
-  for (const id of PREVIEW_IDS) {
+  for (const id of previewIds()) {
     const p = toolPreview(id);
     assert.ok(p, id);
     if (p.gif) assert.ok(existsSync(new URL(`../../public/help/gif/${p.gif}.gif`, import.meta.url)), `${id}: ${p.gif}.gif`);

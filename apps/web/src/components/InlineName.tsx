@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useState } from 'react';
 
 /** Inline name field for creating or renaming something; Enter or blur commits, Escape cancels. */
@@ -8,7 +9,7 @@ export function InlineName({ initial, placeholder, onDone }: { initial: string; 
       className="group-name-input"
       autoFocus
       value={value}
-      placeholder={placeholder ?? 'Name'}
+      placeholder={placeholder ?? msg('Name')}
       onChange={(e) => setValue(e.target.value)}
       onFocus={(e) => e.target.select()}
       onBlur={() => onDone(value.trim() || null)}

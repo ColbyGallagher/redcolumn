@@ -14,15 +14,15 @@ const numberBox = boxFromRegion({ x: 1880, y: 720, w: 420, h: 60 }, size, 'numbe
 const info = (number: string | null, title: string | null): SheetInfo => ({ number, title, discipline: null, scaleText: null, revision: null, source: 'text', confidence: 1 });
 
 test('the questions start with the drawing number, which cannot be skipped', () => {
-  assert.equal(TITLE_QUESTIONS[0]!.field, 'number');
-  assert.equal(TITLE_QUESTIONS[0]!.optional, false);
-  assert.ok(TITLE_QUESTIONS.slice(1).every((q) => q.optional));
-  assert.equal(new Set(TITLE_QUESTIONS.map((q) => q.key)).size, TITLE_QUESTIONS.length);
+  assert.equal(TITLE_QUESTIONS()[0]!.field, 'number');
+  assert.equal(TITLE_QUESTIONS()[0]!.optional, false);
+  assert.ok(TITLE_QUESTIONS().slice(1).every((q) => q.optional));
+  assert.equal(new Set(TITLE_QUESTIONS().map((q) => q.key)).size, TITLE_QUESTIONS().length);
 });
 
 test('an answer replaces the box for its question only', () => {
-  const status = TITLE_QUESTIONS.find((q) => q.name === 'Status')!;
-  const project = TITLE_QUESTIONS.find((q) => q.name === 'Project')!;
+  const status = TITLE_QUESTIONS().find((q) => q.name === 'Status')!;
+  const project = TITLE_QUESTIONS().find((q) => q.name === 'Project')!;
   const a = boxFromRegion({ x: 0, y: 0, w: 10, h: 10 }, size, 'custom', 'Status');
   const b = boxFromRegion({ x: 20, y: 0, w: 10, h: 10 }, size, 'custom', 'Status');
   let boxes = withAnswer([numberBox], status, a);

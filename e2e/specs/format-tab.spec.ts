@@ -111,6 +111,42 @@ test.describe('markup format tab follows the selection', () => {
     // Their line colors differ.
     await expect(ribbon(app).getByRole('button', { name: 'Line color' })).toHaveAttribute('data-mixed', 'true');
   });
+
+  test('selected volumes take one Depth in one undo step; Mixed left blank changes nothing', async ({ app }) => {
+    const ids: string[] = [];
+    for (const dy of [0, 120]) ids.push((await draw(app, 'volume', roomAt(dy))).id);
+    const depths = () =>
+      app.page.evaluate((ids) => {
+        const store = window.__nb.tools.store as unknown as { get(id: string): { depth?: number } };
+        return ids.map((id) => Math.round((store.get(id).depth ?? 0) * 1e4) / 1e4);
+      }, ids);
+    const field = ribbon(app).getByRole('textbox', { name: 'Depth', exact: true });
+
+    await select(app, [ids[0]!]);
+    await field.fill(`2'-0"`);
+    await field.press('Enter');
+    await expect.poll(depths).toEqual([0.6096, 0]);
+
+    await select(app, ids);
+    await expect(field).toHaveValue('');
+    await expect(field).toHaveAttribute('placeholder', 'Mixed');
+    await field.focus();
+    await field.blur();
+    expect(await depths()).toEqual([0.6096, 0]);
+
+    await field.fill('3');
+    await field.press('Enter');
+    await expect.poll(depths).toEqual([0.9144, 0.9144]);
+    await expect(field).toHaveValue(`3'-0"`);
+    await app.cmd('edit.undo');
+    await expect.poll(depths).toEqual([0.6096, 0]);
+
+    // Only volumes get the field.
+    const area = await draw(app, 'area', roomAt(240));
+    await select(app, [ids[0]!, area.id]);
+    await expect(ribbon(app).getByLabel('Subject', { exact: true })).toBeVisible();
+    await expect(field).toHaveCount(0);
+  });
 });
 
 // The Units & Scale group sits in the Markup Format tab while measuring: the units (Preferences ›

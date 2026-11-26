@@ -189,6 +189,8 @@ export interface Settings {
   gridSize: number;
   /** Rulers along the top and left of the view (View → Rulers). */
   showRulers: boolean;
+  /** Keep File, Edit, View and the other menus across the top bar instead of under the redcolumn button. */
+  showMenuBar: boolean;
   /** Full-screen crosshair cursor (View → Full-Screen Crosshair). */
   crosshair: boolean;
   /** How latitudes and longitudes on maps (geospatial PDFs) are shown: decimal degrees or degrees, minutes and seconds. */
@@ -278,6 +280,8 @@ export interface Settings {
   // General › Options
   /** Interface language: a code from @nb/i18n's LOCALES, or 'auto' to follow the browser or system. Applies at the next start. */
   uiLanguage: string;
+  /** How numbers are written and read: a locale such as 'de-DE', or 'auto' for the system's. Applies at the next start. */
+  numberFormat: string;
   /** Which part of a long document name the tabs cut short. */
   tabTruncation: 'start' | 'middle' | 'end';
   /** Library id of a document opened (in front) every time the app starts; '' for none. */
@@ -291,6 +295,8 @@ export interface Settings {
   pageLayout: 'auto' | 'single' | 'continuous' | 'sideBySide' | 'continuousSideBySide';
   /** Highest zoom the view allows, in percent. */
   maxZoom: number;
+  /** Splitting a single document into two panes starts with Synchronise Document switched on. */
+  syncSplitView: boolean;
   /**
    * Sheets slow to draw (hundreds of thousands of hatch lines, clipped hatches): offer to draw them
    * from an optimised copy, do it without asking, or leave them be. The file itself never changes.
@@ -342,7 +348,7 @@ export interface Settings {
   /** Check Spelling also checks words in capitals (often abbreviations on drawings). */
   spellUpperCase: boolean;
   /** Dictionary Check Spelling uses. */
-  dictionary: 'en-AU' | 'en-GB' | 'en-US';
+  dictionary: 'en-AU' | 'en-GB' | 'en-US' | 'de-DE' | 'fr-FR';
   // Interface › Markups List
   /** Selecting a markup in the list zooms to fit it (otherwise the view only goes to its page). */
   zoomFitSelected: boolean;
@@ -466,6 +472,7 @@ export const DEFAULT_SETTINGS: Settings = {
   rightClickFinishes: false,
   gridSize: 5,
   showRulers: false,
+  showMenuBar: false,
   crosshair: false,
   geoFormat: 'decimal',
   showSpaces: true,
@@ -511,12 +518,14 @@ export const DEFAULT_SETTINGS: Settings = {
   embedHostHooks: false,
 
   uiLanguage: 'auto',
+  numberFormat: 'auto',
   tabTruncation: 'end',
   startupFile: '',
   documentRecovery: true,
   autosave: false,
   pageLayout: 'auto',
   maxZoom: 6400,
+  syncSplitView: false,
   optimiseDrawings: 'ask',
   singlePageWheel: 'zoom',
   continuousWheel: 'scroll',

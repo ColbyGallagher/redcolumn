@@ -7,7 +7,7 @@
   "main": "src/index.ts",
   "scripts": {
     "typecheck": "tsc -p .",
-    "test": "node --test --experimental-strip-types --import ./test/resolve-ts.mjs src/*.test.ts test/compat/matrix.test.ts",
+    "test": "node --test --experimental-strip-types --import ./test/resolve-ts.mjs src/*.test.ts test/qpdf.test.ts test/compat/matrix.test.ts",
     "compat": "node --experimental-strip-types --import ./test/compat/hooks.mjs test/compat/run.ts",
     "compat:a3": "node --experimental-strip-types --import ./test/compat/hooks.mjs test/compat/a3/build.ts"
   },
@@ -31,6 +31,7 @@
     "./fdf": "./src/fdf.ts",
     "./bax": "./src/bax.ts",
     "./summary": "./src/summary.ts",
-    "./report": "./src/report.ts"
+    "./report": "./src/report.ts",
+    "./test/qpdf": "./test/qpdf.ts"
   }
 }

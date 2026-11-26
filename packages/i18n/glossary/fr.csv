@@ -1,0 +1,154 @@
+english,french,note
+Accepted,Accepté,markup status
+Add,Ajouter,
+Align,Aligner,
+Angle,Angle,
+Annotation,Annotation,PDF annotation in general; a redcolumn markup is Marquage
+Arc,Arc,
+Area,Surface,measurement
+Arrow,Flèche,
+Assembly,Ouvrage,takeoff assembly: a reusable set of items priced together
+Attachment,Pièce jointe,
+Author,Auteur,markup list column
+Batch,Lot,batch processing (traitement par lots)
+Bookmark,Signet,
+Calibrate,Étalonner,set a drawing's scale from a known length
+Callout,Légende,text box with a leader line
+Cancel,Annuler,button
+Cancelled,Annulé,markup status
+Chainage,Chaînage,distance along a road alignment; a single value is a Point kilométrique
+Check box,Case à cocher,
+Clear,Effacer,
+Close,Fermer,
+Cloud,Nuage,revision cloud markup
+Column,Colonne,
+Comment,Commentaire,
+Compare Documents,Comparer les documents,
+Completed,Terminé,markup status
+Copy,Copier,
+Count,Comptage,count markup / count measurement; a number of things is Nombre
+Crop,Recadrer,
+Cut,Couper,clipboard; earthworks cut is Déblai
+Cut and fill,Déblai et remblai,earthworks
+Dash,Tiret,line dash pattern
+Delete,Supprimer,
+Depth,Profondeur,
+Desktop app,Application de bureau,
+Dimension,Cote,
+Document,Document,also the ribbon tab
+Drawing,Plan,a sheet of a drawing set
+Drawing set,Jeu de plans,
+Drawing standard,Norme de dessin,
+Edit,Édition,
+Ellipse,Ellipse,
+Eraser,Gomme,
+Estimate,Estimation,
+Estimating,Chiffrage,
+Export,Exporter,
+Fill,Remplissage,
+Fill color,Couleur de remplissage,
+Flatten,Aplatir,
+Folder,Dossier,
+Font,Police,
+Font size,Taille de police,
+Form field,Champ de formulaire,
+Formula,Formule,
+Grid,Grille,
+Hatch,Hachure,
+Height,Hauteur,
+Help,Aide,
+Highlight,Surligner,markup tool
+Home,Accueil,ribbon tab
+Hyperlink,Lien hypertexte,
+Image,Image,
+Import,Importer,
+Insert,Insérer,pages or objects
+Item,Article,takeoff/estimating line item
+Layer,Calque,
+Layout,Mise en page,
+Legend,Légende,
+Length,Longueur,
+Line,Ligne,
+Line style,Style de ligne,
+Line width,Épaisseur de ligne,
+Live Session,Session en direct,shared real-time review
+Markup,Marquage,a redcolumn annotation; plural Marquages
+Markups list,Liste des marquages,
+Match line,Ligne de raccord,
+Measure,Mesurer,verb; a measurement is Mesure
+Measurement,Mesure,
+Modify,Modifier,ribbon tab
+Note,Note,
+OCR,Reconnaissance de texte (OCR),
+Opacity,Opacité,
+Open,Ouvrir,
+Overlay,Superposer,compare by overlaying
+Page,Page,
+Panel,Panneau,side panel
+Paste,Coller,clipboard
+Pen,Stylo,
+Perimeter,Périmètre,
+Plan,Plan,
+Polygon,Polygone,
+Polyline,Polyligne,
+Preferences,Préférences,
+Print,Imprimer,
+Project,Projet,
+Properties,Propriétés,
+Quantity,Quantité,
+Rectangle,Rectangle,
+Redact,Caviarder,
+Redaction,Caviardage,
+Redo,Rétablir,
+Rejected,Rejeté,markup status
+Rename,Renommer,
+Replace,Remplacer,
+Report,Rapport,
+Restart,Redémarrer,
+Revision,Révision,
+Ribbon,Ruban,
+Rotate,Pivoter,
+Save,Enregistrer,
+Save As,Enregistrer sous,
+Scale,Échelle,drawing scale
+Search,Rechercher,
+Select,Sélectionner,
+Selection,Sélection,
+Settings,Paramètres,
+Sheet,Feuille,
+Signature,Signature,digital signature; a handwritten one is Signature manuscrite
+Slope,Pente,
+Snap,Accrochage,snapping to geometry
+Space,Espace,named area on a plan
+Spell check,Vérification orthographique,
+Stamp,Tampon,
+Status,Statut,
+Status bar,Barre d'état,
+Stitch,Assembler,joining sheets into one view
+Studio,Studio,keep as name
+Subject,Objet,markup list column (data value stays English)
+Symbol,Symbole,
+Tab,Onglet,ribbon tab
+Takeoff,Métré,also the ribbon tab
+Template,Modèle,
+Text box,Zone de texte,
+Thumbnails,Miniatures,
+Title block,Cartouche,
+Tool,Outil,
+Tool Chest,Coffre à outils,
+Toolbar,Barre d'outils,
+Tools,Outils,menu
+Total,Total,
+Undo,Annuler,
+Unit,Unité,
+Unit price,Prix unitaire,
+Vertex,Sommet,
+View,Affichage,menu and ribbon tab
+Viewport,Fenêtre de vue,
+Volume,Volume,
+Width,Largeur,
+Window,Fenêtre,menu
+Zoom,Zoom,
+File,Fichier,menu
+Address,"Vous, formel",always address the user with vous
+Ctrl,Ctrl,keyboard keys stay as printed in the app's shortcut lists

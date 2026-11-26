@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { msg } from '@nb/i18n';
 import { useFloatingPopup } from './useFloatingPopup';
 import { addCustomColor, parseHex, removeCustomColor } from '../workspace/customColors';
 import { profiles, updateWorkspace } from '../workspace/profiles';
@@ -97,7 +98,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
         type="button"
         className={`btn color-btn${open ? ' open' : ''}`}
         disabled={disabled}
-        title={mixed ? `${title ?? label} (mixed)` : (title ?? label)}
+        title={mixed ? msg('{name} (mixed)', { name: title ?? label }) : (title ?? label)}
         aria-label={label}
         data-mixed={mixed || undefined}
         aria-expanded={open}
@@ -108,7 +109,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
           <span className="field-icon">{icon}</span>
           <span className={`color-bar${mixed ? ' mixed' : value || fallback ? '' : ' none'}`} style={!mixed && (value || fallback) ? { background: value ?? fallback } : undefined} />
         </span>
-        <span className="field-label">{wide ? (mixed ? 'Mixed' : (value ?? noneLabel ?? 'None')) : short}</span>
+        <span className="field-label">{wide ? (mixed ? msg('Mixed') : (value ?? noneLabel ?? msg('None'))) : short}</span>
         <span className="color-caret" aria-hidden="true">
           ▾
         </span>
@@ -142,7 +143,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
           </div>
           {custom.length > 0 && (
             <>
-              <div className="color-pop-title">Custom</div>
+              <div className="color-pop-title">{msg('Custom')}</div>
               <div className="color-grid">
                 {custom.map((c) => (
                   <button
@@ -150,8 +151,8 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
                     type="button"
                     className={`color-swatch${norm === c ? ' on' : ''}`}
                     style={{ background: c }}
-                    title={`${c} (right-click or press Delete to remove)`}
-                    aria-label={`Custom ${c}`}
+                    title={msg('{colour} (right-click or press Delete to remove)', { colour: c })}
+                    aria-label={msg('Custom {colour}', { colour: c })}
                     aria-pressed={norm === c}
                     onMouseEnter={() => onPreview?.(c)}
                     onFocus={() => onPreview?.(c)}
@@ -172,8 +173,8 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
             </>
           )}
           <label className="color-more">
-            <input ref={native} type="color" aria-label={`${label}: more colors`} value={value ?? fallback ?? '#ffffff'} onChange={(e) => onChange(e.target.value)} />
-            More colors…
+            <input ref={native} type="color" aria-label={msg('{label}: more colors', { label })} value={value ?? fallback ?? '#ffffff'} onChange={(e) => onChange(e.target.value)} />
+            {msg('More colors…')}
           </label>
           <form
             className="color-hex"
@@ -187,7 +188,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
           >
             <input
               type="text"
-              aria-label={`${label}: hex`}
+              aria-label={msg('{label}: hex', { label })}
               placeholder="#rrggbb"
               spellCheck={false}
               value={hex}
@@ -195,7 +196,7 @@ export function ColorMenu({ label, short, icon, value, fallback, onChange, onPre
               onChange={(e) => setHex(e.target.value)}
             />
             <button type="submit" className="btn" disabled={!typed}>
-              Add
+              {msg('Add')}
             </button>
           </form>
         </div>,
