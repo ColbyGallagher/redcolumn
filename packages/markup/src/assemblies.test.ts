@@ -36,6 +36,14 @@ test('a round-up multiple survives, and only where the item rounds up', () => {
   }
 });
 
+test('rounding each measurement survives only where the item rounds up', () => {
+  const item = (x: object) => sanitizeAssemblies([{ name: 'A', items: [{ name: 'P', ...x }] }])[0]!.items[0]!;
+  assert.equal(item({ roundUp: true, roundEach: true }).roundEach, true);
+  for (const bad of [{ roundEach: true }, { roundUp: true, roundEach: 'yes' }, { roundUp: true, roundEach: false }]) {
+    assert.equal('roundEach' in item(bad), false, JSON.stringify(bad));
+  }
+});
+
 test('JSON files round trip, and other files are refused with a reason', () => {
   assert.deepEqual(assembliesFromJson(assembliesToJson([wall])), [wall]);
   assert.throws(() => assembliesFromJson('<xml/>'), /not JSON/);

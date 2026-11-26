@@ -4221,8 +4221,8 @@ msgid "Duplicated “{name}”. Save to apply."
 msgstr "« {name} » dupliqué. Enregistrez pour appliquer."
 
 #: apps/web/src/components/AssembliesDialog.tsx
-msgid "Each item’s quantity per measurement. Waste is added before rounding up; totals round up once, on the total."
-msgstr "Quantité de chaque article par mesure. Les pertes sont ajoutées avant l’arrondi supérieur ; les totaux sont arrondis une seule fois, sur le total."
+msgid "Each item’s quantity per measurement. Waste is added before rounding up; totals round up once, on the total, unless you tick each to round every measurement up first."
+msgstr "Quantité de chaque article par mesure. Les pertes sont ajoutées avant l’arrondi supérieur ; les totaux sont arrondis une seule fois, sur le total, sauf si vous cochez « par mesure » pour arrondir d’abord chaque mesure."
 
 #: apps/web/src/components/AssembliesDialog.tsx
 msgid "Every example"
@@ -4356,6 +4356,10 @@ msgstr "Retirer {name} de Mes ouvrages"
 msgid "Remove “{name}” from My Assemblies"
 msgstr "Retirer « {name} » de Mes ouvrages"
 
+#: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/ItemsDialog.tsx
+msgid "Round each measurement up before adding them up, rather than the total once: four 14 ft runs of pipe sold in 8 ft lengths need 16 ft each, as offcuts cannot be joined."
+msgstr "Arrondir chaque mesure au supérieur avant de les additionner, plutôt que le total une seule fois : quatre tronçons de 14 ft d’un tuyau vendu en longueurs de 8 ft demandent 16 ft chacun, car les chutes ne peuvent pas être raccordées."
+
 #: apps/web/src/components/AssembliesDialog.tsx
 msgid "Round the quantity up instead of leaving it fractional"
 msgstr "Arrondir la quantité à l’entier supérieur au lieu de la laisser fractionnaire"
@@ -4371,6 +4375,10 @@ msgstr "Arrondir au supérieur"
 #: apps/web/src/components/AssembliesDialog.tsx
 msgid "Round up to a whole number, or to a multiple you set (10 for pipe sold in 10 ft lengths)"
 msgstr "Arrondir à l’entier supérieur, ou à un multiple que vous définissez (10 pour des tuyaux vendus en longueurs de 10 ft)"
+
+#: apps/web/src/components/AssembliesDialog.tsx
+msgid "Round up {name} for each measurement"
+msgstr "Arrondir {name} au supérieur pour chaque mesure"
 
 #: apps/web/src/components/AssembliesDialog.tsx
 msgid "Round up {name} to a multiple of"
@@ -4487,6 +4495,10 @@ msgstr "ouvrages"
 #: apps/web/src/components/AssembliesDialog.tsx
 msgid "assembly items"
 msgstr "articles d’ouvrage"
+
+#: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/ItemsDialog.tsx
+msgid "each"
+msgstr "par mesure"
 
 #: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/ItemsDialog.tsx
 msgid "item"
@@ -8989,6 +9001,10 @@ msgstr "Fiche produit de l’article"
 #: apps/web/src/components/ItemsDialog.tsx
 msgid "Item round up"
 msgstr "Arrondi supérieur de l’article"
+
+#: apps/web/src/components/ItemsDialog.tsx
+msgid "Item round up each measurement"
+msgstr "Arrondi supérieur de l’article pour chaque mesure"
 
 #: apps/web/src/components/ItemsDialog.tsx
 msgid "Item round up to nearest"
@@ -14499,8 +14515,8 @@ msgid "With waste"
 msgstr "Avec pertes"
 
 #: apps/web/src/components/QuantitiesDialog.tsx
-msgid "With waste, rounded up on the total where the item rounds"
-msgstr "Avec pertes, arrondi au supérieur sur le total là où l’article arrondit"
+msgid "With waste, rounded up on the total where the item rounds (each measurement first where it rounds each)"
+msgstr "Avec pertes, arrondi au supérieur sur le total là où l’article arrondit (d’abord chaque mesure là où il arrondit par mesure)"
 
 #: apps/web/src/components/QuantitiesDialog.tsx
 msgid "{count, plural, one {# measurement with an assembly} other {# measurements with an assembly}}"

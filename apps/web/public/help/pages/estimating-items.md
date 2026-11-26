@@ -16,7 +16,7 @@ Items are the cost lines your assemblies price from: the materials, labour, equi
    | **Unit cost** | What one unit costs you. |
    | **Unit price** | What you sell one unit for. |
    | **Waste %** | An allowance added before rounding. |
-   | **Round up** | Tick for things bought whole. Type a number beside it to round up to the nearest multiple of it instead: `10` for pipe sold in 10 ft lengths. |
+   | **Round up** | Tick for things bought whole. Type a number beside it to round up to the nearest multiple of it instead: `10` for pipe sold in 10 ft lengths. Tick **each** to round every measurement up before they are added up, for lengths whose offcuts cannot be joined. |
    | **SKU**, **Description** | Your supplier's code, and a note. |
    | **Product list** | A price list record the cost and price come from (see below). |
 
