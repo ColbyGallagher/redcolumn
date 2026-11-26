@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import type { RegisterTemplate } from '../sheetsync/register';
 import { useSyncExternalStore } from 'react';
 import { DEFAULT_LINE_SETS, DEFAULT_STAMPS, type BookmarkTemplate, type ColumnSet, type CountSymbol, type HatchSet, type LineSet, type Markup, type MarkupStyle, type MarkupType, type RevuToolSource, type StampDef } from '@nb/markup';
@@ -292,7 +293,7 @@ export const profiles = {
   /** Brings in a cloud backup: its profiles replace ones with the same ID and the rest are kept. Returns how many came in. */
   importAll(text: string): number {
     const data = JSON.parse(text) as { format?: string; activeId?: string; profiles?: Profile[] };
-    if (data.format !== 'nb-profiles' || !Array.isArray(data.profiles) || !data.profiles.length) throw new Error('This is not a profile backup.');
+    if (data.format !== 'nb-profiles' || !Array.isArray(data.profiles) || !data.profiles.length) throw new Error(msg('This is not a profile backup.'));
     const incoming = data.profiles.map((p) => ({ id: p.id, name: p.name, state: upgrade(p.state) }));
     const ids = new Set(incoming.map((p) => p.id));
     const kept = saved.profiles.filter((p) => !ids.has(p.id));
@@ -307,7 +308,7 @@ export const profiles = {
   },
   importJson(text: string): Profile {
     const data = JSON.parse(text) as { format?: string; name?: string; state?: Partial<WorkspaceState> };
-    if (data.format !== 'nb-profile' || !data.state) throw new Error('This is not a profile file.');
+    if (data.format !== 'nb-profile' || !data.state) throw new Error(msg('This is not a profile file.'));
     const p: Profile = { id: crypto.randomUUID(), name: data.name || 'Imported profile', state: upgrade(data.state) };
     commit({ profiles: [...saved.profiles, p], activeId: p.id });
     return p;

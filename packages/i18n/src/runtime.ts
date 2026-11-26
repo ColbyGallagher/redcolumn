@@ -80,13 +80,19 @@ function nodesFor(text: string, context: string | undefined): IcuNode[] {
   return nodes;
 }
 
+/**
+ * Values a plain-text message takes. Elements and other objects go through `msgParts`, which keeps
+ * them as parts: in a string they would show as "[object Object]".
+ */
+export type TextValues = Readonly<Record<string, string | number | boolean | null | undefined>>;
+
 /** Translated text. */
-export function msg(text: string, values: IcuValues = {}): string {
+export function msg(text: string, values: TextValues = {}): string {
   return formatIcu(nodesFor(text, undefined), values, active.rules);
 }
 
 /** Translated text for English that has more than one meaning; `context` tells them apart ("noun", "verb"). */
-export function msgc(context: string, text: string, values: IcuValues = {}): string {
+export function msgc(context: string, text: string, values: TextValues = {}): string {
   return formatIcu(nodesFor(text, context), values, active.rules);
 }
 

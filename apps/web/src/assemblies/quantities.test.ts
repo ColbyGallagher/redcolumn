@@ -110,6 +110,24 @@ test('totals round up once, to the item’s multiple', () => {
   assert.equal(row.cost, 120);
 });
 
+test('an item that rounds each measurement adds them up already rounded', () => {
+  // Pipe in 8 ft lengths: four 14 ft runs leave offcuts that cannot be joined, so each needs 16 ft.
+  const pipe: Assembly = { id: 'p', name: 'Pipe', variables: [], items: [{ id: 'pipe', name: 'Pipe', unit: 'ft', formula: '[Length]', roundUp: true, roundTo: 8, roundEach: true, unitCost: 2 }] };
+  const sticks: Assembly = { id: 's', name: 'Sticks', variables: [], items: [{ id: 'st', name: 'Sticks', unit: 'ea', formula: '[Length] / 8', roundUp: true, roundEach: true }] };
+  const runs = (id: string) => [0, 1, 2, 3].map(() => markup('length', [[0, 0], [14, 0]], { assemblyId: id }));
+  const row = rollup(runs('p'), [pipe], ctx([pipe]), 'item')[0]!;
+  near(row.quantity, 56);
+  assert.equal(row.total, 64);
+  assert.equal(row.cost, 128);
+  assert.equal(rollup(runs('s'), [sticks], ctx([sticks]), 'item')[0]!.total, 8);
+  // Without it the total rounds once: 56 ft is 7 lengths.
+  const once: Assembly = { ...pipe, items: [{ ...pipe.items[0]!, roundEach: undefined }] };
+  assert.equal(rollup(runs('p'), [once], ctx([once]), 'item')[0]!.total, 56);
+  // Rounding each does nothing without rounding up.
+  const off: Assembly = { ...pipe, items: [{ ...pipe.items[0]!, roundUp: undefined }] };
+  near(rollup(runs('p'), [off], ctx([off]), 'item')[0]!.total, 56);
+});
+
 test('counts, areas and perimeters', () => {
   const doors: Assembly = { id: 'd', name: 'Doors', variables: [], items: [{ id: 'h', name: 'Hinges', unit: 'ea', formula: '[Count] * 3' }] };
   const slab: Assembly = {

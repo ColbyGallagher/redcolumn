@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useCallback, useEffect, useRef, useState, type DragEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { isModelFile } from '../model3d/files';
 import { drawingSets } from '../storage/sets';
@@ -60,7 +61,7 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
   const matches = (f: StoredFile) => !q || f.name.toLowerCase().includes(q);
 
   const confirmRemove = (f: StoredFile) => {
-    if (!confirm(`Remove "${f.name}" from this device? Its markups are kept and return if you open it again.`)) return;
+    if (!confirm(msg('Remove "{name}" from this device? Its markups are kept and return if you open it again.', { name: f.name }))) return;
     fileGroups.forget(f.id);
     drawingSets.forget(f.id);
     onRemove(f);
@@ -71,18 +72,18 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
     const addTo: MenuEntry[] = [
       ...groups.map((g) => ({ label: g.name, checked: g.fileIds.includes(f.id), disabled: g.fileIds.includes(f.id), onClick: () => fileGroups.add(g.id, f.id) })),
       ...(groups.length ? [{ sep: true } as const] : []),
-      { label: 'New Group…', onClick: () => setNaming({ id: 'new', fileId: f.id }) },
+      { label: msg('New Group…'), onClick: () => setNaming({ id: 'new', fileId: f.id }) },
     ];
     const groupEntries: MenuEntry[] = [
-      { label: 'Add to Group', items: addTo },
-      ...(group ? [{ label: `Remove from "${group.name}"`, onClick: () => fileGroups.removeFile(group.id, f.id) }] : []),
+      { label: msg('Add to Group'), items: addTo },
+      ...(group ? [{ label: msg('Remove from "{name}"', { name: group.name }), onClick: () => fileGroups.removeFile(group.id, f.id) }] : []),
     ];
     setMenu({
       x: e.clientX,
       y: e.clientY,
       items: appMenu
         ? appMenu(f, groupEntries)
-        : [{ label: 'Open', onClick: () => onOpen(f) }, { sep: true }, ...groupEntries, { sep: true }, { label: 'Remove from Device…', danger: true, onClick: () => confirmRemove(f) }],
+        : [{ label: msg('Open'), onClick: () => onOpen(f) }, { sep: true }, ...groupEntries, { sep: true }, { label: msg('Remove from Device…'), danger: true, onClick: () => confirmRemove(f) }],
     });
   };
 
@@ -94,17 +95,17 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
       x: e.clientX,
       y: e.clientY,
       items: [
-        { label: `Open All (${members.length})`, disabled: !members.length, onClick: () => members.forEach(onOpen) },
+        { label: msg('Open All ({count})', { count: members.length }), disabled: !members.length, onClick: () => members.forEach(onOpen) },
         { sep: true },
-        { label: 'Rename', onClick: () => setNaming({ id: g.id }) },
-        { label: 'Move Up', disabled: i === 0, onClick: () => fileGroups.move(g.id, -1) },
-        { label: 'Move Down', disabled: i === groups.length - 1, onClick: () => fileGroups.move(g.id, 1) },
+        { label: msg('Rename'), onClick: () => setNaming({ id: g.id }) },
+        { label: msg('Move Up'), disabled: i === 0, onClick: () => fileGroups.move(g.id, -1) },
+        { label: msg('Move Down'), disabled: i === groups.length - 1, onClick: () => fileGroups.move(g.id, 1) },
         { sep: true },
         {
-          label: 'Delete Group',
+          label: msg('Delete Group'),
           danger: true,
           onClick: () => {
-            if (confirm(`Delete the group "${g.name}"? The documents stay on this device.`)) fileGroups.remove(g.id);
+            if (confirm(msg('Delete the group "{name}"? The documents stay on this device.', { name: g.name }))) fileGroups.remove(g.id);
           },
         },
       ],
@@ -143,7 +144,7 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
     >
       <button className="file" onClick={() => onOpen(f)} title={f.name}>
         <span className={`file-icon${isModelFile(f) ? ' model' : ''}`} aria-hidden="true">
-          {isModelFile(f) ? 'IFC' : 'PDF'}
+          {isModelFile(f) ? msg('IFC') : msg('PDF')}
         </span>
         <span className="file-text">
           <span className="name">{f.name}</span>
@@ -152,7 +153,7 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
           </span>
         </span>
       </button>
-      <button className="icon" title="More…" onClick={(e) => fileMenu(e, f, group)}>
+      <button className="icon" title={msg('More…')} onClick={(e) => fileMenu(e, f, group)}>
         ⋯
       </button>
     </li>
@@ -169,7 +170,7 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
   const recentsMenu = (e: ReactMouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    setMenu({ x: e.clientX, y: e.clientY, items: [{ label: 'Clear Recents', disabled: !recentList.length, onClick: () => onClearRecents?.() }] });
+    setMenu({ x: e.clientX, y: e.clientY, items: [{ label: msg('Clear Recents'), disabled: !recentList.length, onClick: () => onClearRecents?.() }] });
   };
 
   // A filter finds any document on the device, not just the recent ones.
@@ -178,9 +179,9 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
   return (
     <div className="library" ref={root}>
       <div className="library-tools">
-        <input className="library-search" type="search" placeholder="Filter files" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Filter files" />
-        <button className="btn small" title="Create a group for quick access to a set of files" onClick={() => setNaming({ id: 'new' })}>
-          + Group
+        <input className="library-search" type="search" placeholder={msg('Filter files')} value={query} onChange={(e) => setQuery(e.target.value)} aria-label={msg('Filter files')} />
+        <button className="btn small" title={msg('Create a group for quick access to a set of files')} onClick={() => setNaming({ id: 'new' })}>
+          {msg('+ Group')}
         </button>
       </div>
 
@@ -191,7 +192,7 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
           <section key={g.id} className={`file-group${dropOn === g.id ? ' drop' : ''}`} {...dropProps(g.id, (id) => fileGroups.add(g.id, id))}>
             {naming?.id === g.id ? (
               <div className="group-head">
-                <InlineName initial={g.name} placeholder="Group name" onDone={finishNaming} />
+                <InlineName initial={g.name} placeholder={msg('Group name')} onDone={finishNaming} />
               </div>
             ) : (
               <div className="group-head" onContextMenu={(e) => groupMenu(e, g, i)}>
@@ -203,7 +204,7 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
                   <span className="group-name">{g.name}</span>
                   <span className="count">{members.length}</span>
                 </button>
-                <button className="icon" title="Group options" onClick={(e) => groupMenu(e, g, i)}>
+                <button className="icon" title={msg('Group options')} onClick={(e) => groupMenu(e, g, i)}>
                   ⋯
                 </button>
               </div>
@@ -211,7 +212,7 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
             {!g.collapsed && (
               <ul>
                 {shown.map((f) => row(f, g))}
-                {!members.length && <li className="group-empty">Drag files here, or right-click a file → Add to Group.</li>}
+                {!members.length && <li className="group-empty">{msg('Drag files here, or right-click a file → Add to Group.')}</li>}
               </ul>
             )}
           </section>
@@ -221,14 +222,14 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
       {naming?.id === 'new' && (
         <section className="file-group">
           <div className="group-head">
-            <InlineName initial="" placeholder="Group name" onDone={finishNaming} />
+            <InlineName initial="" placeholder={msg('Group name')} onDone={finishNaming} />
           </div>
         </section>
       )}
 
       {!groups.length && naming?.id !== 'new' && files.length > 0 && (
         <div className={`group-drop-new${dropOn === 'new' ? ' drop' : ''}`} {...dropProps('new', (id) => setNaming({ id: 'new', fileId: id }))}>
-          Drop a file here to start a group
+          {msg('Drop a file here to start a group')}
         </div>
       )}
 
@@ -239,11 +240,11 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
             <span className="group-icon" aria-hidden="true">
               ⏱
             </span>
-            <span className="group-name">Recents</span>
+            <span className="group-name">{msg('Recents')}</span>
             <span className="count">{recents.length}</span>
           </button>
           {onClearRecents && (
-            <button className="icon" title="Recents options" aria-label="Recents options" onClick={recentsMenu}>
+            <button className="icon" title={msg('Recents options')} aria-label={msg('Recents options')} onClick={recentsMenu}>
               ⋯
             </button>
           )}
@@ -251,8 +252,8 @@ export function Library({ files, recents: recentList = files, onClearRecents, ac
         {recentsOpen && (
           <ul>
             {recents.map((f) => row(f))}
-            {files.length === 0 && <li className="group-empty">Opened PDFs are kept here for offline use.</li>}
-            {files.length > 0 && !recents.length && <li className="group-empty">{q ? 'No files match.' : 'No recent files. Type in Filter files to find any file on this device.'}</li>}
+            {files.length === 0 && <li className="group-empty">{msg('Opened PDFs are kept here for offline use.')}</li>}
+            {files.length > 0 && !recents.length && <li className="group-empty">{q ? msg('No files match.') : msg('No recent files. Type in Filter files to find any file on this device.')}</li>}
           </ul>
         )}
       </section>

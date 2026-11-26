@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 import type { Assembly } from '@nb/markup';
 import type { ManualKind, ManualQuantity, Scale } from '@nb/measure';
@@ -42,7 +44,7 @@ export function ManualQuantityDialog({ scale, assemblies, onOk, onCancel }: Prop
       <form
         className="modal manual-quantity-dialog"
         role="dialog"
-        aria-label="Manual Quantity"
+        aria-label={msg('Manual Quantity')}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           e.stopPropagation();
@@ -53,12 +55,12 @@ export function ManualQuantityDialog({ scale, assemblies, onOk, onCancel }: Prop
           if (made) onOk({ manual: made, subject: subject.trim() || 'Manual', ...(assemblyId ? { assemblyId } : {}) });
         }}
       >
-        <h3>Manual Quantity</h3>
-        <p className="muted">A quantity from a schedule or spec, typed instead of drawn. Click a page afterwards to place it.</p>
+        <h3>{msg('Manual Quantity')}</h3>
+        <p className="muted">{msg('A quantity from a schedule or spec, typed instead of drawn. Click a page afterwards to place it.')}</p>
         <div className="row">
           <label>
-            Kind{' '}
-            <select aria-label="Kind" value={kind} onChange={(e) => changeKind(e.target.value as ManualKind)}>
+            {msg('Kind')}{' '}
+            <select aria-label={msg('Kind')} value={kind} onChange={(e) => changeKind(e.target.value as ManualKind)}>
               {KINDS.map((k) => (
                 <option key={k} value={k}>
                   {MANUAL_KIND_LABELS[k]}
@@ -68,8 +70,8 @@ export function ManualQuantityDialog({ scale, assemblies, onOk, onCancel }: Prop
           </label>
         </div>
         <div className="row">
-          <input autoFocus type="number" step="any" min={0} aria-label="Value" placeholder="Value" value={text} onChange={(e) => setText(e.target.value)} aria-invalid={text !== '' && !made} />
-          <select aria-label="Unit" value={unit} onChange={(e) => setUnit(e.target.value)} disabled={kind === 'count'}>
+          <input autoFocus type="number" step="any" min={0} aria-label={msg('Value')} placeholder={msg('Value')} value={text} onChange={(e) => setText(e.target.value)} aria-invalid={text !== '' && !made} />
+          <select aria-label={msg('Unit')} value={unit} onChange={(e) => setUnit(e.target.value)} disabled={kind === 'count'}>
             {MANUAL_UNITS[kind].map((u) => (
               <option key={u.id} value={u.id}>
                 {u.label}
@@ -79,14 +81,14 @@ export function ManualQuantityDialog({ scale, assemblies, onOk, onCancel }: Prop
         </div>
         <div className="row">
           <label>
-            Subject <input aria-label="Subject" value={subject} onChange={(e) => setSubject(e.target.value)} />
+            {keyed(msgParts('Subject {input}', { input: <input aria-label={msg('Subject')} value={subject} onChange={(e) => setSubject(e.target.value)} /> }))}
           </label>
         </div>
         <div className="row">
           <label>
-            Assembly{' '}
-            <select aria-label="Assembly" value={assemblyId} onChange={(e) => setAssemblyId(e.target.value)}>
-              <option value="">None</option>
+            {msg('Assembly')}{' '}
+            <select aria-label={msg('Assembly')} value={assemblyId} onChange={(e) => setAssemblyId(e.target.value)}>
+              <option value="">{msg('None')}</option>
               {assemblies.map((a) => (
                 <option key={a.id} value={a.id}>
                   {a.name}
@@ -97,16 +99,16 @@ export function ManualQuantityDialog({ scale, assemblies, onOk, onCancel }: Prop
         </div>
         <div className="row">
           <label>
-            Note <input aria-label="Note" value={note} onChange={(e) => setNote(e.target.value)} />
+            {keyed(msgParts('Note {input}', { input: <input aria-label={msg('Note')} value={note} onChange={(e) => setNote(e.target.value)} /> }))}
           </label>
         </div>
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!made}>
-            OK
+            {msg('OK')}
           </button>
         </div>
       </form>

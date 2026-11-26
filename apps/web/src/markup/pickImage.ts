@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import type { Attachment } from '@nb/markup';
 import { settings } from '../settings/settings';
 import { imageDpi, resolutionScale } from '../documents/imagePdf';
@@ -34,7 +35,7 @@ const MAX_SIDE = 2048;
  */
 export async function pickImage(): Promise<{ image: string; aspect: number } | null> {
   const native = await pickNative('image');
-  if (native !== undefined) return native ? imageToDataUrl(native).catch(() => { alert(`Could not read ${native.name} as an image.`); return null; }) : null;
+  if (native !== undefined) return native ? imageToDataUrl(native).catch(() => { alert(msg('Could not read {name} as an image.', { name: native.name })); return null; }) : null;
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
@@ -44,7 +45,7 @@ export async function pickImage(): Promise<{ image: string; aspect: number } | n
       if (!file) return resolve(null);
       imageToDataUrl(file).then(resolve, (err) => {
         console.error('Reading the image failed', err);
-        alert(`Could not read ${file.name} as an image.`);
+        alert(msg('Could not read {name} as an image.', { name: file.name }));
         resolve(null);
       });
     });
@@ -83,7 +84,7 @@ export async function pickAttachment(): Promise<Attachment | null> {
   if (native !== undefined) {
     if (!native) return null;
     if (native.size > MAX_ATTACHMENT) {
-      alert(`${native.name} is ${(native.size / 1048576).toFixed(1)} MB; attachments can be up to 25 MB.`);
+      alert(msg('{name} is {value} MB; attachments can be up to 25 MB.', { name: native.name, value: (native.size / 1048576).toFixed(1) }));
       return null;
     }
     return fileToAttachment(native).catch(() => null);
@@ -95,7 +96,7 @@ export async function pickAttachment(): Promise<Attachment | null> {
       const file = input.files?.[0];
       if (!file) return resolve(null);
       if (file.size > MAX_ATTACHMENT) {
-        alert(`${file.name} is ${(file.size / 1048576).toFixed(1)} MB; attachments can be up to 25 MB.`);
+        alert(msg('{name} is {value} MB; attachments can be up to 25 MB.', { name: file.name, value: (file.size / 1048576).toFixed(1) }));
         return resolve(null);
       }
       void fileToAttachment(file).then(resolve, () => resolve(null));

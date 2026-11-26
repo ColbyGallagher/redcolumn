@@ -1,9 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { categoriesToXml, parseCategoriesXml } from '@nb/markup';
 import { AREA_LABELS, VOLUME_LABELS, type LengthUnit } from '@nb/measure';
-import { currentLocale, localeInfo, msg, numberLocale, supportedNumberLocale } from '@nb/i18n';
+import { currentLocale, localeInfo, msg, msgParts, numberLocale, supportedNumberLocale } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
+import { keyed } from '../i18n/keyed';
 import { THEMES } from '../theme/themes';
 import { browserLanguages, NUMBER_FORMATS, numberSample, offeredLanguages, resolveLanguage, resolveNumberFormat, systemNumberLocale } from '../i18n/language';
+import { lengthUnitName } from '../i18n/names';
 import { CONSTRUCTION_TEMPLATE, DEFAULT_SETTINGS, DEFAULT_UNIT_CHOICES, gridUnitOf, settings, switchUnitSystem, type SetTag, type SetTemplate, type Settings, type UnitSystem } from '../settings/settings';
 import { addToDictionary, personalWords, removeFromDictionary } from '../spelling/spell';
 import { askText } from './AskText';
@@ -29,70 +32,70 @@ export type Category = 'general' | 'account' | 'interface' | 'tools' | 'sets' | 
 const CATEGORIES: { id: Category; label: string; tabs: { id: string; label: string }[] }[] = [
   {
     id: 'general',
-    label: 'General',
+    get label() { return msg('General'); },
     tabs: [
-      { id: 'options', label: 'Options' },
-      { id: 'document', label: 'Document' },
-      { id: 'units', label: 'Units' },
-      { id: 'navigation', label: 'Navigation' },
-      { id: 'grid', label: 'Grid & Snap' },
-      { id: 'spelling', label: 'Spelling' },
+      { id: 'options', get label() { return msg('Options'); } },
+      { id: 'document', get label() { return msg('Document'); } },
+      { id: 'units', get label() { return msg('Units'); } },
+      { id: 'navigation', get label() { return msg('Navigation'); } },
+      { id: 'grid', get label() { return msg('Grid & Snap'); } },
+      { id: 'spelling', get label() { return msg('Spelling'); } },
     ],
   },
   {
     id: 'interface',
-    label: 'Interface',
+    get label() { return msg('Interface'); },
     tabs: [
-      { id: 'fileAccess', label: 'File Access' },
-      { id: 'markupsList', label: 'Markups List' },
-      { id: 'layers', label: 'Layers' },
-      { id: 'display', label: 'Display' },
+      { id: 'fileAccess', get label() { return msg('File Access'); } },
+      { id: 'markupsList', get label() { return msg('Markups List'); } },
+      { id: 'layers', get label() { return msg('Layers'); } },
+      { id: 'display', get label() { return msg('Display'); } },
     ],
   },
   {
     id: 'tools',
-    label: 'Tools',
+    get label() { return msg('Tools'); },
     tabs: [
-      { id: 'markup', label: 'Markup' },
-      { id: 'sketch', label: 'Sketch' },
-      { id: 'forms', label: 'Forms' },
-      { id: 'signature', label: 'Signature' },
-      { id: 'eraser', label: 'Eraser' },
-      { id: 'toolLibrary', label: 'Tool Library' },
+      { id: 'markup', get label() { return msg('Markup'); } },
+      { id: 'sketch', get label() { return msg('Sketch'); } },
+      { id: 'forms', get label() { return msg('Forms'); } },
+      { id: 'signature', get label() { return msg('Signature'); } },
+      { id: 'eraser', get label() { return msg('Eraser'); } },
+      { id: 'toolLibrary', get label() { return msg('Tool Library'); } },
     ],
   },
   {
     id: 'sets',
-    label: 'Sets',
+    get label() { return msg('Sets'); },
     tabs: [
-      { id: 'setOptions', label: 'Set Options' },
-      { id: 'sorting', label: 'Sorting' },
-      { id: 'categories', label: 'Categories' },
-      { id: 'tags', label: 'Tags' },
+      { id: 'setOptions', get label() { return msg('Set Options'); } },
+      { id: 'sorting', get label() { return msg('Sorting'); } },
+      { id: 'categories', get label() { return msg('Categories'); } },
+      { id: 'tags', get label() { return msg('Tags'); } },
     ],
   },
   {
     id: 'importExport',
-    label: 'Import/Export',
-    tabs: [{ id: 'images', label: 'Images' }],
+    get label() { return msg('Import/Export'); },
+    tabs: [{ id: 'images', get label() { return msg('Images'); } }],
   },
   {
     id: 'advanced',
-    label: 'Advanced',
+    get label() { return msg('Advanced'); },
     tabs: [
-      { id: 'offline', label: 'Offline' },
-      { id: 'experimental', label: 'Experimental' },
+      { id: 'offline', get label() { return msg('Offline'); } },
+      { id: 'experimental', get label() { return msg('Experimental'); } },
     ],
   },
   {
     id: 'account',
-    label: 'Account',
+    get label() { return msg('Account'); },
     tabs: [
-      { id: 'access', label: 'Access' },
-      { id: 'activity', label: 'Activity' },
+      { id: 'access', get label() { return msg('Access'); } },
+      { id: 'activity', get label() { return msg('Activity'); } },
     ],
   },
-  { id: 'mcp', label: 'MCP', tabs: [{ id: 'mcp', label: 'Enable MCP server' }] },
+  { id: 'mcp', get label() { return msg('MCP'); }, tabs: [{ id: 'mcp', get label() { return msg('Enable MCP server'); } }] },
 ];
 
 /** A 16 × 16 line icon beside each category in the sidebar. */
@@ -119,28 +122,29 @@ const CATEGORY_ICONS: Record<Category, ReactNode> = {
 const STORED = new Set<keyof Settings>([
   'richTextComments',
 ]);
-const STORED_TIP = 'Saved with your preferences; RedColumn does not use this yet.';
+const storedTip = () => msg('Saved with your preferences; RedColumn does not use this yet.');
 
 type KeysOf<T> = { [K in keyof Settings]: Settings[K] extends T ? K : never }[keyof Settings];
 type BoolKey = KeysOf<boolean>;
 type NumKey = KeysOf<number>;
 type StrKey = KeysOf<string>;
 
-const LENGTH_NAMES: Record<LengthUnit, string> = { mm: 'Millimetres (mm)', cm: 'Centimetres (cm)', m: 'Metres (m)', km: 'Kilometres (km)', in: 'Inches (in)', ft: 'Feet (ft)', yd: 'Yards (yd)', mi: 'Miles (mi)' };
-const COLOURSPACE = [
-  ['auto', 'Auto-Detect'],
-  ['colour', 'Colour'],
-  ['grey', 'Greyscale'],
-  ['mono', 'Monochrome'],
+const COLOURSPACE = () => [
+  ['auto', msg('Auto-Detect')],
+  ['colour', msg('Colour')],
+  ['grey', msg('Greyscale')],
+  ['mono', msg('Monochrome')],
 ] as const;
-const RESOLUTION = [
-  ['auto', 'Auto-Detect'],
+const RESOLUTION = () => [
+  ['auto', msg('Auto-Detect')],
   ['72', '72 dpi'],
   ['150', '150 dpi'],
   ['300', '300 dpi'],
   ['600', '600 dpi'],
 ] as const;
-const ASSIGN_BY = ['Drawing Number', 'Sheet Number', 'Sheet Name', 'File Name'];
+/** Built-in ways to file sheets in Sets categories: stored in English (sets.ts reads them), shown translated. */
+const ASSIGN_BY = ['Drawing Number', 'Sheet Number', 'Sheet Name', 'File Name'] as const;
+const assignByLabel = (v: string) => (v === 'Drawing Number' ? msg('Drawing Number') : v === 'Sheet Number' ? msg('Sheet Number') : v === 'Sheet Name' ? msg('Sheet Name') : v === 'File Name' ? msg('File Name') : v);
 
 interface Props {
   author: string;
@@ -155,7 +159,7 @@ interface Props {
   /** Render nothing: report every preference's label and where it lives, for the menu bar search. */
   onIndex?: (entries: PrefEntry[]) => void;
   /** Restarts the app (the new language applies then), after asking about unsaved changes. */
-  onRestart?: () => void;
+  onRestart?: () => void | Promise<void>;
 }
 
 /** One searchable preference: its label and the category and tab that show it. */
@@ -220,6 +224,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, initialTab, initialQuery, onIndex, onRestart }: Props) {
   const [d, setD] = useState<Settings>(settings.get);
   const [name, setName] = useState(author);
+  const [restarting, setRestarting] = useState(false);
   const [words, setWords] = useState(personalWords);
   const [category, setCategory] = useState<Category>(initialCategory ?? 'general');
   const [tabs, setTabs] = useState<Partial<Record<Category, string>>>(initialCategory && initialTab ? { [initialCategory]: initialTab } : {});
@@ -259,18 +264,18 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
 
   /** A label on the left of a row. */
   const L = (text: string, k?: keyof Settings) => (
-    <span className={`pref-l${hit(text) ? ' pref-match' : ''}`} title={k && STORED.has(k) ? STORED_TIP : undefined}>
+    <span className={`pref-l${hit(text) ? ' pref-match' : ''}`} title={k && STORED.has(k) ? storedTip() : undefined}>
       {label(text)}
-      {k && STORED.has(k) && <span className="pref-stored" aria-label="(not used yet)" />}
+      {k && STORED.has(k) && <span className="pref-stored" aria-label={msg('(not used yet)')} />}
     </span>
   );
 
   const check = (k: BoolKey, text: string, o: { indent?: boolean; disabled?: boolean; title?: string } = {}) => (
-    <label key={k} className={`pref-check${o.indent ? ' indent' : ''}${o.disabled ? ' disabled' : ''}`} title={STORED.has(k) ? STORED_TIP : o.title}>
+    <label key={k} className={`pref-check${o.indent ? ' indent' : ''}${o.disabled ? ' disabled' : ''}`} title={STORED.has(k) ? storedTip() : o.title}>
       <input type="checkbox" checked={d[k]} disabled={o.disabled} onChange={(e) => set({ [k]: e.target.checked })} />
       <span className={hit(text) ? 'pref-match' : undefined}>
         {label(text)}
-        {STORED.has(k) && <span className="pref-stored" aria-label="(not used yet)" />}
+        {STORED.has(k) && <span className="pref-stored" aria-label={msg('(not used yet)')} />}
       </span>
     </label>
   );
@@ -337,8 +342,8 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     options: () => (
       <Grid>
         <Row>
-          {L('User')}
-          <input aria-label="User" value={name} onChange={(e) => setName(e.target.value)} />
+          {L(msg('User'))}
+          <input aria-label={msg('User')} value={name} onChange={(e) => setName(e.target.value)} />
         </Row>
         <Row>
           {L(msg('Language'), 'uiLanguage')}
@@ -369,10 +374,17 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
               {msg('The new language and number format apply when redcolumn restarts.')}{' '}
               <button
                 type="button"
+                disabled={restarting}
                 onClick={async () => {
-                  // Everything in the dialog is kept, as OK does, then the app restarts.
-                  await apply();
-                  onRestart?.();
+                  // Everything in the dialog is kept, as OK does, then the app restarts. A second
+                  // click while that runs does nothing.
+                  setRestarting(true);
+                  try {
+                    await apply();
+                    await onRestart?.();
+                  } finally {
+                    setRestarting(false);
+                  }
                 }}
               >
                 {msg('Restart Now')}
@@ -380,21 +392,21 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             </span>
           </C>
         )}
-        {select('tabTruncation', 'Tab Truncation', [
-          ['start', 'Start'],
-          ['middle', 'Middle'],
-          ['end', 'End'],
+        {select('tabTruncation', msg('Tab Truncation'), [
+          ['start', msg('Start')],
+          ['middle', msg('Middle')],
+          ['end', msg('End')],
         ])}
-        <C>{check('crosshair', 'Show Full-Screen Crosshair')}</C>
-        {select('geoFormat', 'Map Coordinates', [
-          ['decimal', 'Decimal Degrees'],
-          ['dms', 'Degrees, Minutes, Seconds'],
+        <C>{check('crosshair', msg('Show Full-Screen Crosshair'))}</C>
+        {select('geoFormat', msg('Map Coordinates'), [
+          ['decimal', msg('Decimal Degrees')],
+          ['dms', msg('Degrees, Minutes, Seconds')],
         ])}
         <Row>
-          {L('Open PDF on Startup', 'startupFile')}
+          {L(msg('Open PDF on Startup'), 'startupFile')}
           <span className="pref-row">
-            <select aria-label="Open PDF on Startup" value={d.startupFile} onChange={(e) => set({ startupFile: e.target.value })}>
-              <option value="">None</option>
+            <select aria-label={msg('Open PDF on Startup')} value={d.startupFile} onChange={(e) => set({ startupFile: e.target.value })}>
+              <option value="">{msg('None')}</option>
               {[...libraryFiles]
                 .sort((a, b) => a.name.localeCompare(b.name))
                 .map((f) => (
@@ -402,12 +414,12 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
                     {f.name}
                   </option>
                 ))}
-              {d.startupFile && !libraryFiles.some((f) => f.id === d.startupFile) && <option value={d.startupFile}>(Not in the Library)</option>}
+              {d.startupFile && !libraryFiles.some((f) => f.id === d.startupFile) && <option value={d.startupFile}>{msg('(Not in the Library)')}</option>}
             </select>
             <button
               type="button"
               className="btn"
-              title="Pick a PDF; it is added to your Library"
+              title={msg('Pick a PDF; it is added to your Library')}
               onClick={async () => {
                 const f = await pickPdf();
                 if (!f) return;
@@ -416,35 +428,36 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
                   setLibraryFiles((x) => [...x.filter((e) => e.id !== stored.id), stored]);
                   set({ startupFile: stored.id });
                 } catch (err) {
-                  setMessage(`That file could not be added: ${(err as Error).message}`);
+                  setMessage(msg('That file could not be added: {message}', { message: (err as Error).message }));
                 }
               }}
             >
-              Browse…
+              {msg('Browse…')}
             </button>
           </span>
         </Row>
-        <C>{check('restoreTabs', 'Reopen Files from Last Session on Startup')}</C>
-        <C>{check('showThumbnailsOnOpen', 'Show Thumbnails When Opening a File')}</C>
-        <C>{check('startTips', 'Show a Tip on the Start Screen')}</C>
+        <C>{check('restoreTabs', msg('Reopen Files from Last Session on Startup'))}</C>
+        <C>{check('showThumbnailsOnOpen', msg('Show Thumbnails When Opening a File'))}</C>
+        <C>{check('startTips', msg('Show a Tip on the Start Screen'))}</C>
       </Grid>
     ),
     document: () => (
       <Grid>
-        <C>{check('documentRecovery', 'Enable Document Recovery')}</C>
-        <C>{check('autosave', 'Autosave Changes to the File in the Background')}</C>
-        {select('pageLayout', 'Page Layout', [
-          ['auto', 'Auto-Detect by page size'],
-          ['single', 'Single Page'],
-          ['continuous', 'Continuous'],
-          ['sideBySide', 'Side by Side'],
-          ['continuousSideBySide', 'Continuous Side by Side'],
+        <C>{check('documentRecovery', msg('Enable Document Recovery'))}</C>
+        <C>{check('autosave', msg('Autosave Changes to the File in the Background'))}</C>
+        {select('pageLayout', msg('Page Layout'), [
+          ['auto', msg('Auto-Detect by page size')],
+          ['single', msg('Single Page')],
+          ['continuous', msg('Continuous')],
+          ['sideBySide', msg('Side by Side')],
+          ['continuousSideBySide', msg('Continuous Side by Side')],
         ])}
-        {num('maxZoom', 'Maximum Zoom', { min: 400, max: 12800, step: 100, unit: '%' })}
-        {select('optimiseDrawings', 'Optimise Slow Drawings', [
-          ['ask', 'Ask when a sheet is slow to draw'],
-          ['always', 'Always, without asking'],
-          ['never', 'Never'],
+        {num('maxZoom', msg('Maximum Zoom'), { min: 400, max: 12800, step: 100, unit: '%' })}
+        <C>{check('syncSplitView', msg('Synchronise Panes When Splitting a Single Document'))}</C>
+        {select('optimiseDrawings', msg('Optimise Slow Drawings'), [
+          ['ask', msg('Ask when a sheet is slow to draw')],
+          ['always', msg('Always, without asking')],
+          ['never', msg('Never')],
         ])}
       </Grid>
     ),
@@ -465,63 +478,63 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
       return (
         <Grid>
           <Row>
-            {L('Units', 'unitSystem')}
-            <select aria-label="Units" value={d.unitSystem} onChange={(e) => set(switchUnitSystem(d, e.target.value as UnitSystem))}>
-              <option value="metric">Metric</option>
-              <option value="imperial">Imperial</option>
+            {L(msg('Units'), 'unitSystem')}
+            <select aria-label={msg('Units')} value={d.unitSystem} onChange={(e) => set(switchUnitSystem(d, e.target.value as UnitSystem))}>
+              <option value="metric">{msg('Metric')}</option>
+              <option value="imperial">{msg('Imperial')}</option>
             </select>
           </Row>
-          {unitSelect('lengthUnit', 'Length', choices.length, (u) => LENGTH_NAMES[u])}
-          {unitSelect('areaUnit', 'Area', choices.area, (u) => AREA_LABELS[u])}
-          {unitSelect('volumeUnit', 'Volume', choices.volume, (u) => VOLUME_LABELS[u])}
+          {unitSelect('lengthUnit', msg('Length'), choices.length, (u) => lengthUnitName(u))}
+          {unitSelect('areaUnit', msg('Area'), choices.area, (u) => AREA_LABELS[u])}
+          {unitSelect('volumeUnit', msg('Volume'), choices.volume, (u) => VOLUME_LABELS[u])}
         </Grid>
       );
     },
     navigation: () => (
       <Grid>
-        {select('singlePageWheel', 'Single Page Mode', [
-          ['zoom', 'Zoom'],
-          ['scroll', 'Scroll'],
+        {select('singlePageWheel', msg('Single Page Mode'), [
+          ['zoom', msg('Zoom')],
+          ['scroll', msg('Scroll')],
         ])}
-        {select('continuousWheel', 'Continuous Mode', [
-          ['scroll', 'Scroll'],
-          ['zoom', 'Zoom'],
+        {select('continuousWheel', msg('Continuous Mode'), [
+          ['scroll', msg('Scroll')],
+          ['zoom', msg('Zoom')],
         ])}
-        <C>{check('invertWheelZoom', 'Reverse Mouse Wheel when Zooming')}</C>
-        {num('wheelSensitivity', 'Sensitivity', { min: 1, max: 10 })}
-        {head('Zoom Steps')}
-        {num('ctrlWheelZoomStep', 'Ctrl + Wheel', { min: 1, max: 50, unit: '%' })}
-        {num('wheelZoomStep', 'Wheel', { min: 1, max: 50, unit: '%' })}
-        {num('buttonZoomStep', 'Zoom In / Out', { min: 1, max: 100, unit: '%' })}
+        <C>{check('invertWheelZoom', msg('Reverse Mouse Wheel when Zooming'))}</C>
+        {num('wheelSensitivity', msg('Sensitivity'), { min: 1, max: 10 })}
+        {head(msg('Zoom Steps'))}
+        {num('ctrlWheelZoomStep', msg('Ctrl + Wheel'), { min: 1, max: 50, unit: '%' })}
+        {num('wheelZoomStep', msg('Wheel'), { min: 1, max: 50, unit: '%' })}
+        {num('buttonZoomStep', msg('Zoom In / Out'), { min: 1, max: 100, unit: '%' })}
       </Grid>
     ),
     grid: () => (
       <Grid>
-        <C>{check('showGrid', 'Show Grid')}</C>
-        <C>{check('snapToGrid', 'Snap to Grid')}</C>
-        {num('gridSize', 'Grid Spacing', { min: 0.01, max: 1000, step: gridUnitOf(d.unitSystem) === 'in' ? 0.125 : 1, unit: gridUnitOf(d.unitSystem) === 'in' ? 'in (set by Units)' : 'mm (set by Units)' })}
-        <C>{check('snapToGeometry', 'Snap to Content', { title: 'Lines, ends and intersections in the PDF (hold Alt to bypass)' })}</C>
-        <C>{check('snapToMarkup', 'Snap to Markup')}</C>
-        <C>{check('rightClickFinishes', 'Right-click Finishes Markup', { title: 'While clicking out a measurement or shape, a right-click completes it instead of opening the menu (Enter, Space and double-click always do)' })}</C>
-        <C>{check('snapLines', 'Snap to Lines', { disabled: !snapping })}</C>
-        <C>{check('snapCurves', 'Snap to Curves', { disabled: !snapping })}</C>
-        <C>{check('snapMidpoints', 'Snap to Mid-Points', { disabled: !snapping })}</C>
-        <C>{check('snapEndpoints', 'Snap to End-Points', { disabled: !snapping })}</C>
-        <C>{check('snapIntersections', 'Snap to Intersections', { disabled: !snapping })}</C>
-        <C>{check('snapCenters', 'Snap to Centres', { title: 'Centres of circles and arcs, in the drawing and in markups' })}</C>
-        <C>{check('snapQuadrants', 'Snap to Quadrants', { title: 'The top, bottom, left and right of circles, arcs and ellipses' })}</C>
-        <C>{check('snapGeoCenters', 'Snap to Geometric Centres', { title: 'The middle of closed markups: rectangles, polygons and areas' })}</C>
-        <C>{check('snapPerpendicular', 'Snap Perpendicular', { title: 'Square off a line or circle from the point being drawn from' })}</C>
-        <C>{check('snapTangent', 'Snap Tangent', { title: 'Touching a circle or arc from the point being drawn from' })}</C>
-        <C>{check('snapApparent', 'Snap to Apparent Intersections', { disabled: !snapping, title: 'Where two lines would cross if they were extended' })}</C>
-        {head('Tracking')}
-        <C>{check('objectSnapTracking', 'Object Snap Tracking', { title: 'Rest the pointer on a snap point to pick it up (a small + marks it); move away and the pointer lines up with it straight across or up and down. Rest on it again to drop it.' })}</C>
-        <C>{check('snapExtension', 'Extension', { title: 'Rest on the end of a line, then move on past it: the pointer follows the line on beyond its end' })}</C>
-        <C>{check('snapParallel', 'Parallel', { title: 'While drawing a line, rest on another line, then move roughly parallel to it: the pointer follows that direction' })}</C>
-        <C>{check('polarTracking', 'Polar Tracking', { title: 'While drawing, the pointer lines up at multiples of the polar angle from the last point' })}</C>
+        <C>{check('showGrid', msg('Show Grid'))}</C>
+        <C>{check('snapToGrid', msg('Snap to Grid'))}</C>
+        {num('gridSize', msg('Grid Spacing'), { min: 0.01, max: 1000, step: gridUnitOf(d.unitSystem) === 'in' ? 0.125 : 1, unit: gridUnitOf(d.unitSystem) === 'in' ? msg('in (set by Units)') : msg('mm (set by Units)') })}
+        <C>{check('snapToGeometry', msg('Snap to Content'), { title: msg('Lines, ends and intersections in the PDF (hold Alt to bypass)') })}</C>
+        <C>{check('snapToMarkup', msg('Snap to Markup'))}</C>
+        <C>{check('rightClickFinishes', msg('Right-click Finishes Markup'), { title: msg('While clicking out a measurement or shape, a right-click completes it instead of opening the menu (Enter, Space and double-click always do)') })}</C>
+        <C>{check('snapLines', msg('Snap to Lines'), { disabled: !snapping })}</C>
+        <C>{check('snapCurves', msg('Snap to Curves'), { disabled: !snapping })}</C>
+        <C>{check('snapMidpoints', msg('Snap to Mid-Points'), { disabled: !snapping })}</C>
+        <C>{check('snapEndpoints', msg('Snap to End-Points'), { disabled: !snapping })}</C>
+        <C>{check('snapIntersections', msg('Snap to Intersections'), { disabled: !snapping })}</C>
+        <C>{check('snapCenters', msg('Snap to Centres'), { title: msg('Centres of circles and arcs, in the drawing and in markups') })}</C>
+        <C>{check('snapQuadrants', msg('Snap to Quadrants'), { title: msg('The top, bottom, left and right of circles, arcs and ellipses') })}</C>
+        <C>{check('snapGeoCenters', msg('Snap to Geometric Centres'), { title: msg('The middle of closed markups: rectangles, polygons and areas') })}</C>
+        <C>{check('snapPerpendicular', msg('Snap Perpendicular'), { title: msg('Square off a line or circle from the point being drawn from') })}</C>
+        <C>{check('snapTangent', msg('Snap Tangent'), { title: msg('Touching a circle or arc from the point being drawn from') })}</C>
+        <C>{check('snapApparent', msg('Snap to Apparent Intersections'), { disabled: !snapping, title: msg('Where two lines would cross if they were extended') })}</C>
+        {head(msg('Tracking'))}
+        <C>{check('objectSnapTracking', msg('Object Snap Tracking'), { title: msg('Rest the pointer on a snap point to pick it up (a small + marks it); move away and the pointer lines up with it straight across or up and down. Rest on it again to drop it.') })}</C>
+        <C>{check('snapExtension', msg('Extension'), { title: msg('Rest on the end of a line, then move on past it: the pointer follows the line on beyond its end') })}</C>
+        <C>{check('snapParallel', msg('Parallel'), { title: msg('While drawing a line, rest on another line, then move roughly parallel to it: the pointer follows that direction') })}</C>
+        <C>{check('polarTracking', msg('Polar Tracking'), { title: msg('While drawing, the pointer lines up at multiples of the polar angle from the last point') })}</C>
         <Row>
-          {L('Polar Angle', 'polarAngle')}
-          <select aria-label="Polar Angle" value={d.polarAngle} disabled={!d.polarTracking} onChange={(e) => set({ polarAngle: Number(e.target.value) })}>
+          {L(msg('Polar Angle'), 'polarAngle')}
+          <select aria-label={msg('Polar Angle')} value={d.polarAngle} disabled={!d.polarTracking} onChange={(e) => set({ polarAngle: Number(e.target.value) })}>
             {[90, 45, 30, 22.5, 18, 15, 10, 5].map((v) => (
               <option key={v} value={v}>
                 {v}°
@@ -529,88 +542,89 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             ))}
           </select>
         </Row>
-        <C>{check('polarForObjects', 'Track Objects at Polar Angles', { disabled: !d.polarTracking || !d.objectSnapTracking, title: 'Object snap tracking follows every polar angle from acquired points, not only straight across and up and down' })}</C>
-        {num('snapSensitivity', 'Sensitivity', { min: 2, max: 30, disabled: !snapping && !d.snapToMarkup })}
-        {colour('snapColour', 'Snap Colour', { disabled: !snapping && !d.snapToMarkup && !d.snapToGrid })}
+        <C>{check('polarForObjects', msg('Track Objects at Polar Angles'), { disabled: !d.polarTracking || !d.objectSnapTracking, title: msg('Object snap tracking follows every polar angle from acquired points, not only straight across and up and down') })}</C>
+        {num('snapSensitivity', msg('Sensitivity'), { min: 2, max: 30, disabled: !snapping && !d.snapToMarkup })}
+        {colour('snapColour', msg('Snap Colour'), { disabled: !snapping && !d.snapToMarkup && !d.snapToGrid })}
       </Grid>
     ),
     spelling: () => spellingTab(),
     // Interface
     fileAccess: () => (
       <Grid>
-        {num('recentCount', 'Recent Files', { min: 1, max: 50 })}
-        {num('recentDays', 'Opened in the Last', { min: 0, max: 365, unit: 'days (0: any time)' })}
+        {num('recentCount', msg('Recent Files'), { min: 1, max: 50 })}
+        {num('recentDays', msg('Opened in the Last'), { min: 0, max: 365, unit: msg('days (0: any time)') })}
       </Grid>
     ),
     markupsList: () => (
       <Grid>
-        <C>{check('zoomFitSelected', 'Zoom Fit Markups when selected')}</C>
-        <C>{check('richTextComments', 'Use Rich Text for Comments')}</C>
+        <C>{check('zoomFitSelected', msg('Zoom Fit Markups when selected'))}</C>
+        <C>{check('richTextComments', msg('Use Rich Text for Comments'))}</C>
         <C>
           <label className="pref-check">
             <input type="checkbox" checked={wrapComments} onChange={(e) => setWrapComments(e.target.checked)} />
-            <span className={hit('Wrap Comment Text') ? 'pref-match' : undefined}>{label('Wrap Comment Text')}</span>
+            <span className={hit(msg('Wrap Comment Text')) ? 'pref-match' : undefined}>{label(msg('Wrap Comment Text'))}</span>
           </label>
         </C>
-        <C>{check('excludeFilteredOnExport', 'Exclude Filtered Markups on Export')}</C>
-        {select('filteredMarkups', 'Filtered Markups', [
-          ['show', 'Show'],
-          ['dim', 'Dim'],
-          ['hide', 'Hide'],
+        <C>{check('excludeFilteredOnExport', msg('Exclude Filtered Markups on Export'))}</C>
+        {select('filteredMarkups', msg('Filtered Markups'), [
+          ['show', msg('Show')],
+          ['dim', msg('Dim')],
+          ['hide', msg('Hide')],
         ])}
-        {num('filteredDim', 'Filtered Annotation Dim', { min: 5, max: 95, unit: '%', disabled: d.filteredMarkups !== 'dim' })}
+        {num('filteredDim', msg('Filtered Annotation Dim'), { min: 5, max: 95, unit: '%', disabled: d.filteredMarkups !== 'dim' })}
       </Grid>
     ),
     layers: () => (
       <Grid>
-        <C>{check('hideChildLayers', 'Hide Child Layers when Hiding Parent Layers')}</C>
-        <C>{check('layersOnPageOnly', 'Show Layers On Page Only')}</C>
-        {select('layerDial', 'Dial', [
-          ['isolate', 'Isolate'],
-          ['fade', 'Fade'],
+        <C>{check('hideChildLayers', msg('Hide Child Layers when Hiding Parent Layers'))}</C>
+        <C>{check('layersOnPageOnly', msg('Show Layers On Page Only'))}</C>
+        {select('layerDial', msg('Dial'), [
+          ['isolate', msg('Isolate')],
+          ['fade', msg('Fade')],
         ])}
       </Grid>
     ),
     display: () => (
       <Grid>
-        {select('theme', 'Theme', [['system', 'Match the system'], ...THEMES.map((t) => [t.id, t.label] as const)])}
-        {select('pageFilter', 'Page Colours', [
-          ['none', 'As printed'],
-          ['dark', 'Dark Mode (inverted)'],
-          ['dim', 'Dimmer'],
+        {select('theme', msg('Theme'), [['system', msg('Match the system')], ...THEMES.map((t) => [t.id, t.label] as const)])}
+        {select('pageFilter', msg('Page Colours'), [
+          ['none', msg('As printed')],
+          ['dark', msg('Dark Mode (inverted)')],
+          ['dim', msg('Dimmer')],
         ])}
-        <C>{check('thinLines', 'Disable Line Weights')}</C>
-        <C>{check('keepViewBetweenPages', 'Keep View Between Pages')}</C>
-        <C>{check('showRulers', 'Show Rulers')}</C>
-        <C>{check('showSpaces', 'Show Spaces')}</C>
-        <C>{check('showHyperlinks', 'Show Hyperlink Areas')}</C>
-        <C>{check('importShxText', 'Import AutoCAD SHX Text Comments', { title: 'AutoCAD turns SHX-font text into hidden comments when plotting to PDF (PDFSHX). Off keeps them out of the markups list; search still finds the text. Applies to files opened afterwards.' })}</C>
-        {select('linkClick', 'Clicking a Sheet Link', [
-          ['preview', 'Previews the sheet beside the plan'],
-          ['jump', 'Jumps to the sheet'],
+        <C>{check('showMenuBar', msg('Show Menu Bar'), { title: msg('Keep File, Edit, View and the other menus across the top bar instead of under the redcolumn button') })}</C>
+        <C>{check('thinLines', msg('Disable Line Weights'))}</C>
+        <C>{check('keepViewBetweenPages', msg('Keep View Between Pages'))}</C>
+        <C>{check('showRulers', msg('Show Rulers'))}</C>
+        <C>{check('showSpaces', msg('Show Spaces'))}</C>
+        <C>{check('showHyperlinks', msg('Show Hyperlink Areas'))}</C>
+        <C>{check('importShxText', msg('Import AutoCAD SHX Text Comments'), { title: msg('AutoCAD turns SHX-font text into hidden comments when plotting to PDF (PDFSHX). Off keeps them out of the markups list; search still finds the text. Applies to files opened afterwards.') })}</C>
+        {select('linkClick', msg('Clicking a Sheet Link'), [
+          ['preview', msg('Previews the sheet beside the plan')],
+          ['jump', msg('Jumps to the sheet')],
         ])}
       </Grid>
     ),
     // Tools
     markup: () => (
       <Grid>
-        <C>{check('reuseTool', 'Reuse Tools')}</C>
-        <C>{check('toolPreviews', 'Show a short animation when hovering over a tool')}</C>
-        <C>{check('autoSizeText', 'Auto-size Text Box and Call-out Markups')}</C>
-        <C>{check('retainLayerOnCopy', 'Retain Layer Information when copying Markups')}</C>
-        <C>{check('replyIndicators', 'Always Show Reply Indicators')}</C>
-        <C>{check('embedFonts', 'Embed Fonts')}</C>
-        <C>{check('popupAuthorDate', 'Show Author and Date in Pop-Ups')}</C>
-        {num('popupOpacity', 'Pop-Up Opacity', { min: 10, max: 100, unit: '%' })}
-        <C>{check('copyHighlightedText', 'Copy Highlighted Text into Markup Comment')}</C>
-        {select('imageEncoding', 'Default Image Encoding', [
-          ['auto', 'Auto-Select'],
-          ['jpeg', 'JPEG'],
-          ['flate', 'Flate (lossless)'],
+        <C>{check('reuseTool', msg('Reuse Tools'))}</C>
+        <C>{check('toolPreviews', msg('Show a short animation when hovering over a tool'))}</C>
+        <C>{check('autoSizeText', msg('Auto-size Text Box and Call-out Markups'))}</C>
+        <C>{check('retainLayerOnCopy', msg('Retain Layer Information when copying Markups'))}</C>
+        <C>{check('replyIndicators', msg('Always Show Reply Indicators'))}</C>
+        <C>{check('embedFonts', msg('Embed Fonts'))}</C>
+        <C>{check('popupAuthorDate', msg('Show Author and Date in Pop-Ups'))}</C>
+        {num('popupOpacity', msg('Pop-Up Opacity'), { min: 10, max: 100, unit: '%' })}
+        <C>{check('copyHighlightedText', msg('Copy Highlighted Text into Markup Comment'))}</C>
+        {select('imageEncoding', msg('Default Image Encoding'), [
+          ['auto', msg('Auto-Select')],
+          ['jpeg', msg('JPEG')],
+          ['flate', msg('Flate (lossless)')],
         ])}
         <Row>
-          {L('Snapshot Resolution', 'snapshotDpi')}
-          <select aria-label="Snapshot Resolution" value={d.snapshotDpi} onChange={(e) => set({ snapshotDpi: Number(e.target.value) })}>
+          {L(msg('Snapshot Resolution'), 'snapshotDpi')}
+          <select aria-label={msg('Snapshot Resolution')} value={d.snapshotDpi} onChange={(e) => set({ snapshotDpi: Number(e.target.value) })}>
             {[...new Set([72, 96, 150, 200, 300, 600, d.snapshotDpi])].sort((a, b) => a - b).map((v) => (
               <option key={v} value={v}>
                 {v}
@@ -618,158 +632,158 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
             ))}
           </select>
         </Row>
-        <C>{check('snapshotVector', 'Keep Snapshots Vector', { title: 'A rectangular Snapshot keeps the drawing as lines, so it stays sharp when zoomed in and can be snapped to' })}</C>
-        <C>{check('confirmDelete', 'Confirm before Deleting Markups')}</C>
+        <C>{check('snapshotVector', msg('Keep Snapshots Vector'), { title: msg('A rectangular Snapshot keeps the drawing as lines, so it stays sharp when zoomed in and can be snapped to') })}</C>
+        <C>{check('confirmDelete', msg('Confirm before Deleting Markups'))}</C>
       </Grid>
     ),
     sketch: () => (
       <Grid>
-        {select('rotationInput', 'Rotation Input', [
-          ['absolute', 'Absolute'],
-          ['relative', 'Relative'],
+        {select('rotationInput', msg('Rotation Input'), [
+          ['absolute', msg('Absolute')],
+          ['relative', msg('Relative')],
         ])}
-        {select('sketchEllipse', 'Ellipse Mode', [
-          ['radius', 'Radius'],
-          ['diameter', 'Diameter'],
-          ['ellipse', 'Width and Height'],
+        {select('sketchEllipse', msg('Ellipse Mode'), [
+          ['radius', msg('Radius')],
+          ['diameter', msg('Diameter')],
+          ['ellipse', msg('Width and Height')],
         ])}
-        <C>{check('sketchToScale', 'Draw to Scale', { title: 'Type exact lengths, angles and sizes while drawing' })}</C>
+        <C>{check('sketchToScale', msg('Draw to Scale'), { title: msg('Type exact lengths, angles and sizes while drawing') })}</C>
       </Grid>
     ),
     forms: () => (
       <Grid>
-        {colour('formHighlightColour', 'Highlight Colour')}
-        {num('formHighlightOpacity', 'Highlight Opacity', { min: 0, max: 100 })}
-        <C>{check('formSingleKeys', 'Enable Single Key Shortcuts')}</C>
+        {colour('formHighlightColour', msg('Highlight Colour'))}
+        {num('formHighlightOpacity', msg('Highlight Opacity'), { min: 0, max: 100 })}
+        <C>{check('formSingleKeys', msg('Enable Single Key Shortcuts'))}</C>
       </Grid>
     ),
     signature: () => (
       <Grid>
-        {num('signaturePasswordTimeout', 'Password Time-out', { min: 0, max: 120, unit: 'Minutes' })}
+        {num('signaturePasswordTimeout', msg('Password Time-out'), { min: 0, max: 120, unit: msg('Minutes') })}
         <Row>
-          {L('Digital ID Location')}
+          {L(msg('Digital ID Location'))}
           <span className="pref-row">
-            <input aria-label="Digital ID Location" value={desktop() ? 'This computer' : 'This browser'} readOnly title="Digital IDs are kept on this device, each locked by its password" />
+            <input aria-label={msg('Digital ID Location')} value={desktop() ? msg('This computer') : msg('This browser')} readOnly title={msg('Digital IDs are kept on this device, each locked by its password')} />
             {backupButtons('digital-ids')}
           </span>
         </Row>
         <Row>
-          {L('Trusted Identity Location')}
+          {L(msg('Trusted Identity Location'))}
           <span className="pref-row">
-            <input aria-label="Trusted Identity Location" value={desktop() ? 'This computer' : 'This browser'} readOnly title="Certificates you trust to identify signers are kept on this device" />
+            <input aria-label={msg('Trusted Identity Location')} value={desktop() ? msg('This computer') : msg('This browser')} readOnly title={msg('Certificates you trust to identify signers are kept on this device')} />
             {backupButtons('trusted-identities')}
           </span>
         </Row>
-        {select('signatureAlgorithm', 'Algorithm', [
+        {select('signatureAlgorithm', msg('Algorithm'), [
           ['SHA-256', 'SHA-256'],
           ['SHA-384', 'SHA-384'],
           ['SHA-512', 'SHA-512'],
         ])}
-        {select('signatureFormat', 'Format', [
-          ['pades', 'PAdES (ETSI.CAdES.detached)'],
-          ['pkcs7', 'PKCS #7 (adbe.pkcs7.detached, older readers)'],
+        {select('signatureFormat', msg('Format'), [
+          ['pades', msg('PAdES (ETSI.CAdES.detached)')],
+          ['pkcs7', msg('PKCS #7 (adbe.pkcs7.detached, older readers)')],
         ])}
-        <C>{check('restrictSignedChanges', 'Restrict changes that invalidate digital signatures')}</C>
+        <C>{check('restrictSignedChanges', msg('Restrict changes that invalidate digital signatures'))}</C>
       </Grid>
     ),
     eraser: () => (
       <Grid>
-        {select('eraserSize', 'Size', [
-          ['small', 'Small'],
-          ['medium', 'Medium'],
-          ['large', 'Large'],
+        {select('eraserSize', msg('Size'), [
+          ['small', msg('Small')],
+          ['medium', msg('Medium')],
+          ['large', msg('Large')],
         ])}
-        <C>{check('eraserWhole', 'Erase Whole Markups', { title: 'The annotation eraser deletes any markup it touches, instead of rubbing out parts of pen strokes' })}</C>
+        <C>{check('eraserWhole', msg('Erase Whole Markups'), { title: msg('The annotation eraser deletes any markup it touches, instead of rubbing out parts of pen strokes') })}</C>
       </Grid>
     ),
     toolLibrary: () => (
       <Grid>
-        {select('toolChestMode', 'Clicking a Saved Tool', [
-          ['copy', 'Places an exact copy'],
-          ['style', 'Draws with its style'],
+        {select('toolChestMode', msg('Clicking a Saved Tool'), [
+          ['copy', msg('Places an exact copy')],
+          ['style', msg('Draws with its style')],
         ])}
-        <C>{check('toolChestSticky', 'Keep the Tool Active after Placing', { title: 'Place several copies in a row; press Esc to stop' })}</C>
+        <C>{check('toolChestSticky', msg('Keep the Tool Active after Placing'), { title: msg('Place several copies in a row; press Esc to stop') })}</C>
         <C>
-          <span className="pref-note">Dragging a tool onto the page always places a copy. Right-click a tool to choose Place Copy or Draw with Style for that tool; it keeps the choice.</span>
+          <span className="pref-note">{msg('Dragging a tool onto the page always places a copy. Right-click a tool to choose Place Copy or Draw with Style for that tool; it keeps the choice.')}</span>
         </C>
       </Grid>
     ),
     // Sets
     setOptions: () => (
       <Grid>
-        {select('setOpenDocuments', 'Open Documents', [
-          ['inPlace', 'Open in Place'],
-          ['newTab', 'New Tab'],
+        {select('setOpenDocuments', msg('Open Documents'), [
+          ['inPlace', msg('Open in Place')],
+          ['newTab', msg('New Tab')],
         ])}
-        {select('setOpenEdited', 'Open Edited Documents', [
-          ['inPlace', 'Open in Place'],
-          ['newTab', 'New Tab'],
+        {select('setOpenEdited', msg('Open Edited Documents'), [
+          ['inPlace', msg('Open in Place')],
+          ['newTab', msg('New Tab')],
         ])}
-        {select('setShow', 'Show', [
-          ['fileAndLabel', 'File Name and Page Label'],
-          ['fileName', 'File Name'],
-          ['pageLabel', 'Page Label'],
+        {select('setShow', msg('Show'), [
+          ['fileAndLabel', msg('File Name and Page Label')],
+          ['fileName', msg('File Name')],
+          ['pageLabel', msg('Page Label')],
         ])}
-        <C>{check('setPreview', 'Show preview of PDF')}</C>
-        {select('setCategories', 'Categories', [
-          ['auto', 'Auto'],
-          ['manual', 'Manual'],
-          ['none', 'None'],
+        <C>{check('setPreview', msg('Show preview of PDF'))}</C>
+        {select('setCategories', msg('Categories'), [
+          ['auto', msg('Auto')],
+          ['manual', msg('Manual')],
+          ['none', msg('None')],
         ])}
         {select(
           'setDefaultTemplate',
-          'Default Template',
+          msg('Default Template'),
           Object.keys(d.setTemplates).map((n) => [n, n] as const),
         )}
-        <C>{check('setPromptTemplate', 'Always Prompt for Template Selection')}</C>
+        <C>{check('setPromptTemplate', msg('Always Prompt for Template Selection'))}</C>
       </Grid>
     ),
     sorting: () => (
       <Grid>
-        {select('setSortBy', 'Sort By', [
-          ['fileAndLabel', 'File Name, Page Label'],
-          ['fileName', 'File Name'],
-          ['pageLabel', 'Page Label'],
-          ['sheetNumber', 'Sheet Number'],
+        {select('setSortBy', msg('Sort By'), [
+          ['fileAndLabel', msg('File Name, Page Label')],
+          ['fileName', msg('File Name')],
+          ['pageLabel', msg('Page Label')],
+          ['sheetNumber', msg('Sheet Number')],
         ])}
-        <C>{check('setSortTagged', 'Sort Tagged Pages By Sheet Number')}</C>
-        {select('setSortOrder', 'Sort Order', [
-          ['asc', 'Alphanumeric Ascending'],
-          ['desc', 'Alphanumeric Descending'],
+        <C>{check('setSortTagged', msg('Sort Tagged Pages By Sheet Number'))}</C>
+        {select('setSortOrder', msg('Sort Order'), [
+          ['asc', msg('Alphanumeric Ascending')],
+          ['desc', msg('Alphanumeric Descending')],
         ])}
-        <C>{check('setStackMultiPage', 'Stack Multi-Page Documents')}</C>
-        {select('setRevisionFilter', 'Revision Filter', [
-          ['auto', 'Auto'],
-          ['wildcard', 'Wildcard'],
-          ['none', 'None'],
+        <C>{check('setStackMultiPage', msg('Stack Multi-Page Documents'))}</C>
+        {select('setRevisionFilter', msg('Revision Filter'), [
+          ['auto', msg('Auto')],
+          ['wildcard', msg('Wildcard')],
+          ['none', msg('None')],
         ])}
         <Row>
-          {L('Stack Revisions By')}
+          {L(msg('Stack Revisions By'))}
           <select
-            aria-label="Stack Revisions By"
+            aria-label={msg('Stack Revisions By')}
             value={d.setRevisionFilter === 'wildcard' ? 'wildcard' : 'auto'}
             disabled={d.setRevisionFilter === 'none'}
-            title="What makes two sheets revisions of each other"
+            title={msg('What makes two sheets revisions of each other')}
             onChange={(e) => set({ setRevisionFilter: e.target.value as Settings['setRevisionFilter'] })}
           >
-            <option value="auto">Sheet Number, Revision Number</option>
-            <option value="wildcard">File Name (Wildcard Syntax)</option>
+            <option value="auto">{msg('Sheet Number, Revision Number')}</option>
+            <option value="wildcard">{msg('File Name (Wildcard Syntax)')}</option>
           </select>
         </Row>
-        {text('setWildcard', 'Wildcard Syntax', { placeholder: '*_Rev#  (* the sheet, # its revision)' })}
-        {select('setPreviousRevisions', 'Previous Revisions', [
-          ['crossOut', 'Cross Out'],
-          ['hide', 'Hide'],
-          ['none', 'None'],
+        {text('setWildcard', msg('Wildcard Syntax'), { placeholder: msg('*_Rev#  (* the sheet, # its revision)') })}
+        {select('setPreviousRevisions', msg('Previous Revisions'), [
+          ['crossOut', msg('Cross Out')],
+          ['hide', msg('Hide')],
+          ['none', msg('None')],
         ])}
-        {select('setCurrentRevisions', 'Current Revisions', [
-          ['stack', 'Stack'],
-          ['none', 'None'],
+        {select('setCurrentRevisions', msg('Current Revisions'), [
+          ['stack', msg('Stack')],
+          ['none', msg('None')],
         ])}
-        <C>{check('setCopyMarkups', 'Copy markups from Previous to Current')}</C>
-        <C>{check('setUnflatten', 'Unflatten Markups prior to Copy', { indent: true, disabled: !d.setCopyMarkups })}</C>
-        <C>{check('setFlattenAfter', 'Flatten Markups after Copy', { indent: true, disabled: !d.setCopyMarkups })}</C>
-        <C>{check('setStampSuperseded', "Stamp previous revisions as 'Superseded'")}</C>
+        <C>{check('setCopyMarkups', msg('Copy markups from Previous to Current'))}</C>
+        <C>{check('setUnflatten', msg('Unflatten Markups prior to Copy'), { indent: true, disabled: !d.setCopyMarkups })}</C>
+        <C>{check('setFlattenAfter', msg('Flatten Markups after Copy'), { indent: true, disabled: !d.setCopyMarkups })}</C>
+        <C>{check('setStampSuperseded', msg('Stamp previous revisions as \'Superseded\''))}</C>
       </Grid>
     ),
     categories: () => (
@@ -777,36 +791,36 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         <Grid>
           {select(
             'setDefaultTemplate',
-            'Template',
+            msg('Template'),
             Object.keys(d.setTemplates).map((n) => [n, n] as const),
           )}
           <Row>
-            {L('Assign to Categories by', 'setTemplates')}
-            <select aria-label="Assign to Categories by" value={template.assignBy} onChange={(e) => setTemplate({ ...template, assignBy: e.target.value })}>
-              {[...new Set([...ASSIGN_BY, template.assignBy])].map((v) => (
+            {L(msg('Assign to Categories by'), 'setTemplates')}
+            <select aria-label={msg('Assign to Categories by')} value={template.assignBy} onChange={(e) => setTemplate({ ...template, assignBy: e.target.value })}>
+              {[...new Set<string>([...ASSIGN_BY, template.assignBy])].map((v) => (
                 <option key={v} value={v}>
-                  Tag: {v}
+                  {msg('Tag: {tag}', { tag: assignByLabel(v) })}
                 </option>
               ))}
             </select>
           </Row>
         </Grid>
         <EditTable
-          columns={[label('Category'), label('Filter')]}
+          columns={[label(msg('Category')), label(msg('Filter'))]}
           rows={template.categories.map((c) => [c.name, c.filter])}
           onChange={(rows) => setTemplate({ ...template, categories: rows.map(([n, f]) => ({ name: n ?? '', filter: f ?? '' })) })}
-          blank={['New Category', '']}
+          blank={[msg('New Category'), '']}
         />
         <div className="pref-buttons">
           <button
             type="button"
             className="btn"
             onClick={async () => {
-              const n = (await askText('New Template', '', { label: 'Template name', confirm: 'Create' }))?.trim();
+              const n = (await askText(msg('New Template'), '', { label: msg('Template name'), confirm: msg('Create') }))?.trim();
               if (n) set({ setTemplates: { ...d.setTemplates, [n]: { assignBy: template.assignBy, categories: [] } }, setDefaultTemplate: n });
             }}
           >
-            New
+            {msg('New')}
           </button>
           <button
             type="button"
@@ -822,31 +836,31 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
                   return;
                 }
                 const t = JSON.parse(raw) as { name?: string; template?: SetTemplate };
-                if (!t.name || !Array.isArray(t.template?.categories)) throw new Error('Not a Sets template');
+                if (!t.name || !Array.isArray(t.template?.categories)) throw new Error(msg('Not a Sets template'));
                 set({ setTemplates: { ...d.setTemplates, [t.name]: t.template }, setDefaultTemplate: t.name });
               } catch (err) {
-                setMessage(`That file could not be loaded: ${(err as Error).message}`);
+                setMessage(msg('That file could not be loaded: {message}', { message: (err as Error).message }));
               }
             }}
           >
-            Load…
+            {msg('Load…')}
           </button>
           <span className="spacer" />
-          <button type="button" className="btn" title="Save this template to a file" onClick={() => saveFile(`${d.setDefaultTemplate}.sets-template.json`, JSON.stringify({ name: d.setDefaultTemplate, template }, null, 2))}>
-            Save
+          <button type="button" className="btn" title={msg('Save this template to a file')} onClick={() => saveFile(`${d.setDefaultTemplate}.sets-template.json`, JSON.stringify({ name: d.setDefaultTemplate, template }, null, 2))}>
+            {msg('Save')}
           </button>
-          <button type="button" className="btn" title="Save this template as a Bluebeam Revu categories file" onClick={() => saveFile(`${d.setDefaultTemplate}.xml`, categoriesToXml({ name: d.setDefaultTemplate, categories: template.categories }))}>
-            Export for Revu
+          <button type="button" className="btn" title={msg('Save this template as a Bluebeam Revu categories file')} onClick={() => saveFile(`${d.setDefaultTemplate}.xml`, categoriesToXml({ name: d.setDefaultTemplate, categories: template.categories }))}>
+            {msg('Export for Revu')}
           </button>
           <button
             type="button"
             className="btn"
             onClick={async () => {
-              const n = (await askText('Save Template As', `${d.setDefaultTemplate} copy`, { label: 'Template name', confirm: 'Save' }))?.trim();
+              const n = (await askText(msg("Save Template As"), msg("{name} copy", { name: d.setDefaultTemplate }), { label: msg('Template name'), confirm: msg('Save') }))?.trim();
               if (n) set({ setTemplates: { ...d.setTemplates, [n]: structuredClone(template) }, setDefaultTemplate: n });
             }}
           >
-            Save As…
+            {msg('Save As…')}
           </button>
         </div>
       </>
@@ -855,81 +869,81 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
       <>
         <TagsTable tags={d.setTags} onChange={(setTags) => set({ setTags })} />
         <div className="pref-checks">
-          {check('setAutoTagRevision', 'Automatically Tag Revision Number based on Sheet Number')}
-          {check('setAutoTagDiscipline', 'Automatically Tag Discipline based on Sheet Number')}
-          {check('setAutoTagSheetType', 'Automatically Tag Sheet Type based on Sheet Number')}
+          {check('setAutoTagRevision', msg('Automatically Tag Revision Number based on Sheet Number'))}
+          {check('setAutoTagDiscipline', msg('Automatically Tag Discipline based on Sheet Number'))}
+          {check('setAutoTagSheetType', msg('Automatically Tag Sheet Type based on Sheet Number'))}
         </div>
       </>
     ),
     // Import/Export
     images: () => (
       <Grid>
-        {select('photoResolution', 'Photo Resolution', [
-          ['low', 'Low'],
-          ['medium', 'Medium'],
-          ['high', 'High'],
+        {select('photoResolution', msg('Photo Resolution'), [
+          ['low', msg('Low')],
+          ['medium', msg('Medium')],
+          ['high', msg('High')],
         ])}
-        {select('videoResolution', 'Video Resolution', [
-          ['low', 'Low'],
-          ['medium', 'Medium'],
-          ['high', 'High'],
+        {select('videoResolution', msg('Video Resolution'), [
+          ['low', msg('Low')],
+          ['medium', msg('Medium')],
+          ['high', msg('High')],
         ])}
-        {select('cameraOrientation', 'Camera Portrait Orientation', [
-          ['none', 'Normal (none)'],
-          ['rotate90', 'Rotate 90°'],
-          ['rotate180', 'Rotate 180°'],
-          ['rotate270', 'Rotate 270°'],
+        {select('cameraOrientation', msg('Camera Portrait Orientation'), [
+          ['none', msg('Normal (none)')],
+          ['rotate90', msg('Rotate 90°')],
+          ['rotate180', msg('Rotate 180°')],
+          ['rotate270', msg('Rotate 270°')],
         ])}
-        {select('importImageResolution', 'Import Image Resolution', [
-          ['original', 'Original'],
+        {select('importImageResolution', msg('Import Image Resolution'), [
+          ['original', msg('Original')],
           ['300', '300 dpi'],
           ['150', '150 dpi'],
           ['72', '72 dpi'],
         ])}
-        {select('imageDrop', 'Image Drag/Drop Behaviour', [
-          ['attachPhoto', 'Attach Photo'],
-          ['image', 'Image Markup'],
-          ['newPage', 'New Page'],
+        {select('imageDrop', msg('Image Drag/Drop Behaviour'), [
+          ['attachPhoto', msg('Attach Photo')],
+          ['image', msg('Image Markup')],
+          ['newPage', msg('New Page')],
         ])}
-        {select('importColourspace', 'Import Image as PDF Colourspace', COLOURSPACE)}
-        {select('importResolution', 'Import Image as PDF Resolution', RESOLUTION)}
-        <C>{check('scannedJpeg', 'Scanned Colour Images as JPEG')}</C>
-        {select('exportColourspace', 'Export PDF as Image Colourspace', COLOURSPACE)}
-        {select('exportResolution', 'Export PDF as Image Resolution', RESOLUTION)}
-        {select('tiffCompression', 'TIFF Compression', [
-          ['ccittG4', 'CCITT G4'],
-          ['lzw', 'LZW'],
-          ['none', 'None'],
+        {select('importColourspace', msg('Import Image as PDF Colourspace'), COLOURSPACE())}
+        {select('importResolution', msg('Import Image as PDF Resolution'), RESOLUTION())}
+        <C>{check('scannedJpeg', msg('Scanned Colour Images as JPEG'))}</C>
+        {select('exportColourspace', msg('Export PDF as Image Colourspace'), COLOURSPACE())}
+        {select('exportResolution', msg('Export PDF as Image Resolution'), RESOLUTION())}
+        {select('tiffCompression', msg('TIFF Compression'), [
+          ['ccittG4', msg('CCITT G4')],
+          ['lzw', msg('LZW')],
+          ['none', msg('None')],
         ])}
-        <C>{check('multiPageTiff', 'Create Multi-Page TIFFs')}</C>
-        {text('imagePageNumber', 'Page Number')}
+        <C>{check('multiPageTiff', msg('Create Multi-Page TIFFs'))}</C>
+        {text('imagePageNumber', msg('Page Number'))}
       </Grid>
     ),
     // Advanced
     offline: () => (
       <div className="pref-free">
-        <span className="pref-search-words">{label('Offline storage OCR languages device')}</span>
+        <span className="pref-search-words">{label(msg('Offline storage OCR languages device'))}</span>
         <OfflinePrefs />
       </div>
     ),
     experimental: () => (
       <Grid>
-        <C>{check('embedHostHooks', 'Let an Embedding Application Set Document IDs and Turn Off Commands')}</C>
+        <C>{check('embedHostHooks', msg('Let an Embedding Application Set Document IDs and Turn Off Commands'))}</C>
         <C>
-          <span className="pref-note">For applications that run RedColumn inside them. Experimental: how it works may change.</span>
+          <span className="pref-note">{msg('For applications that run RedColumn inside them. Experimental: how it works may change.')}</span>
         </C>
       </Grid>
     ),
     // Account
     access: () => (
       <div className="pref-free">
-        <span className="pref-search-words">{label('Access sign in sign out Microsoft OneDrive permission token stay signed in')}</span>
+        <span className="pref-search-words">{label(msg('Access sign in sign out Microsoft OneDrive permission token stay signed in'))}</span>
         <AccessPrefs />
       </div>
     ),
     activity: () => (
       <div className="pref-free">
-        <span className="pref-search-words">{label('Activity cloud actions log OneDrive uploaded shared deleted')}</span>
+        <span className="pref-search-words">{label(msg('Activity cloud actions log OneDrive uploaded shared deleted'))}</span>
         <ActivityPrefs />
       </div>
     ),
@@ -944,30 +958,30 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         <button
           type="button"
           className="btn"
-          title={ids ? 'Save your Digital IDs to a file (each stays locked by its password)' : 'Save the certificates you trust to a file'}
+          title={ids ? msg('Save your Digital IDs to a file (each stays locked by its password)') : msg('Save the certificates you trust to a file')}
           onClick={() => {
             const backup: IdBackup = ids ? { app: 'RedColumn', kind, ids: digitalIds.list() } : { app: 'RedColumn', kind, trusted: digitalIds.trustedByHand() };
             saveFile(ids ? 'RedColumn Digital IDs.json' : 'RedColumn Trusted Identities.json', JSON.stringify(backup, null, 2));
           }}
         >
-          Back Up…
+          {msg('Back Up…')}
         </button>
         <button
           type="button"
           className="btn"
-          title="Add the ones in a backup file to this device"
+          title={msg('Add the ones in a backup file to this device')}
           onClick={async () => {
             const raw = await pickFile();
             if (!raw) return;
             try {
               const n = restoreIdBackup(raw, kind);
-              setMessage(`${n} ${ids ? `Digital ID${n === 1 ? '' : 's'}` : `trusted certificate${n === 1 ? '' : 's'}`} added.`);
+              setMessage(ids ? msg('{count, plural, one {# Digital ID} other {# Digital IDs}} added.', { count: n }) : msg('{count, plural, one {# trusted certificate} other {# trusted certificates}} added.', { count: n }));
             } catch (err) {
-              setMessage(err instanceof SyntaxError ? 'That file is not a backup.' : (err as Error).message);
+              setMessage(err instanceof SyntaxError ? msg('That file is not a backup.') : (err as Error).message);
             }
           }}
         >
-          Restore…
+          {msg('Restore…')}
         </button>
       </>
     );
@@ -980,17 +994,19 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     return (
       <>
         <Grid>
-          <C>{check('spellCheck', 'Enable Spell Check')}</C>
-          <C>{check('spellUpperCase', 'Include Upper Case Words', { indent: true, disabled: !d.spellCheck })}</C>
-          {select('dictionary', 'Active Dictionary', [
+          <C>{check('spellCheck', msg('Enable Spell Check'))}</C>
+          <C>{check('spellUpperCase', msg('Include Upper Case Words'), { indent: true, disabled: !d.spellCheck })}</C>
+          {select('dictionary', msg('Active Dictionary'), [
             ['en-AU', 'English (Australia)'],
             ['en-GB', 'English (UK)'],
             ['en-US', 'English (US)'],
+            ['de-DE', 'Deutsch'],
+            ['fr-FR', 'Français'],
           ])}
         </Grid>
-        <div className="pref-table" role="listbox" aria-label="Custom Words">
+        <div className="pref-table" role="listbox" aria-label={msg('Custom Words')}>
           <div className="pref-table-head">
-            <span>{label('Custom Words')}</span>
+            <span>{label(msg('Custom Words'))}</span>
           </div>
           <div className="pref-table-body">
             {words.map((w) => (
@@ -1004,15 +1020,15 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           <button
             type="button"
             className="pref-icon"
-            title="Add a word"
+            title={msg('Add a word')}
             onClick={async () => {
-              const w = (await askText('Add Custom Word', '', { label: 'Word', confirm: 'Add' }))?.trim();
+              const w = (await askText(msg('Add Custom Word'), '', { label: msg('Word'), confirm: msg('Add') }))?.trim();
               if (w && !words.includes(w)) setWords([...words, w]);
             }}
           >
             +
           </button>
-          <button type="button" className="pref-icon" title="Remove the selected word" disabled={!picked} onClick={() => setWords(words.filter((w) => w !== picked))}>
+          <button type="button" className="pref-icon" title={msg('Remove the selected word')} disabled={!picked} onClick={() => setWords(words.filter((w) => w !== picked))}>
             ×
           </button>
         </div>
@@ -1073,13 +1089,13 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
     if (!raw) return;
     try {
       const file = JSON.parse(raw) as Partial<PrefsFile>;
-      if (file.app !== 'RedColumn' || file.kind !== 'preferences') throw new Error('This is not a RedColumn preferences file.');
+      if (file.app !== 'RedColumn' || file.kind !== 'preferences') throw new Error(msg('This is not a RedColumn preferences file.'));
       setD((x) => ({ ...x, ...settings.parse(raw) }));
       if (typeof file.author === 'string' && file.author.trim()) setName(file.author.trim());
       if (Array.isArray(file.words)) setWords([...new Set([...words, ...file.words.filter((w): w is string => typeof w === 'string')])]);
-      setMessage('Preferences imported. Press OK to keep them.');
+      setMessage(msg('Preferences imported. Press OK to keep them.'));
     } catch (err) {
-      setMessage(err instanceof SyntaxError ? 'That file is not a preferences file.' : (err as Error).message);
+      setMessage(err instanceof SyntaxError ? msg('That file is not a preferences file.') : (err as Error).message);
     }
   };
 
@@ -1089,27 +1105,27 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal prefs-dialog" role="dialog" aria-label="Preferences" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal prefs-dialog" role="dialog" aria-label={msg('Preferences')} onMouseDown={(e) => e.stopPropagation()}>
         <header className="prefs-header">
-          <h3>Preferences</h3>
+          <h3>{msg('Preferences')}</h3>
           <label className="prefs-search-box">
             <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
               <circle cx="7" cy="7" r="4.5" />
               <path d="M10.5 10.5 14 14" />
             </svg>
-            <input className="prefs-search" type="search" placeholder="Find a setting" aria-label="Search preferences" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <input className="prefs-search" type="search" placeholder={msg('Find a setting')} aria-label={msg('Search preferences')} value={query} onChange={(e) => setQuery(e.target.value)} />
           </label>
-          <button type="button" className="prefs-x" aria-label="Close" title="Close without saving" onClick={onClose}>
+          <button type="button" className="prefs-x" aria-label={msg('Close')} title={msg('Close without saving')} onClick={onClose}>
             ×
           </button>
         </header>
         {managedPolicy().managed && (
           <p className="prefs-managed" role="note">
-            {MANAGED_NOTE} {managedSummary().length ? `Turned off on this computer: ${managedSummary().join('; ')}.` : 'Nothing is turned off on this computer.'}
+            {MANAGED_NOTE} {managedSummary().length ? msg('Turned off on this computer: {list}.', { list: managedSummary().join('; ') }) : msg('Nothing is turned off on this computer.')}
           </p>
         )}
         <div className="prefs-body">
-          <nav className="prefs-nav" role="tablist" aria-orientation="vertical" aria-label="Categories">
+          <nav className="prefs-nav" role="tablist" aria-orientation="vertical" aria-label={msg('Categories')}>
             {visibleCats.map((c) => {
               const open = c.id === cat.id;
               return (
@@ -1131,7 +1147,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
                 </div>
               );
             })}
-            {!visibleCats.length && <span className="pref-note">Nothing matches that search</span>}
+            {!visibleCats.length && <span className="pref-note">{msg('Nothing matches that search')}</span>}
           </nav>
           <div className="prefs-frame">
             <div className="prefs-title">
@@ -1139,10 +1155,10 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
               <h2>{tab && cat.tabs.length > 1 ? tab.label : cat.label}</h2>
             </div>
             <section className="prefs-section" role="tabpanel">
-              {tab ? body[tab.id]?.() : <p className="pref-note">RedColumn has no {cat.label} preferences yet.</p>}
+              {tab ? body[tab.id]?.() : <p className="pref-note">{msg('RedColumn has no {label} preferences yet.', { label: cat.label })}</p>}
               {cat.id !== 'mcp' && (
                 <p className="prefs-legend">
-                  <span className="pref-stored" /> Saved with your preferences; not used by RedColumn yet.
+                  {keyed(msgParts('{span} Saved with your preferences; not used by RedColumn yet.', { span: <span className="pref-stored" /> }))}
                 </p>
               )}
             </section>
@@ -1154,31 +1170,31 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           </p>
         )}
         <footer className="actions prefs-footer">
-          <button type="button" className="prefs-link" title="Read preferences from a file" onClick={() => void importPrefs()}>
-            Import
+          <button type="button" className="prefs-link" title={msg('Read preferences from a file')} onClick={() => void importPrefs()}>
+            {msg('Import')}
           </button>
-          <button type="button" className="prefs-link" title="Save these preferences to a file" onClick={exportPrefs}>
-            Export
+          <button type="button" className="prefs-link" title={msg('Save these preferences to a file')} onClick={exportPrefs}>
+            {msg('Export')}
           </button>
           <button
             type="button"
             className="prefs-link"
-            title="Put every preference back to its default (press Save to keep)"
+            title={msg('Put every preference back to its default (press Save to keep)')}
             disabled={same(d, DEFAULT_SETTINGS) && wrapComments}
             onClick={() => {
               setD({ ...DEFAULT_SETTINGS, setTemplates: structuredClone(DEFAULT_SETTINGS.setTemplates), setTags: structuredClone(DEFAULT_SETTINGS.setTags) });
               setWrapComments(true);
             }}
           >
-            Reset to defaults
+            {msg('Reset to defaults')}
           </button>
           <span className="spacer" />
-          {changed && <span className="prefs-dirty">Unsaved changes</span>}
+          {changed && <span className="prefs-dirty">{msg('Unsaved changes')}</span>}
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            {msg('Cancel')}
           </button>
-          <button type="button" className="btn primary" onClick={() => void apply()} disabled={!changed} title={changed ? undefined : 'Nothing has changed'}>
-            Save
+          <button type="button" className="btn primary" onClick={() => void apply()} disabled={!changed} title={changed ? undefined : msg('Nothing has changed')}>
+            {msg('Save')}
           </button>
         </footer>
       </div>
@@ -1227,7 +1243,7 @@ function EditTable({ columns, rows, onChange, blank }: { columns: string[]; rows
         <button
           type="button"
           className="pref-icon"
-          title="Add"
+          title={msg('Add')}
           onClick={() => {
             onChange([...rows, blank]);
             setPicked(rows.length);
@@ -1243,7 +1259,7 @@ function EditTable({ columns, rows, onChange, blank }: { columns: string[]; rows
         <button
           type="button"
           className="pref-icon"
-          title="Remove the selected row"
+          title={msg('Remove the selected row')}
           disabled={picked === null || picked >= rows.length}
           onClick={() => {
             onChange(rows.filter((_, k) => k !== picked));
@@ -1265,9 +1281,9 @@ function TagsTable({ tags, onChange }: { tags: SetTag[]; onChange: (tags: SetTag
     <>
       <div className="pref-table tags">
         <div className="pref-table-head">
-          <span>AutoMark</span>
-          <span>Tag Name</span>
-          <span>Type</span>
+          <span>{msg('AutoMark')}</span>
+          <span>{msg('Tag Name')}</span>
+          <span>{msg('Type')}</span>
         </div>
         <div className="pref-table-body">
           {tags.map((t, i) => (
@@ -1276,30 +1292,30 @@ function TagsTable({ tags, onChange }: { tags: SetTag[]; onChange: (tags: SetTag
                 <input
                   type="checkbox"
                   checked={t.autoMark}
-                  aria-label={`AutoMark ${t.name}`}
+                  aria-label={msg('AutoMark {name}', { name: t.name })}
                   disabled={t.name !== 'Sheet Number' && t.name !== 'Sheet Name'}
-                  title={t.name === 'Sheet Number' || t.name === 'Sheet Name' ? 'Read it off each page automatically' : 'Only sheet numbers and names are read off the pages; type this tag on each sheet (Sets panel › #)'}
+                  title={t.name === 'Sheet Number' || t.name === 'Sheet Name' ? msg('Read it off each page automatically') : msg('Only sheet numbers and names are read off the pages; type this tag on each sheet (Sets panel › #)')}
                   onChange={(e) => edit(i, { autoMark: e.target.checked })}
                 />
               </span>
-              <input value={t.name} aria-label="Tag name" onChange={(e) => edit(i, { name: e.target.value })} />
-              <select value={t.type} aria-label="Tag type" onChange={(e) => edit(i, { type: e.target.value as SetTag['type'] })}>
-                <option value="text">Text</option>
-                <option value="number">Number</option>
-                <option value="date">Date</option>
+              <input value={t.name} aria-label={msg('Tag name')} onChange={(e) => edit(i, { name: e.target.value })} />
+              <select value={t.type} aria-label={msg('Tag type')} onChange={(e) => edit(i, { type: e.target.value as SetTag['type'] })}>
+                <option value="text">{msg('Text')}</option>
+                <option value="number">{msg('Number')}</option>
+                <option value="date">{msg('Date')}</option>
               </select>
             </div>
           ))}
         </div>
       </div>
       <div className="pref-buttons">
-        <button type="button" className="pref-icon" title="Add a tag" onClick={() => onChange([...tags, { name: 'New Tag', type: 'text', autoMark: false }])}>
+        <button type="button" className="pref-icon" title={msg('Add a tag')} onClick={() => onChange([...tags, { name: msg('New Tag'), type: 'text', autoMark: false }])}>
           +
         </button>
         <button
           type="button"
           className="pref-icon"
-          title="Remove the selected tag"
+          title={msg('Remove the selected tag')}
           disabled={picked === null || picked >= tags.length}
           onClick={() => {
             onChange(tags.filter((_, k) => k !== picked));

@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../../i18n/keyed';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { parseOneDriveInvite } from '../../studio/drive/onedrive';
 import { parseSecret } from '../../studio/crypto/keys';
@@ -39,24 +41,22 @@ function MoreOptions({ ends, setEnds, saveCopy, setSaveCopy, invite, setInvite }
   const past = !!ends && (fromLocalInput(ends) ?? 0) <= Date.now();
   return (
     <>
-      <label className="check" title="Attendees may download, export and print the documents (with markups)">
-        <input type="checkbox" checked={saveCopy} onChange={(e) => setSaveCopy(e.target.checked)} />
-        Attendees may save copies of documents
+      <label className="check" title={msg('Attendees may download, export and print the documents (with markups)')}>
+        {keyed(msgParts('{input}Attendees may save copies of documents', { input: <input type="checkbox" checked={saveCopy} onChange={(e) => setSaveCopy(e.target.checked)} /> }))}
       </label>
-      <label className="check" title="Attendees see the invite link">
-        <input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} />
-        Attendees may invite others
+      <label className="check" title={msg('Attendees see the invite link')}>
+        {keyed(msgParts('{input}Attendees may invite others', { input: <input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} /> }))}
       </label>
-      <label className="row" title="The session closes by itself then: everyone's documents become read-only. Its files stay until the host ends it.">
-        Closes
+      <label className="row" title={msg('The session closes by itself then: everyone\'s documents become read-only. Its files stay until the host ends it.')}>
+        {msg('Closes')}
         <input type="datetime-local" value={ends} onChange={(e) => setEnds(e.target.value)} />
         {ends && (
           <button type="button" className="btn small flat" onClick={() => setEnds('')}>
-            Never
+            {msg('Never')}
           </button>
         )}
       </label>
-      {past && <p className="print-hint">The end date must be in the future.</p>}
+      {past && <p className="print-hint">{msg('The end date must be in the future.')}</p>}
     </>
   );
 }
@@ -79,7 +79,7 @@ export function Dialog({ title, className, onClose, children }: { title: string;
       <div className={`modal session-dialog ${className ?? ''}`} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(e) => e.stopPropagation()}>
         <div className="rc-dialog-h">
           <h3>{title}</h3>
-          <button type="button" className="rc-dialog-x" aria-label="Close" onClick={onClose}>
+          <button type="button" className="rc-dialog-x" aria-label={msg('Close')} onClick={onClose}>
             ×
           </button>
         </div>
@@ -148,13 +148,13 @@ export function StartSessionDialog({
   const addFile = (id: string, fileName: string) => !hasFile(id) && setDocs((d) => [...d, { kind: 'file', fileId: id, name: fileName }]);
   const available = library.filter((f) => !hasFile(f.id));
   const steps: { id: Step; label: string }[] = [
-    { id: 'general', label: 'General' },
-    { id: 'documents', label: `Documents (${docs.length})` },
-    { id: 'people', label: `Attendees (${policy.people.length})` },
+    { id: 'general', label: msg('General') },
+    { id: 'documents', label: msg('Documents ({count})', { count: docs.length }) },
+    { id: 'people', label: msg('Attendees ({count})', { count: policy.people.length }) },
   ];
 
   return (
-    <Dialog title="Start a New Session" className="wide" onClose={onClose}>
+    <Dialog title={msg('Start a New Session')} className="wide" onClose={onClose}>
       <nav className="dialog-steps" role="tablist">
         {steps.map((s) => (
           <button key={s.id} type="button" role="tab" aria-selected={step === s.id} className={step === s.id ? 'active' : ''} onClick={() => setStep(s.id)}>
@@ -179,68 +179,61 @@ export function StartSessionDialog({
         {step === 'general' && (
           <div className="dialog-pane">
             <label className="stack">
-              Session name
-              <input ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} placeholder="Level 2 coordination" maxLength={120} required />
+              {keyed(msgParts('Session name{input}', { input: <input ref={nameRef} value={name} onChange={(e) => setName(e.target.value)} placeholder={msg('Level 2 coordination')} maxLength={120} required /> }))}
             </label>
             {folderAvailable && oneDriveAvailable ? (
               <fieldset className="stack">
-                <legend>Where the session lives</legend>
+                <legend>{msg('Where the session lives')}</legend>
                 <label className="check">
-                  <input type="radio" name="session-backend" checked={!inFolder} onChange={() => setBackend('onedrive')} />
-                  OneDrive (everyone signs in with Microsoft)
+                  {keyed(msgParts('{input}OneDrive (everyone signs in with Microsoft)', { input: <input type="radio" name="session-backend" checked={!inFolder} onChange={() => setBackend('onedrive')} /> }))}
                 </label>
                 <label className="check">
-                  <input type="radio" name="session-backend" checked={inFolder} onChange={() => setBackend('folder')} />
-                  A shared folder on this computer (OneDrive, Dropbox, Teams or a network drive)
+                  {keyed(msgParts('{input}A shared folder on this computer (OneDrive, Dropbox, Teams or a network drive)', { input: <input type="radio" name="session-backend" checked={inFolder} onChange={() => setBackend('folder')} /> }))}
                 </label>
               </fieldset>
             ) : null}
             <p className="hint">
               {inFolder
-                ? 'You choose a folder everyone in the session can reach; the session gets its own folder inside it. No sign-in: anyone who can open that folder joins by choosing it in Join Session.'
+                ? msg('You choose a folder everyone in the session can reach; the session gets its own folder inside it. No sign-in: anyone who can open that folder joins by choosing it in Join Session.')
                 : oneDriveAvailable
-                  ? 'The session is a shared folder in your OneDrive; everyone signs in with Microsoft.'
-                  : 'OneDrive sharing is turned off, so Live Sessions need a shared folder on this computer (the desktop app).'}
+                  ? msg('The session is a shared folder in your OneDrive; everyone signs in with Microsoft.')
+                  : msg('OneDrive sharing is turned off, so Live Sessions need a shared folder on this computer (the desktop app).')}
             </p>
             <fieldset className="stack">
-              <legend>Options</legend>
+              <legend>{msg('Options')}</legend>
               <label className="check">
-                <input type="checkbox" checked={addDocuments} onChange={(e) => setAddDocuments(e.target.checked)} />
-                Attendees who can comment may also add documents
+                {keyed(msgParts('{input}Attendees who can comment may also add documents', { input: <input type="checkbox" checked={addDocuments} onChange={(e) => setAddDocuments(e.target.checked)} /> }))}
               </label>
               <MoreOptions ends={ends} setEnds={setEnds} saveCopy={saveCopy} setSaveCopy={setSaveCopy} invite={invite} setInvite={setInvite} />
               {!inFolder && (
                 <>
-                  <label className="check" title="Off: the link gives view-only access, and people who mark up or chat are invited by email. The link stops letting new people in when the session ends, or after a week.">
-                    <input type="checkbox" checked={linkCanEdit} onChange={(e) => setLinkCanEdit(e.target.checked)} />
-                    Anyone with the link can edit the OneDrive folder
+                  <label className="check" title={msg('Off: the link gives view-only access, and people who mark up or chat are invited by email. The link stops letting new people in when the session ends, or after a week.')}>
+                    {keyed(msgParts('{input}Anyone with the link can edit the OneDrive folder', { input: <input type="checkbox" checked={linkCanEdit} onChange={(e) => setLinkCanEdit(e.target.checked)} /> }))}
                   </label>
-                  <label className="check" title="The key is in the invite link after #, which is never sent to Microsoft or anyone else. The PDFs cannot be previewed in OneDrive, and a lost invite link cannot be recovered.">
-                    <input type="checkbox" checked={encrypt} onChange={(e) => setEncrypt(e.target.checked)} />
-                    Encrypt end to end (Microsoft stores only scrambled files)
+                  <label className="check" title={msg('The key is in the invite link after #, which is never sent to Microsoft or anyone else. The PDFs cannot be previewed in OneDrive, and a lost invite link cannot be recovered.')}>
+                    {keyed(msgParts('{input}Encrypt end to end (Microsoft stores only scrambled files)', { input: <input type="checkbox" checked={encrypt} onChange={(e) => setEncrypt(e.target.checked)} /> }))}
                   </label>
                 </>
               )}
             </fieldset>
             <p className="hint">
-              You host as <b>{me}</b>
-              {!inFolder && microsoftEmail ? ` (${microsoftEmail})` : ''}. {inFolder ? 'Attendees are known by the name they set in redcolumn.' : 'Add people by their Microsoft account email.'}
+              {keyed(msgParts('You host as {b}{value}. {value2}', { b: <b>{me}</b>, value: !inFolder && microsoftEmail ? ` (${microsoftEmail})` : '', value2: inFolder ? msg('Attendees are known by the name they set in redcolumn.') : msg('Add people by their Microsoft account email.') }))}
             </p>
           </div>
         )}
 
         {step === 'documents' && (
           <div className="dialog-pane">
-            <p className="hint">Everyone in the session sees these PDFs. Markups already on open documents come along.</p>
+            <p className="hint">{msg('Everyone in the session sees these PDFs. Markups already on open documents come along.')}</p>
             <ul className="dialog-list">
-              {docs.length === 0 && <li className="empty">No documents yet. You can also add them once the session has started.</li>}
+              {docs.length === 0 && <li className="empty">{msg('No documents yet. You can also add them once the session has started.')}</li>}
               {docs.map((d, i) => (
                 <li key={d.kind === 'file' ? d.fileId : `${d.name}-${i}`}>
                   <span className="name" title={d.name}>
                     {d.name}
                   </span>
-                  <span className="tag">{d.kind === 'upload' ? 'from disk' : openFiles.some((f) => f.id === d.fileId) ? 'open' : 'library'}</span>
-                  <button type="button" className="btn small flat" title="Remove" onClick={() => setDocs((all) => all.filter((_, j) => j !== i))}>
+                  <span className="tag">{d.kind === 'upload' ? msg('from disk') : openFiles.some((f) => f.id === d.fileId) ? msg('open') : msg('library')}</span>
+                  <button type="button" className="btn small flat" title={msg('Remove')} onClick={() => setDocs((all) => all.filter((_, j) => j !== i))}>
                     ×
                   </button>
                 </li>
@@ -249,11 +242,11 @@ export function StartSessionDialog({
             <div className="row">
               {openFiles.some((f) => !hasFile(f.id)) && (
                 <button type="button" className="btn" onClick={() => openFiles.forEach((f) => addFile(f.id, f.name))}>
-                  Add open documents
+                  {msg('Add open documents')}
                 </button>
               )}
-              <select value={libraryPick} aria-label="Add from library" onChange={(e) => setLibraryPick(e.target.value)} disabled={!available.length}>
-                <option value="">{available.length ? 'Add from library…' : 'Library: nothing else to add'}</option>
+              <select value={libraryPick} aria-label={msg('Add from library')} onChange={(e) => setLibraryPick(e.target.value)} disabled={!available.length}>
+                <option value="">{available.length ? msg('Add from library…') : msg('Library: nothing else to add')}</option>
                 {available.map((f) => (
                   <option key={f.id} value={f.id}>
                     {f.name}
@@ -270,10 +263,10 @@ export function StartSessionDialog({
                   setLibraryPick('');
                 }}
               >
-                Add
+                {msg('Add')}
               </button>
               <button type="button" className="btn" onClick={() => fileRef.current?.click()}>
-                Browse…
+                {msg('Browse…')}
               </button>
               <input
                 ref={fileRef}
@@ -296,8 +289,8 @@ export function StartSessionDialog({
             <AccessEditor policy={policy} onChange={setPolicy} host={me} />
             <p className="hint">
               {inFolder
-                ? 'Who can join is up to whoever shares the folder: add people there and tell them where it is. This list only sets what each person may do.'
-                : 'People entered as email addresses are also invited to the OneDrive folder by email.'}
+                ? msg('Who can join is up to whoever shares the folder: add people there and tell them where it is. This list only sets what each person may do.')
+                : msg('People entered as email addresses are also invited to the OneDrive folder by email.')}
             </p>
           </div>
         )}
@@ -305,20 +298,20 @@ export function StartSessionDialog({
         <div className="actions">
           {step !== 'general' && (
             <button type="button" className="btn flat" onClick={() => setStep(step === 'people' ? 'documents' : 'general')}>
-              Back
+              {msg('Back')}
             </button>
           )}
           <span className="spacer" />
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            {msg('Cancel')}
           </button>
           {step !== 'people' && (
             <button type="button" className="btn" onClick={() => setStep(step === 'general' ? 'documents' : 'people')}>
-              Next
+              {msg('Next')}
             </button>
           )}
           <button type="submit" className="btn primary" disabled={busy || !name.trim() || !backendAvailable}>
-            {busy ? 'Starting…' : inFolder ? 'Choose folder and start' : 'Start session'}
+            {busy ? msg('Starting…') : inFolder ? msg('Choose folder and start') : msg('Start session')}
           </button>
         </div>
       </form>
@@ -346,7 +339,7 @@ export function JoinSessionDialog({
   const [link, setLink] = useState('');
   const oneDriveId = parseOneDriveInvite(link);
   return (
-    <Dialog title="Join Session" onClose={onClose}>
+    <Dialog title={msg('Join Session')} onClose={onClose}>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -357,36 +350,36 @@ export function JoinSessionDialog({
           onJoinOneDrive(oneDriveId);
         }}
       >
-        <p>You join as {me}. The easiest way in is the invite link from the host.</p>
-        {!oneDriveAvailable && !onJoinFolder && <p className="hint">OneDrive sharing is turned off, so joining a Live Session needs the desktop app and a shared folder.</p>}
+        <p>{msg('You join as {me}. The easiest way in is the invite link from the host.', { me })}</p>
+        {!oneDriveAvailable && !onJoinFolder && <p className="hint">{msg('OneDrive sharing is turned off, so joining a Live Session needs the desktop app and a shared folder.')}</p>}
         {oneDriveAvailable && (
           <div className="row">
             <input
               autoFocus
               value={link}
               onChange={(e) => setLink(e.target.value)}
-              placeholder="Paste a OneDrive session link"
+              placeholder={msg('Paste a OneDrive session link')}
               autoComplete="off"
-              aria-label="OneDrive session link"
+              aria-label={msg('OneDrive session link')}
               aria-invalid={link.trim() !== '' && !oneDriveId}
             />
           </div>
         )}
         {onJoinFolder && (
           <p className="hint">
-            Session in a shared folder?{' '}
+            {msg('Session in a shared folder?')}{' '}
             <button type="button" className="rc-text-btn" disabled={busy} onClick={onJoinFolder}>
-              Open the session folder on this computer…
+              {msg('Open the session folder on this computer…')}
             </button>
           </p>
         )}
         <div className="actions">
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            {msg('Cancel')}
           </button>
           {oneDriveAvailable && (
             <button type="submit" className="btn primary" disabled={!oneDriveId || busy}>
-              {busy ? 'Joining…' : 'Join OneDrive session'}
+              {busy ? msg('Joining…') : msg('Join OneDrive session')}
             </button>
           )}
         </div>
@@ -481,7 +474,7 @@ export function SessionSettingsDialog({
     );
   };
   return (
-    <Dialog title="Session Settings" className="wide rc-light" onClose={onClose}>
+    <Dialog title={msg('Session Settings')} className="wide rc-light" onClose={onClose}>
       <form
         className="dialog-body"
         onSubmit={(e) => {
@@ -506,63 +499,59 @@ export function SessionSettingsDialog({
           {tab === 'general' && (
             <>
               <dl className="rc-set-grid">
-                <dt>Session Name</dt>
+                <dt>{msg('Session Name')}</dt>
                 <dd>
-                  <input aria-label="Session Name" value={draftName} onChange={(e) => setDraftName(e.target.value)} maxLength={120} />
+                  <input aria-label={msg('Session Name')} value={draftName} onChange={(e) => setDraftName(e.target.value)} maxLength={120} />
                 </dd>
-                <dt>Session ID</dt>
+                <dt>{msg('Session ID')}</dt>
                 <dd>
-                  <input aria-label="Session ID" value={studioIdText(id)} readOnly />
+                  <input aria-label={msg('Session ID')} value={studioIdText(id)} readOnly />
                 </dd>
-                <dt>Total Users</dt>
+                <dt>{msg('Total Users')}</dt>
                 <dd>{users}</dd>
-                <dt>Total Files</dt>
+                <dt>{msg('Total Files')}</dt>
                 <dd>{documents.length}</dd>
-                <dt>Total Space</dt>
+                <dt>{msg('Total Space')}</dt>
                 <dd>{spaceLabel(bytes)}</dd>
-                <dt>Created On</dt>
+                <dt>{msg('Created On')}</dt>
                 <dd>{new Date(createdAt).toLocaleString()}</dd>
-                <dt>Expiry</dt>
+                <dt>{msg('Expiry')}</dt>
                 <dd>
                   <span className="rc-expiry">
                     <label className="check">
-                      <input type="checkbox" checked={expiryOn} onChange={(e) => setExpiryOn(e.target.checked)} />
-                      Enabled
+                      {keyed(msgParts('{input}Enabled', { input: <input type="checkbox" checked={expiryOn} onChange={(e) => setExpiryOn(e.target.checked)} /> }))}
                     </label>
-                    <input type="date" aria-label="Expiry date" value={expiryDate} disabled={!expiryOn} onChange={(e) => setExpiryDate(e.target.value)} />
-                    <input type="time" aria-label="Expiry time" value={expiryTime} disabled={!expiryOn} onChange={(e) => setExpiryTime(e.target.value)} />
+                    <input type="date" aria-label={msg('Expiry date')} value={expiryDate} disabled={!expiryOn} onChange={(e) => setExpiryDate(e.target.value)} />
+                    <input type="time" aria-label={msg('Expiry time')} value={expiryTime} disabled={!expiryOn} onChange={(e) => setExpiryTime(e.target.value)} />
                   </span>
                 </dd>
               </dl>
-              {expiryError && <p className="print-hint">The end date must be in the future.</p>}
+              {expiryError && <p className="print-hint">{msg('The end date must be in the future.')}</p>}
             </>
           )}
           {tab === 'attendees' && <AccessEditor policy={draft} onChange={setDraft} host={host} />}
           {tab === 'permissions' && (
             <>
               <label className="check">
-                <input type="checkbox" checked={docs} onChange={(e) => setDocs(e.target.checked)} />
-                Attendees who can comment may also add documents
+                {keyed(msgParts('{input}Attendees who can comment may also add documents', { input: <input type="checkbox" checked={docs} onChange={(e) => setDocs(e.target.checked)} /> }))}
               </label>
-              <label className="check" title="Attendees may download, export and print the documents (with markups)">
-                <input type="checkbox" checked={saveCopy} onChange={(e) => setSaveCopy(e.target.checked)} />
-                Attendees may save copies of documents
+              <label className="check" title={msg('Attendees may download, export and print the documents (with markups)')}>
+                {keyed(msgParts('{input}Attendees may save copies of documents', { input: <input type="checkbox" checked={saveCopy} onChange={(e) => setSaveCopy(e.target.checked)} /> }))}
               </label>
-              <label className="check" title="Attendees see the invite link">
-                <input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} />
-                Attendees may invite others
+              <label className="check" title={msg('Attendees see the invite link')}>
+                {keyed(msgParts('{input}Attendees may invite others', { input: <input type="checkbox" checked={invite} onChange={(e) => setInvite(e.target.checked)} /> }))}
               </label>
               <fieldset>
-                <legend>Documents ({documents.length})</legend>
-                {documents.length === 0 && <p className="hint">No documents yet.</p>}
+                <legend>{msg('Documents ({count})', { count: documents.length })}</legend>
+                {documents.length === 0 && <p className="hint">{msg('No documents yet.')}</p>}
                 <ul className="plain-list manage-list">
                   {documents.map((d) => (
                     <li key={d.id}>
-                      <span className="name" title={`Added by ${d.addedBy} · ${(d.size / 1e6).toFixed(1)} MB`}>
+                      <span className="name" title={msg('Added by {addedBy} · {value} MB', { addedBy: d.addedBy, value: (d.size / 1e6).toFixed(1) })}>
                         {d.name}
                       </span>
-                      <label className="btn small flat" title="Replace with a new revision: pick the new PDF; markups stay on their pages">
-                        Update…
+                      <label className="btn small flat" title={msg('Replace with a new revision: pick the new PDF; markups stay on their pages')}>
+                        {msg('Update…')}
                         <input
                           type="file"
                           accept="application/pdf,.pdf"
@@ -570,7 +559,7 @@ export function SessionSettingsDialog({
                           onChange={(e) => {
                             const f = e.target.files?.[0];
                             e.target.value = '';
-                            if (f && confirm(`Update ${d.name} to ${f.name}? Everyone's markups stay on the same pages of the new revision.`)) onUpdateDocument(d.id, f);
+                            if (f && confirm(msg('Update {name} to {name2}? Everyone\'s markups stay on the same pages of the new revision.', { name: d.name, name2: f.name }))) onUpdateDocument(d.id, f);
                           }}
                         />
                       </label>
@@ -578,16 +567,16 @@ export function SessionSettingsDialog({
                         type="button"
                         className="btn small flat danger"
                         onClick={() => {
-                          if (confirm(`Remove ${d.name} from the session? Its markups are kept but it is no longer listed.`)) onRemoveDocument(d.id);
+                          if (confirm(msg('Remove {name} from the session? Its markups are kept but it is no longer listed.', { name: d.name }))) onRemoveDocument(d.id);
                         }}
                       >
-                        Remove
+                        {msg('Remove')}
                       </button>
                     </li>
                   ))}
                 </ul>
                 <button type="button" className="btn small" disabled={busy} onClick={() => addRef.current?.click()}>
-                  Add PDFs…
+                  {msg('Add PDFs…')}
                 </button>
                 <input
                   ref={addRef}
@@ -603,8 +592,8 @@ export function SessionSettingsDialog({
                 />
               </fieldset>
               {onEnd && (
-                <button type="button" className="btn danger" disabled={busy} onClick={onEnd} title="Save the documents, markups and record, then remove the session and its files for everyone">
-                  End session…
+                <button type="button" className="btn danger" disabled={busy} onClick={onEnd} title={msg('Save the documents, markups and record, then remove the session and its files for everyone')}>
+                  {msg('End session…')}
                 </button>
               )}
             </>
@@ -613,13 +602,13 @@ export function SessionSettingsDialog({
         <div className="actions">
           <span className="spacer" />
           <button type="submit" className="btn" disabled={busy}>
-            OK
+            {msg('OK')}
           </button>
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="button" className="btn primary" disabled={busy} onClick={() => commit(false)}>
-            Apply
+            {msg('Apply')}
           </button>
         </div>
       </form>
@@ -697,7 +686,7 @@ export function EndSessionDialog({
   const confirmed = typed.trim().toLowerCase() === name.trim().toLowerCase();
   const ready = confirmed && !busy && (!saving || destination !== 'project' || !!projectId);
   return (
-    <Dialog title={`End “${name}”`} className="wide" onClose={onClose}>
+    <Dialog title={msg('End “{name}”', { name })} className="wide" onClose={onClose}>
       <form
         className="dialog-body end-session"
         onSubmit={(e) => {
@@ -707,32 +696,30 @@ export function EndSessionDialog({
         }}
       >
         <div className="end-warning" role="alert">
-          <b>Ending removes this session’s files for everyone.</b>
+          <b>{msg('Ending removes this session’s files for everyone.')}</b>
           <p>
-            The session folder goes to the recycle bin, with every document, everyone’s markups, the chat and the Record in it. Attendees lose the
-            session straight away and it leaves your Sessions list. Save what you need below first.
+            {msg('The session folder goes to the recycle bin, with every document, everyone’s markups, the chat and the Record in it. Attendees lose the session straight away and it leaves your Sessions list. Save what you need below first.')}
           </p>
-          <p>Ask every reviewer to finish syncing before ending. This device cannot confirm changes still waiting on another reviewer’s computer or in a folder sync service.</p>
+          <p>{msg('Ask every reviewer to finish syncing before ending. This device cannot confirm changes still waiting on another reviewer’s computer or in a folder sync service.')}</p>
         </div>
 
         {sendBack.length > 0 && (
           <fieldset>
-            <legend>Send back (Session Roundtrip)</legend>
+            <legend>{msg('Send back (Session Roundtrip)')}</legend>
             {sendBack.map((d) => (
               <label key={d.docId} className="check">
                 <input type="checkbox" checked={back.includes(d.docId)} onChange={(e) => setBack((b) => (e.target.checked ? [...b, d.docId] : b.filter((x) => x !== d.docId)))} />
                 {d.name}: {d.target}
               </label>
             ))}
-            <span className="hint">With the markups of the people chosen below.</span>
+            <span className="hint">{msg('With the markups of the people chosen below.')}</span>
           </fieldset>
         )}
 
         <fieldset>
-          <legend>Save before ending</legend>
+          <legend>{msg('Save before ending')}</legend>
           <label className="check">
-            <input type="checkbox" checked={pdfs} disabled={!documents} onChange={(e) => setPdfs(e.target.checked)} />
-            Documents as PDFs ({documents}), with the markups of:
+            {keyed(msgParts('{input}Documents as PDFs ({documents}), with the markups of:', { input: <input type="checkbox" checked={pdfs} disabled={!documents} onChange={(e) => setPdfs(e.target.checked)} />, documents }))}
           </label>
           {(pdfs || back.length > 0) && (
             <div className="finish-authors">
@@ -744,41 +731,36 @@ export function EndSessionDialog({
                   </label>
                 ))
               ) : (
-                <span className="hint">Nobody has made markups yet.</span>
+                <span className="hint">{msg('Nobody has made markups yet.')}</span>
               )}
             </div>
           )}
           <label className="check">
-            <input type="checkbox" checked={markupsCsv} disabled={!documents} onChange={(e) => setMarkupsCsv(e.target.checked)} />
-            Markups as CSV (every markup, one row each)
+            {keyed(msgParts('{input}Markups as CSV (every markup, one row each)', { input: <input type="checkbox" checked={markupsCsv} disabled={!documents} onChange={(e) => setMarkupsCsv(e.target.checked)} /> }))}
           </label>
           <label className="check">
-            <input type="checkbox" checked={recordCsv} onChange={(e) => setRecordCsv(e.target.checked)} />
-            Session record as CSV (chat, joins, every change)
+            {keyed(msgParts('{input}Session record as CSV (chat, joins, every change)', { input: <input type="checkbox" checked={recordCsv} onChange={(e) => setRecordCsv(e.target.checked)} /> }))}
           </label>
           <label className="check">
-            <input type="checkbox" checked={reportPdf} onChange={(e) => setReportPdf(e.target.checked)} />
-            Session report as PDF (documents, attendees, markups and the record)
+            {keyed(msgParts('{input}Session report as PDF (documents, attendees, markups and the record)', { input: <input type="checkbox" checked={reportPdf} onChange={(e) => setReportPdf(e.target.checked)} /> }))}
           </label>
         </fieldset>
 
         <fieldset disabled={!saving}>
-          <legend>Save to</legend>
+          <legend>{msg('Save to')}</legend>
           <label className="check">
-            <input type="radio" name="end-dest" checked={destination === 'local'} onChange={() => setDestination('local')} />
-            This computer (you choose a folder)
+            {keyed(msgParts('{input}This computer (you choose a folder)', { input: <input type="radio" name="end-dest" checked={destination === 'local'} onChange={() => setDestination('local')} /> }))}
           </label>
           {oneDriveAvailable && (
             <label className="check">
-              <input type="radio" name="end-dest" checked={destination === 'onedrive'} onChange={() => setDestination('onedrive')} />
-              OneDrive (a new folder in Apps/redcolumn)
+              {keyed(msgParts('{input}OneDrive (a new folder in Apps/redcolumn)', { input: <input type="radio" name="end-dest" checked={destination === 'onedrive'} onChange={() => setDestination('onedrive')} /> }))}
             </label>
           )}
-          <label className="check" title={projects.length ? undefined : 'You have no Projects. Make one in the Projects panel first.'}>
+          <label className="check" title={projects.length ? undefined : msg('You have no Projects. Make one in the Projects panel first.')}>
             <input type="radio" name="end-dest" checked={destination === 'project'} disabled={!projects.length} onChange={() => setDestination('project')} />
-            A redcolumn Project
+            {msg('A redcolumn Project')}
             {destination === 'project' && (
-              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label="Project">
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} aria-label={msg('Project')}>
                 {projects.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
@@ -787,39 +769,39 @@ export function EndSessionDialog({
               </select>
             )}
           </label>
-          <span className="hint">If anything fails to save, the session is not ended and nothing is removed.</span>
+          <span className="hint">{msg('If anything fails to save, the session is not ended and nothing is removed.')}</span>
         </fieldset>
 
         <div className="end-confirm">
-          {!saving && <p className="end-nothing">Nothing will be saved. Everything in the session will be removed.</p>}
+          {!saving && <p className="end-nothing">{msg('Nothing will be saved. Everything in the session will be removed.')}</p>}
           <label className="stack">
             <span>
-              To confirm, type the session name: <b>{name}</b>
+              {keyed(msgParts('To confirm, type the session name: {b}', { b: <b>{name}</b> }))}
             </span>
-            <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={name} aria-label="Type the session name to confirm" autoComplete="off" spellCheck={false} />
+            <input value={typed} onChange={(e) => setTyped(e.target.value)} placeholder={name} aria-label={msg('Type the session name to confirm')} autoComplete="off" spellCheck={false} />
           </label>
         </div>
 
         {busy && (
           <div className="upload-progress" role="status" aria-live="polite">
-            <b>{progress ? `Step ${Math.min(progress.done + 1, progress.total)} of ${progress.total}` : 'Starting…'}</b>
+            <b>{progress ? msg('Step {count} of {total}', { count: Math.min(progress.done + 1, progress.total), total: progress.total }) : msg('Starting…')}</b>
             {progress && <span className="hint-text">{progress.label}</span>}
-            <progress max={progress?.total ?? 1} value={progress?.done ?? 0} aria-label="Progress ending the session" />
-            <span className="hint-text">Large files can take a while. The session is removed only once everything is saved, so keep this window open.</span>
+            <progress max={progress?.total ?? 1} value={progress?.done ?? 0} aria-label={msg('Progress ending the session')} />
+            <span className="hint-text">{msg('Large files can take a while. The session is removed only once everything is saved, so keep this window open.')}</span>
           </div>
         )}
         {error && !busy && (
           <p className="session-error" role="alert">
-            {error} The session was not ended.
+            {msg('{error} The session was not ended.', { error })}
           </p>
         )}
         <div className="actions">
           <span className="spacer" />
           <button type="button" className="btn" onClick={onClose}>
-            Cancel
+            {msg('Cancel')}
           </button>
-          <button type="submit" className="btn danger" disabled={!ready} title={confirmed ? undefined : 'Type the session name above first'}>
-            {saving ? 'Save, then end session and remove files' : 'End session and remove files'}
+          <button type="submit" className="btn danger" disabled={!ready} title={confirmed ? undefined : msg('Type the session name above first')}>
+            {saving ? msg('Save, then end session and remove files') : msg('End session and remove files')}
           </button>
         </div>
       </form>

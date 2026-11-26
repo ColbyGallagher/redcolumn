@@ -1,3 +1,5 @@
+import { msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { SheetLookup, detailId, detectChainageLinks, idTest, numberParts, parsePlus, sheetTitled, type ChainageHints, type LinkHints, type Rect, type SheetInfo, type Word } from '@nb/sheets';
 import { MARK_KINDS, teachMark, type BoxContents, type MarkKind, type MarkPage, type TaughtMark } from './marks';
 
@@ -20,36 +22,36 @@ export interface TeachStep {
   targetPrompt: string;
 }
 
-export const TEACH_KINDS: Record<TeachKind, TeachStep> = {
+export const TEACH_KINDS = lazy((): Record<TeachKind, TeachStep> => ({
   section: {
-    label: 'Sections',
+    label: msg('Sections'),
     mark: 'sectionMark',
     target: 'sectionTitle',
-    markPrompt: 'Find a section mark and drag a box around it, with its letter and the sheet it points to.',
-    targetPrompt: 'Go to the sheet where that section is drawn and box its title.',
+    markPrompt: msg('Find a section mark and drag a box around it, with its letter and the sheet it points to.'),
+    targetPrompt: msg('Go to the sheet where that section is drawn and box its title.'),
   },
   detail: {
-    label: 'Details',
+    label: msg('Details'),
     mark: 'detailCallout',
     target: 'detailTitle',
-    markPrompt: 'Find a detail callout and drag a box around it, with its number and the sheet it points to.',
-    targetPrompt: 'Go to the detail it points to and box its title.',
+    markPrompt: msg('Find a detail callout and drag a box around it, with its number and the sheet it points to.'),
+    targetPrompt: msg('Go to the detail it points to and box its title.'),
   },
   elevation: {
-    label: 'Elevations',
+    label: msg('Elevations'),
     mark: 'elevationMark',
     target: 'elevationTitle',
-    markPrompt: 'Find an elevation mark and drag a box around it, with its label.',
-    targetPrompt: 'Go to that elevation and box its title.',
+    markPrompt: msg('Find an elevation mark and drag a box around it, with its label.'),
+    targetPrompt: msg('Go to that elevation and box its title.'),
   },
   chainage: {
-    label: 'Chainage',
+    label: msg('Chainage'),
     mark: null,
     target: null,
-    markPrompt: 'Go to a cross section and box its chainage, with the word in front of it (CH, CHAINAGE).',
-    targetPrompt: 'Go to the plan and box the same chainage where it is marked along the alignment.',
+    markPrompt: msg('Go to a cross section and box its chainage, with the word in front of it (CH, CHAINAGE).'),
+    targetPrompt: msg('Go to the plan and box the same chainage where it is marked along the alignment.'),
   },
-};
+}));
 
 /** One box the person drew, and what of it they kept. */
 export interface TaughtBox {
@@ -125,7 +127,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  * box (a callout to a whole sheet): only the mark is kept.
  */
 export function learnLink(kind: Exclude<TeachKind, 'chainage'>, mark: TaughtBox, target: TaughtBox | null, sheetNumbers: readonly (string | null)[], hints: LinkHints, name: string): Lesson {
-  const step = TEACH_KINDS[kind];
+  const step = TEACH_KINDS()[kind];
   const notes: string[] = [];
   const fail = (problem: string): Lesson => ({ marks: [], links: null, chainage: null, notes, problem });
   let h: LinkHints = structuredClone(hints);
@@ -141,7 +143,7 @@ export function learnLink(kind: Exclude<TeachKind, 'chainage'>, mark: TaughtBox,
       const part = parts.findIndex((p, i) => /\d/.test(p) && words.has(p) && cites(i));
       if (part >= 0) {
         h.calloutPart = part;
-        notes.push(`Callouts cite part ${part + 1} of the drawing number: ${parts[part]} for ${targetNumber}.`);
+        notes.push(msg('Callouts cite part {number} of the drawing number: {parts} for {targetNumber}.', { number: part + 1, parts: parts[part], targetNumber }));
       }
     }
   }
@@ -152,7 +154,7 @@ export function learnLink(kind: Exclude<TeachKind, 'chainage'>, mark: TaughtBox,
     if (shared && !idTest(h)(shared)) {
       const form = idForm(shared);
       h.ids = [...new Set([...(h.ids ?? USUAL_IDS), form])];
-      notes.push(`Identifiers are written like ${shared} (${form}).`);
+      notes.push(msg('Identifiers are written like {shared} ({form}).', { shared, form }));
     }
   }
 
@@ -169,7 +171,7 @@ export function learnLink(kind: Exclude<TeachKind, 'chainage'>, mark: TaughtBox,
   const idOf = (m: TaughtMark) => m.words.find((w) => w.role === 'detail')?.text ?? null;
   const markId = idOf(taught);
   const titleId = title ? idOf(title) : null;
-  if (markId && titleId && detailId(markId) !== detailId(titleId)) return fail(`The mark says ${markId} but the title says ${titleId}. Box a mark and the title of the ${kind} it points to.`);
+  if (markId && titleId && detailId(markId) !== detailId(titleId)) return fail(msg('The mark says {markId} but the title says {titleId}. Box a mark and the title of the {kind} it points to.', { markId, titleId, kind }));
 
   // The sheet the mark names must be the one its title is on.
   if (target) {
@@ -177,9 +179,9 @@ export function learnLink(kind: Exclude<TeachKind, 'chainage'>, mark: TaughtBox,
     const named = taught.words.find((w) => w.role === 'sheet')?.text ?? null;
     const at = named ? lookup.find(named, true) : null;
     const where = (i: number) => sheetNumbers[i] ?? `page ${i + 1}`;
-    if (named && at !== null && at !== target.pageIndex) return fail(`The mark points to ${named}, which is ${where(at)}, not the sheet you boxed the title on (${where(target.pageIndex)}).`);
-    if (other && !named) notes.push('The mark names no sheet this set has, so marks like it are only linked on their own sheet. Check the sheet numbers are read (Pages panel), then teach it again.');
-    else notes.push(`${MARK_KINDS[step.mark!]} ${markId ?? ''} on ${where(mark.pageIndex)} goes to ${MARK_KINDS[step.target!].toLowerCase()} ${titleId ?? ''} on ${where(target.pageIndex)}.`.replace(/ {2,}/g, ' '));
+    if (named && at !== null && at !== target.pageIndex) return fail(msg('The mark points to {named}, which is {where}, not the sheet you boxed the title on ({where2}).', { named, where: where(at), where2: where(target.pageIndex) }));
+    if (other && !named) notes.push(msg('The mark names no sheet this set has, so marks like it are only linked on their own sheet. Check the sheet numbers are read (Pages panel), then teach it again.'));
+    else notes.push(msg('{mARK_KINDS} {value} on {where} goes to {value2} {value3} on {where2}.', { mARK_KINDS: MARK_KINDS[step.mark!], value: markId ?? '', where: where(mark.pageIndex), value2: MARK_KINDS[step.target!].toLowerCase(), value3: titleId ?? '', where2: where(target.pageIndex) }).replace(/ {2,}/g, ' '));
   }
 
   // The words in front of section and elevation titles, for reading links from the text alone.
@@ -188,7 +190,7 @@ export function learnLink(kind: Exclude<TeachKind, 'chainage'>, mark: TaughtBox,
     const known = h.titles[kind].map((w) => w.toUpperCase());
     if (phrase && !known.some((w) => ` ${phrase} `.includes(` ${w} `))) {
       h.titles = { ...h.titles, [kind]: [...h.titles[kind], phrase] };
-      notes.push(`${step.label.replace(/s$/, '')} titles say ${phrase}.`);
+      notes.push(msg('{replace} titles say {phrase}.', { replace: step.label.replace(/s$/, ''), phrase }));
     }
   }
   return { marks: title ? [taught, title] : [taught], links: same(h, hints) ? null : h, chainage: null, notes, problem: null };
@@ -243,9 +245,9 @@ export function learnSheetTitles(h: ChainageHints, section: TaughtBox, plan: Tau
   ] as const) {
     if (sheetTitled(box.page, sheets[box.pageIndex], h[key])) continue;
     const words = titleWords(sheets[box.pageIndex]?.title);
-    if (!words) return `redcolumn has not read the title of ${sheets[box.pageIndex]?.number ?? `page ${box.pageIndex + 1}`}, so it cannot tell that it is a ${what.toLowerCase()} sheet. Check the title block's Sheet title box covers the title on that sheet.`;
+    if (!words) return msg('redcolumn has not read the title of {page}, so it cannot tell that it is a {what} sheet. Check the title block\'s Sheet title box covers the title on that sheet.', { page: sheets[box.pageIndex]?.number ?? msg('page {page}', { page: box.pageIndex + 1 }), what: what.toLowerCase() });
     h[key] = [...h[key], words];
-    notes.push(`${what} sheets are titled ${words}.`);
+    notes.push(msg('{what} sheets are titled {words}.', { what, words }));
   }
   return null;
 }
@@ -256,19 +258,19 @@ export function learnChainage(section: TaughtBox, plan: TaughtBox, sheets: reado
   const fail = (problem: string): Lesson => ({ marks: [], links: null, chainage: null, notes, problem });
   const cut = chainageIn(section.contents.words);
   const along = chainageIn(plan.contents.words);
-  if (!cut) return fail('There is no chainage in the box on the cross section.');
-  if (!along) return fail('There is no chainage in the box on the plan.');
-  if (Math.abs(cut.value - along.value) >= 0.05) return fail(`The cross section is at ${cut.value} but the plan box says ${along.value}. Box the same chainage on both.`);
-  if (section.pageIndex === plan.pageIndex) return fail('Box the chainage on a cross-section sheet first, then on the plan sheet.');
+  if (!cut) return fail(msg('There is no chainage in the box on the cross section.'));
+  if (!along) return fail(msg('There is no chainage in the box on the plan.'));
+  if (Math.abs(cut.value - along.value) >= 0.05) return fail(msg('The cross section is at {value} but the plan box says {value2}. Box the same chainage on both.', { value: String(cut.value), value2: String(along.value) }));
+  if (section.pageIndex === plan.pageIndex) return fail(msg('Box the chainage on a cross-section sheet first, then on the plan sheet.'));
   const h: ChainageHints = structuredClone(hints);
   if (cut.prefix && !h.prefixes.some((p) => p.toUpperCase() === cut.prefix)) {
     h.prefixes = [...h.prefixes, cut.prefix];
-    notes.push(`Chainages are written after ${cut.prefix}.`);
+    notes.push(msg('Chainages are written after {prefix}.', { prefix: cut.prefix }));
   }
-  if (!cut.prefix && !cut.plus) return fail('Box the chainage on the cross section with the word in front of it (CH, CHAINAGE): a number alone could be anything.');
+  if (!cut.prefix && !cut.plus) return fail(msg('Box the chainage on the cross section with the word in front of it (CH, CHAINAGE): a number alone could be anything.'));
   const titles = learnSheetTitles(h, section, plan, sheets, notes);
   if (titles) return fail(titles);
   const linked = detectChainageLinks([plan.page, section.page], [sheets[plan.pageIndex], sheets[section.pageIndex]], h, true).some((l) => l.pageIndex === 1 && l.targetPage === 0);
-  notes.push(linked ? `Chainage ${cut.value} on the cross section links to the plan.` : `No run of chainages was found along the alignment on the plan, so chainage ${cut.value} is not linked yet.`);
+  notes.push(linked ? msg('Chainage {value} on the cross section links to the plan.', { value: String(cut.value) }) : msg('No run of chainages was found along the alignment on the plan, so chainage {value} is not linked yet.', { value: String(cut.value) }));
   return { marks: [], links: null, chainage: same(h, hints) ? null : h, notes, problem: null };
 }

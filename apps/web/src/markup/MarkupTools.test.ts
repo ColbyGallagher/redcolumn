@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { METERS_PER_UNIT, measureValue, pathLengthArcs, polygonAreaArcs } from '@nb/measure';
-import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
+import { DEFAULT_STAMPS, DEFAULT_STYLES, MARKUP_TYPES, MarkupStore, TYPE_INFO, boundsOf, rotatePoint, rotationCentre, type Markup, type MarkupType, type Point, type WordBox } from '@nb/markup';
 import type { TileViewer } from '../viewer/TileViewer';
 import { gridSpacingPoints, settings } from '../settings/settings';
 import { frameRect, groupFrame, groupHandles } from './groupBox';
@@ -2095,4 +2095,126 @@ test('Rotate by a typed grade: positive rises to the right, negative falls to th
       settings.set({ rotateAngle: '' });
     }
   }
+});
+
+test('addCalloutLeader turns a text box into a callout and undoes cleanly', async () => {
+  const h = await setup();
+  const tb = put(h, 'text', [[200, 100], [320, 140]], {
+    text: 'Check footing depth',
+    subject: 'Structural Note',
+    style: { ...DEFAULT_STYLES.text, fill: '#fef9c3', fontSize: 14 },
+  });
+
+  h.tools.addCalloutLeader(tb.id);
+  // Cancelling with right-click leaves the text box untouched.
+  press(h.tools, [120, 120], { button: 2 });
+  assert.equal(h.store.get(tb.id)!.type, 'text');
+  assert.deepEqual(h.store.get(tb.id)!.points, [[200, 100], [320, 140]]);
+
+  // Left-click places the arrow tip and converts the text box to a callout.
+  h.tools.addCalloutLeader(tb.id);
+  click(h.tools, [120, 120]);
+  const after = h.store.get(tb.id)!;
+  assert.equal(after.type, 'callout');
+  assert.equal(after.text, 'Check footing depth');
+  assert.equal(after.subject, 'Structural Note');
+  assert.equal(after.style.fill, '#fef9c3');
+  assert.equal(after.style.fontSize, 14);
+  assert.equal(after.points.length, 4);
+  assert.deepEqual(after.points[0], [120, 120]);
+  // Knee lands to the left of the text box at its vertical midpoint.
+  assert.ok(after.points[1]![0] < 200);
+  assert.equal(after.points[1]![1], 120);
+  assert.deepEqual(after.points.slice(2, 4), [[200, 100], [320, 140]]);
+  assert.deepEqual([...h.tools.getState().selected], [tb.id]);
+
+  // A second Add Leader appends another leader, and Remove Last Leader takes it back off.
+  h.tools.addCalloutLeader(tb.id);
+  click(h.tools, [380, 120]);
+  assert.equal(h.store.get(tb.id)!.points.length, 6);
+  assert.deepEqual(h.store.get(tb.id)!.points[4], [380, 120]);
+  h.tools.removeCalloutLeader(tb.id);
+  assert.equal(h.store.get(tb.id)!.points.length, 4);
+
+  // Undo steps back to the original text box.
+  h.store.undo(); // undo removeCalloutLeader
+  h.store.undo(); // undo second leader
+  h.store.undo(); // undo text -> callout conversion
+  const undone = h.store.get(tb.id)!;
+  assert.equal(undone.type, 'text');
+  assert.deepEqual(undone.points, [[200, 100], [320, 140]]);
+  assert.equal(undone.text, 'Check footing depth');
+
+  await h.store.destroy();
+});
+
+test('addCalloutLeader on a text box keeps its turn, updates default subject, and preserves borderless look', async () => {
+  const h = await setup();
+  const tb = put(h, 'text', [[320, 140], [200, 100]], {
+    text: 'Note',
+    subject: 'Text Box',
+    rotation: 30,
+    style: { ...DEFAULT_STYLES.text, width: 0, noBox: true },
+  });
+
+  h.tools.addCalloutLeader(tb.id);
+  click(h.tools, [120, 120]);
+  const after = h.store.get(tb.id)!;
+  assert.equal(after.type, 'callout');
+  // A callout turns like the text box did: its box keeps the turn and the tip lands where it was clicked.
+  assert.equal(after.rotation, 30);
+  const tip = rotatePoint(after.points[0]!, rotationCentre(after), 30);
+  assert.ok(Math.hypot(tip[0] - 120, tip[1] - 120) < 1e-6);
+  assert.equal(after.subject, 'Callout');
+  assert.equal(after.style.width, DEFAULT_STYLES.callout.width);
+  assert.equal(after.style.borderless, true);
+  // Box corners are normalized to top-left and bottom-right.
+  assert.deepEqual(after.points.slice(2, 4), [[200, 100], [320, 140]]);
+
+  // Locked text boxes do not accept a leader.
+  const locked = put(h, 'text', [[100, 200], [200, 240]], { locked: true, text: 'Locked' });
+  h.tools.addCalloutLeader(locked.id);
+  click(h.tools, [50, 220]);
+  assert.equal(h.store.get(locked.id)!.type, 'text');
+
+  await h.store.destroy();
+});
+
+test('turning a callout turns its text box; the tip stays put, and dragging the turned box leaves it there too', async () => {
+  const h = await setup();
+  const c = put(h, 'callout', [[40, 200], [180, 120], [200, 100], [300, 140]], { text: 'Note' });
+  const shown = (m: Markup, p: Point) => (m.rotation ? rotatePoint(p, rotationCentre(m), m.rotation) : p);
+  const near = (a: Point, b: Point) => Math.hypot(a[0] - b[0], a[1] - b[1]) < 1e-6;
+  h.tools.select([c.id]);
+  h.tools.setRotation(90);
+  let m = h.store.get(c.id)!;
+  assert.equal(m.rotation, 90);
+  assert.ok(near(shown(m, m.points[0]!), [40, 200]), 'the tip stays where it points');
+  assert.ok(near(rotationCentre(m), [250, 120]), 'the box turns about its middle');
+  // The turned box is 40 wide and 100 tall about (250, 120): grabbing it below its middle moves it alone.
+  drag(h.tools, [250, 160], [270, 170]);
+  m = h.store.get(c.id)!;
+  assert.ok(near(rotationCentre(m), [270, 130]), 'the box moved');
+  assert.ok(near(shown(m, m.points[0]!), [40, 200]), 'the tip did not');
+  await h.store.destroy();
+});
+
+test('two-click callout placement commits on pointerUp so TextEditor is not blurred by mousedown', async () => {
+  const edited: string[] = [];
+  const h = await setup({ onEditText: (id) => edited.push(id) });
+  h.tools.setTool('callout');
+  // First click places the arrow tip.
+  click(h.tools, [100, 200]);
+  assert.equal(h.store.all().length, 0);
+  // Second click: pointerDown arms placement without committing yet.
+  press(h.tools, [220, 150]);
+  assert.equal(h.store.all().length, 0);
+  assert.equal(edited.length, 0);
+  // pointerUp commits the callout and opens TextEditor.
+  release(h.tools, [220, 150]);
+  assert.equal(h.store.all().length, 1);
+  assert.equal(h.store.all()[0]!.type, 'callout');
+  assert.deepEqual(h.store.all()[0]!.points[0], [100, 200]);
+  assert.deepEqual(edited, [h.store.all()[0]!.id]);
+  await h.store.destroy();
 });

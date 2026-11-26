@@ -9,7 +9,10 @@
     "typecheck": "tsc -p .",
     "test": "node --test --experimental-strip-types \"src/*.test.ts\" \"scripts/*.test.ts\"",
     "extract": "node --experimental-strip-types scripts/extract.ts",
-    "check": "node --experimental-strip-types scripts/extract.ts --check"
+    "check:catalog": "node --experimental-strip-types scripts/extract.ts --check",
+    "check:literals": "node --experimental-strip-types scripts/no-literals.ts",
+    "check:css": "node --experimental-strip-types scripts/logical-css.ts",
+    "check": "pnpm run check:catalog && pnpm run check:literals && pnpm run check:css"
   },
   "devDependencies": {
     "@types/node": "^26.6.1",

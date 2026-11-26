@@ -1,3 +1,6 @@
+import { msg, msgParts } from '@nb/i18n';
+import { markupName } from '../i18n/names';
+import { keyed } from '../i18n/keyed';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { isAiDraft, isMeasureKind, measureKindOf, isTextType, labelPatch, markupLabel, MARKUP_LABELS, measureProps, threadReplies, withoutReply, type Assembly, type ColumnSet, type CustomColumn, type Markup, type MarkupStore, type Reply } from '@nb/markup';
 import { DEFAULT_SCALE, formatMeasure, measureValue, type MeasureKind, type Scale } from '@nb/measure';
@@ -122,7 +125,7 @@ function CommentCell({ value, disabled, wrap, onSave }: { value: string; disable
       rows={1}
       defaultValue={value}
       disabled={disabled}
-      placeholder="Add comment"
+      placeholder={msg('Add comment')}
       onClick={(e) => e.stopPropagation()}
       onFocus={fit}
       onInput={fit}
@@ -426,24 +429,24 @@ export const MarkupList = memo(function MarkupList(props: Props) {
 
   /** The Status column's options: all changes or the latest, with or without who and when. */
   const statusMenu = (): MenuEntry[] => [
-    { label: 'Show Status History', checked: settings.statusHistory !== 'latest', keepOpen: true, onClick: () => editList((l) => ({ ...l, statusHistory: 'all' })) },
-    { label: 'Show Latest Status Only', checked: settings.statusHistory === 'latest', keepOpen: true, onClick: () => editList((l) => ({ ...l, statusHistory: 'latest' })) },
+    { label: msg('Show Status History'), checked: settings.statusHistory !== 'latest', keepOpen: true, onClick: () => editList((l) => ({ ...l, statusHistory: 'all' })) },
+    { label: msg('Show Latest Status Only'), checked: settings.statusHistory === 'latest', keepOpen: true, onClick: () => editList((l) => ({ ...l, statusHistory: 'latest' })) },
     { sep: true },
-    { label: 'Show Who Changed It and When', checked: settings.statusDetails !== false, keepOpen: true, onClick: () => editList((l) => ({ ...l, statusDetails: l.statusDetails === false })) },
+    { label: msg('Show Who Changed It and When'), checked: settings.statusDetails !== false, keepOpen: true, onClick: () => editList((l) => ({ ...l, statusDetails: l.statusDetails === false })) },
   ];
 
   const headerItems = (col: ListColumn): MenuEntry[] => [
-    { label: 'Sort Ascending', checked: settings.sort?.key === col.key && settings.sort.dir === 'asc', onClick: () => sortBy(col.key, 'asc') },
-    { label: 'Sort Descending', checked: settings.sort?.key === col.key && settings.sort.dir === 'desc', onClick: () => sortBy(col.key, 'desc') },
-    { label: 'Clear Sort', disabled: !settings.sort, onClick: () => sortBy(col.key, null) },
+    { label: msg('Sort Ascending'), checked: settings.sort?.key === col.key && settings.sort.dir === 'asc', onClick: () => sortBy(col.key, 'asc') },
+    { label: msg('Sort Descending'), checked: settings.sort?.key === col.key && settings.sort.dir === 'desc', onClick: () => sortBy(col.key, 'desc') },
+    { label: msg('Clear Sort'), disabled: !settings.sort, onClick: () => sortBy(col.key, null) },
     { sep: true },
-    { label: `Hide "${col.label}"`, disabled: visible.length <= 1, onClick: () => setHidden(col.key, true) },
-    { label: 'Columns', items: columnsMenu() },
-    { label: 'Reset Column Layout', onClick: () => editList((l) => ({ ...l, columns: [] })) },
-    { label: 'Wrap Comments', checked: settings.wrapComments !== false, onClick: () => editList((l) => ({ ...l, wrapComments: l.wrapComments === false })) },
+    { label: msg('Hide "{label}"', { label: col.label }), disabled: visible.length <= 1, onClick: () => setHidden(col.key, true) },
+    { label: msg('Columns'), items: columnsMenu() },
+    { label: msg('Reset Column Layout'), onClick: () => editList((l) => ({ ...l, columns: [] })) },
+    { label: msg('Wrap Comments'), checked: settings.wrapComments !== false, onClick: () => editList((l) => ({ ...l, wrapComments: l.wrapComments === false })) },
     ...(col.key === 'status' ? [{ sep: true } as MenuEntry, ...statusMenu()] : []),
     { sep: true },
-    { label: 'Manage Custom Columns…', onClick: onManageColumns },
+    { label: msg('Manage Custom Columns…'), onClick: onManageColumns },
   ];
   // An open menu is rebuilt from this render's state, so its ticks follow clicks while it stays open.
   const menus = useRef({ headerItems, columnsMenu, statusMenu });
@@ -454,7 +457,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   };
 
   const saveFilter = async () => {
-    const name = await askText('Save Filter', activeSaved?.name ?? '', { label: 'Saved filters are kept in your profile and listed in the filter menu.', confirm: 'Save' });
+    const name = await askText(msg('Save Filter'), activeSaved?.name ?? '', { label: msg('Saved filters are kept in your profile and listed in the filter menu.'), confirm: msg('Save') });
     if (!name?.trim()) return;
     editList((l) => {
       const existing = l.savedFilters.find((f) => f.name.toLowerCase() === name.trim().toLowerCase());
@@ -571,7 +574,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       const hasKids = replies.some((r) => r.parentId === activeReply.replyId);
       e.preventDefault();
       e.stopPropagation();
-      if (prefs.confirmDelete && !confirm(hasKids ? 'Delete this reply and the replies under it?' : 'Delete this reply?')) return;
+      if (prefs.confirmDelete && !confirm(hasKids ? msg('Delete this reply and the replies under it?') : msg('Delete this reply?'))) return;
       store?.update(m.id, { replies: withoutReply(replies, activeReply.replyId) });
       setActiveReply(null);
     };
@@ -610,7 +613,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           className="bare"
           defaultValue={markupLabel(m)}
           disabled={fixed}
-          title="Label"
+          title={msg('Label')}
           onClick={stop}
           onBlur={(e) => {
             const v = e.target.value.trim();
@@ -624,7 +627,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     }
     if (col.key === 'checked') {
       // Like the status, a review mark anyone who can markup may set.
-      return <input type="checkbox" checked={!!m.checked} disabled={readOnly} onClick={stop} title="Checkmark" onChange={(e) => patchAll(m, { checked: e.target.checked || undefined })} />;
+      return <input type="checkbox" checked={!!m.checked} disabled={readOnly} onClick={stop} title={msg('Checkmark')} onChange={(e) => patchAll(m, { checked: e.target.checked || undefined })} />;
     }
     if (col.key === 'comment') {
       return (
@@ -644,12 +647,12 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       return (
         <span className="subject-cell">
           {hasReplies && (
-            <button type="button" className="thread-fold" title={closed.has(threadKey) ? 'Show replies' : 'Hide replies'} onMouseDown={stop} onClick={() => toggleClosed(threadKey)}>
+            <button type="button" className="thread-fold" title={closed.has(threadKey) ? msg('Show replies') : msg('Hide replies')} onMouseDown={stop} onClick={() => toggleClosed(threadKey)}>
               {closed.has(threadKey) ? '▸' : '▾'}
             </button>
           )}
           {settings.typeIcons !== false ? (
-            <span className="type-icon" style={{ color: m.style.stroke }} title={MARKUP_LABELS[m.type]} aria-hidden="true">
+            <span className="type-icon" style={{ color: m.style.stroke }} title={markupName(m.type)} aria-hidden="true">
               {markupTypeIcon(m.type)}
             </span>
           ) : (
@@ -660,7 +663,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
             className="bare"
             defaultValue={m.subject || MARKUP_LABELS[m.type]}
             disabled={fixed}
-            title="Subject"
+            title={msg('Subject')}
             onClick={stop}
             onBlur={(e) => {
               const v = e.target.value.trim();
@@ -686,7 +689,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       case 'choice':
         return (
           <select className={cls} value={raw} disabled={fixed} onClick={stop} onChange={(e) => commit(e.target.value)}>
-            <option value="">{c.required ? '— required —' : '—'}</option>
+            <option value="">{c.required ? msg('— required —') : '—'}</option>
             {(c.options ?? []).map((o) => (
               <option key={o} value={o}>
                 {o}
@@ -705,7 +708,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
             rows={1}
             defaultValue={raw}
             disabled={fixed}
-            placeholder={c.required ? 'Required' : ''}
+            placeholder={c.required ? msg('Required') : ''}
             onClick={stop}
             onBlur={(e) => commit(e.target.value)}
           />
@@ -719,7 +722,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
             step="any"
             defaultValue={raw}
             disabled={fixed}
-            placeholder={c.required ? 'Required' : ''}
+            placeholder={c.required ? msg('Required') : ''}
             onClick={stop}
             onBlur={(e) => commit(e.target.value)}
             onKeyDown={(e) => {
@@ -745,14 +748,14 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     if (choices) {
       return (
         <select value={value} onChange={(e) => setFilter(col.key, e.target.value)} className={value ? 'on' : ''}>
-          <option value="">All</option>
+          <option value="">{msg('All')}</option>
           {choices.map((o) => (
             <option key={o} value={`=${o}`}>
               {o}
             </option>
           ))}
-          <option value="(blank)">(blank)</option>
-          <option value="(not blank)">(not blank)</option>
+          <option value="(blank)">{msg('(blank)')}</option>
+          <option value="(not blank)">{msg('(not blank)')}</option>
           {value && !['(blank)', '(not blank)'].includes(value) && !choices.some((o) => `=${o}` === value) && <option value={value}>{value}</option>}
         </select>
       );
@@ -761,8 +764,8 @@ export const MarkupList = memo(function MarkupList(props: Props) {
       <input
         className={value ? 'on' : ''}
         value={value}
-        placeholder={col.align === 'right' ? '>10, <5, =3' : 'Filter'}
-        title="Type text to match. !text excludes, =text is exact, >10 or <=5 compare numbers, (blank) finds empty cells."
+        placeholder={col.align === 'right' ? '>10, <5, =3' : msg('Filter')}
+        title={msg('Type text to match. !text excludes, =text is exact, >10 or <=5 compare numbers, (blank) finds empty cells.')}
         onChange={(e) => setFilter(col.key, e.target.value)}
       />
     );
@@ -772,14 +775,14 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     <div className="markups">
       <div className="markups-bar">
         <span className="markups-title">
-          Markups <span className="count">{filtering ? `${rows.length} of ${markups.length}` : markups.length}</span>
+          {keyed(msgParts('Markups {span}', { span: <span className="count">{filtering ? msg('{shown} of {total}', { shown: rows.length, total: markups.length }) : markups.length}</span> }))}
         </span>
         <input
           type="search"
           className="markups-search"
-          placeholder="Search markups"
-          aria-label="Search markups"
-          title="Finds markups by any of their content: subject, comments, text, replies, statuses, authors and column values"
+          placeholder={msg('Search markups')}
+          aria-label={msg('Search markups')}
+          title={msg('Finds markups by any of their content: subject, comments, text, replies, statuses, authors and column values')}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -787,39 +790,39 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           }}
         />
         {onToggleAllHidden && (
-          <button className={`btn small flat hide-all${allHidden ? ' active' : ''}`} onClick={onToggleAllHidden} title={allHidden ? 'Show the markups on the page again' : 'Hide every markup on the page (they stay in this list)'}>
-            {MENU_ICONS.hide} {allHidden ? 'Show All' : 'Hide All'}
+          <button className={`btn small flat hide-all${allHidden ? ' active' : ''}`} onClick={onToggleAllHidden} title={allHidden ? msg('Show the markups on the page again') : msg('Hide every markup on the page (they stay in this list)')}>
+            {MENU_ICONS.hide} {allHidden ? msg('Show All') : msg('Hide All')}
           </button>
         )}
         {missingCount > 0 && (
           <button
             className="badge-warn"
-            title="Markups missing a value in a required column. Click to show them."
+            title={msg('Markups missing a value in a required column. Click to show them.')}
             onClick={() => {
               const req = columnSet.columns.find((c) => c.required && c.type !== 'formula');
               if (req) editList((l) => ({ ...l, showFilterRow: true, filters: { [`custom:${req.id}`]: '(blank)' } }));
             }}
           >
-            ⚠ {missingCount} missing required
+            {msg('⚠ {missingCount} missing required', { missingCount })}
           </button>
         )}
         <span className="grow" />
-        <button className={`btn small flat${settings.showFilterRow ? ' active' : ''}`} onClick={() => editList((l) => ({ ...l, showFilterRow: !l.showFilterRow }))} title="Show the filter row">
-          ⏷ Filter{filtering ? ' •' : ''}
+        <button className={`btn small flat${settings.showFilterRow ? ' active' : ''}`} onClick={() => editList((l) => ({ ...l, showFilterRow: !l.showFilterRow }))} title={msg('Show the filter row')}>
+          {filtering ? msg('⏷ Filter •') : msg('⏷ Filter')}
         </button>
         <select
           className="saved-filters"
           value={activeSaved?.id ?? (filtering ? 'custom' : '')}
-          title="Saved filters"
+          title={msg('Saved filters')}
           onChange={(e) => {
             const f = settings.savedFilters.find((x) => x.id === e.target.value);
             editList((l) => ({ ...l, filters: f ? { ...f.filters } : {}, showFilterRow: f ? true : l.showFilterRow }));
           }}
         >
-          <option value="">All markups</option>
+          <option value="">{msg('All markups')}</option>
           {filtering && !activeSaved && (
             <option value="custom" disabled>
-              Custom filter
+              {msg('Custom filter')}
             </option>
           )}
           {settings.savedFilters.map((f) => (
@@ -828,69 +831,56 @@ export const MarkupList = memo(function MarkupList(props: Props) {
             </option>
           ))}
         </select>
-        <button className="btn small flat" disabled={!filtering} onClick={() => void saveFilter()} title="Save the current filter by name">
-          Save filter
+        <button className="btn small flat" disabled={!filtering} onClick={() => void saveFilter()} title={msg('Save the current filter by name')}>
+          {msg('Save filter')}
         </button>
         {activeSaved && (
           <button
             className="btn small flat"
-            title={`Delete the saved filter "${activeSaved.name}"`}
+            title={msg('Delete the saved filter "{name}"', { name: activeSaved.name })}
             onClick={() => editList((l) => ({ ...l, savedFilters: l.savedFilters.filter((f) => f.id !== activeSaved.id) }))}
           >
-            Delete filter
+            {msg('Delete filter')}
           </button>
         )}
-        <button className={`btn small flat${advancedOn ? ' active' : ''}`} onClick={() => setBuilderOpen(true)} title="Conditions on any columns, matching all or any of them">
-          Filter Builder{advancedOn ? ` (${advanced!.rules.length})` : ''}…
+        <button className={`btn small flat${advancedOn ? ' active' : ''}`} onClick={() => setBuilderOpen(true)} title={msg('Conditions on any columns, matching all or any of them')}>
+          {advancedOn ? msg('Filter Builder ({count})…', { count: advanced!.rules.length }) : msg('Filter Builder…')}
         </button>
-        <button className="btn small flat" disabled={!filtering} onClick={() => editList((l) => ({ ...l, filters: {}, advanced: null }))} title="Show all markups">
-          Clear
+        <button className="btn small flat" disabled={!filtering} onClick={() => editList((l) => ({ ...l, filters: {}, advanced: null }))} title={msg('Show all markups')}>
+          {msg('Clear')}
         </button>
-        <label className="group-by" title="How the page shows markups the filter leaves out">
-          On page
-          <select value={prefs.filteredMarkups} onChange={(e) => settingsStore.set({ filteredMarkups: e.target.value as 'show' | 'dim' | 'hide' })}>
-            <option value="show">Show all</option>
-            <option value="dim">Dim filtered out</option>
-            <option value="hide">Hide filtered out</option>
-          </select>
+        <label className="group-by" title={msg('How the page shows markups the filter leaves out')}>
+          {keyed(msgParts('On page{select}', { select: <select value={prefs.filteredMarkups} onChange={(e) => settingsStore.set({ filteredMarkups: e.target.value as 'show' | 'dim' | 'hide' })}> <option value="show">{msg('Show all')}</option> <option value="dim">{msg('Dim filtered out')}</option> <option value="hide">{msg('Hide filtered out')}</option> </select> }))}
         </label>
-        <label className="group-by" title="Group the list by a column">
-          Group
-          <select value={groupBy ?? ''} onChange={(e) => editList((l) => ({ ...l, groupBy: e.target.value || null }))}>
-            <option value="">None</option>
-            {all.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label}
-              </option>
-            ))}
-          </select>
+        <label className="group-by" title={msg('Group the list by a column')}>
+          {keyed(msgParts('Group{select}', { select: <select value={groupBy ?? ''} onChange={(e) => editList((l) => ({ ...l, groupBy: e.target.value || null }))}> <option value="">{msg('None')}</option> {all.map((c) => ( <option key={c.key} value={c.key}> {c.label} </option> ))} </select> }))}
         </label>
         <span className="sep" />
-        <button className="btn small flat" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, items: () => [...menus.current.columnsMenu(), { sep: true }, { label: 'Reset Column Layout', onClick: () => editList((l) => ({ ...l, columns: [] })) }] })} title="Show or hide columns">
-          Columns ▾
+        <button className="btn small flat" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, items: () => [...menus.current.columnsMenu(), { sep: true }, { label: msg('Reset Column Layout'), onClick: () => editList((l) => ({ ...l, columns: [] })) }] })} title={msg('Show or hide columns')}>
+          {msg('Columns ▾')}
         </button>
-        <button className="btn small flat" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, items: () => menus.current.statusMenu() })} title="Show every status change or only the latest, and who made it when">
-          Status ▾
+        <button className="btn small flat" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, items: () => menus.current.statusMenu() })} title={msg('Show every status change or only the latest, and who made it when')}>
+          {msg('Status ▾')}
         </button>
-        <button className="btn small flat" onClick={onManageColumns} title="Add custom columns and statuses">
-          Manage Columns…
+        <button className="btn small flat" onClick={onManageColumns} title={msg('Add custom columns and statuses')}>
+          {msg('Manage Columns…')}
         </button>
-        <button className="btn small" onClick={() => onExport(rows, visible)} title="Markup Summary…">
-          Export…
+        <button className="btn small" onClick={() => onExport(rows, visible)} title={msg('Markup Summary…')}>
+          {msg('Export…')}
         </button>
         {onSync && (
           <button
             className={`btn small${syncing && syncError ? ' sync-failed' : ''}`}
             disabled={!markups.length && !syncing}
             onClick={onSync}
-            title={syncing && syncError ? `Excel sync stopped: ${syncError} Click to see why.` : 'Keep this list in an Excel workbook, updated as markups change'}
+            title={syncing && syncError ? msg('Excel sync stopped: {syncError} Click to see why.', { syncError }) : msg('Keep this list in an Excel workbook, updated as markups change')}
           >
-            {!syncing ? 'Sync to Excel…' : syncError ? 'Sync to Excel ⚠' : 'Sync to Excel ✓'}
+            {!syncing ? msg('Sync to Excel…') : syncError ? msg('Sync to Excel ⚠') : msg('Sync to Excel ✓')}
           </button>
         )}
       </div>
       {markups.length === 0 ? (
-        <p className="empty">Markups and measurements you draw appear here.</p>
+        <p className="empty">{msg('Markups and measurements you draw appear here.')}</p>
       ) : (
         <div className="markups-scroll" ref={scroller} onScroll={windowed ? () => track.current() : undefined}>
           <table className={wrap ? 'wrapped' : undefined} style={{ width: visible.reduce((s, c) => s + c.width, 0), ...(rowH && !wrap ? { '--list-row-h': `${rowH}px` } : {}) }}>
@@ -910,7 +900,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                       className={`${c.align === 'right' ? 'num' : ''}${dragKey === c.key ? ' dragging' : ''}${drop}`}
                       draggable
                       aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'}
-                      title={`${c.label}${c.custom?.required ? ' (required)' : ''} — click to sort, drag to reorder, right-click for options`}
+                      title={c.custom?.required ? msg('{label} (required) — click to sort, drag to reorder, right-click for options', { label: c.label }) : msg('{label} — click to sort, drag to reorder, right-click for options', { label: c.label })}
                       onClick={() => {
                         if (!resizing.current) sortBy(c.key);
                       }}
@@ -987,13 +977,13 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                   const foldKey = `g:${line.groupId}`;
                   const cells = line.rows[0]!.cells;
                   const types = new Set(line.rows.map((r) => r.markup.type));
-                  const name = types.size === 1 ? first.subject || MARKUP_LABELS[first.type] : 'Group';
+                  const name = types.size === 1 ? first.subject || MARKUP_LABELS[first.type] : msg('Group');
                   return (
                     <tr
                       key={`cluster:${line.groupId}`}
                       data-key={`cluster:${line.groupId}`}
                       className={`cluster-row${ids.every((id) => selected.has(id)) ? ' selected' : ''}`}
-                      title="Group: click to select it whole; click a member to edit just that one"
+                      title={msg('Group: click to select it whole; click a member to edit just that one')}
                       onMouseDown={(e) => {
                         if (e.button !== 0 || (e.target as HTMLElement).closest('button')) return;
                         e.preventDefault();
@@ -1011,10 +1001,10 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                           return (
                             <td key={c.key}>
                               <span className="subject-cell">
-                                <button type="button" className="thread-fold" title={closed.has(foldKey) ? 'Show group members' : 'Hide group members'} onMouseDown={(e) => e.stopPropagation()} onClick={() => toggleClosed(foldKey)}>
+                                <button type="button" className="thread-fold" title={closed.has(foldKey) ? msg('Show group members') : msg('Hide group members')} onMouseDown={(e) => e.stopPropagation()} onClick={() => toggleClosed(foldKey)}>
                                   {closed.has(foldKey) ? '▸' : '▾'}
                                 </button>
-                                <span className="type-icon" title="Group" aria-hidden="true">
+                                <span className="type-icon" title={msg('Group')} aria-hidden="true">
                                   <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.2">
                                     <rect x="1.5" y="1.5" width="13" height="13" strokeDasharray="2 1.6" />
                                     <rect x="4" y="4" width="5" height="5" />
@@ -1043,7 +1033,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                       key={`${m.id}:${r.id}`}
                       data-key={`${m.id}:${r.id}`}
                       className={`reply-row${current ? ' selected' : ''}`}
-                      title={`Reply by ${r.author}`}
+                      title={msg('Reply by {author}', { author: r.author })}
                       onMouseDown={(e) => {
                         if (e.button !== 0) return;
                         if ((e.target as HTMLElement).closest('input, textarea, select, button, a, label')) return;
@@ -1059,9 +1049,9 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                           x: e.clientX,
                           y: e.clientY,
                           items: () => [
-                            { label: 'Reply', icon: MENU_ICONS.reply, disabled: readOnly, onClick: () => onReply(m, r.id) },
+                            { label: msg('Reply'), icon: MENU_ICONS.reply, disabled: readOnly, onClick: () => onReply(m, r.id) },
                             {
-                              label: 'Delete',
+                              label: msg('Delete'),
                               icon: MENU_ICONS.delete,
                               disabled: readOnly,
                               onClick: () => {
@@ -1079,7 +1069,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                           c.key === treeKey ? (
                             <span className="thread-lead" style={{ width: depth * 14 }}>
                               {children ? (
-                                <button type="button" className="thread-fold" title={closed.has(threadKey) ? 'Show replies' : 'Hide replies'} onMouseDown={(e) => e.stopPropagation()} onClick={() => toggleClosed(threadKey)}>
+                                <button type="button" className="thread-fold" title={closed.has(threadKey) ? msg('Show replies') : msg('Hide replies')} onMouseDown={(e) => e.stopPropagation()} onClick={() => toggleClosed(threadKey)}>
                                   {closed.has(threadKey) ? '▸' : '▾'}
                                 </button>
                               ) : null}
@@ -1097,11 +1087,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                           return (
                             <td key={c.key}>
                               <span className="subject-cell">
-                                {lead}
-                                <span className="type-icon" title="Reply" aria-hidden="true">
-                                  {MENU_ICONS.reply}
-                                </span>
-                                Reply
+                                {keyed(msgParts('{lead}{span}Reply', { lead, span: <span className="type-icon" title={msg('Reply')} aria-hidden="true"> {MENU_ICONS.reply} </span> }))}
                               </span>
                             </td>
                           );
@@ -1124,7 +1110,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                     data-id={m.id}
                     data-key={m.id}
                     className={`${selected.has(m.id) ? 'selected' : ''}${line.nested ? ' nested-row' : ''}${missing.size ? ' has-missing' : ''}${m.hidden ? ' hidden-markup' : ''}${m.ai?.status === 'pending' ? ' ai-draft' : ''}`}
-                    title={m.hidden ? 'Hidden on the page (right-click › Show)' : m.ai?.status === 'pending' ? `AI draft from ${m.ai.source}: left out of quantities until approved (Takeoff › Review AI Takeoff)` : undefined}
+                    title={m.hidden ? msg('Hidden on the page (right-click › Show)') : m.ai?.status === 'pending' ? msg('AI draft from {source}: left out of quantities until approved (Takeoff › Review AI Takeoff)', { source: m.ai.source }) : undefined}
                     onMouseDown={(e) => onRowPointer(m.id, e, !!line.nested)}
                     onContextMenu={(e) => {
                       e.preventDefault();
@@ -1137,7 +1123,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                       const edit = editor(m, c, isMissing);
                       return (
                         <td key={c.key} className={`${c.align === 'right' ? 'num' : ''}${isMissing ? ' missing' : ''}${edit ? ' edit' : ''}`} title={cell?.error ?? (edit ? undefined : cell?.text)}>
-                          {edit ?? (cell?.error ? <span className="cell-error">⚠ {cell.error}</span> : c.key === 'color' ? <span className="swatch" style={{ background: cell?.text }} /> : c.key === 'capture' && m.capture ? <img className="capture-thumb" src={m.capture} alt="Capture" /> : cell?.text)}
+                          {edit ?? (cell?.error ? <span className="cell-error">⚠ {cell.error}</span> : c.key === 'color' ? <span className="swatch" style={{ background: cell?.text }} /> : c.key === 'capture' && m.capture ? <img className="capture-thumb" src={m.capture} alt={msg('Capture')} /> : cell?.text)}
                         </td>
                       );
                     })}
@@ -1151,7 +1137,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
               )}
               {rows.length === 0 && (
                 <tr className="no-match">
-                  <td colSpan={visible.length}>{q && filteredRows.length ? `No markups contain “${query.trim()}”.` : 'No markups match the filter.'}</td>
+                  <td colSpan={visible.length}>{q && filteredRows.length ? msg('No markups contain “{query}”.', { query: query.trim() }) : msg('No markups match the filter.')}</td>
                 </tr>
               )}
             </tbody>
@@ -1160,7 +1146,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
                 <tr>
                   {visible.map((c, i) => (
                     <td key={c.key} className={c.align === 'right' ? 'num' : ''}>
-                      {sums.includes(c) ? sumOf(c.key, (c.custom as CustomColumn).decimals) : i === 0 ? 'Total' : ''}
+                      {sums.includes(c) ? sumOf(c.key, (c.custom as CustomColumn).decimals) : i === 0 ? msg('Total') : ''}
                     </td>
                   ))}
                 </tr>
@@ -1173,7 +1159,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
         <div className="markups-totals">
           {[...totals].map(([kind, t]) => (
             <span key={kind}>
-              {MARKUP_LABELS[kind]} ×{t.n}: <b>{formatMeasure(kind, t.value, t.scale)}</b>
+              {keyed(msgParts('{kind} ×{count}: {measure}', { kind: markupName(kind), count: t.n, measure: <b>{formatMeasure(kind, t.value, t.scale)}</b> }))}
             </span>
           ))}
         </div>
@@ -1209,7 +1195,8 @@ function StatusHistory({ markup: m, all, details }: { markup: Markup; all: boole
           {details ? (
             <>
               {all || shown.length > 1 ? <b>{c.state}</b> : null}
-              {all || shown.length > 1 ? ' ' : ''}set by {c.author || 'unknown'} on {whenSet(c.at)}
+              {all || shown.length > 1 ? ' ' : ''}
+              {msg('set by {author} on {date}', { author: c.author || msg('unknown'), date: whenSet(c.at) })}
             </>
           ) : (
             c.state

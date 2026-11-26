@@ -51,9 +51,7 @@ test.describe('menus in the accented pseudo-locale', () => {
       for (const field of await flyout.locator('.menu-field').allInnerTexts()) expect(field.trim(), field).toMatch(/^\[\[[^[]*\]\]$/);
     }
     expect(checked).toBeGreaterThan(150);
-    // Still English: tool names (Lasso, Snapshot, Hyperlink, File Attachment; the tool-labels PR) and the
-    // Bulk menu's processes (BATCH_LABELS; the dialogs PR). Lower this as those land.
-    expect(untranslated.length, untranslated.join('\n')).toBeLessThanOrEqual(21);
+    expect(untranslated, untranslated.join('\n')).toEqual([]);
     expect(app.errors).toEqual([]);
   });
 });
@@ -83,10 +81,7 @@ test.describe('ribbon in the accented pseudo-locale', () => {
     }
     expect(groups).toBeGreaterThan(40);
     expect(buttons).toBeGreaterThan(150);
-    // Still English: markup, measure, CAD and flowchart tool names (the tool-labels PR) and the Bulk
-    // tab's processes (BATCH_LABELS; the dialogs PR). Lower this as those land.
-    expect(untranslated.filter((u) => u.includes(' › group ')), untranslated.join('\n')).toEqual([]);
-    expect(untranslated.length, untranslated.join('\n')).toBeLessThanOrEqual(103);
+    expect(untranslated, untranslated.join('\n')).toEqual([]);
 
     await ribbon.getByRole('tab').first().click();
     await expect(app.page.locator('.ribbon [data-ribbon-command="edit.formatPainter"]')).toHaveCount(0);
@@ -107,10 +102,11 @@ test.describe('restarting with unsaved changes', () => {
     await app.page.getByRole('combobox', { name: /^\[\[Ļåñĝûåĝé ~+\]\]$/ }).selectOption('en');
     await app.page.getByRole('button', { name: /^\[\[Ŕéšţåŕţ Ñöŵ ~+\]\]$/ }).click();
 
-    // The save prompt's own text is not translated yet, so it is found by its role alone.
+    // The save prompt is translated too; the file name inside it is not.
     const prompt = app.page.getByRole('dialog').filter({ hasText: 'plan.pdf' });
     await expect(prompt).toBeVisible();
-    await prompt.getByRole('button', { name: /Cancel/ }).click();
+    await expect(prompt.getByRole('heading')).toHaveText(/^\[\[.*\]\]$/);
+    await prompt.getByRole('button', { name: /^\[\[Çåñçéļ ~+\]\]$/ }).click();
     await expect(prompt).toBeHidden();
     // Still running, still in the pseudo-locale, markup kept; the new choice is saved for next time.
     expect(await app.raw()).toHaveLength(1);
@@ -125,6 +121,48 @@ test.describe('right-to-left pseudo-locale', () => {
   test('sets the page direction and starts without errors', async ({ app }) => {
     expect(await app.page.evaluate(() => [document.documentElement.lang, document.documentElement.dir])).toEqual(['ar', 'rtl']);
     await expect(app.page.locator('.menubar')).toBeVisible();
+    expect(app.errors).toEqual([]);
+  });
+});
+
+test.describe('German', () => {
+  test.use({ toolbar: 'ribbon', settings: { ...IMPERIAL, uiLanguage: 'de' } });
+
+  test('menus, ribbon and preferences are in German, marked as a preview', async ({ app }) => {
+    expect(await app.page.evaluate(() => document.documentElement.lang)).toBe('de');
+    await app.open('plan.pdf');
+    await app.page.locator('.menubar .brand-mark').click();
+    const titles = (await app.page.locator('.brand-drop > .menu-sub > .menu-item .label').allInnerTexts()).map((t) => t.trim());
+    expect(titles).toEqual(expect.arrayContaining(['Datei', 'Bearbeiten', 'Ansicht', 'Werkzeuge', 'Fenster', 'Hilfe']));
+    await app.page.keyboard.press('Escape');
+    const tabs = await app.page.locator('.ribbon, .rb-tabs').getByRole('tab').allTextContents();
+    expect(tabs).toEqual(expect.arrayContaining(['Start', 'Mengenermittlung', 'Dokument']));
+
+    await app.cmd('file.preferences');
+    const language = app.page.getByRole('combobox', { name: 'Sprache', exact: true });
+    await expect(language).toHaveValue('de');
+    await expect(language.locator('option[value="de"]')).toHaveText('Deutsch (German) · Vorschau: maschinell übersetzt');
+    expect(app.errors).toEqual([]);
+  });
+});
+
+test.describe('French', () => {
+  test.use({ toolbar: 'ribbon', settings: { ...IMPERIAL, uiLanguage: 'fr' } });
+
+  test('menus, ribbon and preferences are in French, marked as a preview', async ({ app }) => {
+    expect(await app.page.evaluate(() => document.documentElement.lang)).toBe('fr');
+    await app.open('plan.pdf');
+    await app.page.locator('.menubar .brand-mark').click();
+    const titles = (await app.page.locator('.brand-drop > .menu-sub > .menu-item .label').allInnerTexts()).map((t) => t.trim());
+    expect(titles).toEqual(expect.arrayContaining(['Fichier', 'Édition', 'Affichage', 'Outils', 'Fenêtre', 'Aide']));
+    await app.page.keyboard.press('Escape');
+    const tabs = await app.page.locator('.ribbon, .rb-tabs').getByRole('tab').allTextContents();
+    expect(tabs).toEqual(expect.arrayContaining(['Accueil', 'Métré', 'Document']));
+
+    await app.cmd('file.preferences');
+    const language = app.page.getByRole('combobox', { name: 'Langue', exact: true });
+    await expect(language).toHaveValue('fr');
+    await expect(language.locator('option[value="fr"]')).toHaveText('Français (French) · Aperçu : traduit automatiquement');
     expect(app.errors).toEqual([]);
   });
 });

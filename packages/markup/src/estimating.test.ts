@@ -40,6 +40,8 @@ test('sanitize keeps items, lists and templates and drops what is not one', () =
   assert.deepEqual(items[0], board);
   assert.deepEqual(items[1], { id: items[1]!.id, name: 'Labour', category: 'material', unit: 'hr' });
   assert.notEqual(items[2]!.id, 'i1');
+  assert.equal(sanitizeItems([{ ...board, roundEach: true }])[0]!.roundEach, true);
+  assert.equal('roundEach' in sanitizeItems([{ ...board, roundUp: false, roundEach: true }])[0]!, false);
   const lists = sanitizeProductLists([supplier, { name: 'X', columns: [{ key: 'a', type: 'number' }, { key: 'a' }], records: [{ values: { a: '$1,200' } }, 'z'] }]);
   assert.deepEqual(lists[0], supplier);
   assert.deepEqual(lists[1]!.columns, [{ key: 'a', label: 'a', type: 'number' }]);
@@ -74,6 +76,11 @@ test('an assembly item takes its linked item as defaults, and its own fields win
   // Through the product list.
   const linked = { ...board, listRef: { listId: 'l1', recordId: 'r1' } };
   assert.equal(resolveAssemblyItem(ai, [linked], [supplier]).unitCost, 11.5);
+  // Rounding each measurement comes with the item's rounding, and goes when the assembly item sets its own.
+  const each = { ...board, roundEach: true };
+  assert.equal(resolveAssemblyItem(ai, [each], []).roundEach, true);
+  assert.equal('roundEach' in resolveAssemblyItem({ ...ai, roundUp: true }, [each], []), false);
+  assert.equal('roundEach' in resolveAssemblyItem({ ...ai, roundUp: false }, [each], []), false);
   // Nothing linked: the same array back.
   const plain: Assembly[] = [{ id: 'a', name: 'A', variables: [], items: [{ id: 'y', name: 'Y', unit: 'ea', formula: '1' }] }];
   assert.equal(resolveAssemblies(plain, [board], []), plain);

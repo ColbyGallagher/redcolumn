@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 /** What a preview shows: the page point at its centre, and CSS pixels per page point. */
@@ -208,39 +209,39 @@ function PreviewWindow({ win, render, onChange, onOpen, onBack, onClose, revisio
   };
 
   return (
-    <div className={`link-preview${win.pinned ? ' pinned' : ''}`} data-preview={win.id} role="dialog" aria-label={`Preview of ${win.title}`} style={{ left: live.x, top: live.y, width: live.w, height: live.h }}>
+    <div className={`link-preview${win.pinned ? ' pinned' : ''}`} data-preview={win.id} role="dialog" aria-label={msg('Preview of {title}', { title: win.title })} style={{ left: live.x, top: live.y, width: live.w, height: live.h }}>
       <div className="link-preview-head" onPointerDown={start('move')} onPointerMove={onMove} onPointerUp={onUp}>
         <span className="link-preview-title" title={win.title}>
           {win.title}
         </span>
-        <button type="button" className={`link-preview-btn${win.pinned ? ' on' : ''}`} aria-pressed={win.pinned} title={win.pinned ? 'Unpin: the next link replaces this preview' : 'Pin: keep this preview when another link is clicked'} onClick={() => onChange({ ...live, pinned: !win.pinned })}>
+        <button type="button" className={`link-preview-btn${win.pinned ? ' on' : ''}`} aria-pressed={win.pinned} title={win.pinned ? msg('Unpin: the next link replaces this preview') : msg('Pin: keep this preview when another link is clicked')} onClick={() => onChange({ ...live, pinned: !win.pinned })}>
           📌
         </button>
-        <button type="button" className="link-preview-btn" title="Zoom out" aria-label="Zoom out" onClick={() => step(1 / 1.4)}>
+        <button type="button" className="link-preview-btn" title={msg('Zoom out')} aria-label={msg('Zoom out')} onClick={() => step(1 / 1.4)}>
           −
         </button>
-        <button type="button" className="link-preview-btn" title="Zoom in" aria-label="Zoom in" onClick={() => step(1.4)}>
+        <button type="button" className="link-preview-btn" title={msg('Zoom in')} aria-label={msg('Zoom in')} onClick={() => step(1.4)}>
           +
         </button>
-        <button type="button" className="link-preview-btn" title="Fit the link's target again" onClick={() => setView(null)}>
-          Fit
+        <button type="button" className="link-preview-btn" title={msg('Fit the link\'s target again')} onClick={() => setView(null)}>
+          {msg('Fit')}
         </button>
         {onBack && (
-          <button type="button" className="link-preview-btn" title="Go back to where this link was clicked" onClick={() => onBack(win.id)}>
-            Back
+          <button type="button" className="link-preview-btn" title={msg('Go back to where this link was clicked')} onClick={() => onBack(win.id)}>
+            {msg('Back')}
           </button>
         )}
-        <button type="button" className="link-preview-btn" title="Open the sheet" onClick={() => onOpen(win.id)}>
-          Open
+        <button type="button" className="link-preview-btn" title={msg('Open the sheet')} onClick={() => onOpen(win.id)}>
+          {msg('Open')}
         </button>
-        <button type="button" className="link-preview-btn" aria-label="Close preview" title="Close (Esc)" onClick={() => onClose(win.id)}>
+        <button type="button" className="link-preview-btn" aria-label={msg('Close preview')} title={msg('Close (Esc)')} onClick={() => onClose(win.id)}>
           ×
         </button>
       </div>
-      <div className="link-preview-body" ref={body} title="Scroll to zoom, drag to pan, double-click to open the sheet" onDoubleClick={() => onOpen(win.id)} onPointerDown={panStart} onPointerMove={panMove} onPointerUp={panEnd} onPointerCancel={panEnd}>
+      <div className="link-preview-body" ref={body} title={msg('Scroll to zoom, drag to pan, double-click to open the sheet')} onDoubleClick={() => onOpen(win.id)} onPointerDown={panStart} onPointerMove={panMove} onPointerUp={panEnd} onPointerCancel={panEnd}>
         <div className="link-preview-host" ref={host} style={interim ? { transform: interim } : undefined} />
-        {state === 'loading' && <span className="link-preview-status">Loading…</span>}
-        {state === 'failed' && <span className="link-preview-status">This sheet could not be drawn.</span>}
+        {state === 'loading' && <span className="link-preview-status">{msg('Loading…')}</span>}
+        {state === 'failed' && <span className="link-preview-status">{msg('This sheet could not be drawn.')}</span>}
       </div>
       <div className="link-preview-grip" aria-hidden="true" onPointerDown={start('size')} onPointerMove={onMove} onPointerUp={onUp} />
     </div>

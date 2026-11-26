@@ -83,12 +83,33 @@ const ADDS: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, ide
 const CHANGES: ToolAnnotations = { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false };
 const REMOVES: ToolAnnotations = { readOnlyHint: false, destructiveHint: true, openWorldHint: false };
 
-interface ToolDef {
-  name: AssistantMethod;
+export const COMPACT_CORE_METHODS = [
+  'list_open_documents',
+  'get_page',
+  'get_page_image',
+  'get_page_text',
+  'list_markups',
+  'place_markups',
+  'update_markups',
+  'set_markups',
+  'list_commands',
+  'run_command',
+] as const satisfies readonly AssistantMethod[];
+
+export interface McpOptions {
+  compact?: boolean;
+}
+
+interface McpToolDef {
+  name: string;
   title: string;
   description: string;
   inputSchema: Record<string, unknown>;
   annotations: ToolAnnotations;
+}
+
+interface ToolDef extends McpToolDef {
+  name: AssistantMethod;
 }
 
 const documentProp = { type: 'string', description: 'Document name or id. The active document when omitted.' };
@@ -1120,6 +1141,59 @@ const TOOLS: ToolDef[] = [
   },
 ];
 
+const META_TOOLS: McpToolDef[] = [
+  {
+    name: 'tool_search',
+    title: 'Search tools',
+    description:
+      'Finds redcolumn tools beyond the compact core list. Omit query (or pass an empty string) for a compact directory of all tools (name, title, annotations). Pass query for a case-insensitive substring search across name, title, and description, returning full descriptions and input schemas. Call any discovered tool via tool_call or directly by name.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: {
+          type: 'string',
+          description: 'Case-insensitive substring to match against tool name, title, or description. Omit for a compact list of all tools.',
+        },
+      },
+    },
+    annotations: READS,
+  },
+  {
+    name: 'tool_call',
+    title: 'Call a tool by name',
+    description: 'Calls any redcolumn tool by name with its arguments object. Use tool_search first to discover tool names and input schemas.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Tool name from tool_search.' },
+        arguments: { type: 'object', description: 'Arguments object for the tool.' },
+      },
+      required: ['name'],
+    },
+    annotations: REMOVES,
+  },
+];
+
+const TOOLS_BY_NAME = new Map<AssistantMethod, ToolDef>(TOOLS.map((tool) => [tool.name, tool]));
+
+const COMPACT_TOOLS: McpToolDef[] = [
+  ...COMPACT_CORE_METHODS.map((name) => TOOLS_BY_NAME.get(name)!),
+  ...META_TOOLS,
+];
+
+function searchTools(args: Record<string, unknown>) {
+  const query = typeof args.query === 'string' ? args.query.trim().toLowerCase() : '';
+  if (!query) {
+    return {
+      tools: TOOLS.map(({ name, title, annotations }) => ({ name, title, annotations })),
+    };
+  }
+  const tools = TOOLS.filter(
+    (t) => t.name.toLowerCase().includes(query) || t.title.toLowerCase().includes(query) || t.description.toLowerCase().includes(query),
+  ).map(({ name, title, description, inputSchema, annotations }) => ({ name, title, description, inputSchema, annotations }));
+  return { tools };
+}
+
 export type ToolCall = (name: string, args: Record<string, unknown>) => Promise<unknown>;
 
 /** Lines already split. A chunk that ends mid-line stays in `buf`. */
@@ -1191,7 +1265,14 @@ function argsOf(params: unknown): Record<string, unknown> {
  * One MCP message, newline-delimited JSON, the framing Copilot, Claude, Codex, and Cursor use.
  * Notifications get no reply. A missing app becomes the tool's text, not a protocol failure.
  */
-export async function handleMcpMessage(line: string, call: ToolCall, version = '0.1.0'): Promise<string | null> {
+export async function handleMcpMessage(
+  line: string,
+  call: ToolCall,
+  versionOrOptions: string | McpOptions = '0.1.0',
+  maybeOptions?: McpOptions,
+): Promise<string | null> {
+  const version = typeof versionOrOptions === 'string' ? versionOrOptions : '0.1.0';
+  const compact = (typeof versionOrOptions === 'object' ? versionOrOptions : maybeOptions)?.compact === true;
   let msg: unknown;
   try {
     msg = JSON.parse(line);
@@ -1219,13 +1300,28 @@ export async function handleMcpMessage(line: string, call: ToolCall, version = '
       case 'ping':
         return rpcResult(id, {});
       case 'tools/list':
-        return rpcResult(id, { tools: TOOLS });
+        return rpcResult(id, { tools: compact ? COMPACT_TOOLS : TOOLS });
       case 'tools/call': {
         const params = rec.params as { name?: unknown } | undefined;
         const name = params?.name;
-        if (typeof name !== 'string' || !isAssistantMethod(name)) return rpcResult(id, toolText('Unknown tool.', true));
+        const args = argsOf(rec.params);
+        if (name === 'tool_search') {
+          return rpcResult(id, toolContent(searchTools(args)));
+        }
+        let targetName: string;
+        let targetArgs: Record<string, unknown>;
+        if (name === 'tool_call') {
+          const innerName = args.name;
+          if (typeof innerName !== 'string' || !isAssistantMethod(innerName)) return rpcResult(id, toolText('Unknown tool.', true));
+          targetName = innerName;
+          targetArgs = argsOf(args);
+        } else {
+          if (typeof name !== 'string' || !isAssistantMethod(name)) return rpcResult(id, toolText('Unknown tool.', true));
+          targetName = name;
+          targetArgs = args;
+        }
         try {
-          const value = await call(name, argsOf(rec.params));
+          const value = await call(targetName, targetArgs);
           return rpcResult(id, toolContent(value));
         } catch (err) {
           const message = err instanceof Error && err.message ? err.message : OFFLINE;
