@@ -1,3 +1,4 @@
+import { setStrings, t } from './i18n';
 import { randomUUID } from 'node:crypto';
 import { app, BrowserWindow, dialog, ipcMain, safeStorage, screen, session, shell, utilityProcess } from 'electron';
 import { randomBytes } from 'node:crypto';
@@ -21,6 +22,7 @@ import { LINK_SCHEME } from './links';
 import { fromApp, persistAllowlist, registerPathIpc, rememberDir, restoreAllowlist, restoreLastDir, startDir } from './paths';
 import { SystemFonts, systemFontDirs } from './fonts';
 import { RevuSettings, revuSettingsRoot } from './revuSettings';
+import { revealFileByToken } from './reveal';
 import { pkiRequest } from './pki';
 import { TokenClient } from './token-ipc';
 import { addImagePage, beginImagePrint, cancelImagePrint, finishImagePrint, printBytes } from './print';
@@ -29,6 +31,7 @@ import { harden, installMenu, installPermissions } from './security';
 import { isSmokeRun, lockHeldMessage, smokeUserData } from './smoke';
 import { createUpdater } from './updater';
 import { blockedRequests, describePolicy, failedPolicy, loadPolicy, type ManagedPolicy } from './policy';
+import { MIN_WINDOW_HEIGHT, MIN_WINDOW_WIDTH, WindowStateStore, type SavedWindowState } from './window-state';
 
 const openFiles = captureOpenFiles();
 const allowlist = new PathAllowlist();
@@ -58,6 +61,7 @@ const windows = new Map<Electron.WebContents, WindowState>();
 const anyUnsaved = () => [...windows.values()].some((w) => w.unsaved);
 /** A quit is under way, so confirming the close quits rather than only closing the window. */
 let quitting = false;
+let windowStateStore: WindowStateStore | null = null;
 
 const smoke = isSmokeRun();
 // Before the lock: the lock belongs to the user-data folder, and a smoke run must not share the person's.
@@ -122,10 +126,16 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
   const auth = new DesktopAuth(app.getPath('userData'));
 
   ipcMain.on('desktop:info', (event) => {
-    event.returnValue = { nativeFiles: NATIVE_OPEN_SAVE, printMode: PRINT_MODE, policy };
+    event.returnValue = { nativeFiles: NATIVE_OPEN_SAVE, printMode: PRINT_MODE, policy, systemLocale: app.getSystemLocale() };
   });
   await restoreLastDir(path.join(app.getPath('userData'), 'last-dir.json'));
+  windowStateStore = new WindowStateStore(path.join(app.getPath('userData'), 'window-state.json'));
+  await windowStateStore.load();
   registerPathIpc(allowlist, (contents) => windows.get(contents)?.launches ?? null, () => mainWindow);
+  ipcMain.handle('file:reveal', async (event, token: unknown): Promise<boolean> => {
+    if (!windows.has(event.sender) || !fromApp(event)) return false;
+    return revealFileByToken(allowlist, token, (resolvedPath) => shell.showItemInFolder(resolvedPath));
+  });
   // Every handler below answers the app's own page only: not help windows, not blob previews.
   const handle = (channel: string, fn: (...args: unknown[]) => unknown) => {
     ipcMain.handle(channel, (event, ...args) => {
@@ -211,10 +221,10 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
   handle('token:modules', () => tokens.modules());
   handle('token:add-module', async () => {
     const options: Electron.OpenDialogOptions = {
-      title: 'Choose the card’s PKCS#11 driver',
+      title: t('Choose the card’s PKCS#11 driver'),
       defaultPath: startDir(),
       properties: ['openFile'],
-      filters: [{ name: 'PKCS#11 driver', extensions: process.platform === 'win32' ? ['dll'] : process.platform === 'darwin' ? ['dylib', 'so'] : ['so'] }],
+      filters: [{ name: t('PKCS#11 driver'), extensions: process.platform === 'win32' ? ['dll'] : process.platform === 'darwin' ? ['dylib', 'so'] : ['so'] }],
     };
     const win = mainWindow;
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
@@ -252,10 +262,10 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
   handle('folder:pick', async (purpose) => {
     const win = mainWindow;
     const titles: Record<string, string> = {
-      open: 'Open a Project folder',
-      create: 'Choose where the Project folder goes',
-      'session-open': 'Open a Live Session folder',
-      'session-create': 'Choose a shared folder for the Live Session',
+      open: t('Open a Project folder'),
+      create: t('Choose where the Project folder goes'),
+      'session-open': t('Open a Live Session folder'),
+      'session-create': t('Choose a shared folder for the Live Session'),
     };
     const options = { title: titles[String(purpose)] ?? titles.create!, defaultPath: startDir(), properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[] };
     const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
@@ -288,7 +298,7 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
     handle('excel:pick', async (suggestedName) => {
       const win = mainWindow;
       const name = `${str(suggestedName).replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Markups'}.xlsx`;
-      const options = { title: 'Choose where the Excel workbook goes', defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const options = { title: t('Choose where the Excel workbook goes'), defaultPath: path.join(app.getPath('documents'), name), filters: [{ name: t('Excel Workbook'), extensions: ['xlsx'] }] };
       const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
       if (result.canceled || !result.filePath) return null;
       const filePath = /\.xlsx$/i.test(result.filePath) ? result.filePath : `${result.filePath}.xlsx`;
@@ -303,7 +313,7 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
     // place the rows, and Excel fills a copy in. The client's file itself is only ever read.
     handle('excel:pick-source', async () => {
       const win = mainWindow;
-      const options = { title: 'Choose the client’s register file', properties: ['openFile' as const], filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const options = { title: t('Choose the client’s register file'), properties: ['openFile' as const], filters: [{ name: t('Excel Workbook'), extensions: ['xlsx'] }] };
       const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
       const filePath = result.filePaths[0];
       if (result.canceled || !filePath || !/\.xlsx$/i.test(filePath)) return null;
@@ -318,7 +328,7 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
       const request = checkFill(fill);
       const win = mainWindow;
       const name = `${str(suggestedName).replace(/[\\/:*?"<>|]/g, ' ').trim() || 'Comment register'}.xlsx`;
-      const options = { title: 'Save the filled-in register', defaultPath: path.join(path.dirname(source), name), filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }] };
+      const options = { title: t('Save the filled-in register'), defaultPath: path.join(path.dirname(source), name), filters: [{ name: t('Excel Workbook'), extensions: ['xlsx'] }] };
       const result = win ? await dialog.showSaveDialog(win, options) : await dialog.showSaveDialog(options);
       if (result.canceled || !result.filePath) return null;
       const filePath = /\.xlsx$/i.test(result.filePath) ? result.filePath : `${result.filePath}.xlsx`;
@@ -384,6 +394,11 @@ async function start(policyLoad: Promise<ManagedPolicy>) {
     quitting = true;
   });
 
+  // The page's translations of the text the main process shows (dialog titles and the like).
+  ipcMain.on('ui:strings', (event, strings) => {
+    if (!windows.get(event.sender) || !fromApp(event)) return;
+    setStrings(strings);
+  });
   // Unsaved changes: the page says whether it has any; closing the window then asks the page first.
   ipcMain.on('window:unsaved', (event, on) => {
     const state = windows.get(event.sender);
@@ -447,12 +462,23 @@ function createWindow(child?: { x: number; y: number; open: LaunchItem }) {
   // The e2e suite runs the real app on the person's desktop. In the background it opens off-screen,
   // out of the taskbar and never takes focus, so the machine stays usable while it runs.
   const background = process.env.RECOLUMN_E2E === '1' && process.env.RECOLUMN_E2E_FOREGROUND !== '1';
+  const displays = screen.getAllDisplays().map((d) => d.workArea);
+  const primaryWorkArea = screen.getPrimaryDisplay().workArea;
+  const bounds = windowStateStore?.resolve(displays, primaryWorkArea) ?? { width: 1440, height: 900, maximized: false };
+  const shouldMaximize = !background && !child && bounds.maximized === true;
+  const position = background
+    ? { x: -32000, y: -32000, skipTaskbar: true }
+    : child
+      ? { x: child.x, y: child.y }
+      : bounds.x !== undefined && bounds.y !== undefined
+        ? { x: bounds.x, y: bounds.y }
+        : {};
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    ...(background ? { x: -32000, y: -32000, skipTaskbar: true } : child ? { x: child.x, y: child.y } : {}),
-    minWidth: 800,
-    minHeight: 600,
+    width: bounds.width,
+    height: bounds.height,
+    ...position,
+    minWidth: MIN_WINDOW_WIDTH,
+    minHeight: MIN_WINDOW_HEIGHT,
     title: 'redcolumn',
     // The taskbar and window icon on Windows and Linux (an installed Windows app also has it in the
     // exe). macOS takes the Dock icon from the app bundle.
@@ -481,8 +507,38 @@ function createWindow(child?: { x: number; y: number; open: LaunchItem }) {
   windows.set(contents, state);
   queue.attach(win);
   if (child) queue.open(child.open);
+  let shown = false;
+  const captureBounds = (): SavedWindowState | null => {
+    if (win.isDestroyed()) return null;
+    const maximized = win.isMaximized();
+    const rect = maximized || win.isMinimized() || win.isFullScreen() ? win.getNormalBounds() : win.getBounds();
+    return {
+      x: Math.round(rect.x),
+      y: Math.round(rect.y),
+      width: Math.max(MIN_WINDOW_WIDTH, Math.round(rect.width)),
+      height: Math.max(MIN_WINDOW_HEIGHT, Math.round(rect.height)),
+      maximized,
+    };
+  };
+  const noteBounds = () => {
+    if (background || !shown || !windowStateStore || win.isDestroyed() || win.isMinimized()) return;
+    const next = captureBounds();
+    if (next) windowStateStore.update(next);
+  };
+  win.on('resize', noteBounds);
+  win.on('move', noteBounds);
+  win.on('maximize', noteBounds);
+  win.on('unmaximize', noteBounds);
   win.on('focus', () => (mainWindow = win));
-  win.once('ready-to-show', () => (background ? win.showInactive() : win.show()));
+  win.once('ready-to-show', () => {
+    if (background) {
+      win.showInactive();
+      return;
+    }
+    if (shouldMaximize) win.maximize();
+    win.show();
+    shown = true;
+  });
   // With unsaved changes the page asks Save, Don't Save or Cancel for each document, and closes the
   // window itself when done. A page that crashed or hung cannot answer, so it does not hold the window open.
   let hung = false;
@@ -490,6 +546,10 @@ function createWindow(child?: { x: number; y: number; open: LaunchItem }) {
   win.on('responsive', () => (hung = false));
   win.webContents.on('render-process-gone', () => (state.unsaved = false));
   win.on('close', (event) => {
+    if (!background && shown && windowStateStore) {
+      const next = win.isMinimized() ? undefined : captureBounds() ?? undefined;
+      windowStateStore.flushSync(next);
+    }
     if (state.confirmed || !state.unsaved || hung || win.webContents.isCrashed()) return;
     event.preventDefault();
     win.webContents.send('window:close-request');

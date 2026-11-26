@@ -26,6 +26,17 @@ export function webRoot(): string {
   return path.join(__dirname, process.env.RECOLUMN_E2E === '1' ? '../../web/dist-e2e' : '../../web/dist');
 }
 
+/**
+ * Search by meaning's model and ONNX Runtime Web, served at app://redcolumn/semantic/ (see
+ * scripts/fetch-search-models.mjs). Not part of the web build: only the desktop app has them.
+ */
+export function semanticRoot(): string {
+  if (app.isPackaged) return path.join(process.resourcesPath, 'semantic');
+  return path.join(__dirname, 'semantic');
+}
+
+const SEMANTIC = '/semantic/';
+
 function fileFor(root: string, pathname: string): string | null {
   let decoded: string;
   try {
@@ -46,7 +57,7 @@ export function registerAppProtocol() {
     const url = new URL(request.url);
     if (url.hostname !== 'redcolumn') return new Response('Not found', { status: 404 });
     const pathname = url.pathname === '/' ? '/index.html' : url.pathname;
-    const file = fileFor(webRoot(), pathname);
+    const file = pathname.startsWith(SEMANTIC) ? fileFor(semanticRoot(), pathname.slice(SEMANTIC.length)) : fileFor(webRoot(), pathname);
     if (!file || !fs.existsSync(file) || !fs.statSync(file).isFile()) return new Response('Not found', { status: 404 });
     return withSecurityHeaders(await net.fetch(pathToFileURL(file).href));
   });

@@ -27,7 +27,7 @@ An assembly turns one measurement into the materials and labour it stands for. M
    | `[Length] * [Wall Height] * IF([Both Sides], 2, 1) / 32` | board on one side, or both when the switch is Yes |
    | `CONVERT([Area], "sf", "m2")` | an area in square metres on a feet scale |
 
-5. Set **Waste %**, tick **Round up** for things bought whole (sheets, boxes, lengths) and, beside it, the multiple to round up to (`10` for 10 ft lengths), and add a **Unit cost** if you want prices. A formula must give a number; one that gives text is marked as a problem.
+5. Set **Waste %**, tick **Round up** for things bought whole (sheets, boxes, lengths) and, beside it, the multiple to round up to (`10` for 10 ft lengths). Tick **each** as well when offcuts from one measurement cannot be used on another: every measurement is then rounded up before they are added up. Add a **Unit cost** if you want prices. A formula must give a number; one that gives text is marked as a problem.
 6. Click **Save**.
 
 Formulas are written like spreadsheet formulas: see [Formulas](#formulas) for everything they can do. The window's **How to write a formula** shows the essentials.
@@ -52,7 +52,7 @@ Choose {{Tools > Takeoff > Takeoff Quantities…}} to add up every measurement's
 - **By Item (for ordering):** the same item, by name and unit, added up across every assembly.
 - **By Assembly** or **By Page:** each assembly's items, or each page's.
 
-**Measured** is before waste, **With waste** adds it, and **Total** rounds up where the item rounds. Totals round up once, on the total, as you order: two walls of 3.1 sheets each come to 7 sheets, not 8. **Export CSV** saves the table for a spreadsheet.
+**Measured** is before waste, **With waste** adds it, and **Total** rounds up where the item rounds. Totals round up once, on the total, as you order: two walls of 3.1 sheets each come to 7 sheets, not 8. An item that rounds up **each** measurement adds them up already rounded instead: four 14 ft runs of pipe sold in 8 ft lengths need 16 ft each, so 64 ft, not 56 ft, because the 2 ft offcuts cannot be joined. **Export CSV** saves the table for a spreadsheet.
 
 ## Review a takeoff an AI proposed
 

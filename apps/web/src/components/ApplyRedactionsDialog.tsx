@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useState } from 'react';
 
 export interface RedactOptions {
@@ -36,29 +38,28 @@ export function ApplyRedactionsDialog({ count, onApply, onCancel }: { count: num
           onApply({ fill, text: text.trim(), stripMetadata });
         }}
       >
-        <h3>Apply Redactions</h3>
+        <h3>{msg('Apply Redactions')}</h3>
         <p>
-          The content under {count} marked area{count === 1 ? '' : 's'} is removed from the file for good, along with markups there.
+          {msg('The content under {count} marked {count2, plural, one {area} other {areas}} is removed from the file for good, along with markups there.', { count, count2: count })}
         </p>
         <div className="form-grid">
-          <label htmlFor="rd-fill">Overlay colour</label>
+          <label htmlFor="rd-fill">{msg('Overlay colour')}</label>
           <input id="rd-fill" type="color" value={fill} onChange={(e) => setFill(e.target.value)} />
-          <label htmlFor="rd-text">Overlay text</label>
-          <input id="rd-text" value={text} placeholder="None (e.g. REDACTED, (b)(6))" onChange={(e) => setText(e.target.value)} />
+          <label htmlFor="rd-text">{msg('Overlay text')}</label>
+          <input id="rd-text" value={text} placeholder={msg('None (e.g. REDACTED, (b)(6))')} onChange={(e) => setText(e.target.value)} />
         </div>
         <div className="redact-preview" style={{ background: fill, color: `rgb(${r},${g},${b})` }}>
           {text || ' '}
         </div>
         <label className="field">
-          <input type="checkbox" checked={stripMetadata} onChange={(e) => setStripMetadata(e.target.checked)} />
-          Also remove the document's metadata (title, author, subject, keywords, XMP)
+          {keyed(msgParts('{input}Also remove the document\'s metadata (title, author, subject, keywords, XMP)', { input: <input type="checkbox" checked={stripMetadata} onChange={(e) => setStripMetadata(e.target.checked)} /> }))}
         </label>
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary danger">
-            Apply
+            {msg('Apply')}
           </button>
         </div>
       </form>

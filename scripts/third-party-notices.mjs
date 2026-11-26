@@ -42,6 +42,8 @@ const NOTES = {
   'node-forge': 'Dual-licensed BSD-3-Clause or GPL-2.0; redcolumn uses it under BSD-3-Clause.',
   'dictionary-en': 'The English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
   'dictionary-en-gb': 'The British English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
+  'dictionary-de': 'The German Hunspell dictionary (igerman98, by Björn Jacke), licensed GPL-2.0 or GPL-3.0. redcolumn ships it unmodified as separate data files (spell/de-DE.aff and spell/de-DE.dic) that the spell checker reads; its source is at https://www.j3e.de/ispell/igerman98/. Its licence is below.',
+  'dictionary-fr': 'The French Hunspell dictionary (Dicollecte, by Olivier R.), licensed MPL-2.0. redcolumn ships it unmodified as separate data files (spell/fr-FR.aff and spell/fr-FR.dic) that the spell checker reads; its source is at https://grammalecte.net/. Its licence is below.',
   'dictionary-en-au': 'The Australian English Hunspell dictionary, derived from SCOWL (wordlist.sourceforge.net). Its copyright notices are below.',
 };
 for (const lang of ['deu', 'eng', 'fra', 'ita', 'nld', 'por', 'spa'])
@@ -61,6 +63,14 @@ const BUNDLED = [
     file: 'liberation-fonts.txt',
   },
   {
+    name: 'Liberation Sans Narrow',
+    version: '1.07.5',
+    licence: 'GPL-2.0-only WITH Font-exception-2.0',
+    homepage: 'https://github.com/liberationfonts/liberation-sans-narrow',
+    note: 'Liberation Sans Narrow (public/fonts), metric-compatible with Arial Narrow; used for on-screen rendering and PDF embedding when Arial Narrow is not installed on the computer.',
+    file: 'liberation-sans-narrow.txt',
+  },
+  {
     name: 'Node.js',
     version: '24.21.0',
     licence: 'MIT',
@@ -75,6 +85,22 @@ const BUNDLED = [
     homepage: 'https://github.com/DomCR/ACadSharp',
     note: 'The DWG reader in apps/web/src/cad/dwg is ported from ACadSharp: its file container, bit-stream, LZ77 and object reading follow ACadSharp’s, rewritten in TypeScript.',
     file: 'acadsharp.txt',
+  },
+  {
+    name: 'ONNX Runtime Web',
+    version: '1.31.1',
+    licence: 'MIT',
+    homepage: 'https://github.com/microsoft/onnxruntime',
+    note: "Search by meaning in the desktop app runs its embedding model with ONNX Runtime Web\'s CPU (WebAssembly) build, shipped as resources/semantic/ort (apps/desktop/scripts/fetch-search-models.mjs).",
+    file: 'onnxruntime-web.txt',
+  },
+  {
+    name: 'mdbr-leaf-ir (MongoDB)',
+    version: '4262131b',
+    licence: 'Apache-2.0',
+    homepage: 'https://huggingface.co/MongoDB/mdbr-leaf-ir',
+    note: "Search by meaning in the desktop app embeds page text with this model: the publisher\'s 8-bit quantised ONNX export and its tokenizer, unmodified, shipped as resources/semantic (revision 4262131b, apps/desktop/scripts/fetch-search-models.mjs).",
+    file: 'mdbr-leaf-ir.txt',
   },
 ];
 

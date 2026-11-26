@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { MARKUP_LABELS } from '@nb/markup';
+import { msg, parseNumber } from '@nb/i18n';
 import { METERS_PER_UNIT, pageLengthFor, parseLength, type Scale } from '@nb/measure';
 import type { SketchState } from '../markup/MarkupTools';
 import { settings, useSettings } from '../settings/settings';
@@ -41,7 +42,7 @@ export function SketchBar({ sketch, scale, onSegment, onBox, onCircle, onCancel,
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-      if (/^[0-9.]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) first.current?.focus();
+      if (/^[0-9.,]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) first.current?.focus();
     };
     window.addEventListener('keydown', onKey, true);
     return () => window.removeEventListener('keydown', onKey, true);
@@ -53,7 +54,8 @@ export function SketchBar({ sketch, scale, onSegment, onBox, onCircle, onCancel,
 
   const firstLabel = circle ? (ellipseAs === 'diameter' ? 'Diameter' : 'Radius') : box ? 'Width' : 'Length';
   const aPoints = toPoints(a);
-  const angle = b.trim() === '' ? null : Number(b);
+  // In the chosen number format (45,5 in German); NaN when it is not a number.
+  const angle = b.trim() === '' ? null : (parseNumber(b) ?? NaN);
   const bPoints = box ? toPoints(b, 'y') : null;
   const ready = circle ? aPoints !== null : box ? aPoints !== null && bPoints !== null : aPoints !== null && (angle === null || Number.isFinite(angle));
 
@@ -81,20 +83,20 @@ export function SketchBar({ sketch, scale, onSegment, onBox, onCircle, onCancel,
         }
       }}
     >
-      <span className="sketch-title">Draw to Scale · {MARKUP_LABELS[sketch.type]}</span>
+      <span className="sketch-title">{msg('Draw to Scale · {mARKUP_LABELS}', { mARKUP_LABELS: MARKUP_LABELS[sketch.type] })}</span>
       {box && sketch.type === 'ellipse' && (
         <select
           value={ellipseAs}
-          aria-label="Draw as"
-          title="Ellipse: corner to corner by width and height. Circle: from its centre by radius or diameter."
+          aria-label={msg('Draw as')}
+          title={msg('Ellipse: corner to corner by width and height. Circle: from its centre by radius or diameter.')}
           onChange={(e) => {
             settings.set({ sketchEllipse: e.target.value as typeof ellipseAs });
             first.current?.focus();
           }}
         >
-          <option value="ellipse">Ellipse · width × height</option>
-          <option value="radius">Circle · radius</option>
-          <option value="diameter">Circle · diameter</option>
+          <option value="ellipse">{msg('Ellipse · width × height')}</option>
+          <option value="radius">{msg('Circle · radius')}</option>
+          <option value="diameter">{msg('Circle · diameter')}</option>
         </select>
       )}
       <label>
@@ -103,14 +105,14 @@ export function SketchBar({ sketch, scale, onSegment, onBox, onCircle, onCancel,
       </label>
       {!circle && (
         <label>
-          {box ? 'Height' : 'Angle'}
-          <input value={b} onChange={(e) => setB(e.target.value)} placeholder={box ? (scale.unit === 'ft' ? `8'-0"` : '0') : 'toward pointer'} aria-label={box ? 'Height' : 'Angle'} />
+          {box ? msg('Height') : msg('Angle')}
+          <input value={b} onChange={(e) => setB(e.target.value)} placeholder={box ? (scale.unit === 'ft' ? `8'-0"` : '0') : msg('toward pointer')} aria-label={box ? msg('Height') : msg('Angle')} />
           {!box && '°'}
         </label>
       )}
       <span className="unit">{scale.unit === 'ft' && scale.feetInches ? 'ft-in' : scale.unit}</span>
       <button type="submit" className="btn small primary" disabled={!ready && (box || !!a.trim())}>
-        Place
+        {msg('Place')}
       </button>
     </form>
   );

@@ -126,3 +126,47 @@ test.describe('text on rotated sheets', () => {
     expect(await app.search('SECTIONS')).toHaveLength(1);
   });
 });
+
+// The desktop app ships an embedding model (apps/desktop/scripts/fetch-search-models.mjs).
+test.describe('search by meaning', () => {
+  test.skip(({ app }) => app.kind !== 'desktop', 'the model ships with the desktop app');
+
+  test('lists pages about the search in other words, and opens one', async ({ app }) => {
+    await app.open('plan.pdf');
+    await app.cmd('edit.find');
+    await expect(app.page.getByLabel('Search by Meaning')).toBeChecked();
+    const input = app.page.locator('.search-bar input[placeholder="Search text"]');
+    // No page says "measurement units"; page 3's notes say dimensions are in feet and inches.
+    // The first search reads the pages; they are embedded in the background, so try until they are.
+    await expect(async () => {
+      await input.fill('what units are measurements in');
+      await input.press('Enter');
+      await expect(app.page.locator('.search-related .search-hit').first().locator('.num')).toHaveText('Page 3', { timeout: 2000 });
+    }).toPass({ timeout: 60_000 });
+    await expect(app.page.locator('.search-results-head .count')).toHaveCount(0);
+    await app.page.locator('.search-related .search-hit').first().click();
+    await expect.poll(async () => (await app.documents())[0]!.page).toBe(3);
+  });
+
+  test('pages that match the words are not listed again as related', async ({ app }) => {
+    await app.open('plan.pdf');
+    await app.cmd('edit.find');
+    const input = app.page.locator('.search-bar input[placeholder="Search text"]');
+    await input.fill('DOOR SCHEDULE');
+    await input.press('Enter');
+    await expect(app.page.locator('.search-hit:not(.related)')).toHaveCount(1);
+    await expect(app.page.locator('.search-related .search-hit .num', { hasText: /^Page 2$/ })).toHaveCount(0);
+  });
+
+  test.afterEach(async ({ app }) => {
+    expect(app.errors).toEqual([]);
+  });
+});
+
+test('Search by Meaning is not offered without the model', async ({ app }) => {
+  test.skip(app.kind !== 'web', 'the browser build has no model');
+  await app.open('plan.pdf');
+  await app.cmd('edit.find');
+  await expect(app.page.locator('.search-opts')).toBeVisible();
+  await expect(app.page.getByLabel('Search by Meaning')).toHaveCount(0);
+});

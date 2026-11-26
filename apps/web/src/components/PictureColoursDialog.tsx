@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState } from 'react';
 import { dominantColours, recolourPixels, type PictureColours } from '../markup/pictureColours';
 
@@ -91,21 +93,21 @@ export function PictureColoursDialog({ source, onApply, onCancel }: Props) {
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Change Colours</h3>
-        <p>Each colour the picture mostly uses. A new colour replaces it wherever it is used.</p>
+        <h3>{msg('Change Colours')}</h3>
+        <p>{msg('Each colour the picture mostly uses. A new colour replaces it wherever it is used.')}</p>
         <div className="picture-previews">
           <figure>
-            <canvas ref={before} aria-label="The picture now" />
-            <figcaption>Current</figcaption>
+            <canvas ref={before} aria-label={msg('The picture now')} />
+            <figcaption>{msg('Current')}</figcaption>
           </figure>
           <figure>
-            <canvas ref={after} aria-label="The picture with the new colours" />
-            <figcaption>Preview</figcaption>
+            <canvas ref={after} aria-label={msg('The picture with the new colours')} />
+            <figcaption>{msg('Preview')}</figcaption>
           </figure>
         </div>
         <div className="form-grid change-colours">
-          {!colours && !error && <p>Finding the picture's colours…</p>}
-          {colours && !colours.length && <p>The picture has no colours to change.</p>}
+          {!colours && !error && <p>{msg('Finding the picture\'s colours…')}</p>}
+          {colours && !colours.length && <p>{msg('The picture has no colours to change.')}</p>}
           {colours?.map((c, i) => {
             const to = next[c];
             return (
@@ -116,15 +118,14 @@ export function PictureColoursDialog({ source, onApply, onCancel }: Props) {
                 </span>
                 <input
                   type="color"
-                  aria-label={`New colour for ${c}`}
+                  aria-label={msg('New colour for {c}', { c })}
                   value={to ?? c}
                   disabled={to === null}
                   autoFocus={i === 0}
                   onChange={(e) => setNext((n) => ({ ...n, [c]: e.target.value }))}
                 />
                 <label className="check">
-                  <input type="checkbox" checked={to === null} onChange={(e) => setNext((n) => ({ ...n, [c]: e.target.checked ? null : c }))} />
-                  See-through
+                  {keyed(msgParts('{input}See-through', { input: <input type="checkbox" checked={to === null} onChange={(e) => setNext((n) => ({ ...n, [c]: e.target.checked ? null : c }))} /> }))}
                 </label>
               </div>
             );
@@ -133,10 +134,10 @@ export function PictureColoursDialog({ source, onApply, onCancel }: Props) {
         {error && <p className="print-error">{error}</p>}
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={busy || !mode}>
-            {busy ? 'Working…' : 'Change'}
+            {busy ? msg('Working…') : msg('Change')}
           </button>
         </div>
       </form>

@@ -83,6 +83,8 @@ export interface UpdateState {
 
 export interface RedcolumnDesktop {
   isDesktop: true;
+  /** OS platform reported by Electron (`win32`, `darwin`, `linux`, …). */
+  platform?: string;
   /** Open and Save As use native dialogs so the main process can remember the path. */
   nativeFiles: boolean;
   printMode: PrintMode;
@@ -95,6 +97,8 @@ export interface RedcolumnDesktop {
   readToken(token: string): Promise<Uint8Array>;
   writeToken(token: string, data: Uint8Array): Promise<boolean>;
   showInFolder(token: string): Promise<boolean>;
+  /** Reveals a token-scoped file in Explorer / Finder / the file manager. */
+  revealFile?(token: string): Promise<boolean>;
   /** False when the file has been moved, renamed or deleted since. Absent in desktop apps from before the check. */
   tokenExists?(token: string): Promise<boolean>;
   /** Drops a remembered path, for a document removed from this device. */
@@ -158,6 +162,10 @@ export interface RedcolumnDesktop {
   /** Collects (once) the contents of a document moved here from another window. */
   takeTransfer?(id: string): Promise<Uint8Array | null>;
   setUnsavedChanges?(on: boolean): void;
+  /** The system's regional format (BCP 47), for Number Format › Match the system. */
+  systemLocale?: string;
+  /** Gives the main process the interface language's text for its dialogs (desktop/mainStrings.ts). */
+  setInterfaceStrings?(strings: Record<string, string>): void;
   /** Colour of the title-bar buttons' symbols (Windows), so they contrast with the active theme. */
   setTitleBarSymbols?(color: string): void;
   /** Experimental (read through desktop/embedHost.ts, only with its setting on; asked on every render, so it must be quick): refuses a command an embedding host cannot allow (one that rewrites a document its own records are linked to); null leaves the command as it was. */

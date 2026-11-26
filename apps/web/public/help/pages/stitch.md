@@ -20,8 +20,6 @@ Choose {{View > Stitched View}} again.
 
 ## Pick the match lines yourself
 
-> **Experimental:** the Stitching panel and Stitch to New Page are new. Check the joins before you rely on measurements across them.
-
 When redcolumn doesn't find a match line by itself (the label is worded differently, the sheets are scanned, or the sheets are at different scales), mark the match lines yourself. Nothing is guessed: two clicks on each sheet fix how the sheets meet.
 
 1. Choose {{Document > Stitching…}}. The **Stitching** panel opens.

@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { CAD_ACCEPT } from '../cad/files';
 import { useRef, useState } from 'react';
 
@@ -42,25 +43,25 @@ export function CombineDialog({ open, onCombine, onCancel }: Props) {
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Combine</h3>
-        <p>Pages are joined in this order into a new PDF. The originals are not changed.</p>
-        <ol className="combine-list" role="listbox" aria-label="Documents to combine">
+        <h3>{msg('Combine')}</h3>
+        <p>{msg('Pages are joined in this order into a new PDF. The originals are not changed.')}</p>
+        <ol className="combine-list" role="listbox" aria-label={msg('Documents to combine')}>
           {items.map((it, i) => (
             <li key={`${it.kind}-${it.name}-${i}`} role="option" aria-selected={i === picked} className={i === picked ? 'picked' : ''} onClick={() => setPicked(i)}>
               <span className="name">{it.name}</span>
-              <span className="where">{it.kind === 'open' ? 'open' : 'from disk'}</span>
+              <span className="where">{it.kind === 'open' ? msg('open') : msg('from disk')}</span>
             </li>
           ))}
-          {!items.length && <li className="empty">Add PDFs or pictures to combine.</li>}
+          {!items.length && <li className="empty">{msg('Add PDFs or pictures to combine.')}</li>}
         </ol>
         <div className="row">
           <button type="button" className="btn" onClick={() => input.current?.click()}>
-            Add Files…
+            {msg('Add Files…')}
           </button>
-          <button type="button" className="btn" disabled={!items.length} onClick={() => move(picked, -1)} title="Move up">
+          <button type="button" className="btn" disabled={!items.length} onClick={() => move(picked, -1)} title={msg('Move up')}>
             ↑
           </button>
-          <button type="button" className="btn" disabled={!items.length} onClick={() => move(picked, 1)} title="Move down">
+          <button type="button" className="btn" disabled={!items.length} onClick={() => move(picked, 1)} title={msg('Move down')}>
             ↓
           </button>
           <button
@@ -72,7 +73,7 @@ export function CombineDialog({ open, onCombine, onCancel }: Props) {
               setPicked(Math.max(0, picked - 1));
             }}
           >
-            Remove
+            {msg('Remove')}
           </button>
         </div>
         <input
@@ -88,15 +89,15 @@ export function CombineDialog({ open, onCombine, onCancel }: Props) {
           }}
         />
         <div className="form-grid">
-          <label htmlFor="combine-name">File name</label>
+          <label htmlFor="combine-name">{msg('File name')}</label>
           <input id="combine-name" value={name} onChange={(e) => setName(e.target.value)} aria-invalid={!name.trim()} />
         </div>
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!valid}>
-            Combine
+            {msg('Combine')}
           </button>
         </div>
       </form>

@@ -1,3 +1,5 @@
+import { formatNumber, msg } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
 import { useEffect, useState } from 'react';
 import type { DocumentInfo, PdfDocument } from '@nb/pdf-core';
 import { formatPdfDate, type EditableInfo } from '../documents/docInfo';
@@ -15,14 +17,14 @@ interface Props {
 }
 
 /** Security permission bits (ISO 32000 table 22) and what they allow. */
-const PERMISSIONS: [number, string][] = [
-  [1 << 2, 'Printing'],
-  [1 << 3, 'Changing the document'],
-  [1 << 4, 'Copying content'],
-  [1 << 5, 'Commenting (markups)'],
-  [1 << 8, 'Filling form fields'],
-  [1 << 10, 'Assembling pages'],
-];
+const PERMISSIONS = lazy((): [number, string][] => [
+  [1 << 2, msg('Printing')],
+  [1 << 3, msg('Changing the document')],
+  [1 << 4, msg('Copying content')],
+  [1 << 5, msg('Commenting (markups)')],
+  [1 << 8, msg('Filling form fields')],
+  [1 << 10, msg('Assembling pages')],
+]);
 
 function sizeLabel(w: number, h: number) {
   const named = presetFor(w, h)?.label.replace(/ \(.*/, '');
@@ -82,46 +84,46 @@ export function DocumentPropertiesDialog({ fileName, doc, bytes, readOnlyReason,
           if (e.key === 'Escape') onClose();
         }}
       >
-        <h3>Document Properties</h3>
+        <h3>{msg('Document Properties')}</h3>
         {error && <p className="error">{error}</p>}
         <div className="form-grid">
-          {field('title', 'Title')}
-          {field('author', 'Author')}
-          {field('subject', 'Subject')}
-          {field('keywords', 'Keywords')}
+          {field('title', msg('Title'))}
+          {field('author', msg('Author'))}
+          {field('subject', msg('Subject'))}
+          {field('keywords', msg('Keywords'))}
         </div>
         {readOnlyReason && <p className="pref-hint">{readOnlyReason}</p>}
         <dl className="facts">
-          <dt>File</dt>
+          <dt>{msg('File')}</dt>
           <dd>{fileName}</dd>
           {bytes !== undefined && (
             <>
-              <dt>Size</dt>
-              <dd>{bytes >= 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`}</dd>
+              <dt>{msg('Size')}</dt>
+              <dd>{bytes >= 1048576 ? msg('{size} MB', { size: formatNumber(bytes / 1048576, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) }) : msg('{size} KB', { size: formatNumber(Math.max(1, Math.round(bytes / 1024)), { maximumFractionDigits: 0 }) })}</dd>
             </>
           )}
-          <dt>Pages</dt>
+          <dt>{msg('Pages')}</dt>
           <dd>{doc.pages.length}</dd>
-          <dt>Page size</dt>
-          <dd>{sizes.length > 3 ? `${sizes.length} different sizes` : sizes.join('; ')}</dd>
+          <dt>{msg('Page size')}</dt>
+          <dd>{sizes.length > 3 ? msg('{count} different sizes', { count: sizes.length }) : sizes.join('; ')}</dd>
           {info && (
             <>
-              <dt>PDF version</dt>
-              <dd>{info.version ? `${Math.floor(info.version / 10)}.${info.version % 10}` : 'Unknown'}</dd>
-              <dt>Created</dt>
+              <dt>{msg('PDF version')}</dt>
+              <dd>{info.version ? `${Math.floor(info.version / 10)}.${info.version % 10}` : msg('Unknown')}</dd>
+              <dt>{msg('Created')}</dt>
               <dd>{formatPdfDate(info.creationDate) || '—'}</dd>
-              <dt>Modified</dt>
+              <dt>{msg('Modified')}</dt>
               <dd>{formatPdfDate(info.modDate) || '—'}</dd>
-              <dt>Application</dt>
+              <dt>{msg('Application')}</dt>
               <dd>{info.creator || '—'}</dd>
-              <dt>PDF producer</dt>
+              <dt>{msg('PDF producer')}</dt>
               <dd>{info.producer || '—'}</dd>
-              <dt>Security</dt>
-              <dd>{encrypted ? `Encrypted (revision ${info.securityRevision})` : 'None'}</dd>
+              <dt>{msg('Security')}</dt>
+              <dd>{encrypted ? msg('Encrypted (revision {securityRevision})', { securityRevision: info.securityRevision }) : msg('None')}</dd>
               {encrypted && (
                 <>
-                  <dt>Allowed</dt>
-                  <dd>{PERMISSIONS.filter(([bit]) => info.permissions & bit).map(([, label]) => label).join(', ') || 'Nothing'}</dd>
+                  <dt>{msg('Allowed')}</dt>
+                  <dd>{PERMISSIONS().filter(([bit]) => info.permissions & bit).map(([, label]) => label).join(', ') || msg('Nothing')}</dd>
                 </>
               )}
             </>
@@ -129,11 +131,11 @@ export function DocumentPropertiesDialog({ fileName, doc, bytes, readOnlyReason,
         </dl>
         <div className="actions">
           <button type="button" className="btn" onClick={onClose} autoFocus={!!readOnlyReason}>
-            {changed ? 'Cancel' : 'Close'}
+            {changed ? msg('Cancel') : msg('Close')}
           </button>
           {changed && !readOnlyReason && (
             <button type="submit" className="btn primary">
-              Save
+              {msg('Save')}
             </button>
           )}
         </div>
