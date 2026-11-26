@@ -209,8 +209,14 @@ export function ItemsDialog({ initial, productLists, readOnly, usage, onSave, on
                     </td>
                     <td>
                       <div className="asm-round">
-                        <input type="checkbox" aria-label={msg('Item round up')} checked={!!i.roundUp} disabled={readOnly} onChange={(e) => patch(i.id, { roundUp: e.target.checked || undefined, ...(e.target.checked ? {} : { roundTo: undefined }) })} />
+                        <input type="checkbox" aria-label={msg('Item round up')} checked={!!i.roundUp} disabled={readOnly} onChange={(e) => patch(i.id, { roundUp: e.target.checked || undefined, ...(e.target.checked ? {} : { roundTo: undefined, roundEach: undefined }) })} />
                         {i.roundUp && <NumberCell label={msg('Item round up to nearest')} value={i.roundTo} placeholder="1" width={44} onChange={(n) => patch(i.id, { roundTo: n !== undefined && n > 0 && n !== 1 ? n : undefined })} />}
+                        {i.roundUp && (
+                          <label className="asm-round-each" title={msg('Round each measurement up before adding them up, rather than the total once: four 14 ft runs of pipe sold in 8 ft lengths need 16 ft each, as offcuts cannot be joined.')}>
+                            <input type="checkbox" aria-label={msg('Item round up each measurement')} checked={!!i.roundEach} disabled={readOnly} onChange={(e) => patch(i.id, { roundEach: e.target.checked || undefined })} />
+                            {msg('each')}
+                          </label>
+                        )}
                       </div>
                     </td>
                     <td>

@@ -41,6 +41,12 @@ export interface AssemblyItem {
   roundUp?: boolean;
   /** With `roundUp`, round up to a multiple of this instead of 1: 10 for pipe sold in 10 ft lengths, 0.5 for half-sheets. */
   roundTo?: number;
+  /**
+   * With `roundUp`, round each measurement's quantity up before adding them up, rather than the
+   * total once: four 14 ft runs of pipe sold in 8 ft lengths need 16 ft each (64 ft), not 56 ft,
+   * because the offcuts cannot be joined. Follows the catalog item's rounding with `itemId`.
+   */
+  roundEach?: boolean;
   /** Price per unit, for the cost. */
   unitCost?: number;
 }
@@ -99,6 +105,7 @@ export function sanitizeAssemblies(raw: unknown): Assembly[] {
         ...(waste !== null && waste !== 0 ? { waste } : {}),
         ...(x.roundUp === true ? { roundUp: true } : x.roundUp === false && itemId ? { roundUp: false } : {}),
         ...(x.roundUp === true && roundTo !== null && roundTo > 0 && roundTo !== 1 ? { roundTo } : {}),
+        ...(x.roundUp === true && x.roundEach === true ? { roundEach: true } : {}),
         ...(unitCost !== null ? { unitCost } : {}),
       });
     }
