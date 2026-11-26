@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import { msg, msgc } from '@nb/i18n';
 import { MarkupStore } from '@nb/markup';
 import type { ModelControls, ModelState } from '@nb/model3d';
 import { unzipFiles, zipFiles } from '../documents/zip';
@@ -17,6 +18,9 @@ interface Props {
   onSaveFile: (name: string, data: Blob) => void;
   onNotice: (text: string) => void;
 }
+
+/** The title an untitled issue gets (and the box suggests): it is saved and exported in BCF, so it stays English. */
+const defaultIssueTitle = (n: number) => `Issue ${n}`;
 
 /** The longest side of an issue's snapshot, in pixels (kept with the issue). */
 const SNAPSHOT_WIDTH = 480;
@@ -39,7 +43,7 @@ export function Issues({ controls, state, fileHash, topics, sheets, onSaveFile, 
     const camera = controls.cameraPlace();
     if (!camera) return;
     const point = (await controls.selectionPlace()) ?? camera.target;
-    const topic = newTopic({ title: title.trim() || `Issue ${topics.length + 1}`, author: MarkupStore.author, point, camera, snapshot: controls.snapshot(SNAPSHOT_WIDTH) });
+    const topic = newTopic({ title: title.trim() || defaultIssueTitle(topics.length + 1), author: MarkupStore.author, point, camera, snapshot: controls.snapshot(SNAPSHOT_WIDTH) });
     set((all) => [...all, topic]);
     setTitle('');
     setOpenId(topic.guid);
@@ -65,17 +69,17 @@ export function Issues({ controls, state, fileHash, topics, sheets, onSaveFile, 
     try {
       const t = await transforms();
       const read = readBcf(await unzipFiles(new Uint8Array(await file.arrayBuffer())), t?.toGrid, topics);
-      if (!read.length) return onNotice('That file has no issues in it.');
+      if (!read.length) return onNotice(msg('That file has no issues in it.'));
       set((all) => [...all.filter((x) => !read.some((r) => r.guid === x.guid)), ...read]);
-      onNotice(`${read.length} issue${read.length === 1 ? '' : 's'} imported.`);
+      onNotice(msg('{count, plural, one {# issue} other {# issues}} imported.', { count: read.length }));
     } catch (err) {
-      onNotice(`That file could not be read as BCF: ${err instanceof Error ? err.message : String(err)}`);
+      onNotice(msg('That file could not be read as BCF: {error}', { error: err instanceof Error ? err.message : String(err) }));
     }
   };
 
   const remove = (t: BcfTopic) => {
     const n = t.links.length;
-    if (!confirm(n ? `Delete “${t.title}” and its markups on ${n} sheet${n === 1 ? '' : 's'}?` : `Delete “${t.title}”?`)) return;
+    if (!confirm(n ? msg('Delete “{title}” and its markups on {count, plural, one {# sheet} other {# sheets}}?', { title: t.title, count: n }) : msg('Delete “{title}”?', { title: t.title }))) return;
     removeTopicMarkups(t, sheets.map((s) => s.store));
     set((all) => all.filter((x) => x.guid !== t.guid));
   };
@@ -83,11 +87,11 @@ export function Issues({ controls, state, fileHash, topics, sheets, onSaveFile, 
   return (
     <details className="m3d-section" open>
       <summary>
-        Issues
+        {msg('Issues')}
         <span className="m3d-count">{topics.length}</span>
       </summary>
       <div className="m3d-body">
-        {!state.georeferenced && <p className="empty">Issues need the model’s position on the map (an IFC map conversion), so they can be shown on sheets.</p>}
+        {!state.georeferenced && <p className="empty">{msg('Issues need the model’s position on the map (an IFC map conversion), so they can be shown on sheets.')}</p>}
         <form
           className="m3d-form"
           onSubmit={(e) => {
@@ -95,17 +99,17 @@ export function Issues({ controls, state, fileHash, topics, sheets, onSaveFile, 
             void raise();
           }}
         >
-          <input aria-label="Issue title" placeholder={`Issue ${topics.length + 1}`} value={title} onChange={(e) => setTitle(e.target.value)} disabled={!fileHash || !state.georeferenced} />
-          <button type="submit" className="btn small" disabled={!fileHash || !state.georeferenced} title="Raise an issue at the selected element (or what the camera looks at), with this view">
-            New issue
+          <input aria-label={msg('Issue title')} placeholder={defaultIssueTitle(topics.length + 1)} value={title} onChange={(e) => setTitle(e.target.value)} disabled={!fileHash || !state.georeferenced} />
+          <button type="submit" className="btn small" disabled={!fileHash || !state.georeferenced} title={msg('Raise an issue at the selected element (or what the camera looks at), with this view')}>
+            {msg('New issue')}
           </button>
         </form>
         <div className="panel-toolbar">
           <button type="button" className="btn small" disabled={!fileHash} onClick={() => importInput.current?.click()}>
-            Import BCF…
+            {msg('Import BCF…')}
           </button>
           <button type="button" className="btn small" disabled={!topics.length} onClick={() => void exportBcf()}>
-            Export BCF…
+            {msg('Export BCF…')}
           </button>
           <input
             ref={importInput}
@@ -121,34 +125,34 @@ export function Issues({ controls, state, fileHash, topics, sheets, onSaveFile, 
         </div>
         {topics.length > 0 && (
           <div className="m3d-issue-filters">
-            <select aria-label="Filter issues by status" value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
-              <option value="">Any status</option>
+            <select aria-label={msg('Filter issues by status')} value={filter.status} onChange={(e) => setFilter({ ...filter, status: e.target.value })}>
+              <option value="">{msg('Any status')}</option>
               {statusesOf(topics).map((s) => (
                 <option key={s}>{s}</option>
               ))}
             </select>
-            <select aria-label="Filter issues by assignee" value={filter.assignee} onChange={(e) => setFilter({ ...filter, assignee: e.target.value })}>
-              <option value="">Anyone</option>
+            <select aria-label={msg('Filter issues by assignee')} value={filter.assignee} onChange={(e) => setFilter({ ...filter, assignee: e.target.value })}>
+              <option value="">{msg('Anyone')}</option>
               {assignees.map((a) => (
                 <option key={a}>{a}</option>
               ))}
             </select>
-            <input type="search" aria-label="Search issues" placeholder="Search" value={filter.text} onChange={(e) => setFilter({ ...filter, text: e.target.value })} />
+            <input type="search" aria-label={msg('Search issues')} placeholder={msg('Search')} value={filter.text} onChange={(e) => setFilter({ ...filter, text: e.target.value })} />
           </div>
         )}
-        <ul className="m3d-list" aria-label="Issues">
+        <ul className="m3d-list" aria-label={msg('Issues')}>
           {shown.map((t) => (
             <li key={t.guid} className="m3d-issue">
               <div className="m3d-row">
-                <button type="button" className="m3d-name" aria-expanded={openId === t.guid} title="Show this issue" onClick={() => {
+                <button type="button" className="m3d-name" aria-expanded={openId === t.guid} title={msg('Show this issue')} onClick={() => {
                   setOpenId(openId === t.guid ? null : t.guid);
                   if (t.camera) controls.run({ type: 'lookAtPlace', camera: t.camera });
                 }}>
                   {t.title}
                 </button>
                 <span className="m3d-class">{t.status}</span>
-                {t.links.length > 0 && <span className="m3d-count" title="Sheets it shows on">{t.links.length}</span>}
-                <button type="button" className="icon-btn" aria-label={`Delete ${t.title}`} title="Delete" onClick={() => remove(t)}>
+                {t.links.length > 0 && <span className="m3d-count" title={msg('Sheets it shows on')}>{t.links.length}</span>}
+                <button type="button" className="icon-btn" aria-label={msg('Delete {name}', { name: t.title })} title={msg('Delete')} onClick={() => remove(t)}>
                   ×
                 </button>
               </div>
@@ -169,13 +173,13 @@ function IssueDetail({ topic: t, onEdit }: { topic: BcfTopic; onEdit: (patch: Pa
   const [comment, setComment] = useState('');
   return (
     <div className="m3d-issue-detail">
-      {t.snapshot && <img className="m3d-snapshot" src={t.snapshot} alt={`Snapshot of ${t.title}`} />}
+      {t.snapshot && <img className="m3d-snapshot" src={t.snapshot} alt={msg('Snapshot of {title}', { title: t.title })} />}
       <label>
-        Title
+        {msg('Title')}
         <input value={t.title} onChange={(e) => onEdit({ title: e.target.value })} />
       </label>
       <label>
-        Status
+        {msg('Status')}
         <select value={t.status} onChange={(e) => onEdit({ status: e.target.value })}>
           {statusesOf([t]).map((s) => (
             <option key={s}>{s}</option>
@@ -183,7 +187,7 @@ function IssueDetail({ topic: t, onEdit }: { topic: BcfTopic; onEdit: (patch: Pa
         </select>
       </label>
       <label>
-        Priority
+        {msg('Priority')}
         <select value={t.priority} onChange={(e) => onEdit({ priority: e.target.value })}>
           {[...new Set([...BCF_PRIORITIES, t.priority].filter(Boolean))].map((p) => (
             <option key={p}>{p}</option>
@@ -191,26 +195,26 @@ function IssueDetail({ topic: t, onEdit }: { topic: BcfTopic; onEdit: (patch: Pa
         </select>
       </label>
       <label>
-        Assigned to
+        {msg('Assigned to')}
         <input value={t.assignee} onChange={(e) => onEdit({ assignee: e.target.value })} />
       </label>
       <label>
-        Due
+        {msg('Due')}
         <input type="date" value={t.dueDate} onChange={(e) => onEdit({ dueDate: e.target.value })} />
       </label>
       <label>
-        Labels
-        <input value={t.labels.join(', ')} title="Separated by commas" onChange={(e) => onEdit({ labels: e.target.value.split(',').map((l) => l.trim()).filter(Boolean) })} />
+        {msg('Labels')}
+        <input value={t.labels.join(', ')} title={msg('Separated by commas')} onChange={(e) => onEdit({ labels: e.target.value.split(',').map((l) => l.trim()).filter(Boolean) })} />
       </label>
       <label>
-        Description
+        {msg('Description')}
         <textarea rows={3} value={t.description} onChange={(e) => onEdit({ description: e.target.value })} />
       </label>
-      <ul className="m3d-comments" aria-label="Comments">
+      <ul className="m3d-comments" aria-label={msg('Comments')}>
         {t.comments.map((c) => (
           <li key={c.guid}>
             <span className="m3d-class">
-              {c.author || 'Someone'} · {c.date ? new Date(c.date).toLocaleString() : ''}
+              {c.author || msg('Someone')} · {c.date ? new Date(c.date).toLocaleString() : ''}
             </span>
             <p>{c.text}</p>
           </li>
@@ -225,9 +229,9 @@ function IssueDetail({ topic: t, onEdit }: { topic: BcfTopic; onEdit: (patch: Pa
           setComment('');
         }}
       >
-        <input aria-label="Comment" placeholder="Add a comment" value={comment} onChange={(e) => setComment(e.target.value)} />
+        <input aria-label={msg('Comment')} placeholder={msg('Add a comment')} value={comment} onChange={(e) => setComment(e.target.value)} />
         <button type="submit" className="btn small">
-          Comment
+          {msgc('button: add the typed comment', 'Comment')}
         </button>
       </form>
     </div>
