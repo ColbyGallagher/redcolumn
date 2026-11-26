@@ -4222,7 +4222,7 @@ msgstr "« {name} » dupliqué. Enregistrez pour appliquer."
 
 #: apps/web/src/components/AssembliesDialog.tsx
 msgid "Each item’s quantity per measurement. Waste is added before rounding up; totals round up once, on the total, unless you tick each to round every measurement up first."
-msgstr "Quantité de chaque article par mesure. Les pertes sont ajoutées avant l’arrondi supérieur ; les totaux sont arrondis une seule fois, sur le total, sauf si vous cochez « chaque » pour arrondir d’abord chaque mesure."
+msgstr "Quantité de chaque article par mesure. Les pertes sont ajoutées avant l’arrondi supérieur ; les totaux sont arrondis une seule fois, sur le total, sauf si vous cochez « par mesure » pour arrondir d’abord chaque mesure."
 
 #: apps/web/src/components/AssembliesDialog.tsx
 msgid "Every example"
@@ -4498,7 +4498,7 @@ msgstr "articles d’ouvrage"
 
 #: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/ItemsDialog.tsx
 msgid "each"
-msgstr "chaque"
+msgstr "par mesure"
 
 #: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/ItemsDialog.tsx
 msgid "item"
@@ -14515,8 +14515,8 @@ msgid "With waste"
 msgstr "Avec pertes"
 
 #: apps/web/src/components/QuantitiesDialog.tsx
-msgid "With waste, rounded up on the total where the item rounds"
-msgstr "Avec pertes, arrondi au supérieur sur le total là où l’article arrondit"
+msgid "With waste, rounded up on the total where the item rounds (each measurement first where it rounds each)"
+msgstr "Avec pertes, arrondi au supérieur sur le total là où l’article arrondit (d’abord chaque mesure là où il arrondit par mesure)"
 
 #: apps/web/src/components/QuantitiesDialog.tsx
 msgid "{count, plural, one {# measurement with an assembly} other {# measurements with an assembly}}"

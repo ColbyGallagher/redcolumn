@@ -14555,8 +14555,8 @@ msgid "With waste"
 msgstr "Mit Verschnitt"
 
 #: apps/web/src/components/QuantitiesDialog.tsx
-msgid "With waste, rounded up on the total where the item rounds"
-msgstr "Mit Verschnitt, auf die Summe aufgerundet, wo die Position rundet"
+msgid "With waste, rounded up on the total where the item rounds (each measurement first where it rounds each)"
+msgstr "Mit Verschnitt, auf die Summe aufgerundet, wo die Position rundet (zuerst jede Messung, wo sie einzeln rundet)"
 
 #: apps/web/src/components/QuantitiesDialog.tsx
 msgid "{count, plural, one {# measurement with an assembly} other {# measurements with an assembly}}"
