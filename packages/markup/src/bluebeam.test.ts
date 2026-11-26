@@ -708,16 +708,16 @@ test('#459: a Bluebeam legend comes in at the turn Revu drew it', async () => {
     const page = doc.addPage([400, 300]);
     page.setRotation(degrees(90));
     const ctx = doc.context;
-    // Turned 90° clockwise in user space by its /Matrix: the box (100, 100)-(300, 180) about (200, 140)
-    // has the turned bounds (160, 40)-(240, 240) as its /Rect.
+    // As Revu writes a legend on a turned sheet: its appearance unturned in user space (identity
+    // /Matrix), its /Rect the box (100, 100)-(300, 180), and /Rotation, when there, the turn as shown.
     const turned = rotation !== null;
     const bbox = [100, 100, 300, 180];
-    const matrix = turned ? [0, -1, 1, 0, 60, 340] : [1, 0, 0, 1, 0, 0];
+    const matrix = [1, 0, 0, 1, 0, 0];
     const ap = ctx.register(ctx.stream('q 0 0 0 RG 0.75 w 100 100 200 80 re S BT /Helv 8 Tf 1 0 0 1 110 160 Tm (Legend) Tj ET Q', { Type: 'XObject', Subtype: 'Form', BBox: bbox, Matrix: matrix }));
     const key = { Type: 9, AdditionalData: [text('Rectangle'), text(''), text('Count')], Color: -65536, BorderWidth: 1 };
     const legend = ctx.register(ctx.obj({
       Type: 'Annot', Subtype: 'Stamp', IT: 'StampSnapshot', Subj: text('Legend'), NM: text('KEY'), BS: { W: 0, S: 'S' },
-      Rect: turned ? [160, 40, 240, 240] : bbox, ...(turned ? { Rotation: rotation } : {}), AP: { N: ap },
+      Rect: bbox, ...(turned ? { Rotation: rotation } : {}), AP: { N: ap },
       BSILegend: { MajorVersion: 1, MinorVersion: 0, NameID: text('ABCDEFGHIJKLMNOP'), Title: text('Legend'), PageRangeType: 2, PageRange: [0], Keys: [key], Sums: { QuantityColumn: [0] } },
     }));
     page.node.set(PDFName.of('Annots'), ctx.obj([legend]));
@@ -737,10 +737,11 @@ test('#459: a Bluebeam legend comes in at the turn Revu drew it', async () => {
   assert.deepEqual(size(plain.m), [200, 80]);
   assert.deepEqual(rotationCentre(plain.m).map(round), [140, 200]);
 
-  // /Rotation 90 as well: the turn its /Matrix draws, on top of the sheet's.
+  // /Rotation 90, as Revu writes it there: the legend's turn as shown, the sheet's included, not
+  // a turn on top of it (a Revu-made legend on a 90° sheet reads this way).
   const own = await build(90);
   assert.equal(own.m.type, 'legend');
-  assert.equal(own.drawn, 180);
+  assert.equal(own.drawn, 90);
   assert.equal(own.m.rotation, own.drawn);
   assert.deepEqual(size(own.m), [200, 80]);
   assert.deepEqual(rotationCentre(own.m).map(round), [140, 200]);

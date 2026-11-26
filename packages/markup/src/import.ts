@@ -1025,8 +1025,12 @@ function fromRaw(a: ImportableAnnotation, r: PdfDictValue, toPage: (x: number, y
       // A Bluebeam legend: a live legend listing the kinds of markup its keys name.
       const bsi = readBsiLegend(r);
       if (bsi) {
-        // Revu turns a legend with its sheet, and by any /Rotation of its own, as it does text.
+        // Unlike a text box's, Revu's legend /Rotation is its turn as shown, the sheet's turn included:
+        // a legend that turned with a 90° sheet carries /Rotation 90 over an unturned appearance.
+        // Without /Rotation it turns with its sheet.
         const turned = turnedBox(rd, true);
+        const shown = num(r.Rotation);
+        if (turned && shown !== null) turned.rotation = (Math.round((((shown % 360) + 360) % 360) * 1e6) / 1e6) % 360;
         const [p, q] = turned?.points ?? innerBox();
         const own = bsi.pages.length === 1 && bsi.pages[0] === pageIndex;
         const legend = { scope: bsi.scope, ...(bsi.pages.length && !own ? { pages: bsi.pages } : {}), keys: bsi.keys, ...(bsi.nameId ? { nameId: bsi.nameId } : {}) };

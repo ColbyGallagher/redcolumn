@@ -170,9 +170,10 @@ test('a turned legend saves its turn as Bluebeam keeps it', async () => {
   const l = markup('legend', [[60, 20], [200, 120]], { id: 'l1', rotation: 90 });
   const flat = await exported([l], 0);
   assert.equal(flat.annots[0]!.lookup(PDFName.of('Rotation'), PDFNumber).asNumber(), 90);
-  // On a sheet turned as far as the legend, Revu's legend turned with its sheet: no /Rotation of its own.
+  // On a sheet turned as far as the legend, it turned with its sheet. Revu still writes /Rotation 90
+  // there (a legend's /Rotation is its turn as shown, sheet included), over an unturned appearance.
   const sheet = await reimported([l], 90, false);
-  assert.equal(sheet.annots[0]!.get(PDFName.of('Rotation')), undefined);
+  assert.equal(sheet.annots[0]!.lookup(PDFName.of('Rotation'), PDFNumber).asNumber(), 90);
   const back = sheet.markups[0]!;
   assert.equal(back.type, 'legend');
   assert.equal(back.rotation, 90);

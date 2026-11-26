@@ -1397,9 +1397,10 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       // Bluebeam's own legend is a snapshot stamp with its keys and totals in /BSILegend, which it
       // keeps current as markups change.
       specific = { Subtype: 'Stamp', IT: 'StampSnapshot', BSILegend: textValues(bsiLegendValue(m, ctx.all, ctx.pages.length, ctx.scaleFor, ctx.scaleOf)) as never };
-      // Bluebeam's turn for a turned legend (its /Rect holds the turned box).
-      const turn = m.rotation ? userRotation(matrix, m) : null;
-      if (turn !== null) specific.Rotation = turn;
+      // Bluebeam's turn for a turned legend (its /Rect holds the turned box): unlike a text box's,
+      // a legend's /Rotation is its turn as shown, the sheet's turn included.
+      const shown = Math.round((((m.rotation ?? 0) % 360) + 360) % 360 * 100) / 100;
+      if (shown % 360 !== 0) specific.Rotation = shown;
       break;
     }
     case 'table': {
