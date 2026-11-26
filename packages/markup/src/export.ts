@@ -62,6 +62,36 @@ function apply(m: Matrix, [u, v]: Point): Point {
   return [m[0] * u + m[2] * v + m[4], m[1] * u + m[3] * v + m[5]];
 }
 
+/** How far the sheet turns user space on the page, in degrees clockwise: where user x points in page space. */
+function sheetTurn(m: Matrix): number {
+  // The page-space vector `v` with M·v = (1, 0).
+  const det = m[0] * m[3] - m[1] * m[2];
+  const turn = (Math.atan2(-m[1] / det, m[3] / det) * 180) / Math.PI;
+  return ((Math.round(turn * 1e6) / 1e6) % 360 + 360) % 360;
+}
+
+/**
+ * Bluebeam's /Rotation for a turned box: clockwise degrees in user space, which the sheet's own turn
+ * adds to on the page (as Revu writes it, and as import reads it back). Null when that leaves it unturned.
+ */
+function userRotation(matrix: Matrix, m: Pick<Markup, 'rotation'>): number | null {
+  const r = Math.round(((((m.rotation ?? 0) - sheetTurn(matrix)) % 360) + 360) % 360 * 100) / 100;
+  return r % 360 ? r : null;
+}
+
+/**
+ * A turned callout's box as Bluebeam keeps it, in user space: its box before its own /Rotation, which
+ * the sheet then turns (so the box before the callout's turn, turned by the sheet's).
+ */
+function calloutUserBox(matrix: Matrix, m: Markup): [number, number, number, number] {
+  const box = contentBox(m);
+  const c = rotationCentre(m);
+  const turn = m.rotation ? sheetTurn(matrix) : 0;
+  const pts = ([[box.x, box.y], [box.x + box.w, box.y], [box.x + box.w, box.y + box.h], [box.x, box.y + box.h]] as Point[]).map((p) => apply(matrix, turn ? rotatePoint(p, c, turn) : p));
+  const b = boundsOf(pts);
+  return [b.x, b.y, b.x + b.w, b.y + b.h];
+}
+
 /** Page space → user space for the page's crop box and /Rotate, matching how PDFium lays pages out. */
 export function pageMatrix(page: PDFPage): Matrix {
   const { x, y, width, height } = page.getCropBox();
@@ -1039,10 +1069,13 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
   ];
   if (m.type === 'callout' && m.points.length >= 4) {
     // A callout's box goes in /RD, whose top and bottom insets Bluebeam reads the other way up from
-    // other readers: equal ones (Rect grown to match) mean the same box to all of them.
-    const box = contentBox(m);
-    const ys = [apply(matrix, [box.x, box.y])[1], apply(matrix, [box.x + box.w, box.y + box.h])[1]];
-    const inset = Math.max(rect[3] - Math.max(...ys), Math.min(...ys) - rect[1]);
+    // other readers: equal ones (Rect grown to match) mean the same box to all of them. A turned
+    // callout's box before its turn may reach past the turned one's bounds: Rect holds both.
+    const ub = calloutUserBox(matrix, m);
+    rect[0] = Math.min(rect[0], ub[0]);
+    rect[2] = Math.max(rect[2], ub[2]);
+    const ys = [ub[1], ub[3]];
+    const inset = Math.max(rect[3] - Math.max(...ys), Math.min(...ys) - rect[1], 0);
     rect[1] = Math.min(...ys) - inset;
     rect[3] = Math.max(...ys) + inset;
   }
@@ -1364,6 +1397,9 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       // Bluebeam's own legend is a snapshot stamp with its keys and totals in /BSILegend, which it
       // keeps current as markups change.
       specific = { Subtype: 'Stamp', IT: 'StampSnapshot', BSILegend: textValues(bsiLegendValue(m, ctx.all, ctx.pages.length, ctx.scaleFor, ctx.scaleOf)) as never };
+      // Bluebeam's turn for a turned legend (its /Rect holds the turned box).
+      const turn = m.rotation ? userRotation(matrix, m) : null;
+      if (turn !== null) specific.Rotation = turn;
       break;
     }
     case 'table': {
@@ -1377,10 +1413,12 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
       const [r, g, bl] = rgb(textColor(m.style));
       const font = daFontName(m.style.fontFamily);
       const box = contentBox(m);
-      const corners = [apply(matrix, [box.x, box.y]), apply(matrix, [box.x + box.w, box.y + box.h])];
-      const bx = [Math.min(corners[0]![0], corners[1]![0]), Math.min(corners[0]![1], corners[1]![1]), Math.max(corners[0]![0], corners[1]![0]), Math.max(corners[0]![1], corners[1]![1])] as const;
+      const bx = calloutUserBox(matrix, m);
       const land = m.points.length >= 4 ? calloutLanding(m.points[1]!, box) : null;
-      const leader = land ? [m.points[0]!, land.knee, land.attach] : m.points.slice(0, 2);
+      // A turned callout's leader as the page shows it: running to the turned box's side.
+      const c = rotationCentre(m);
+      const leader = (land ? [m.points[0]!, land.knee, land.attach] : m.points.slice(0, 2)).map((p) => (m.rotation ? rotatePoint(p, c, m.rotation) : p));
+      const turn = userRotation(matrix, m);
       specific = {
         Subtype: 'FreeText',
         IT: 'FreeTextCallout',
@@ -1392,6 +1430,7 @@ function annotationDict(ctx: Ctx, source: Markup): PDFDict {
         Q: m.style.textAlign === 'center' ? 1 : m.style.textAlign === 'right' ? 2 : 0,
         ...richText(m),
         C: fill ? fill : [],
+        ...(m.rotation && turn !== null ? { Rotation: turn } : {}),
       };
       delete base.IC;
       break;
