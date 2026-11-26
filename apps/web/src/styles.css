@@ -6776,12 +6776,12 @@ input.m3d-name:focus {
 .m3d-qty th,
 .m3d-qty td {
   padding: 2px 4px;
-  text-align: right;
+  text-align: end;
   white-space: nowrap;
 }
 .m3d-qty th:first-child,
 .m3d-qty td:first-child {
-  text-align: left;
+  text-align: start;
   white-space: normal;
   overflow-wrap: anywhere;
 }
