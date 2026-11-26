@@ -6580,13 +6580,13 @@ select[size] {
   gap: 6px;
 }
 .m3d-count {
-  margin-left: auto;
+  margin-inline-start: auto;
   color: var(--muted, #888);
   font-weight: normal;
   font-variant-numeric: tabular-nums;
 }
 .m3d-section > summary .m3d-count {
-  margin-left: 4px;
+  margin-inline-start: 4px;
 }
 .m3d-list,
 .m3d-tree,
@@ -6615,7 +6615,7 @@ select[size] {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  text-align: left;
+  text-align: start;
   background: none;
   border: 0;
   padding: 2px 4px;
@@ -6632,7 +6632,7 @@ input.m3d-name:focus {
   border-color: var(--accent);
 }
 .m3d-class {
-  margin-left: 6px;
+  margin-inline-start: 6px;
   color: var(--muted, #888);
   font-size: 11px;
 }
@@ -6724,7 +6724,7 @@ input.m3d-name:focus {
   padding: 6px 10px;
 }
 .m3d-props-head .m3d-class {
-  margin-left: 0;
+  margin-inline-start: 0;
 }
 .m3d-guid {
   flex-basis: 100%;
@@ -6743,7 +6743,7 @@ input.m3d-name:focus {
 .m3d-table th,
 .m3d-table td {
   padding: 2px 10px;
-  text-align: left;
+  text-align: start;
   vertical-align: top;
   overflow-wrap: anywhere;
   border-top: 1px solid var(--border, rgba(127, 127, 127, 0.15));
@@ -6776,12 +6776,12 @@ input.m3d-name:focus {
 .m3d-qty th,
 .m3d-qty td {
   padding: 2px 4px;
-  text-align: right;
+  text-align: end;
   white-space: nowrap;
 }
 .m3d-qty th:first-child,
 .m3d-qty td:first-child {
-  text-align: left;
+  text-align: start;
   white-space: normal;
   overflow-wrap: anywhere;
 }
