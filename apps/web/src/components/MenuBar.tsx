@@ -43,11 +43,13 @@ export type LeftTab =
   | 'sets'
   | 'sessions'
   | 'projects'
-  | 'markups';
+  | 'markups'
+  | 'model3d'
+  | 'model3dProps';
 export type BottomTab = 'markups' | 'links';
 
 /** Every panel, in the order Profiles lists them. */
-export const LEFT_TABS: readonly LeftTab[] = ['files', 'pages', 'bookmarks', 'toolchest', 'properties', 'layers', 'measurements', 'spaces', 'signatures', 'flags', 'stitching', 'geospatial', 'ai', 'search', 'forms', 'sets', 'sessions', 'projects', 'markups'];
+export const LEFT_TABS: readonly LeftTab[] = ['files', 'pages', 'bookmarks', 'toolchest', 'properties', 'layers', 'measurements', 'spaces', 'signatures', 'flags', 'stitching', 'geospatial', 'ai', 'search', 'forms', 'sets', 'sessions', 'projects', 'markups', 'model3d', 'model3dProps'];
 
 /** Each panel's name as shown. */
 export const leftTitles = (): Record<LeftTab, string> => ({
@@ -70,6 +72,8 @@ export const leftTitles = (): Record<LeftTab, string> => ({
   sessions: msg('Sessions'),
   projects: msg('Projects'),
   markups: msg('Markups'),
+  model3d: msg('3D Model'),
+  model3dProps: msg('3D Properties'),
 });
 
 export interface RecentFile {

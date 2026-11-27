@@ -32,6 +32,12 @@ export interface ModelState {
   /** Storey plans and elevations made from the models. */
   views: ModelViewEntry[];
   openView: string | null;
+  /** Goes up whenever the selection changes, so the Properties panel knows to look again. */
+  selectionVersion: number;
+  /** Goes up when models load or are shown or hidden, so the 3D panel lists them again. */
+  modelsVersion: number;
+  /** The colour profile shown (its id), or null. */
+  profileId: string | null;
 }
 
 export const INITIAL_STATE: ModelState = {
@@ -47,6 +53,9 @@ export const INITIAL_STATE: ModelState = {
   measurements: 0,
   views: [],
   openView: null,
+  selectionVersion: 0,
+  modelsVersion: 0,
+  profileId: null,
 };
 
 export type ModelAction =
@@ -65,10 +74,11 @@ export type ModelAction =
   | { type: 'showAll' }
   | { type: 'clearSelection' }
   | { type: 'openView'; id: string | null }
-  | { type: 'clearMeasurements' };
+  | { type: 'clearMeasurements' }
+  | BrowseAction;
 
 /** What the ribbon and commands can reach while a model is in front. */
-export interface ModelControls {
+export interface ModelControls extends ModelBrowser {
   state(): ModelState;
   run(action: ModelAction): void;
   /** Which way the camera looks, for the view cube: yaw about up (radians, 0 = looking north) and pitch (0 level, -π/2 straight down). */
@@ -133,4 +143,145 @@ export function orientationOf(dir: Vec3): { yaw: number; pitch: number } {
   const [x, y, z] = dir;
   const len = Math.hypot(x, y, z) || 1;
   return { yaw: Math.atan2(x, -z), pitch: Math.asin(Math.max(-1, Math.min(1, y / len))) };
+}
+
+// --- the 3D sidebar: models, the spatial tree, classes, properties, saved views, search sets and colours ---
+
+/** Elements by model: model id to the elements' local ids (plain data, so it can be kept and sent around). */
+export type ItemMap = Record<string, number[]>;
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  visible: boolean;
+  /** Elements with geometry. */
+  elements: number;
+}
+
+/** A node of a model's spatial structure (project, site, building, storey, element). */
+export interface TreeNode {
+  modelId: string;
+  localId: number | null;
+  /** IFC class, e.g. IFCBUILDINGSTOREY. */
+  category: string;
+  name: string;
+  children: TreeNode[];
+}
+
+/** Elements of one IFC class across the models. */
+export interface ClassEntry {
+  category: string;
+  count: number;
+  items: ItemMap;
+}
+
+export interface PropertyGroup {
+  /** 'Attributes', or a property or quantity set's name. */
+  title: string;
+  rows: [name: string, value: string][];
+}
+
+/** What is selected, for the Properties panel. */
+export interface SelectionInfo {
+  count: number;
+  /** The first selected element's name, class and properties (null when nothing is selected). */
+  first: { modelId: string; localId: number; name: string; category: string; guid: string | null; groups: PropertyGroup[] } | null;
+}
+
+/** A saved search: elements of a class (optional) whose property matches a value (optional). */
+export interface SearchSet {
+  id: string;
+  name: string;
+  /** IFC class, matched whole and ignoring case (e.g. IFCWALL); empty: any class. */
+  category: string;
+  /** Property or attribute name, matched whole and ignoring case; empty: no property test. */
+  property: string;
+  /** Text the value contains, ignoring case; empty: any value (the property only has to exist). */
+  value: string;
+}
+
+/** What a colour profile does to the elements of a set. */
+export type ColourAction = { kind: 'colour'; colour: string } | { kind: 'hide' } | { kind: 'ghost' };
+
+export interface ColourRule {
+  setId: string;
+  action: ColourAction;
+}
+
+/** Colours, hides or ghosts elements set by set; later rules win where sets overlap. */
+export interface ColourProfile {
+  id: string;
+  name: string;
+  rules: ColourRule[];
+}
+
+/** A camera, section box, hidden elements and colour profile, kept to come back to. */
+export interface SavedView {
+  id: string;
+  name: string;
+  camera: { position: Vec3; target: Vec3; projection: ModelProjection };
+  /** The section box's corners, or null for none. */
+  sectionBox: [Vec3, Vec3] | null;
+  /** Hidden elements by model, as IFC GlobalIds (they outlast a fresh conversion of the file). */
+  hidden: Record<string, string[]>;
+  ghost: boolean;
+  /** The colour profile shown (its id), or null. */
+  profileId: string | null;
+}
+
+/** What the 3D sidebar asks the view (beyond the ribbon's ModelControls). */
+export interface ModelBrowser {
+  models(): ModelInfo[];
+  tree(): Promise<TreeNode[]>;
+  classes(): Promise<ClassEntry[]>;
+  selection(): Promise<SelectionInfo>;
+  /** The elements a search set finds. */
+  find(set: SearchSet): Promise<ItemMap>;
+  /** The view as it is now, to save. */
+  capture(name: string, profileId: string | null): Promise<SavedView>;
+}
+
+/** Sidebar actions, run like the ribbon's. */
+export type BrowseAction =
+  | { type: 'modelVisible'; modelId: string; visible: boolean }
+  | { type: 'selectItems'; items: ItemMap; fit?: boolean }
+  | { type: 'isolateItems'; items: ItemMap }
+  | { type: 'itemsVisible'; items: ItemMap; visible: boolean }
+  | { type: 'applyView'; view: SavedView; profile: ResolvedProfile | null }
+  | { type: 'applyProfile'; id: string | null; profile: ResolvedProfile | null };
+
+/** A colour profile with each rule's set already searched: what the view applies. */
+export type ResolvedProfile = { items: ItemMap; action: ColourAction }[];
+
+/** Whether a search set has anything to search by (a class or a property). */
+export function searchable(set: SearchSet): boolean {
+  return !!(set.category.trim() || set.property.trim());
+}
+
+/** Whether an IFC class is the one a search set asks for (whole name, any case; no class asked: any). */
+export function matchesCategory(set: SearchSet, category: string): boolean {
+  const want = set.category.trim().toLowerCase();
+  return !want || category.toLowerCase() === want;
+}
+
+/** Elements in an ItemMap. */
+export function itemCount(items: ItemMap): number {
+  return Object.values(items).reduce((n, ids) => n + ids.length, 0);
+}
+
+/** Search sets from a JSON file (an exported list, or one set); malformed entries are skipped. */
+export function parseSearchSets(json: string): SearchSet[] {
+  const data: unknown = JSON.parse(json);
+  const list = Array.isArray(data) ? data : data && typeof data === 'object' && Array.isArray((data as { sets?: unknown }).sets) ? (data as { sets: unknown[] }).sets : [data];
+  const text = (v: unknown) => (typeof v === 'string' ? v : '');
+  return list
+    .filter((s): s is Record<string, unknown> => !!s && typeof s === 'object')
+    .map((s) => ({ id: text(s.id) || crypto.randomUUID(), name: text(s.name) || 'Search set', category: text(s.category), property: text(s.property), value: text(s.value) }))
+    .filter(searchable);
+}
+
+/** Distinct colours for colouring by class: evenly spaced hues, readable on white and dark backgrounds. */
+export function paletteColour(i: number): string {
+  const hue = Math.round((i * 137.508) % 360);
+  return `hsl(${hue}, 65%, 50%)`;
 }

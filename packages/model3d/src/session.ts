@@ -1,12 +1,43 @@
 import * as THREE from 'three';
 import * as OBC from '@thatopen/components';
 import * as OBF from '@thatopen/components-front';
+import type { FragmentsModel } from '@thatopen/fragments';
 import type { ConvertReply, ConvertRequest } from './convert.worker.ts';
-import { boxPlanes, directionOffset, INITIAL_STATE, orientationOf, padBox, type ModelAction, type ModelControls, type ModelState, type ModelTool, type ViewDirection } from './controls.ts';
+import {
+  boxPlanes,
+  directionOffset,
+  INITIAL_STATE,
+  matchesCategory,
+  orientationOf,
+  padBox,
+  searchable,
+  type ClassEntry,
+  type ItemMap,
+  type ModelAction,
+  type ModelControls,
+  type ModelInfo,
+  type ModelState,
+  type ModelTool,
+  type ResolvedProfile,
+  type SavedView,
+  type SearchSet,
+  type SelectionInfo,
+  type TreeNode,
+  type ViewDirection,
+} from './controls.ts';
+import { attrText, matchesProperty, propertyGroups, type RawItem } from './items.ts';
 
 type Measurer = OBF.LengthMeasurement | OBF.AreaMeasurement | OBF.AngleMeasurement | OBF.VolumeMeasurement;
 type MeasureTool = 'length' | 'area' | 'angle' | 'volume';
+type Vec3 = [number, number, number];
 const GHOST_OPACITY = 0.12;
+/** Elements asked for at a time when reading their data from the worker. */
+const CHUNK = 2000;
+/** Relations read for an element's properties: its property and quantity sets. */
+const WITH_PSETS = { attributesDefault: true, relations: { IsDefinedBy: { attributes: true, relations: true }, DefinesOccurrence: { attributes: false, relations: false } } };
+
+const toModelIdMap = (items: ItemMap): OBC.ModelIdMap => Object.fromEntries(Object.entries(items).map(([id, ids]) => [id, new Set(ids)]));
+const isEmpty = (map: OBC.ModelIdMap | null) => !map || !Object.values(map).some((s) => s.size);
 
 /** Where the viewer's own files are served (the fragments worker and web-ifc's wasm), e.g. `/model3d/`. */
 export interface ModelAssets {
@@ -28,6 +59,8 @@ export interface LoadOptions {
   fragments?: Uint8Array | null;
   onProgress?: (p: LoadProgress) => void;
   signal?: AbortSignal;
+  /** The name the 3D panel shows for the model (its file name). */
+  name?: string;
 }
 
 /**
@@ -48,6 +81,12 @@ export class ModelSession implements ModelControls {
   private highlighter: OBF.Highlighter | null = null;
   private grid: OBC.SimpleGrid | null = null;
   private boxPlaneIds: string[] = [];
+  /** The section box's corners while there is one. */
+  private boxCorners: [Vec3, Vec3] | null = null;
+  /** Elements a colour profile hides, kept apart from those hidden with Hide and Isolate. */
+  private profileHidden: OBC.ModelIdMap = {};
+  private readonly names = new Map<string, string>();
+  private readonly elementCounts = new Map<string, number>();
   private hidden: OBC.ModelIdMap | null = null;
   private readonly measurers = new Map<MeasureTool, Measurer>();
   private readonly offs: (() => void)[] = [];
@@ -129,7 +168,7 @@ export class ModelSession implements ModelControls {
       case 'fitAll':
         return this.fitAll();
       case 'fitSelection': {
-        const box = await this.boxOf(this.selection());
+        const box = await this.boxOf(this.selected());
         if (box) await camera.controls.fitToSphere(box.getBoundingSphere(new THREE.Sphere()), true);
         return;
       }
@@ -149,10 +188,11 @@ export class ModelSession implements ModelControls {
       case 'clearClips':
         this.components.get(OBC.Clipper).deleteAll();
         this.boxPlaneIds = [];
+        this.boxCorners = null;
         return this.update({ clipPlanes: 0, sectionBox: false });
       case 'isolate':
       case 'hide': {
-        const sel = this.selection();
+        const sel = this.selected();
         if (!sel) return;
         const hider = this.components.get(OBC.Hider);
         if (a.type === 'isolate') await hider.isolate(sel);
@@ -162,11 +202,7 @@ export class ModelSession implements ModelControls {
         return this.showHidden();
       }
       case 'showAll':
-        for (const model of this.fragments.list.values()) await model.resetOpacity(undefined);
-        await this.components.get(OBC.Hider).set(true);
-        this.hidden = null;
-        await this.fragments.core.update(true);
-        return this.update({ hidden: false });
+        return this.showAll();
       case 'clearSelection':
         await this.highlighter?.clear('select');
         return this.update({ selected: 0 });
@@ -179,7 +215,238 @@ export class ModelSession implements ModelControls {
       case 'clearMeasurements':
         for (const m of this.measurers.values()) m.list.clear();
         return this.update({ measurements: 0 });
+      case 'modelVisible': {
+        const model = this.fragments.list.get(a.modelId);
+        if (!model) return;
+        model.object.visible = a.visible;
+        await this.fragments.core.update(true);
+        return this.update({ modelsVersion: this.current.modelsVersion + 1 });
+      }
+      case 'selectItems': {
+        const h = this.highlighter;
+        if (!h) return;
+        if (this.current.tool !== 'select') this.setTool('select');
+        if (!Object.values(a.items).some((ids) => ids.length)) return void (await h.clear('select'));
+        await h.highlightByID('select', toModelIdMap(a.items), true, false);
+        if (a.fit) await this.apply({ type: 'fitSelection' });
+        return;
+      }
+      case 'isolateItems':
+      case 'itemsVisible': {
+        const hider = this.components.get(OBC.Hider);
+        const map = toModelIdMap(a.items);
+        if (a.type === 'isolateItems') await hider.isolate(map);
+        else await hider.set(a.visible, map);
+        this.hidden = await this.invisibleItems();
+        return this.showHidden();
+      }
+      case 'applyProfile':
+        return this.applyProfile(a.id, a.profile);
+      case 'applyView':
+        return this.applyView(a.view, a.profile);
     }
+  }
+
+  /** Shows every element again, at full strength and in its own colours (a colour profile goes too). */
+  private async showAll(): Promise<void> {
+    for (const model of this.fragments.list.values()) {
+      await model.resetOpacity(undefined);
+      await model.resetColor(undefined);
+    }
+    await this.components.get(OBC.Hider).set(true);
+    this.hidden = null;
+    this.profileHidden = {};
+    await this.fragments.core.update(true);
+    this.update({ hidden: false, profileId: null });
+  }
+
+  // --- what the 3D panel reads (ModelBrowser) ---
+
+  models(): ModelInfo[] {
+    return [...this.fragments.list].map(([id, model]) => ({ id, name: this.names.get(id) ?? id, visible: model.object.visible, elements: this.elementCounts.get(id) ?? 0 }));
+  }
+
+  async tree(): Promise<TreeNode[]> {
+    const out: TreeNode[] = [];
+    for (const [id, model] of this.fragments.list) {
+      const root = await model.getSpatialStructure();
+      type Spatial = typeof root;
+      const ids: number[] = [];
+      const collect = (n: Spatial) => {
+        if (n.localId !== null) ids.push(n.localId);
+        for (const c of n.children ?? []) collect(c);
+      };
+      collect(root);
+      const names = new Map<number, string>();
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const part = ids.slice(i, i + CHUNK);
+        const data = (await model.getItemsData(part, { attributesDefault: false, attributes: ['Name', 'LongName'] })) as RawItem[];
+        part.forEach((lid, j) => names.set(lid, attrText(data[j]?.Name) || attrText(data[j]?.LongName)));
+      }
+      // The structure groups items under their class (a node with a category and no id, holding nodes
+      // with an id and no category): a group of one item reads as that item, of its class.
+      const build = (n: Spatial, inherited = ''): TreeNode => {
+        const kids = n.children ?? [];
+        const only = kids[0];
+        if (n.localId === null && n.category && kids.length === 1 && only && only.localId !== null && !only.category) return build(only, n.category);
+        const category = n.category ?? inherited;
+        return {
+          modelId: id,
+          localId: n.localId,
+          category,
+          name: (n.localId !== null ? names.get(n.localId) : '') || category,
+          children: kids.map((c) => build(c, n.localId === null ? (n.category ?? '') : '')),
+        };
+      };
+      out.push({ modelId: id, localId: null, category: 'MODEL', name: this.names.get(id) ?? id, children: [build(root)] });
+    }
+    return out;
+  }
+
+  async classes(): Promise<ClassEntry[]> {
+    const by = new Map<string, ItemMap>();
+    for (const [id, model] of this.fragments.list) {
+      for (const [category, ids] of Object.entries(await this.itemsByCategory(model))) {
+        const entry = by.get(category) ?? {};
+        entry[id] = ids;
+        by.set(category, entry);
+      }
+    }
+    return [...by]
+      .map(([category, items]) => ({ category, items, count: Object.values(items).reduce((n, ids) => n + ids.length, 0) }))
+      .sort((a, b) => a.category.localeCompare(b.category));
+  }
+
+  /** A model's elements with geometry, by IFC class. */
+  private async itemsByCategory(model: FragmentsModel): Promise<Record<string, number[]>> {
+    const categories = [...new Set((await model.getItemsWithGeometryCategories()).filter((c): c is string => !!c))];
+    if (!categories.length) return {};
+    // IFC class names are letters, digits and underscores, so they need no escaping.
+    return model.getItemsOfCategories(categories.filter((c) => /^\w+$/.test(c)).map((c) => new RegExp(`^${c}$`)));
+  }
+
+  async selection(): Promise<SelectionInfo> {
+    const sel = this.selected();
+    if (!sel) return { count: 0, first: null };
+    const count = Object.values(sel).reduce((n, s) => n + s.size, 0);
+    const [modelId, ids] = Object.entries(sel).find(([, s]) => s.size)!;
+    const model = this.fragments.list.get(modelId);
+    const localId = ids.values().next().value as number;
+    if (!model) return { count, first: null };
+    const [item] = (await model.getItemsData([localId], WITH_PSETS)) as RawItem[];
+    if (!item) return { count, first: null };
+    return {
+      count,
+      first: { modelId, localId, name: attrText(item.Name), category: attrText(item._category), guid: attrText(item._guid) || null, groups: propertyGroups(item) },
+    };
+  }
+
+  async find(set: SearchSet): Promise<ItemMap> {
+    const out: ItemMap = {};
+    if (!searchable(set)) return out;
+    for (const [id, model] of this.fragments.list) {
+      const candidates = Object.entries(await this.itemsByCategory(model))
+        .filter(([category]) => matchesCategory(set, category))
+        .flatMap(([, ids]) => ids);
+      if (!set.property.trim()) {
+        if (candidates.length) out[id] = candidates;
+        continue;
+      }
+      const found: number[] = [];
+      for (let i = 0; i < candidates.length; i += CHUNK) {
+        const part = candidates.slice(i, i + CHUNK);
+        const data = (await model.getItemsData(part, WITH_PSETS)) as RawItem[];
+        part.forEach((lid, j) => {
+          const item = data[j];
+          if (item && matchesProperty(set, propertyGroups(item))) found.push(lid);
+        });
+      }
+      if (found.length) out[id] = found;
+    }
+    return out;
+  }
+
+  async capture(name: string, profileId: string | null): Promise<SavedView> {
+    const controls = this.world.camera.controls;
+    const hidden: Record<string, string[]> = {};
+    for (const [id, ids] of Object.entries(this.hidden ?? {})) {
+      const model = this.fragments.list.get(id);
+      if (!model || !ids.size) continue;
+      hidden[id] = (await model.getGuidsByLocalIds([...ids])).filter((g): g is string => !!g);
+    }
+    return {
+      id: crypto.randomUUID(),
+      name,
+      camera: {
+        position: controls.getPosition(new THREE.Vector3()).toArray(),
+        target: controls.getTarget(new THREE.Vector3()).toArray(),
+        projection: this.world.camera.projection.current,
+      },
+      sectionBox: this.boxCorners,
+      hidden,
+      ghost: this.current.ghost,
+      profileId,
+    };
+  }
+
+  /** Goes back to a saved view: its camera, section box, hidden elements and colour profile. */
+  private async applyView(view: SavedView, profile: ResolvedProfile | null): Promise<void> {
+    const camera = this.world.camera;
+    if (this.current.nav !== 'Orbit') camera.set('Orbit');
+    await camera.projection.set(view.camera.projection);
+    this.update({ nav: 'Orbit', projection: view.camera.projection });
+    const [p, t] = [view.camera.position, view.camera.target];
+    await camera.controls.setLookAt(p[0], p[1], p[2], t[0], t[1], t[2], true);
+    const clipper = this.components.get(OBC.Clipper);
+    clipper.deleteAll();
+    this.boxPlaneIds = [];
+    this.boxCorners = null;
+    if (view.sectionBox) this.makeSectionBox(...view.sectionBox);
+    else this.update({ sectionBox: false, clipPlanes: clipper.list.size });
+    await this.showAll();
+    const hide: OBC.ModelIdMap = {};
+    for (const [id, guids] of Object.entries(view.hidden)) {
+      const model = this.fragments.list.get(id);
+      if (!model || !guids.length) continue;
+      hide[id] = new Set((await model.getLocalIdsByGuids(guids)).filter((l): l is number => l !== null));
+    }
+    if (!isEmpty(hide)) await this.components.get(OBC.Hider).set(false, hide);
+    this.hidden = isEmpty(hide) ? null : hide;
+    this.update({ ghost: view.ghost });
+    await this.showHidden();
+    await this.applyProfile(view.profileId, profile);
+  }
+
+  /** Shows a colour profile (its sets already searched), taking off the one before; null shows none. */
+  private async applyProfile(id: string | null, profile: ResolvedProfile | null): Promise<void> {
+    for (const [mid, ids] of Object.entries(this.profileHidden)) {
+      const model = this.fragments.list.get(mid);
+      const stillHidden = this.hidden?.[mid];
+      const show = [...ids].filter((l) => !stillHidden?.has(l));
+      if (model && show.length) await model.setVisible(show, true);
+    }
+    this.profileHidden = {};
+    for (const model of this.fragments.list.values()) {
+      await model.resetColor(undefined);
+      await model.resetOpacity(undefined);
+    }
+    // Ghosted hidden elements lost their opacity with the reset above.
+    await this.showHidden();
+    for (const { items, action } of profile ?? []) {
+      for (const [mid, ids] of Object.entries(items)) {
+        const model = this.fragments.list.get(mid);
+        if (!model || !ids.length) continue;
+        if (action.kind === 'colour') await model.setColor(ids, new THREE.Color(action.colour));
+        else if (action.kind === 'ghost') await model.setOpacity(ids, GHOST_OPACITY);
+        else {
+          await model.setVisible(ids, false);
+          const set = (this.profileHidden[mid] ??= new Set());
+          for (const l of ids) set.add(l);
+        }
+      }
+    }
+    await this.fragments.core.update(true);
+    this.update({ profileId: profile ? id : null });
   }
 
   private update(patch: Partial<ModelState>): void {
@@ -205,7 +472,7 @@ export class ModelSession implements ModelControls {
   }
 
   /** The elements selected, or null. */
-  private selection(): OBC.ModelIdMap | null {
+  private selected(): OBC.ModelIdMap | null {
     const sel = this.highlighter?.selection.select;
     return sel && Object.values(sel).some((ids) => ids.size) ? sel : null;
   }
@@ -251,11 +518,17 @@ export class ModelSession implements ModelControls {
     if (this.boxPlaneIds.length) {
       for (const id of this.boxPlaneIds) await clipper.delete(this.world, id);
       this.boxPlaneIds = [];
+      this.boxCorners = null;
       return this.update({ sectionBox: false, clipPlanes: clipper.list.size });
     }
-    const box = await this.boxOf(this.selection());
+    const box = await this.boxOf(this.selected());
     if (!box) return;
-    const [min, max] = padBox(box.min.toArray(), box.max.toArray());
+    this.makeSectionBox(...padBox(box.min.toArray(), box.max.toArray()));
+  }
+
+  private makeSectionBox(min: Vec3, max: Vec3): void {
+    const clipper = this.components.get(OBC.Clipper);
+    this.boxCorners = [min, max];
     clipper.enabled = true;
     this.boxPlaneIds = boxPlanes(min, max).map(({ normal, point }) =>
       clipper.createFromNormalAndCoplanarPoint(this.world, new THREE.Vector3(...normal), new THREE.Vector3(...point)),
@@ -327,7 +600,8 @@ export class ModelSession implements ModelControls {
       const h = this.components.get(OBF.Highlighter);
       h.setup({ world: this.world, selectMaterialDefinition: { color: new THREE.Color('#2f9bff'), opacity: 1, transparent: false, renderedFaces: 0 } });
       h.zoomToSelection = false;
-      const count = () => this.update({ selected: Object.values(h.selection.select ?? {}).reduce((n, s) => n + s.size, 0) });
+      const count = () =>
+        this.update({ selected: Object.values(h.selection.select ?? {}).reduce((n, s) => n + s.size, 0), selectionVersion: this.current.selectionVersion + 1 });
       h.events.select?.onHighlight.add(count);
       h.events.select?.onClear.add(count);
       h.enabled = this.current.tool === 'select';
@@ -368,8 +642,11 @@ export class ModelSession implements ModelControls {
     if (this.disposed) throw new DOMException('The view was closed.', 'AbortError');
     options.onProgress?.({ stage: 'load', fraction: 0 });
     // The worker takes the buffer it is given, so keep our own copy to return.
-    await this.fragments.core.load(frags.slice(), { modelId, camera: this.world.camera.three });
+    const model = await this.fragments.core.load(frags.slice(), { modelId, camera: this.world.camera.three });
     options.onProgress?.({ stage: 'load', fraction: 1 });
+    this.names.set(modelId, options.name ?? modelId);
+    this.elementCounts.set(modelId, Object.values(await this.itemsByCategory(model)).reduce((n, ids) => n + ids.length, 0));
+    this.update({ modelsVersion: this.current.modelsVersion + 1 });
     await this.fitAll();
     this.setupSelection();
     // Storey plans and elevations follow; the model is usable while they are made.

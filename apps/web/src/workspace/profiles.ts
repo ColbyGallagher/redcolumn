@@ -108,6 +108,8 @@ export interface WorkspaceState {
   panelOrder: string[];
   /** Panels docked on the right-hand side of the window; the rest sit on the left. */
   rightPanels: string[];
+  /** Panels that start on the right (RIGHT_BY_DEFAULT) already placed there once, so moving one left sticks. */
+  placedPanels: string[];
   /** The Markups list is docked in a side panel (the side is `rightPanels`') instead of the bottom dock. */
   markupsDocked: boolean;
   showToolbar: boolean;
@@ -161,6 +163,9 @@ const RECENT_LIMIT = 12;
 /** The toolbar a new profile starts with; the rest are added from the toolbar's right-click menu. */
 export const DEFAULT_TOOLBAR_TOOLS: Tool[] = ['line', 'polyline', 'rect', 'ellipse', 'cloud', 'cloudPlus', 'pen', 'highlighter', 'text', 'callout', 'stamp'];
 
+/** Panels that start docked on the right: the 3D model's properties sit opposite its tree. */
+export const RIGHT_BY_DEFAULT: readonly string[] = ['model3dProps'];
+
 export function defaultWorkspace(): WorkspaceState {
   return {
     toolChests: [
@@ -170,7 +175,8 @@ export function defaultWorkspace(): WorkspaceState {
     toolbarTools: [...DEFAULT_TOOLBAR_TOOLS],
     hiddenPanels: [],
     panelOrder: [],
-    rightPanels: [],
+    rightPanels: [...RIGHT_BY_DEFAULT],
+    placedPanels: [...RIGHT_BY_DEFAULT],
     markupsDocked: false,
     showToolbar: true,
     toolbarStyle: 'ribbon',
@@ -201,6 +207,13 @@ interface Saved {
 function upgrade(state: Partial<WorkspaceState>): WorkspaceState {
   const d = defaultWorkspace();
   const next: WorkspaceState = { ...d, ...state, list: { ...d.list, ...state.list } };
+  // Panels added since the profile was saved that start on the right go there, once.
+  const placed = state.placedPanels ?? [];
+  const newRight = RIGHT_BY_DEFAULT.filter((id) => !placed.includes(id));
+  if (newRight.length) {
+    next.rightPanels = [...(state.rightPanels ?? []).filter((id) => !newRight.includes(id)), ...newRight];
+    next.placedPanels = [...placed, ...newRight];
+  }
   if ('customColors' in state) next.customColors = cleanCustomColors(state.customColors);
   return next;
 }
