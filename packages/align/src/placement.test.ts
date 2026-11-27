@@ -57,15 +57,18 @@ const baseWords = (dx = 0, dy = 0, omitB = false): TextWordBox[] => [
 test('alignPages and suggestPlacement carry comments accurately across a shifted revision', () => {
   const oldMask = miniPlan(0, 0);
   const newMask = miniPlan(14, -9);
-  const alignment = alignPages({
-    oldSize: { width: 400, height: 300 },
-    newSize: { width: 400, height: 300 },
-    oldMask,
-    newMask,
-    scale: 1,
-    oldWords: baseWords(0, 0),
-    newWords: baseWords(14, -9),
-  });
+  const alignment = alignPages(
+    {
+      oldSize: { width: 400, height: 300 },
+      newSize: { width: 400, height: 300 },
+      oldMask,
+      newMask,
+      scale: 1,
+      oldWords: baseWords(0, 0),
+      newWords: baseWords(14, -9),
+    },
+    { retainEvidence: true },
+  );
 
   assert.deepEqual(alignment.offset, [14, -9]);
   assert.ok(alignment.confidence > 0.9, `expected high confidence, got ${alignment.confidence}`);
@@ -88,15 +91,18 @@ test('alignPages and suggestPlacement carry comments accurately across a shifted
 test('suggestPlacement declines deleted content while placing surviving comments on the same sheet', () => {
   const oldMask = miniPlan(0, 0, false);
   const newMask = miniPlan(6, 4, true);
-  const alignment = alignPages({
-    oldSize: { width: 400, height: 300 },
-    newSize: { width: 400, height: 300 },
-    oldMask,
-    newMask,
-    scale: 1,
-    oldWords: baseWords(0, 0, false),
-    newWords: baseWords(6, 4, true),
-  });
+  const alignment = alignPages(
+    {
+      oldSize: { width: 400, height: 300 },
+      newSize: { width: 400, height: 300 },
+      oldMask,
+      newMask,
+      scale: 1,
+      oldWords: baseWords(0, 0, false),
+      newWords: baseWords(6, 4, true),
+    },
+    { retainEvidence: true },
+  );
 
   assert.ok(alignment.confidence > 0.65);
 
@@ -115,13 +121,16 @@ test('suggestPlacement declines deleted content while placing surviving comments
 test('suggestPlacement declines heavily redrawn content locally', () => {
   const oldMask = miniPlan(0, 0, false, false);
   const newMask = miniPlan(0, 0, false, true);
-  const alignment = alignPages({
-    oldSize: { width: 400, height: 300 },
-    newSize: { width: 400, height: 300 },
-    oldMask,
-    newMask,
-    scale: 1,
-  });
+  const alignment = alignPages(
+    {
+      oldSize: { width: 400, height: 300 },
+      newSize: { width: 400, height: 300 },
+      oldMask,
+      newMask,
+      scale: 1,
+    },
+    { retainEvidence: true },
+  );
 
   const onRedrawnC = suggestPlacement(alignment, { points: [[105, 185], [165, 235]] });
   assert.equal(onRedrawnC.kind, 'none');
@@ -205,4 +214,107 @@ test('suggestPlacement rejects empty geometry and out-of-bounds geometry', () =>
   const oob = suggestPlacement(alignment, { points: [[500, 400], [550, 450]] });
   assert.equal(oob.kind, 'none');
   if (oob.kind === 'none') assert.equal(oob.reason, 'out-of-bounds');
+
+  // A box whose centre falls outside the page (e.g. 95% off-page) is also rejected as out-of-bounds.
+  const mostlyOff = suggestPlacement(alignment, { points: [[395, 100], [495, 150]] });
+  assert.equal(mostlyOff.kind, 'none');
+  if (mostlyOff.kind === 'none') assert.equal(mostlyOff.reason, 'out-of-bounds');
+});
+
+test('alignPages omits full-page evidence by default and validates scale', () => {
+  const oldMask = miniPlan(0, 0);
+  const withoutEvidence = alignPages({
+    oldSize: { width: 400, height: 300 },
+    newSize: { width: 400, height: 300 },
+    oldMask,
+    newMask: oldMask,
+    scale: 1,
+  });
+  assert.equal(withoutEvidence.evidence, undefined);
+
+  const withEvidence = alignPages(
+    {
+      oldSize: { width: 400, height: 300 },
+      newSize: { width: 400, height: 300 },
+      oldMask,
+      newMask: oldMask,
+      scale: 1,
+    },
+    { retainEvidence: true },
+  );
+  assert.ok(withEvidence.evidence);
+
+  assert.throws(
+    () =>
+      alignPages({
+        oldSize: { width: 400, height: 300 },
+        newSize: { width: 400, height: 300 },
+        oldMask,
+        newMask: oldMask,
+        scale: 0,
+      }),
+    RangeError,
+  );
+  assert.throws(
+    () =>
+      alignPages({
+        oldSize: { width: 400, height: 300 },
+        newSize: { width: 400, height: 300 },
+        oldMask,
+        newMask: oldMask,
+        scale: 1,
+        oldScale: -2,
+      }),
+    RangeError,
+  );
+});
+
+test('suggestPlacement does not double-rotate box markups under a 90-degree rotating transform', () => {
+  // 90° clockwise rotation about the origin shifted by (+200, 0): (x, y) -> (200 - y, x).
+  const oldMask = blank(200, 200);
+  const newMask = blank(200, 200);
+  strokeRect(oldMask, 40, 40, 80, 20, 2);
+  // Under (x, y) -> (200 - y, x), the 80x20 box [40..120]x[40..60] lands on [140..160]x[40..120].
+  strokeRect(newMask, 140, 40, 20, 80, 2);
+
+  const alignment = alignPages(
+    {
+      oldSize: { width: 200, height: 200 },
+      newSize: { width: 200, height: 200 },
+      oldMask,
+      newMask,
+      scale: 1,
+    },
+    { transform: [0, 1, -1, 0, 200, 0], align: false, retainEvidence: true },
+  );
+
+  const sug = suggestPlacement(alignment, {
+    points: [
+      [40, 40],
+      [120, 60],
+    ],
+    rotation: 0,
+  });
+  assert.equal(sug.kind, 'suggested');
+  // Centre (80, 50) maps to (150, 80); unrotated box stays 80x20 around (150, 80), with rotation = 90°.
+  assert.equal(sug.geometry.rotation, 90);
+  assert.deepEqual(sug.geometry.points, [
+    [110, 70],
+    [190, 90],
+  ]);
+
+  // Also verify non-zero initial rotation accumulates cleanly.
+  const sugRotated = suggestPlacement(alignment, {
+    points: [
+      [40, 40],
+      [120, 60],
+    ],
+    rotation: 30,
+  });
+  assert.equal(sugRotated.kind, 'suggested');
+  assert.equal(sugRotated.geometry.rotation, 120);
+  assert.deepEqual(sugRotated.geometry.points, [
+    [110, 70],
+    [190, 90],
+  ]);
 });

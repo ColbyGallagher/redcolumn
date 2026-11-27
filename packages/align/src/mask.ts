@@ -3,7 +3,7 @@
  * typed arrays so it runs in both browser workers and Node without DOM or canvas APIs.
  */
 
-import { applyAffine, affineScale, type Affine, type Box } from './affine.ts';
+import { affineScale, type Affine, type Box } from './affine.ts';
 
 /** A binary mask: one byte per pixel, 1 where there is ink. */
 export interface Mask {
@@ -241,9 +241,4 @@ export function measureMaskOverlap(a: Mask, b: Mask, dx = 0, dy = 0, proximity =
   const dilatedOld = dilate(aligned, proximity);
   const dilatedNew = dilate(b, proximity);
   return overlapMetricsFromDilated(aligned, b, dilatedOld, dilatedNew, region);
-}
-
-/** Maps a pixel box through an affine transform in page space (helper for tests/diagnostics). */
-export function mapMaskPoint(m: Affine, x: number, y: number): [number, number] {
-  return applyAffine(m, [x, y]);
 }

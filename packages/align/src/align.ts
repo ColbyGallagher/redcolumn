@@ -51,7 +51,11 @@ export interface PageAlignOptions {
   borderInset?: number;
   /** Tolerance in points when matching page text words. Default 4. */
   wordTolerance?: number;
-  /** Retain aligned masks and words on the result so placement suggestions can verify local regions. Default true. */
+  /**
+   * Retain aligned full-page masks and words on the result so placement suggestions can verify
+   * local regions. Keeps four full-page masks (up to ~200 MB per page pair at the 7000 px cap),
+   * so this defaults to `false` — opt in only when running local placement checks.
+   */
   retainEvidence?: boolean;
 }
 
@@ -62,7 +66,7 @@ export const DEFAULT_ALIGN_OPTIONS: Required<Omit<PageAlignOptions, 'transform'>
   proximity: 1.5,
   borderInset: 0.06,
   wordTolerance: 4,
-  retainEvidence: true,
+  retainEvidence: false,
 };
 
 /** Aligned masks and text retained for local verification around individual comments. */
@@ -187,6 +191,9 @@ export function alignPages(input: PageAlignInput, options: PageAlignOptions = {}
 
   const { oldSize, newSize, oldMask, newMask, scale } = input;
   const oldScale = input.oldScale ?? scale;
+  if (!Number.isFinite(scale) || scale <= 0 || !Number.isFinite(oldScale) || oldScale <= 0) {
+    throw new RangeError(`alignPages requires positive finite scale and oldScale (got scale=${scale}, oldScale=${oldScale})`);
+  }
   const pre = preAlignTransform(oldSize, newSize, { transform: options.transform, scaleToFit });
 
   const preMask =

@@ -43,6 +43,8 @@ export interface RevisionPairFixture {
   newPdf: Uint8Array;
   oldSheets: string[];
   newSheets: string[];
+  /** Ground-truth page-index pairs for confirmed sheet pairing mode (independent of comments). */
+  sheetPairs: { oldPage: number; newPage: number }[];
   comments: GroundTruthComment[];
 }
 
@@ -55,6 +57,18 @@ function mulberry32(seed: number): () => number {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+function randInt(rnd: () => number, min: number, max: number): number {
+  return Math.floor(rnd() * (max - min + 1)) + min;
+}
+
+function randRange(rnd: () => number, min: number, max: number): number {
+  return min + rnd() * (max - min);
+}
+
+function randSign(rnd: () => number): number {
+  return rnd() < 0.5 ? -1 : 1;
 }
 
 function pdfEscape(s: string): string {
@@ -624,6 +638,7 @@ function drawDetailBox(
     | 'window-head-v2'
     | 'canopy',
   label: string,
+  lintelShift = -28,
 ) {
   const W = 320;
   const H = 260;
@@ -690,8 +705,8 @@ function drawDetailBox(
     pb.text(x + 52, y + 66, '150 RC SLAB EDGE', 8);
     pb.text(x + 185, y + 195, 'EDGE BEAM 300x450', 7.5);
   } else if (kind === 'window-head-v1' || kind === 'window-head-v2') {
-    // Window head: v2 raises lintel & flashing by 28 pt and changes mullion profile.
-    const dy = kind === 'window-head-v2' ? -28 : 0;
+    // Window head: v2 raises lintel & flashing by `lintelShift` pt and changes mullion profile.
+    const dy = kind === 'window-head-v2' ? lintelShift : 0;
     pb.lineWidth(1.2);
     pb.rect(x + 120, y + 25, 70, 82 + dy); // upper masonry
     pb.hatchRect(x + 120, y + 25, 70, 82 + dy, 10);
@@ -740,24 +755,28 @@ function drawNotesBlock(pb: PageBuilder, x: number, y: number) {
 
 /** Case 1: Unchanged control (minor title-block rev bump + small plot margin shift). */
 function makeUnchangedCase(seed: number): RevisionPairFixture {
+  const rnd = mulberry32(seed);
   const W = ARCH_C.width;
   const H = ARCH_C.height;
 
-  // Sheet 0 (A-101): identical geometry, rev bump + small unrelated note.
+  // Sheet 0 (A-101): identical geometry, rev bump + small unrelated note, plan origin jittered by seed.
+  const ox0 = 90 + randInt(rnd, -16, 16);
+  const oy0 = 120 + randInt(rnd, -16, 16);
+  const plan0Shift = translate(ox0 - 90, oy0 - 120);
   const old0 = new PageBuilder(W, H);
   old0.titleBlock('A-101', 'LEVEL 1 FLOOR PLAN', 'A', '1:100');
-  drawFloorPlan(old0, 90, 120, { seed: seed + 1 });
+  drawFloorPlan(old0, ox0, oy0, { seed: seed + 1 });
   drawDetailBox(old0, 1140, 140, 'slab-edge', 'DETAIL 1 - SLAB EDGE');
   drawNotesBlock(old0, 1140, 460);
 
   const new0 = new PageBuilder(W, H);
   new0.titleBlock('A-101', 'LEVEL 1 FLOOR PLAN', 'B', '1:100');
-  drawFloorPlan(new0, 90, 120, { seed: seed + 1, extraNote: true });
+  drawFloorPlan(new0, ox0, oy0, { seed: seed + 1, extraNote: true });
   drawDetailBox(new0, 1140, 140, 'slab-edge', 'DETAIL 1 - SLAB EDGE');
   drawNotesBlock(new0, 1140, 460);
 
-  // Sheet 1 (A-102): re-plotted with a small plotter shift (+18, -12) pt.
-  const shift = translate(18, -12);
+  // Sheet 1 (A-102): re-plotted with a seed-driven plotter shift within maxShift.
+  const shift = translate(randSign(rnd) * randInt(rnd, 10, 32), randSign(rnd) * randInt(rnd, 8, 24));
   const old1 = new PageBuilder(W, H);
   old1.titleBlock('A-102', 'LEVEL 2 FLOOR PLAN', 'A', '1:100');
   drawFloorPlan(old1, 90, 120, { seed: seed + 2 });
@@ -771,10 +790,10 @@ function makeUnchangedCase(seed: number): RevisionPairFixture {
   });
 
   const s0Geoms: [string, CommentGeometry][] = [
-    ['Lobby door D-01 swing', boxComment(225, 385, 65, 55)],
-    ['Office 102 label & desks', boxComment(395, 295, 115, 75)],
-    ['AHU-01 unit callout', calloutComment(225, 745, 290, 770)],
-    ['DB-01 panel box', boxComment(690, 725, 85, 60)],
+    ['Lobby door D-01 swing', mapGeometry(plan0Shift, boxComment(225, 385, 65, 55))],
+    ['Office 102 label & desks', mapGeometry(plan0Shift, boxComment(395, 295, 115, 75))],
+    ['AHU-01 unit callout', mapGeometry(plan0Shift, calloutComment(225, 745, 290, 770))],
+    ['DB-01 panel box', mapGeometry(plan0Shift, boxComment(690, 725, 85, 60))],
     ['Slab edge detail callout', boxComment(1180, 215, 185, 80)],
     ['General note 4', boxComment(1150, 570, 220, 32)],
   ];
@@ -814,17 +833,22 @@ function makeUnchangedCase(seed: number): RevisionPairFixture {
     newPdf: buildPdf([new0, new1]),
     oldSheets: ['A-101', 'A-102'],
     newSheets: ['A-101', 'A-102'],
+    sheetPairs: [
+      { oldPage: 0, newPage: 0 },
+      { oldPage: 1, newPage: 1 },
+    ],
     comments,
   };
 }
 
 /** Case 2: Moved views (one detail moved across sheet; whole plan shifted inside fixed border). */
 function makeMovedViewsCase(seed: number): RevisionPairFixture {
+  const rnd = mulberry32(seed);
   const W = ARCH_C.width;
   const H = ARCH_C.height;
 
-  // Sheet 0 (A-103): Plan & Detail 1 stationary; Detail 2 moves (-360, +330) into lower-mid slot.
-  const detailMove = translate(-360, 330);
+  // Sheet 0 (A-103): Plan & Detail 1 stationary; Detail 2 moves into lower-mid slot by a seed-driven offset.
+  const detailMove = translate(-360 + randInt(rnd, -40, 40), 330 + randInt(rnd, -30, 30));
   const old0 = new PageBuilder(W, H);
   old0.titleBlock('A-103', 'PLAN AND DETAILS', 'A', '1:100');
   drawFloorPlan(old0, 80, 100, { seed: seed + 10, omitAnnex: true });
@@ -839,8 +863,8 @@ function makeMovedViewsCase(seed: number): RevisionPairFixture {
     drawDetailBox(new0, 1180, 410, 'parapet-v1', 'DETAIL 2 - PARAPET');
   });
 
-  // Sheet 1 (A-104): Main floor plan shifted (+115, +78) inside fixed border/title block (> maxShift 72pt).
-  const bigPlanMove = translate(115, 78);
+  // Sheet 1 (A-104): Main floor plan shifted inside fixed border/title block (> maxShift 72pt).
+  const bigPlanMove = translate(randInt(rnd, 95, 150), randInt(rnd, 60, 105));
   const old1 = new PageBuilder(W, H);
   old1.titleBlock('A-104', 'WEST WING PLAN', 'A', '1:100');
   drawFloorPlan(old1, 90, 90, { seed: seed + 11 });
@@ -851,9 +875,9 @@ function makeMovedViewsCase(seed: number): RevisionPairFixture {
     drawFloorPlan(new1, 90, 90, { seed: seed + 11 });
   });
 
-  // Sheet 2 (A-105): Plan shifted (+42, -28) inside fixed border/title block (within maxShift 72pt),
+  // Sheet 2 (A-105): Plan shifted moderately inside fixed border/title block (within maxShift 72pt),
   // while the notes block stays stationary.
-  const modPlanMove = translate(42, -28);
+  const modPlanMove = translate(randSign(rnd) * randInt(rnd, 24, 54), randSign(rnd) * randInt(rnd, 18, 42));
   const old2 = new PageBuilder(W, H);
   old2.titleBlock('A-105', 'EAST WING PLAN', 'A', '1:100');
   drawFloorPlan(old2, 90, 140, { seed: seed + 12 });
@@ -945,16 +969,29 @@ function makeMovedViewsCase(seed: number): RevisionPairFixture {
     newPdf: buildPdf([new0, new1, new2]),
     oldSheets: ['A-103', 'A-104', 'A-105'],
     newSheets: ['A-103', 'A-104', 'A-105'],
+    sheetPairs: [
+      { oldPage: 0, newPage: 0 },
+      { oldPage: 1, newPage: 1 },
+      { oldPage: 2, newPage: 2 },
+    ],
     comments,
   };
 }
 
 /** Case 3: Changed scale (paper-size rescale + in-sheet viewport rescale + single detail enlarge). */
 function makeChangedScaleCase(seed: number): RevisionPairFixture {
+  const rnd = mulberry32(seed);
   const W = ARCH_C.width;
   const H = ARCH_C.height;
   const kPaper = REDUCED_SHEET.width / ARCH_C.width; // 2/3
-  const paperTransform: Affine = [kPaper, 0, 0, kPaper, 9, -6];
+  const paperTransform: Affine = [
+    kPaper,
+    0,
+    0,
+    kPaper,
+    randSign(rnd) * randInt(rnd, 4, 18),
+    randSign(rnd) * randInt(rnd, 4, 14),
+  ];
 
   // Sheet 0 (A-106): Whole sheet rescaled from ARCH C (1728×1296) to reduced (1152×864) + plot shift.
   const old0 = new PageBuilder(W, H);
@@ -969,8 +1006,9 @@ function makeChangedScaleCase(seed: number): RevisionPairFixture {
     drawDetailBox(new0, 1140, 140, 'slab-edge', 'DETAIL 1 - SLAB EDGE');
   });
 
-  // Sheet 1 (A-107): Same ARCH C paper & title block, plan viewport rescaled 1.25× about its centre.
-  const planScale = scaleAbout(570, 500, 1.25);
+  // Sheet 1 (A-107): Same ARCH C paper & title block, plan viewport rescaled about its centre.
+  const kPlan = Number(randRange(rnd, 1.15, 1.32).toFixed(2));
+  const planScale = scaleAbout(570, 500, kPlan);
   const old1 = new PageBuilder(W, H);
   old1.titleBlock('A-107', 'ENLARGED FLOOR PLAN', 'A', '1:100');
   drawFloorPlan(old1, 90, 120, { seed: seed + 21 });
@@ -981,8 +1019,9 @@ function makeChangedScaleCase(seed: number): RevisionPairFixture {
     drawFloorPlan(new1, 90, 120, { seed: seed + 21 });
   });
 
-  // Sheet 2 (A-108): Same ARCH C paper, plan unchanged, Detail 1 enlarged 1.45× inside its zone.
-  const detailScale = scaleAbout(1300, 270, 1.45);
+  // Sheet 2 (A-108): Same ARCH C paper, plan unchanged, Detail 1 enlarged inside its zone.
+  const kDetail = Number(randRange(rnd, 1.25, 1.55).toFixed(2));
+  const detailScale = scaleAbout(1300, 270, kDetail);
   const old2 = new PageBuilder(W, H);
   old2.titleBlock('A-108', 'PLAN AND ENLARGED DETAIL', 'A', '1:100 / 1:20');
   drawFloorPlan(old2, 90, 120, { seed: seed + 22, omitAnnex: true });
@@ -1066,6 +1105,11 @@ function makeChangedScaleCase(seed: number): RevisionPairFixture {
     newPdf: buildPdf([new0, new1, new2]),
     oldSheets: ['A-106', 'A-107', 'A-108'],
     newSheets: ['A-106', 'A-107', 'A-108'],
+    sheetPairs: [
+      { oldPage: 0, newPage: 0 },
+      { oldPage: 1, newPage: 1 },
+      { oldPage: 2, newPage: 2 },
+    ],
     comments,
   };
 }
@@ -1077,15 +1121,30 @@ function makeChangedScaleCase(seed: number): RevisionPairFixture {
  *          S-104 (old roof), S-201 (old sections, renamed).
  */
 function makeRenumberedSheetsCase(seed: number): RevisionPairFixture {
+  const rnd = mulberry32(seed);
   const W = ARCH_C.width;
   const H = ARCH_C.height;
 
-  const makeSheet = (sheetNo: string, title: string, rev: string, variant: 'architectural' | 'framing' | 'roof' | 'demolition' | 'sections', s: number) => {
+  const makeSheet = (
+    sheetNo: string,
+    title: string,
+    rev: string,
+    variant: 'architectural' | 'framing' | 'roof' | 'demolition' | 'sections',
+    s: number,
+    shift: Affine = IDENTITY,
+  ) => {
     const pb = new PageBuilder(W, H);
-    pb.titleBlock(sheetNo, title, rev, '1:100');
-    drawFloorPlan(pb, 90, 120, { seed: s, variant });
+    pb.withTransform(shift, () => {
+      pb.titleBlock(sheetNo, title, rev, '1:100');
+      drawFloorPlan(pb, 90, 120, { seed: s, variant });
+    });
     return pb;
   };
+
+  const s0Shift = translate(randSign(rnd) * randInt(rnd, 4, 16), randSign(rnd) * randInt(rnd, 4, 14));
+  const s1Shift = translate(randSign(rnd) * randInt(rnd, 4, 16), randSign(rnd) * randInt(rnd, 4, 14));
+  const s2Shift = translate(randSign(rnd) * randInt(rnd, 4, 16), randSign(rnd) * randInt(rnd, 4, 14));
+  const s3Shift = translate(randSign(rnd) * randInt(rnd, 4, 16), randSign(rnd) * randInt(rnd, 4, 14));
 
   const oldPages = [
     makeSheet('S-101', 'GROUND FLOOR LAYOUT', 'A', 'architectural', seed + 30),
@@ -1095,11 +1154,11 @@ function makeRenumberedSheetsCase(seed: number): RevisionPairFixture {
   ];
 
   const newPages = [
-    makeSheet('S-101', 'GROUND FLOOR LAYOUT', 'B', 'architectural', seed + 30),
+    makeSheet('S-101', 'GROUND FLOOR LAYOUT', 'B', 'architectural', seed + 30, s0Shift),
     makeSheet('S-102', 'DEMOLITION PLAN', 'B', 'demolition', seed + 34),
-    makeSheet('S-103', 'STEEL FRAMING PLAN', 'B', 'framing', seed + 31),
-    makeSheet('S-104', 'ROOF PLAN', 'B', 'roof', seed + 32),
-    makeSheet('S-201', 'BUILDING SECTIONS', 'B', 'sections', seed + 33),
+    makeSheet('S-103', 'STEEL FRAMING PLAN', 'B', 'framing', seed + 31, s1Shift),
+    makeSheet('S-104', 'ROOF PLAN', 'B', 'roof', seed + 32, s2Shift),
+    makeSheet('S-201', 'BUILDING SECTIONS', 'B', 'sections', seed + 33, s3Shift),
   ];
 
   const comments: GroundTruthComment[] = [
@@ -1115,7 +1174,7 @@ function makeRenumberedSheetsCase(seed: number): RevisionPairFixture {
       description: description as string,
       oldPage: 0,
       oldGeometry: oldGeometry as CommentGeometry,
-      expected: { newPage: 0, geometry: oldGeometry as CommentGeometry },
+      expected: { newPage: 0, geometry: mapGeometry(s0Shift, oldGeometry as CommentGeometry) },
     })),
     // Old 1 (S-102 framing) -> New 2 (now S-103 framing): number collided with new Demolition S-102.
     ...[
@@ -1129,7 +1188,7 @@ function makeRenumberedSheetsCase(seed: number): RevisionPairFixture {
       description: description as string,
       oldPage: 1,
       oldGeometry: oldGeometry as CommentGeometry,
-      expected: { newPage: 2, geometry: oldGeometry as CommentGeometry },
+      expected: { newPage: 2, geometry: mapGeometry(s1Shift, oldGeometry as CommentGeometry) },
     })),
     // Old 2 (S-103 roof) -> New 3 (now S-104 roof): number collided with shifted Framing S-103.
     ...[
@@ -1143,7 +1202,7 @@ function makeRenumberedSheetsCase(seed: number): RevisionPairFixture {
       description: description as string,
       oldPage: 2,
       oldGeometry: oldGeometry as CommentGeometry,
-      expected: { newPage: 3, geometry: oldGeometry as CommentGeometry },
+      expected: { newPage: 3, geometry: mapGeometry(s2Shift, oldGeometry as CommentGeometry) },
     })),
     // Old 3 (S-104 sections) -> New 4 (renamed S-201): no S-104 partner for sections.
     ...[
@@ -1157,7 +1216,7 @@ function makeRenumberedSheetsCase(seed: number): RevisionPairFixture {
       description: description as string,
       oldPage: 3,
       oldGeometry: oldGeometry as CommentGeometry,
-      expected: { newPage: 4, geometry: oldGeometry as CommentGeometry },
+      expected: { newPage: 4, geometry: mapGeometry(s3Shift, oldGeometry as CommentGeometry) },
     })),
   ];
 
@@ -1169,75 +1228,93 @@ function makeRenumberedSheetsCase(seed: number): RevisionPairFixture {
     newPdf: buildPdf(newPages),
     oldSheets: ['S-101', 'S-102', 'S-103', 'S-104'],
     newSheets: ['S-101', 'S-102', 'S-103', 'S-104', 'S-201'],
+    sheetPairs: [
+      { oldPage: 0, newPage: 0 },
+      { oldPage: 1, newPage: 2 },
+      { oldPage: 2, newPage: 3 },
+      { oldPage: 3, newPage: 4 },
+    ],
     comments,
   };
 }
 
 /** Case 5: Redrawn details (unchanged, lightly edited, reworked-shifted, and redesigned-away). */
-function makeRedrawnDetailsCase(_seed: number): RevisionPairFixture {
+function makeRedrawnDetailsCase(seed: number): RevisionPairFixture {
+  const rnd = mulberry32(seed);
   const W = ARCH_C.width;
   const H = ARCH_C.height;
 
+  // Seed-driven detail slot jitter, lintel raise amount, and Sheet 1 plotter shift.
+  const jx = randInt(rnd, -24, 24);
+  const jy = randInt(rnd, -20, 20);
+  const lintelDy = -randInt(rnd, 20, 36);
+  const s1dx = randSign(rnd) * randInt(rnd, 6, 24);
+  const s1dy = randSign(rnd) * randInt(rnd, 6, 20);
+  const s1Shift = translate(s1dx, s1dy);
+
+  const slot = (bx: number, by: number): [number, number] => [bx + jx, by + jy];
+  const slotShift = translate(jx, jy);
+
   // Sheet 0 (D-301): 4 details — Slab Edge (unchanged), Footing (redesigned to piles),
-  // Parapet (lightly edited spec), Window Head (reworked, lintel raised 28pt).
+  // Parapet (lightly edited spec), Window Head (reworked, lintel raised by lintelDy).
   const old0 = new PageBuilder(W, H);
   old0.titleBlock('D-301', 'TYPICAL BUILDING DETAILS', 'A', '1:10');
-  drawDetailBox(old0, 120, 120, 'slab-edge', 'DETAIL 1 - SLAB EDGE');
-  drawDetailBox(old0, 520, 120, 'footing-strip', 'DETAIL 2 - WALL FOOTING');
-  drawDetailBox(old0, 120, 460, 'parapet-v1', 'DETAIL 3 - PARAPET COPING');
-  drawDetailBox(old0, 520, 460, 'window-head-v1', 'DETAIL 4 - WINDOW HEAD');
+  drawDetailBox(old0, ...slot(120, 120), 'slab-edge', 'DETAIL 1 - SLAB EDGE');
+  drawDetailBox(old0, ...slot(520, 120), 'footing-strip', 'DETAIL 2 - WALL FOOTING');
+  drawDetailBox(old0, ...slot(120, 460), 'parapet-v1', 'DETAIL 3 - PARAPET COPING');
+  drawDetailBox(old0, ...slot(520, 460), 'window-head-v1', 'DETAIL 4 - WINDOW HEAD', lintelDy);
   drawNotesBlock(old0, 960, 120);
 
   const new0 = new PageBuilder(W, H);
   new0.titleBlock('D-301', 'TYPICAL BUILDING DETAILS', 'B', '1:10');
-  drawDetailBox(new0, 120, 120, 'slab-edge', 'DETAIL 1 - SLAB EDGE');
-  drawDetailBox(new0, 520, 120, 'footing-piled', 'DETAIL 2 - PILED FOOTING');
-  drawDetailBox(new0, 120, 460, 'parapet-v2', 'DETAIL 3 - PARAPET COPING');
-  drawDetailBox(new0, 520, 460, 'window-head-v2', 'DETAIL 4 - WINDOW HEAD');
+  drawDetailBox(new0, ...slot(120, 120), 'slab-edge', 'DETAIL 1 - SLAB EDGE');
+  drawDetailBox(new0, ...slot(520, 120), 'footing-piled', 'DETAIL 2 - PILED FOOTING');
+  drawDetailBox(new0, ...slot(120, 460), 'parapet-v2', 'DETAIL 3 - PARAPET COPING');
+  drawDetailBox(new0, ...slot(520, 460), 'window-head-v2', 'DETAIL 4 - WINDOW HEAD', lintelDy);
   drawNotesBlock(new0, 960, 120);
 
-  // Sheet 1 (D-302): Second detail sheet with plot shift (+10, +8) and another set of edits.
-  const s1Shift = translate(10, 8);
+  // Sheet 1 (D-302): Second detail sheet with seed-driven plot shift and another set of edits.
   const old1 = new PageBuilder(W, H);
   old1.titleBlock('D-302', 'ENVELOPE DETAILS', 'A', '1:10');
-  drawDetailBox(old1, 120, 120, 'canopy', 'DETAIL 5 - ENTRY CANOPY');
-  drawDetailBox(old1, 520, 120, 'window-head-v1', 'DETAIL 6 - EAST WINDOW HEAD');
-  drawDetailBox(old1, 120, 460, 'footing-strip', 'DETAIL 7 - NORTH FOOTING');
-  drawDetailBox(old1, 520, 460, 'parapet-v1', 'DETAIL 8 - ROOF PARAPET');
+  drawDetailBox(old1, ...slot(120, 120), 'canopy', 'DETAIL 5 - ENTRY CANOPY');
+  drawDetailBox(old1, ...slot(520, 120), 'window-head-v1', 'DETAIL 6 - EAST WINDOW HEAD', lintelDy);
+  drawDetailBox(old1, ...slot(120, 460), 'footing-strip', 'DETAIL 7 - NORTH FOOTING');
+  drawDetailBox(old1, ...slot(520, 460), 'parapet-v1', 'DETAIL 8 - ROOF PARAPET');
 
   const new1 = new PageBuilder(W, H);
   new1.withTransform(s1Shift, () => {
     new1.titleBlock('D-302', 'ENVELOPE DETAILS', 'B', '1:10');
-    drawDetailBox(new1, 120, 120, 'canopy', 'DETAIL 5 - ENTRY CANOPY');
-    drawDetailBox(new1, 520, 120, 'window-head-v2', 'DETAIL 6 - EAST WINDOW HEAD');
-    drawDetailBox(new1, 120, 460, 'footing-piled', 'DETAIL 7 - NORTH PILED FOOTING');
-    drawDetailBox(new1, 520, 460, 'parapet-v2', 'DETAIL 8 - ROOF PARAPET');
+    drawDetailBox(new1, ...slot(120, 120), 'canopy', 'DETAIL 5 - ENTRY CANOPY');
+    drawDetailBox(new1, ...slot(520, 120), 'window-head-v2', 'DETAIL 6 - EAST WINDOW HEAD', lintelDy);
+    drawDetailBox(new1, ...slot(120, 460), 'footing-piled', 'DETAIL 7 - NORTH PILED FOOTING');
+    drawDetailBox(new1, ...slot(520, 460), 'parapet-v2', 'DETAIL 8 - ROOF PARAPET');
   });
 
-  const lintelUp = translate(0, -28);
-  const lintelUpS1 = translate(10, 8 - 28);
+  const lintelUp = translate(0, lintelDy);
+  const lintelUpS1 = translate(s1dx, s1dy + lintelDy);
+  const sBox = (x: number, y: number, w: number, h: number) => mapGeometry(slotShift, boxComment(x, y, w, h));
 
   const comments: GroundTruthComment[] = [
     // Unchanged details (4 comments).
-    { id: 'redrawn-1', subcase: 'unchanged-detail', description: 'D-301 Slab edge top bar', oldPage: 0, oldGeometry: boxComment(165, 195, 180, 55), expected: { newPage: 0, geometry: boxComment(165, 195, 180, 55) } },
-    { id: 'redrawn-2', subcase: 'unchanged-detail', description: 'D-301 Slab edge beam', oldPage: 0, oldGeometry: boxComment(290, 250, 75, 55), expected: { newPage: 0, geometry: boxComment(290, 250, 75, 55) } },
-    { id: 'redrawn-3', subcase: 'unchanged-detail', description: 'D-302 Canopy tie rod', oldPage: 1, oldGeometry: boxComment(210, 175, 145, 55), expected: { newPage: 1, geometry: mapGeometry(s1Shift, boxComment(210, 175, 145, 55)) } },
-    { id: 'redrawn-4', subcase: 'unchanged-detail', description: 'D-302 Canopy projection', oldPage: 1, oldGeometry: boxComment(210, 215, 180, 55), expected: { newPage: 1, geometry: mapGeometry(s1Shift, boxComment(210, 215, 180, 55)) } },
+    { id: 'redrawn-1', subcase: 'unchanged-detail', description: 'D-301 Slab edge top bar', oldPage: 0, oldGeometry: sBox(165, 195, 180, 55), expected: { newPage: 0, geometry: sBox(165, 195, 180, 55) } },
+    { id: 'redrawn-2', subcase: 'unchanged-detail', description: 'D-301 Slab edge beam', oldPage: 0, oldGeometry: sBox(290, 250, 75, 55), expected: { newPage: 0, geometry: sBox(290, 250, 75, 55) } },
+    { id: 'redrawn-3', subcase: 'unchanged-detail', description: 'D-302 Canopy tie rod', oldPage: 1, oldGeometry: sBox(210, 175, 145, 55), expected: { newPage: 1, geometry: mapGeometry(s1Shift, sBox(210, 175, 145, 55)) } },
+    { id: 'redrawn-4', subcase: 'unchanged-detail', description: 'D-302 Canopy projection', oldPage: 1, oldGeometry: sBox(210, 215, 180, 55), expected: { newPage: 1, geometry: mapGeometry(s1Shift, sBox(210, 215, 180, 55)) } },
     // Lightly edited details — parapet (4 comments, geometry still valid).
-    { id: 'redrawn-5', subcase: 'minor-edit', description: 'D-301 Parapet coping', oldPage: 0, oldGeometry: boxComment(230, 510, 105, 30), expected: { newPage: 0, geometry: boxComment(230, 510, 105, 30) } },
-    { id: 'redrawn-6', subcase: 'minor-edit', description: 'D-301 Parapet membrane', oldPage: 0, oldGeometry: boxComment(155, 580, 110, 45), expected: { newPage: 0, geometry: boxComment(155, 580, 110, 45) } },
-    { id: 'redrawn-7', subcase: 'minor-edit', description: 'D-302 Parapet coping', oldPage: 1, oldGeometry: boxComment(630, 510, 105, 30), expected: { newPage: 1, geometry: mapGeometry(s1Shift, boxComment(630, 510, 105, 30)) } },
-    { id: 'redrawn-8', subcase: 'minor-edit', description: 'D-302 Parapet roof slab', oldPage: 1, oldGeometry: boxComment(555, 605, 100, 45), expected: { newPage: 1, geometry: mapGeometry(s1Shift, boxComment(555, 605, 100, 45)) } },
-    // Moderately reworked details — window head raised 28pt (4 comments, target shifted 28pt).
-    { id: 'redrawn-9', subcase: 'reworked-shifted', description: 'D-301 Window lintel', oldPage: 0, oldGeometry: boxComment(628, 562, 100, 28), expected: { newPage: 0, geometry: mapGeometry(lintelUp, boxComment(628, 562, 100, 28)) } },
-    { id: 'redrawn-10', subcase: 'reworked-shifted', description: 'D-301 Head flashing', oldPage: 0, oldGeometry: boxComment(535, 575, 105, 25), expected: { newPage: 0, geometry: mapGeometry(lintelUp, boxComment(535, 575, 105, 25)) } },
-    { id: 'redrawn-11', subcase: 'reworked-shifted', description: 'D-302 East lintel', oldPage: 1, oldGeometry: boxComment(628, 222, 100, 28), expected: { newPage: 1, geometry: mapGeometry(lintelUpS1, boxComment(628, 222, 100, 28)) } },
-    { id: 'redrawn-12', subcase: 'reworked-shifted', description: 'D-302 East head frame', oldPage: 1, oldGeometry: boxComment(645, 240, 62, 34), expected: { newPage: 1, geometry: mapGeometry(lintelUpS1, boxComment(645, 240, 62, 34)) } },
+    { id: 'redrawn-5', subcase: 'minor-edit', description: 'D-301 Parapet coping', oldPage: 0, oldGeometry: sBox(230, 510, 105, 30), expected: { newPage: 0, geometry: sBox(230, 510, 105, 30) } },
+    { id: 'redrawn-6', subcase: 'minor-edit', description: 'D-301 Parapet membrane', oldPage: 0, oldGeometry: sBox(155, 580, 110, 45), expected: { newPage: 0, geometry: sBox(155, 580, 110, 45) } },
+    { id: 'redrawn-7', subcase: 'minor-edit', description: 'D-302 Parapet coping', oldPage: 1, oldGeometry: sBox(630, 510, 105, 30), expected: { newPage: 1, geometry: mapGeometry(s1Shift, sBox(630, 510, 105, 30)) } },
+    { id: 'redrawn-8', subcase: 'minor-edit', description: 'D-302 Parapet roof slab', oldPage: 1, oldGeometry: sBox(555, 605, 100, 45), expected: { newPage: 1, geometry: mapGeometry(s1Shift, sBox(555, 605, 100, 45)) } },
+    // Moderately reworked details — window head raised by lintelDy (4 comments, target shifted).
+    { id: 'redrawn-9', subcase: 'reworked-shifted', description: 'D-301 Window lintel', oldPage: 0, oldGeometry: sBox(628, 562, 100, 28), expected: { newPage: 0, geometry: mapGeometry(lintelUp, sBox(628, 562, 100, 28)) } },
+    { id: 'redrawn-10', subcase: 'reworked-shifted', description: 'D-301 Head flashing', oldPage: 0, oldGeometry: sBox(535, 575, 105, 25), expected: { newPage: 0, geometry: mapGeometry(lintelUp, sBox(535, 575, 105, 25)) } },
+    { id: 'redrawn-11', subcase: 'reworked-shifted', description: 'D-302 East lintel', oldPage: 1, oldGeometry: sBox(628, 222, 100, 28), expected: { newPage: 1, geometry: mapGeometry(lintelUpS1, sBox(628, 222, 100, 28)) } },
+    { id: 'redrawn-12', subcase: 'reworked-shifted', description: 'D-302 East head frame', oldPage: 1, oldGeometry: sBox(645, 240, 62, 34), expected: { newPage: 1, geometry: mapGeometry(lintelUpS1, sBox(645, 240, 62, 34)) } },
     // Heavily redesigned details — strip footing replaced by bored piles (4 comments, no valid position).
-    { id: 'redrawn-13', subcase: 'redesigned-gone', description: 'D-301 Strip footing keyway', oldPage: 0, oldGeometry: boxComment(662, 260, 42, 28), expected: null },
-    { id: 'redrawn-14', subcase: 'redesigned-gone', description: 'D-301 Block wall stem', oldPage: 0, oldGeometry: boxComment(645, 155, 72, 105), expected: null },
-    { id: 'redrawn-15', subcase: 'redesigned-gone', description: 'D-302 Strip footing pad', oldPage: 1, oldGeometry: boxComment(185, 602, 190, 58), expected: null },
-    { id: 'redrawn-16', subcase: 'redesigned-gone', description: 'D-302 Footing keyway', oldPage: 1, oldGeometry: boxComment(262, 600, 42, 28), expected: null },
+    { id: 'redrawn-13', subcase: 'redesigned-gone', description: 'D-301 Strip footing keyway', oldPage: 0, oldGeometry: sBox(662, 260, 42, 28), expected: null },
+    { id: 'redrawn-14', subcase: 'redesigned-gone', description: 'D-301 Block wall stem', oldPage: 0, oldGeometry: sBox(645, 155, 72, 105), expected: null },
+    { id: 'redrawn-15', subcase: 'redesigned-gone', description: 'D-302 Strip footing pad', oldPage: 1, oldGeometry: sBox(185, 602, 190, 58), expected: null },
+    { id: 'redrawn-16', subcase: 'redesigned-gone', description: 'D-302 Footing keyway', oldPage: 1, oldGeometry: sBox(262, 600, 42, 28), expected: null },
   ];
 
   return {
@@ -1248,14 +1325,26 @@ function makeRedrawnDetailsCase(_seed: number): RevisionPairFixture {
     newPdf: buildPdf([new0, new1]),
     oldSheets: ['D-301', 'D-302'],
     newSheets: ['D-301', 'D-302'],
+    sheetPairs: [
+      { oldPage: 0, newPage: 0 },
+      { oldPage: 1, newPage: 1 },
+    ],
     comments,
   };
 }
 
 /** Case 6: Deleted content (large wing/detail deletions + small local partition/equipment deletions + surviving control comments). */
 function makeDeletedContentCase(seed: number): RevisionPairFixture {
+  const rnd = mulberry32(seed);
   const W = ARCH_C.width;
   const H = ARCH_C.height;
+
+  // Seed-driven plot shifts and detail slot assignment (top vs bottom deleted detail).
+  const s0Shift = translate(randSign(rnd) * randInt(rnd, 4, 18), randSign(rnd) * randInt(rnd, 4, 14));
+  const s1Shift = translate(randSign(rnd) * randInt(rnd, 8, 26), randSign(rnd) * randInt(rnd, 8, 22));
+  const canopyOnTop = rnd() < 0.5;
+  const slabY = canopyOnTop ? 460 : 140;
+  const canopyY = canopyOnTop ? 140 : 460;
 
   // Sheet 0 (A-109): East Annex wing deleted (blank paper) AND interior partition + Door D-14 deleted.
   const old0 = new PageBuilder(W, H);
@@ -1264,41 +1353,45 @@ function makeDeletedContentCase(seed: number): RevisionPairFixture {
   drawNotesBlock(old0, 1200, 140);
 
   const new0 = new PageBuilder(W, H);
-  new0.titleBlock('A-109', 'REVISED LEVEL 1 PLAN', 'B', '1:100');
-  drawFloorPlan(new0, 90, 120, { seed: seed + 50, omitAnnex: true, omitDoor14: true });
-  drawNotesBlock(new0, 1200, 140);
+  new0.withTransform(s0Shift, () => {
+    new0.titleBlock('A-109', 'REVISED LEVEL 1 PLAN', 'B', '1:100');
+    drawFloorPlan(new0, 90, 120, { seed: seed + 50, omitAnnex: true, omitDoor14: true });
+    drawNotesBlock(new0, 1200, 140);
+  });
 
   // Sheet 1 (A-110): RTU-02 removed from corridor AND Detail 4 Canopy deleted completely from right column.
-  const s1Shift = translate(-12, 10);
   const old1 = new PageBuilder(W, H);
   old1.titleBlock('A-110', 'MECHANICAL AND CANOPY PLAN', 'A', '1:100');
   drawFloorPlan(old1, 90, 120, { seed: seed + 51, omitAnnex: true, omitRtu2: false });
-  drawDetailBox(old1, 1140, 140, 'slab-edge', 'DETAIL 1 - SLAB EDGE');
-  drawDetailBox(old1, 1140, 460, 'canopy', 'DETAIL 4 - ENTRY CANOPY');
+  drawDetailBox(old1, 1140, slabY, 'slab-edge', 'DETAIL 1 - SLAB EDGE');
+  drawDetailBox(old1, 1140, canopyY, 'canopy', 'DETAIL 4 - ENTRY CANOPY');
 
   const new1 = new PageBuilder(W, H);
   new1.withTransform(s1Shift, () => {
     new1.titleBlock('A-110', 'MECHANICAL AND CANOPY PLAN', 'B', '1:100');
     drawFloorPlan(new1, 90, 120, { seed: seed + 51, omitAnnex: true, omitRtu2: true });
-    drawDetailBox(new1, 1140, 140, 'slab-edge', 'DETAIL 1 - SLAB EDGE');
+    drawDetailBox(new1, 1140, slabY, 'slab-edge', 'DETAIL 1 - SLAB EDGE');
     // Detail 4 Canopy deleted — blank space.
   });
 
+  const slabShift = translate(0, slabY - 140);
+  const canopyShift = translate(0, canopyY - 460);
+
   const comments: GroundTruthComment[] = [
     // Surviving comments on the same sheets (6 comments).
-    { id: 'deleted-1', subcase: 'surviving', description: 'A-109 Lobby 101', oldPage: 0, oldGeometry: boxComment(205, 290, 110, 65), expected: { newPage: 0, geometry: boxComment(205, 290, 110, 65) } },
-    { id: 'deleted-2', subcase: 'surviving', description: 'A-109 Office 102', oldPage: 0, oldGeometry: boxComment(405, 290, 110, 65), expected: { newPage: 0, geometry: boxComment(405, 290, 110, 65) } },
-    { id: 'deleted-3', subcase: 'surviving', description: 'A-109 AHU-01', oldPage: 0, oldGeometry: boxComment(195, 725, 90, 55), expected: { newPage: 0, geometry: boxComment(195, 725, 90, 55) } },
+    { id: 'deleted-1', subcase: 'surviving', description: 'A-109 Lobby 101', oldPage: 0, oldGeometry: boxComment(205, 290, 110, 65), expected: { newPage: 0, geometry: mapGeometry(s0Shift, boxComment(205, 290, 110, 65)) } },
+    { id: 'deleted-2', subcase: 'surviving', description: 'A-109 Office 102', oldPage: 0, oldGeometry: boxComment(405, 290, 110, 65), expected: { newPage: 0, geometry: mapGeometry(s0Shift, boxComment(405, 290, 110, 65)) } },
+    { id: 'deleted-3', subcase: 'surviving', description: 'A-109 AHU-01', oldPage: 0, oldGeometry: boxComment(195, 725, 90, 55), expected: { newPage: 0, geometry: mapGeometry(s0Shift, boxComment(195, 725, 90, 55)) } },
     { id: 'deleted-4', subcase: 'surviving', description: 'A-110 Door D-01', oldPage: 1, oldGeometry: boxComment(225, 385, 65, 55), expected: { newPage: 1, geometry: mapGeometry(s1Shift, boxComment(225, 385, 65, 55)) } },
     { id: 'deleted-5', subcase: 'surviving', description: 'A-110 DB-01', oldPage: 1, oldGeometry: boxComment(690, 725, 85, 60), expected: { newPage: 1, geometry: mapGeometry(s1Shift, boxComment(690, 725, 85, 60)) } },
-    { id: 'deleted-6', subcase: 'surviving', description: 'A-110 Slab Edge detail', oldPage: 1, oldGeometry: boxComment(1180, 215, 185, 80), expected: { newPage: 1, geometry: mapGeometry(s1Shift, boxComment(1180, 215, 185, 80)) } },
+    { id: 'deleted-6', subcase: 'surviving', description: 'A-110 Slab Edge detail', oldPage: 1, oldGeometry: mapGeometry(slabShift, boxComment(1180, 215, 185, 80)), expected: { newPage: 1, geometry: mapGeometry(s1Shift, mapGeometry(slabShift, boxComment(1180, 215, 185, 80))) } },
     // Large deletions (6 comments, expected: null).
     { id: 'deleted-7', subcase: 'deleted-wing', description: 'A-109 Annex North 108', oldPage: 0, oldGeometry: boxComment(825, 290, 120, 65), expected: null },
     { id: 'deleted-8', subcase: 'deleted-wing', description: 'A-109 Annex South 109', oldPage: 0, oldGeometry: boxComment(825, 490, 120, 65), expected: null },
     { id: 'deleted-9', subcase: 'deleted-wing', description: 'A-109 Annex Chiller-1', oldPage: 0, oldGeometry: boxComment(885, 520, 80, 55), expected: null },
-    { id: 'deleted-10', subcase: 'deleted-detail', description: 'A-110 Canopy tie rod', oldPage: 1, oldGeometry: boxComment(1225, 515, 145, 55), expected: null },
-    { id: 'deleted-11', subcase: 'deleted-detail', description: 'A-110 Canopy deck', oldPage: 1, oldGeometry: boxComment(1225, 555, 180, 55), expected: null },
-    { id: 'deleted-12', subcase: 'deleted-detail', description: 'A-110 Canopy wall anchor', oldPage: 1, oldGeometry: boxComment(1190, 505, 45, 115), expected: null },
+    { id: 'deleted-10', subcase: 'deleted-detail', description: 'A-110 Canopy tie rod', oldPage: 1, oldGeometry: mapGeometry(canopyShift, boxComment(1225, 515, 145, 55)), expected: null },
+    { id: 'deleted-11', subcase: 'deleted-detail', description: 'A-110 Canopy deck', oldPage: 1, oldGeometry: mapGeometry(canopyShift, boxComment(1225, 555, 180, 55)), expected: null },
+    { id: 'deleted-12', subcase: 'deleted-detail', description: 'A-110 Canopy wall anchor', oldPage: 1, oldGeometry: mapGeometry(canopyShift, boxComment(1190, 505, 45, 115)), expected: null },
     // Small local deletions surrounded by surviving walls/corridor (4 comments, expected: null).
     { id: 'deleted-13', subcase: 'deleted-local', description: 'A-109 Removed Door D-14', oldPage: 0, oldGeometry: boxComment(362, 650, 48, 48), expected: null },
     { id: 'deleted-14', subcase: 'deleted-local', description: 'A-109 Removed partition wall', oldPage: 0, oldGeometry: boxComment(358, 715, 26, 75), expected: null },
@@ -1314,6 +1407,10 @@ function makeDeletedContentCase(seed: number): RevisionPairFixture {
     newPdf: buildPdf([new0, new1]),
     oldSheets: ['A-109', 'A-110'],
     newSheets: ['A-109', 'A-110'],
+    sheetPairs: [
+      { oldPage: 0, newPage: 0 },
+      { oldPage: 1, newPage: 1 },
+    ],
     comments,
   };
 }

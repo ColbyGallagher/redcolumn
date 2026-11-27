@@ -4,7 +4,7 @@
  * ink and text around the comment still correspond before suggesting a position.
  */
 
-import { affineRotationDegrees, applyAffine, type Box } from './affine.ts';
+import { affineRotationDegrees, affineScale, applyAffine, type Box } from './affine.ts';
 import { alignPages, matchWordRatio, type PageAlignment, type PageAlignInput, type PageAlignOptions } from './align.ts';
 import { overlapMetricsFromDilated } from './mask.ts';
 
@@ -97,6 +97,27 @@ function normalizeDegrees(deg: number): number {
   return n > 180 ? n - 360 : n;
 }
 
+function rotatedBoxBounds(box: Box, rotationDeg: number): Box {
+  if (rotationDeg === 0) return box;
+  const cx = box.x + box.w / 2;
+  const cy = box.y + box.h / 2;
+  const rad = (rotationDeg * Math.PI) / 180;
+  const cos = Math.cos(rad);
+  const sin = Math.sin(rad);
+  const rawCorners: Point[] = [
+    [box.x, box.y],
+    [box.x + box.w, box.y],
+    [box.x + box.w, box.y + box.h],
+    [box.x, box.y + box.h],
+  ];
+  const corners: Point[] = rawCorners.map(([x, y]) => {
+    const dx = x - cx;
+    const dy = y - cy;
+    return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos];
+  });
+  return geometryBounds(corners);
+}
+
 /**
  * Given a page alignment (or the inputs to compute one) and a comment's geometry on the old
  * revision, returns either a suggested geometry on the new revision with a confidence score or
@@ -107,7 +128,9 @@ export function suggestPlacement(
   geometry: CommentGeometry,
   options: PageAlignOptions & PlacementOptions = {},
 ): PlacementSuggestion {
-  const alignment = isPageAlignment(alignmentOrInput) ? alignmentOrInput : alignPages(alignmentOrInput, options);
+  const alignment = isPageAlignment(alignmentOrInput)
+    ? alignmentOrInput
+    : alignPages(alignmentOrInput, { retainEvidence: true, ...options });
   const minConfidence = options.minConfidence ?? DEFAULT_PLACEMENT_OPTIONS.minConfidence;
   const minPageConfidence = options.minPageConfidence ?? DEFAULT_PLACEMENT_OPTIONS.minPageConfidence;
   const localPadding = options.localPadding ?? DEFAULT_PLACEMENT_OPTIONS.localPadding;
@@ -124,10 +147,36 @@ export function suggestPlacement(
     return { kind: 'none', reason: 'low-page-confidence', confidence: pageConfidence, pageConfidence, local: null };
   }
 
-  const mappedPoints = geometry.points.map((p) => applyAffine(alignment.transform, p));
-  const mappedHoles = geometry.holes?.map((ring) => ring.map((p) => applyAffine(alignment.transform, p)));
   const deltaRot = affineRotationDegrees(alignment.transform);
-  const mappedRotation = geometry.rotation !== undefined ? normalizeDegrees(geometry.rotation + deltaRot) : undefined;
+  let mappedPoints: Point[];
+  let mappedHoles: Point[][] | undefined;
+  let mappedRotation: number | undefined;
+
+  if (geometry.rotation !== undefined) {
+    // Box-shaped markups store unrotated corner coordinates plus a clockwise `rotation` about the
+    // box centre. Map the centre and scale the box dimensions rather than rotating the corners
+    // through `alignment.transform`, so the transform's rotation is only applied once via `rotation`.
+    const oldBounds = geometryBounds(geometry.points);
+    const oldCx = oldBounds.x + oldBounds.w / 2;
+    const oldCy = oldBounds.y + oldBounds.h / 2;
+    const [newCx, newCy] = applyAffine(alignment.transform, [oldCx, oldCy]);
+    const scale = affineScale(alignment.transform);
+    if (geometry.points.length === 2) {
+      const halfW = (oldBounds.w * scale) / 2;
+      const halfH = (oldBounds.h * scale) / 2;
+      mappedPoints = [
+        [newCx - halfW, newCy - halfH],
+        [newCx + halfW, newCy + halfH],
+      ];
+    } else {
+      mappedPoints = geometry.points.map(([x, y]) => [newCx + (x - oldCx) * scale, newCy + (y - oldCy) * scale]);
+    }
+    mappedHoles = geometry.holes?.map((ring) => ring.map(([x, y]) => [newCx + (x - oldCx) * scale, newCy + (y - oldCy) * scale]));
+    mappedRotation = normalizeDegrees(geometry.rotation + deltaRot);
+  } else {
+    mappedPoints = geometry.points.map((p) => applyAffine(alignment.transform, p));
+    mappedHoles = geometry.holes?.map((ring) => ring.map((p) => applyAffine(alignment.transform, p)));
+  }
 
   const mapped: CommentGeometry = {
     points: mappedPoints,
@@ -135,14 +184,13 @@ export function suggestPlacement(
     ...(mappedRotation !== undefined ? { rotation: mappedRotation } : {}),
   };
 
-  const bounds = geometryBounds(mappedPoints);
+  const unrotatedBounds = geometryBounds(mappedPoints);
+  const bounds = mappedRotation !== undefined ? rotatedBoxBounds(unrotatedBounds, mappedRotation) : unrotatedBounds;
   const margin = 2;
   const { width: newW, height: newH } = alignment.newSize;
-  const insidePage =
-    bounds.x + bounds.w >= -margin &&
-    bounds.x <= newW + margin &&
-    bounds.y + bounds.h >= -margin &&
-    bounds.y <= newH + margin;
+  const cx = bounds.x + bounds.w / 2;
+  const cy = bounds.y + bounds.h / 2;
+  const insidePage = cx >= -margin && cx <= newW + margin && cy >= -margin && cy <= newH + margin;
 
   if (!insidePage) {
     return { kind: 'none', reason: 'out-of-bounds', confidence: 0, pageConfidence, local: null };
@@ -157,8 +205,6 @@ export function suggestPlacement(
   }
 
   // Build local verification window in new-page points around the mapped comment.
-  const cx = bounds.x + bounds.w / 2;
-  const cy = bounds.y + bounds.h / 2;
   const winW = Math.max(minWindow, bounds.w + localPadding * 2);
   const winH = Math.max(minWindow, bounds.h + localPadding * 2);
   const wx0 = Math.max(0, cx - winW / 2);
@@ -193,6 +239,8 @@ export function suggestPlacement(
     oldWordCount,
   };
 
+  const missing = ink.oldInk > 0 && (ink.newInk === 0 || (ink.newInk < ink.oldInk * 0.15 && ink.recall < 0.15));
+
   let localScore: number;
   if (ink.oldInk === 0 && ink.newInk === 0) {
     // Comment sat in whitespace on both revisions: no local contradiction, but lower certainty.
@@ -200,7 +248,7 @@ export function suggestPlacement(
   } else if (ink.oldInk === 0 && ink.newInk > 0) {
     // Whitespace on old revision now has drawn content.
     localScore = 0.45 * pageConfidence;
-  } else if (ink.newInk === 0 || (ink.newInk < ink.oldInk * 0.15 && ink.recall < 0.15)) {
+  } else if (missing) {
     // Content that used to be under the comment is gone.
     localScore = ink.f1;
   } else if (wordRecall !== null) {
@@ -212,7 +260,6 @@ export function suggestPlacement(
   const confidence = Math.max(0, Math.min(1, Math.sqrt(pageConfidence * Math.max(0, localScore))));
 
   if (confidence < minConfidence) {
-    const missing = ink.oldInk > 0 && (ink.newInk === 0 || (ink.newInk < ink.oldInk * 0.2 && ink.recall < 0.2));
     return {
       kind: 'none',
       reason: missing ? 'content-missing' : 'content-changed',

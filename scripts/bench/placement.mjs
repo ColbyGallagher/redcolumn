@@ -5,7 +5,7 @@
  * suggests comment placements via `@nb/align`, and reports per-case accuracy against ground truth.
  *
  * Usage:
- *   pnpm bench:placement [--seed 20261127] [--tolerance 12] [--dpi 100] [--details] [--baseline-global] [--json]
+ *   pnpm bench:placement [--seed 20261127] [--tolerance 6] [--dpi 100] [--details] [--baseline-global] [--oracle-sheet-pairing] [--json]
  */
 
 import { readFileSync } from 'node:fs';
@@ -107,13 +107,28 @@ async function readPagesText(bytes) {
   }
 }
 
-/** Max vertex Euclidean distance between two geometries (points). */
+/** Max vertex Euclidean distance between two geometries (points, holes, and rotation). */
 function maxVertexError(a, b) {
   if (a.points.length !== b.points.length) return Infinity;
   let maxErr = 0;
   for (let i = 0; i < a.points.length; i++) {
     const d = Math.hypot(a.points[i][0] - b.points[i][0], a.points[i][1] - b.points[i][1]);
     if (d > maxErr) maxErr = d;
+  }
+  const aHoles = a.holes ?? [];
+  const bHoles = b.holes ?? [];
+  if (aHoles.length !== bHoles.length) return Infinity;
+  for (let h = 0; h < aHoles.length; h++) {
+    if (aHoles[h].length !== bHoles[h].length) return Infinity;
+    for (let i = 0; i < aHoles[h].length; i++) {
+      const d = Math.hypot(aHoles[h][i][0] - bHoles[h][i][0], aHoles[h][i][1] - bHoles[h][i][1]);
+      if (d > maxErr) maxErr = d;
+    }
+  }
+  if (a.rotation !== undefined || b.rotation !== undefined) {
+    if (a.rotation === undefined || b.rotation === undefined) return Infinity;
+    const diff = Math.abs((((a.rotation - b.rotation) % 360) + 540) % 360 - 180);
+    if (diff > 1) return Infinity;
   }
   return maxErr;
 }
@@ -131,11 +146,7 @@ for (const fx of fixtures) {
   let pairs;
   if (useOracleSheetPairing) {
     // Ground-truth sheet pairing (simulates a human confirming sheet matches before placement).
-    const map = new Map();
-    for (const c of fx.comments) {
-      if (c.expected && !map.has(c.oldPage)) map.set(c.oldPage, c.expected.newPage);
-    }
-    pairs = [...map.entries()].map(([oldPage, newPage]) => ({ oldPage, newPage }));
+    pairs = fx.sheetPairs;
   } else {
     pairs = pairPages(oldDetected, newDetected, fx.pairBySheet);
   }
