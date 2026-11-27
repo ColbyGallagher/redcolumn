@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'node:http';
+import rateLimit from '@fastify/rate-limit';
 import Fastify, { type FastifyInstance } from 'fastify';
 import type { Kysely } from 'kysely';
 import type pg from 'pg';
@@ -93,58 +94,6 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
     return { ok: true };
   });
 
-  app.post<{ Body: { email?: unknown; password?: unknown } }>('/auth/login', async (request, reply) => {
-    const email = typeof request.body?.email === 'string' ? request.body.email : '';
-    const password = typeof request.body?.password === 'string' ? request.body.password : '';
-    if (!email || !password) {
-      return reply.code(400).send({ error: 'invalid_request' });
-    }
-
-    const user = await authenticateLocalUser(db, email, password);
-    if (!user) {
-      return reply.code(401).send({ error: 'invalid_credentials' });
-    }
-
-    const session = await createSession(db, user.id, config.sessionTtlMs);
-    reply.header(
-      'Set-Cookie',
-      formatSessionCookie(config.sessionCookieName, session.token, {
-        secure: config.cookieSecure,
-        maxAgeSeconds: Math.floor(config.sessionTtlMs / 1000),
-      }),
-    );
-
-    return reply.code(200).send({
-      user,
-      sessionId: session.sessionId,
-      expiresAt: session.expiresAt.toISOString(),
-    });
-  });
-
-  app.post('/auth/logout', async (request, reply) => {
-    const token = extractSessionToken(request.headers, config.sessionCookieName);
-    if (token) {
-      await revokeSession(db, token);
-    }
-    reply.header(
-      'Set-Cookie',
-      formatClearSessionCookie(config.sessionCookieName, { secure: config.cookieSecure }),
-    );
-    return reply.code(200).send({ ok: true });
-  });
-
-  app.get('/auth/me', async (request, reply) => {
-    const token = extractSessionToken(request.headers, config.sessionCookieName);
-    if (!token) {
-      return reply.code(401).send({ error: 'unauthenticated' });
-    }
-    const session = await lookupSession(db, token);
-    if (!session) {
-      return reply.code(401).send({ error: 'unauthenticated' });
-    }
-    return { user: session.user };
-  });
-
   const ws = attachWebSocketServer({
     httpServer: app.server,
     config,
@@ -152,6 +101,78 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
     pipeline,
     broadcaster,
     logger,
+  });
+
+  // Routes opt in to rate limiting with `config.rateLimit`. The limit keys on `request.ip`,
+  // which is the socket address unless Fastify's trustProxy is configured.
+  app.register(rateLimit, { global: false });
+
+  // Registered as a plugin so it loads after the rate-limit plugin and its routes get the hook.
+  app.register(async (auth) => {
+    auth.post<{ Body: { email?: unknown; password?: unknown } }>(
+      '/auth/login',
+      {
+        config: {
+          rateLimit: {
+            max: config.loginRateLimitMax,
+            timeWindow: config.loginRateLimitWindowMs,
+            keyGenerator: (request) => request.ip,
+          },
+        },
+      },
+      async (request, reply) => {
+        const email = typeof request.body?.email === 'string' ? request.body.email : '';
+        const password = typeof request.body?.password === 'string' ? request.body.password : '';
+        if (!email || !password) {
+          return reply.code(400).send({ error: 'invalid_request' });
+        }
+
+        const user = await authenticateLocalUser(db, email, password);
+        if (!user) {
+          return reply.code(401).send({ error: 'invalid_credentials' });
+        }
+
+        const session = await createSession(db, user.id, config.sessionTtlMs);
+        reply.header(
+          'Set-Cookie',
+          formatSessionCookie(config.sessionCookieName, session.token, {
+            secure: config.cookieSecure,
+            maxAgeSeconds: Math.floor(config.sessionTtlMs / 1000),
+          }),
+        );
+
+        return reply.code(200).send({
+          user,
+          sessionId: session.sessionId,
+          expiresAt: session.expiresAt.toISOString(),
+        });
+      },
+    );
+
+    auth.post('/auth/logout', async (request, reply) => {
+      const token = extractSessionToken(request.headers, config.sessionCookieName);
+      if (token) {
+        const sessionId = await revokeSession(db, token);
+        if (sessionId) ws.closeSession(sessionId);
+      }
+      reply.header(
+        'Set-Cookie',
+        formatClearSessionCookie(config.sessionCookieName, { secure: config.cookieSecure }),
+      );
+      return reply.code(200).send({ ok: true });
+    });
+
+    auth.get('/auth/me', async (request, reply) => {
+      const token = extractSessionToken(request.headers, config.sessionCookieName);
+      if (!token) {
+        return reply.code(401).send({ error: 'unauthenticated' });
+      }
+      const session = await lookupSession(db, token);
+      if (!session) {
+        return reply.code(401).send({ error: 'unauthenticated' });
+      }
+      return { user: session.user };
+    });
   });
 
   app.addHook('onClose', async () => {

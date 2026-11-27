@@ -64,8 +64,8 @@ function usage(): string {
     '  create-admin            Create a local admin user',
     '    --email <email>         Admin email address (required)',
     '    --name <name>           Admin display name (required)',
-    '    --password <password>   Password (or use --password-stdin or REDCOLUMN_ADMIN_PASSWORD)',
-    '    --password-stdin        Read password from stdin',
+    '    --password-stdin        Read the password from stdin',
+    '                            (or set REDCOLUMN_ADMIN_PASSWORD)',
   ].join('\n');
 }
 
@@ -90,6 +90,10 @@ export async function runCli(argv: readonly string[], io: CliIo = DEFAULT_IO): P
       const checkOnly = flags.get('check') === true;
       if (checkOnly) {
         const status = await checkMigrations(pool);
+        if (status.unknown.length > 0) {
+          io.stderr(`Unknown migrations in database (newer than this build): ${status.unknown.join(', ')}`);
+          return 1;
+        }
         if (status.mismatched.length > 0) {
           io.stderr(`Migration checksum mismatch: ${status.mismatched.join(', ')}`);
           return 1;
@@ -114,15 +118,20 @@ export async function runCli(argv: readonly string[], io: CliIo = DEFAULT_IO): P
     if (command === 'create-admin') {
       const email = getStringFlag(flags, 'email') ?? '';
       const name = getStringFlag(flags, 'name') ?? '';
-      let password = getStringFlag(flags, 'password');
+      // A password on the command line is visible in the process list and shell history.
+      if (flags.has('password')) {
+        io.stderr('Error: --password is not supported; use --password-stdin or REDCOLUMN_ADMIN_PASSWORD');
+        return 1;
+      }
+      let password: string | undefined;
       if (flags.get('password-stdin') === true) {
         password = (await io.readStdin()).replace(/\r?\n$/, '');
-      } else if (password === undefined && io.env.REDCOLUMN_ADMIN_PASSWORD) {
+      } else if (io.env.REDCOLUMN_ADMIN_PASSWORD) {
         password = io.env.REDCOLUMN_ADMIN_PASSWORD;
       }
 
       if (!email || !name || !password) {
-        io.stderr('Error: --email, --name, and a password (--password, --password-stdin, or REDCOLUMN_ADMIN_PASSWORD) are required');
+        io.stderr('Error: --email, --name, and a password (--password-stdin or REDCOLUMN_ADMIN_PASSWORD) are required');
         return 1;
       }
 
