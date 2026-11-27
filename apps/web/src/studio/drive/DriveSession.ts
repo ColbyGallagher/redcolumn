@@ -940,27 +940,27 @@ export class DriveSession implements CollabSession {
     const room = this.room(docId);
     const fromStore = Symbol('store');
     const fromRoom = Symbol('room');
-    Y.applyUpdate(store.doc, Y.encodeStateAsUpdate(room), fromRoom);
-    Y.applyUpdate(room, Y.encodeStateAsUpdate(store.doc), fromStore);
+    Y.applyUpdate(store.yjs.doc, Y.encodeStateAsUpdate(room), fromRoom);
+    Y.applyUpdate(room, Y.encodeStateAsUpdate(store.yjs.doc), fromStore);
     const toRoom = (u: Uint8Array, origin: unknown) => {
       if (origin !== fromRoom) Y.applyUpdate(room, u, fromStore);
     };
     const toStore = (u: Uint8Array, origin: unknown) => {
-      if (origin !== fromStore) Y.applyUpdate(store.doc, u, fromRoom);
+      if (origin !== fromStore) Y.applyUpdate(store.yjs.doc, u, fromRoom);
     };
-    store.doc.on('update', toRoom);
+    store.yjs.doc.on('update', toRoom);
     room.on('update', toStore);
     const unwatch = watchMarkups(room, (origin) => origin === fromStore, (changes) => {
       const name = this.meta.documents.find((d) => d.id === docId)?.name ?? 'a document';
       appendRecord(this.room(SESSION_ROOM).getArray<RecordEntry>('record'), describeChanges(changes, this.me, docId, name, Date.now()));
     });
     const detach = () => {
-      store.doc.off('update', toRoom);
+      store.yjs.doc.off('update', toRoom);
       room.off('update', toStore);
       unwatch();
       if (this.attached.get(docId)?.store === store) this.attached.delete(docId);
     };
-    store.doc.on('destroy', detach);
+    store.yjs.doc.on('destroy', detach);
     this.attached.set(docId, { store, detach });
     this.applyRights(store);
   }

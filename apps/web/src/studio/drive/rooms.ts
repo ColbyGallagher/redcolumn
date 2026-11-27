@@ -403,25 +403,25 @@ export class RoomFiles {
     const doc = this.room(room);
     const fromStore = Symbol('store');
     const fromRoom = Symbol('room');
-    Y.applyUpdate(store.doc, Y.encodeStateAsUpdate(doc), fromRoom);
-    Y.applyUpdate(doc, Y.encodeStateAsUpdate(store.doc), fromStore);
+    Y.applyUpdate(store.yjs.doc, Y.encodeStateAsUpdate(doc), fromRoom);
+    Y.applyUpdate(doc, Y.encodeStateAsUpdate(store.yjs.doc), fromStore);
     const toRoom = (u: Uint8Array, origin: unknown) => {
       if (origin !== fromRoom) Y.applyUpdate(doc, u, fromStore);
     };
     const toStore = (u: Uint8Array, origin: unknown) => {
-      if (origin !== fromStore) Y.applyUpdate(store.doc, u, fromRoom);
+      if (origin !== fromStore) Y.applyUpdate(store.yjs.doc, u, fromRoom);
     };
-    store.doc.on('update', toRoom);
+    store.yjs.doc.on('update', toRoom);
     doc.on('update', toStore);
     const detach = () => {
-      store.doc.off('update', toRoom);
+      store.yjs.doc.off('update', toRoom);
       doc.off('update', toStore);
-      store.doc.off('destroy', detach);
+      store.yjs.doc.off('destroy', detach);
       if (this.attached.get(room)?.store === store) this.attached.delete(room);
       // Save what is left before the store goes.
       void this.flush();
     };
-    store.doc.on('destroy', detach);
+    store.yjs.doc.on('destroy', detach);
     this.attached.set(room, { store, detach });
     this.wake?.();
     return detach;

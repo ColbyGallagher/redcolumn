@@ -278,9 +278,9 @@ export class Project {
       off();
       detach();
       this.linked.delete(store);
-      store.doc.off('destroy', unlink);
+      store.yjs.doc.off('destroy', unlink);
     };
-    store.doc.on('destroy', unlink);
+    store.yjs.doc.on('destroy', unlink);
     this.linked.set(store, unlink);
     return unlink;
   }

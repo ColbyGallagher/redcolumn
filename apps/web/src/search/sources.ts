@@ -5,6 +5,7 @@ import type { FormModel } from '../documents/forms';
 import { loadPageTexts, readForSearch } from '../sheets/indexer';
 import { readFile, type StoredFile } from '../storage/fileStore';
 import { searchIndex } from './index/client';
+import { editorContext } from '../markup/editorContext';
 
 /** A piece of text on a page that is not the page's own text: a form field value or a markup's text. */
 export interface Labelled {
@@ -106,7 +107,7 @@ export function librarySource(file: StoredFile): SearchSource {
     properties: async () => propertiesOf((await read()).info),
     fields: () => cachedFields(file.hash, bytes),
     markups: async () => {
-      const store = await MarkupStore.open(file.id);
+      const store = await MarkupStore.open(file.id, { context: editorContext });
       try {
         // The PDF's own markups were imported into the store when it was first opened.
         return markupsOf(store.all());

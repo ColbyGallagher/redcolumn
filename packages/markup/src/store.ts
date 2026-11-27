@@ -19,7 +19,7 @@ import { orphanedLinks, planPortalSync, relinkPlan, remapPortals, sanitizePortal
 /** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
 export const IMPORT_VERSION = 2;
 import { gluedTo, relinkCopies, routeConnector } from './flowchart';
-import type { AiReviewFacet, FileStepFacet, GeoFacet, ImportFacet, LinkFacet, MarkupDocument, PortalFacet, StitchFacet, TakeoffFacet, UndoResult } from './document';
+import type { AiReviewFacet, EditorContext, FileStepFacet, GeoFacet, ImportFacet, LinkFacet, MarkupDocument, PortalFacet, StitchFacet, TakeoffFacet, UndoResult, YjsFacet } from './document';
 
 /**
  * `auto`: detected with high confidence and active. `review`: detected with low confidence; active
@@ -158,18 +158,16 @@ const NO_PORTALS: Portal[] = [];
  * merge cleanly once a sync provider is attached. Each markup is stored whole under its id;
  * concurrent edits to the same markup resolve last-writer-wins, edits to different markups merge.
  */
-export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet, PortalFacet, LinkFacet, StitchFacet, GeoFacet, ImportFacet, FileStepFacet {
-  /** Who is making changes here (Preferences › name): recorded with each status change. */
-  static author = '';
-  /** Called after a new markup is added here (not on an edit, an import or a remote change). */
-  static onAdded: ((store: MarkupStore, markup: Markup) => void) | null = null;
-  /**
-   * Called when undo or redo steps over a change to the document's file (page operations, Page
-   * Setup, flattening...): the file's contents should become those stored under `hash` again.
-   */
-  static onFileRestored: ((store: MarkupStore, hash: string) => void) | null = null;
+export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet, PortalFacet, LinkFacet, StitchFacet, GeoFacet, ImportFacet, FileStepFacet, YjsFacet {
+  /** Who is making changes here (recorded with each status change), and the app's hooks: read at each use. */
+  private readonly context: EditorContext<MarkupStore>;
 
   readonly doc = new Y.Doc();
+  readonly yjs = {
+    doc: this.doc,
+    encodeState: () => Y.encodeStateAsUpdate(this.doc),
+    applyUpdate: (update: Uint8Array, origin?: unknown) => Y.applyUpdate(this.doc, update, origin),
+  };
   readonly map: Y.Map<Markup>;
   /** Drawing scale per page, keyed by page index. */
   readonly scales: Y.Map<Scale>;
@@ -228,8 +226,9 @@ export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet,
     return this.fileHash;
   }
 
-  private constructor(fileHash: string, persist: boolean) {
+  private constructor(fileHash: string, persist: boolean, context: EditorContext<MarkupStore>) {
     this.fileHash = fileHash;
+    this.context = context;
     this.map = this.doc.getMap<Markup>('markups');
     this.scales = this.doc.getMap<Scale>('scales');
     this.sheets = this.doc.getMap<SheetInfo>('sheets');
@@ -255,7 +254,7 @@ export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet,
       if (((this.meta.get('seq') as number | undefined) ?? 0) < this.seqHigh) this.doc.transact(() => this.meta.set('seq', this.seqHigh), NUMBERING);
       // Undoing or redoing a file change: the app is asked to bring the file's contents back.
       const now = event.changedParentTypes.has(this.files) ? this.files.get('current') : undefined;
-      if (now) MarkupStore.onFileRestored?.(this, now.hash);
+      if (now) this.context.onFileRestored?.(this, now.hash);
     }) as never);
     this.persistence = persist ? persistenceFactory(`nb-markups-${fileHash}`, this.doc) : null;
     this.doc.on('afterTransaction', (tr: Y.Transaction) => {
@@ -419,9 +418,12 @@ export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet,
     return !this.editRule || this.editRule(m);
   }
 
-  /** Opens a document's markups; `persist: false` keeps them in memory only (tests). */
-  static async open(fileHash: string, { persist = true }: { persist?: boolean } = {}): Promise<MarkupStore> {
-    const store = new MarkupStore(fileHash, persist);
+  /**
+   * Opens a document's markups; `persist: false` keeps them in memory only (tests). `context` says
+   * who is making changes and what the app hears; without one, changes are signed with no name.
+   */
+  static async open(fileHash: string, { persist = true, context = { actor: { id: null, name: '' } } }: { persist?: boolean; context?: EditorContext<MarkupStore> } = {}): Promise<MarkupStore> {
+    const store = new MarkupStore(fileHash, persist, context);
     await store.persistence?.whenSynced;
     store.refresh();
     return store;
@@ -998,7 +1000,7 @@ export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet,
     this.doc.transact(() => {
       let seq = this.lastSeq();
       relinkCopies(all, ids).forEach((m, i) => {
-        const copy: Markup = { ...m, id: ids.get(m.id)!, seq: ++seq, author: MarkupStore.author, status: 'none', createdAt: now + i, modifiedAt: now + i };
+        const copy: Markup = { ...m, id: ids.get(m.id)!, seq: ++seq, author: this.context.actor.name, status: 'none', createdAt: now + i, modifiedAt: now + i };
         if (m.groupId) copy.groupId = groupOf(m.groupId);
         else delete copy.groupId;
         // New annotations when saved: none of the original's PDF or Bluebeam ids, its replies' included.
@@ -1422,7 +1424,7 @@ export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet,
       if (markup.type === 'connector') this.hasConnectors = true;
       this.followConnectors(new Set([markup.id]));
     }, LOCAL);
-    if (added) MarkupStore.onAdded?.(this, clean as unknown as Markup);
+    if (added) this.context.onAdded?.(this, clean as unknown as Markup);
   }
 
   /** Merges `patch` into a markup; a field patched to undefined is removed. */
@@ -1440,7 +1442,7 @@ export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet,
     if (patch.status !== undefined && patch.status !== current.status && !('statusHistory' in patch)) {
       const def = this.columnSet().statuses.find((s) => s.id === patch.status);
       const state = def?.name ?? (patch.status === 'none' ? 'None' : patch.status);
-      patch = { ...patch, statusHistory: [...(current.statusHistory ?? []), { state, model: def?.model ?? 'Review', author: MarkupStore.author, at: Date.now() }] };
+      patch = { ...patch, statusHistory: [...(current.statusHistory ?? []), { state, model: def?.model ?? 'Review', author: this.context.actor.name, at: Date.now() }] };
     }
     // Another assembly: quantities set by hand and an AI approval were for the old one.
     if ('assemblyId' in patch && patch.assemblyId !== current.assemblyId && !('assemblyOverrides' in patch)) patch = { ...patch, assemblyOverrides: undefined, takeoffApproval: undefined };
@@ -1496,7 +1498,7 @@ export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet,
    * Records a change to the document's file (its contents went from `before` to `after`, both
    * still readable by hash) as one undo step, together with `remap`: the markups, scales, links...
    * following the change. Undoing it brings the markups back as they were and calls
-   * {@link MarkupStore.onFileRestored} with `before`; redoing it, with `after`.
+   * the context's `onFileRestored` with `before`; redoing it, with `after`.
    */
   fileStep(label: string, before: string, after: string, remap?: () => void) {
     if (this.locked) return;

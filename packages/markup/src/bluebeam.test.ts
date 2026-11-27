@@ -344,11 +344,11 @@ test("a markup's whole status history imports with who set each status and when"
 
 test('status changes made here are saved as state annotations with who and when; earlier ones stay as they were', async () => {
   const { bytes, result, columns, statuses } = await bluebeamStatusSet();
-  const store = await MarkupStore.open('history', { persist: false });
+  const context = { actor: { id: null, name: '' } };
+  const store = await MarkupStore.open('history', { persist: false, context });
   store.importAnnotations(result.markups, [], { 0: [0, 1, 2, 3] }, { statuses });
-  MarkupStore.author = 'Julie Smit';
+  context.actor = { id: null, name: 'Julie Smit' };
   store.update(result.markups[0]!.id, { status: '1.0 open' });
-  MarkupStore.author = '';
   const m = store.get(result.markups[0]!.id)!;
   assert.deepEqual(m.statusHistory?.slice(-1).map((c) => [c.state, c.model, c.author, c.nm]), [['1.0 Open', 'BSI_SET', 'Julie Smit', undefined]]);
   const outBytes = await exportWithAnnotations(bytes.slice().buffer as ArrayBuffer, [m], { imported: { 0: [0, 1, 2, 3] }, columns, statuses });

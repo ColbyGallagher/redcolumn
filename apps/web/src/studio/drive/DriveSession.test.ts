@@ -118,7 +118,7 @@ function fakeStore() {
   let readOnly = false;
   let rule: EditRule | null = null;
   return {
-    store: { doc, setReadOnly: (v: boolean) => (readOnly = v), setEditRule: (r: EditRule | null) => (rule = r) } as unknown as MarkupStore,
+    store: { yjs: { doc }, setReadOnly: (v: boolean) => (readOnly = v), setEditRule: (r: EditRule | null) => (rule = r) } as unknown as MarkupStore,
     doc,
     readOnly: () => readOnly,
     /** Whether this store lets its user edit a markup by `author` (beyond status and replies). */

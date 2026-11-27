@@ -1,4 +1,5 @@
-import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type AiReviewFacet, type LinkFacet, type Markup, type MarkupDocument, type StitchFacet, type TakeoffFacet, type MarkupStyle, type MarkupType, type Point, type StoredStitchGroup } from '@nb/markup';
+import { DEFAULT_STYLES, measureProps, TYPE_INFO, type AiReviewFacet, type LinkFacet, type Markup, type MarkupDocument, type StitchFacet, type TakeoffFacet, type MarkupStyle, type MarkupType, type Point, type StoredStitchGroup } from '@nb/markup';
+import { editorContext } from '../markup/editorContext';
 import { STITCH_METHODS, stitchCall } from './assistantStitch';
 import { VIEWPORT_METHODS, viewportCall } from './assistantViewports';
 import { SYMBOL_METHODS, symbolCall, type SymbolMethod } from './assistantSymbols';
@@ -510,7 +511,7 @@ function placeOnStore(doc: AssistantDocument, type: MarkupType, pageIndex: numbe
     points,
     style: { ...DEFAULT_STYLES[type] },
     status: 'none',
-    author: MarkupStore.author || 'redcolumn',
+    author: editorContext.actor.name || 'redcolumn',
     createdAt: now,
     modifiedAt: now,
     ...(extras.text ? { text: extras.text } : {}),

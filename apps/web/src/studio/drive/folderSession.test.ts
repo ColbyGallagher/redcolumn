@@ -94,7 +94,7 @@ class Computer implements DesktopFolders {
 function markupStore() {
   const doc = new Y.Doc();
   return {
-    store: { doc, setReadOnly: () => {}, setEditRule: () => {} } as unknown as MarkupStore,
+    store: { yjs: { doc }, setReadOnly: () => {}, setEditRule: () => {} } as unknown as MarkupStore,
     markups: doc.getMap<{ id: string; type: string; status: string }>('markups'),
   };
 }
