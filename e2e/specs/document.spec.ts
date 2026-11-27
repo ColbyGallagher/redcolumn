@@ -111,6 +111,29 @@ test.describe('document pages', () => {
     await expectPages(app, Array.from({ length: 9 }, () => [W, H]));
   });
 
+  test('document.bulkInsertPages inserts the files in the order they are dragged into', async ({ app }) => {
+    // One page each, told apart by size.
+    const sheet = async (name: string, side: number) => {
+      const pdf = await PDFDocument.create();
+      pdf.addPage([side, side]);
+      return { name, mimeType: 'application/pdf', buffer: Buffer.from(await pdf.save()) };
+    };
+    const chooser = app.page.waitForEvent('filechooser');
+    await app.cmd('document.bulkInsertPages');
+    await (await chooser).setFiles([await sheet('small.pdf', 300), await sheet('large.pdf', 500)]);
+    const dialog = modal(app, 'Bulk Insert PDFs');
+    const rows = dialog.getByRole('listbox').getByRole('option');
+    const from = (await rows.nth(1).boundingBox())!;
+    const to = (await rows.nth(0).boundingBox())!;
+    await app.page.mouse.move(from.x + 120, from.y + from.height / 2);
+    await app.page.mouse.down();
+    await app.page.mouse.move(to.x + 120, to.y + to.height / 2, { steps: 8 });
+    await expect(rows).toHaveText(['large.pdf', 'small.pdf']);
+    await app.page.mouse.up();
+    await dialog.locator('button[type=submit]').click();
+    await expectPages(app, [[W, H], [500, 500], [300, 300], [W, H], [W, H]]);
+  });
+
   test('document.insertBlank adds pages the size of the current one', async ({ app }) => {
     await app.cmd('document.insertBlank');
     const dialog = modal(app, 'Insert Blank Pages');

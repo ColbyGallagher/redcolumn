@@ -165,7 +165,7 @@ export const COVERAGE: Record<string, Coverage> = {
   'file.about': 'todo',
   'file.close': 'todo',
   'file.closeAll': 'todo',
-  'file.combine': 'todo',
+  'file.combine': { spec: 'combine' },
   'file.exportBax': 'todo',
   'file.exportCsv': 'todo',
   'file.exportFdf': 'todo',

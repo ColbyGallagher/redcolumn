@@ -14,6 +14,16 @@ All its pages are inserted after the current page.
 
 > **Tip:** In the [Thumbnails panel](#thumbnails), select a page and click **Insert PDF…** to insert after that page. Or drag the pages into place afterwards.
 
+## Insert several files at once
+
+1. Choose **Bulk Insert PDFs…** (use **Search tools and settings** to find it) and pick the files.
+2. Put them in order: drag a file up or down the list, or select it and click **↑** or **↓**. Press Esc while dragging to put it back. Click **Add Files…** to add more, or **Remove** to take one out.
+3. To drag, move or remove several files together, hold Ctrl (Cmd on a Mac) and click each one, or hold Shift and click to select a range.
+4. Choose where to **Insert** them: after the current page, at the start or at the end.
+5. Click **Insert**.
+
+To read long file names, scroll the list sideways, or drag the bottom-right corner of the window to make it bigger.
+
 ## Insert blank pages
 
 1. Choose {{Document > Insert > Blank Pages…}}.
