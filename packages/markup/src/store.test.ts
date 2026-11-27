@@ -66,6 +66,17 @@ test('a store is keyed by the id it was opened with', async () => {
   await store.destroy();
 });
 
+test("one store's encoded state, applied to another, gives it the same markups, and the update comes with its origin", async () => {
+  const from = await storeWith(2);
+  const to = await MarkupStore.open('copy', { persist: false });
+  let origin: unknown;
+  to.yjs.doc.on('update', (_update: Uint8Array, o: unknown) => (origin = o));
+  to.yjs.applyUpdate(from.yjs.encodeState(), 'seed');
+  assert.deepEqual(to.all().map((m) => m.id), ['m0', 'm1']);
+  assert.equal(origin, 'seed');
+  await Promise.all([from.destroy(), to.destroy()]);
+});
+
 test('undo and redo say whether they did anything', async () => {
   const store = await MarkupStore.open('test', { persist: false });
   assert.deepEqual(store.undo(), { ok: false, reason: 'nothing' });

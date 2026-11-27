@@ -22,14 +22,15 @@ type Rule = { what: string; pattern: RegExp; allowed?: Record<string, string> };
 const RULES: Rule[] = [
   {
     what: 'imports Yjs',
-    pattern: /\bfrom\s+['"](yjs|y-[\w-]+)['"]|\bimport\(\s*['"](yjs|y-[\w-]+)['"]\s*\)|\brequire\(\s*['"](yjs|y-[\w-]+)['"]\s*\)/,
+    // `from '…'`, a bare `import '…'`, `import('…')` and `require('…')`, of the package or a path inside it.
+    pattern: /(\bfrom\s+|\bimport\s*\(?\s*|\brequire\(\s*)['"](yjs|y-[\w-]+)(\/[^'"]*)?['"]/,
     // Device storage for markups: `setMarkupPersistence` hands it the store's Y.Doc to save.
     allowed: { 'apps/web/src/storage/localCrypto.ts': 'the markup persistence adapter' },
   },
   { what: "uses a store's undo manager (call undo(), redo() or checkpoint())", pattern: /\.undoManager\b/ },
   {
     what: "reaches into a store's Yjs document or maps (use the store's methods)",
-    pattern: /\b\w*[sS]tore\??\.(doc|map|scales|sheets|links|viewports|outline|meta|aiReviewMap|files)\b(?!\s*\()/,
+    pattern: /\b\w*[sS]tore[?!]?\.(doc|map|scales|sheets|links|viewports|outline|meta|aiReviewMap|files)\b(?!\s*\()/,
   },
   {
     what: "uses a store's Yjs facet",
@@ -72,6 +73,11 @@ test('the boundary rules catch each kind of reach-in, and leave alike names alon
   assert.equal(at("import * as Y from 'yjs';"), 1);
   assert.equal(at("const { Doc } = await import('yjs');"), 1);
   assert.equal(at("import { IndexeddbPersistence } from 'y-indexeddb';"), 1);
+  assert.equal(at("import 'yjs';"), 1);
+  assert.equal(at("import * as awareness from 'y-protocols/awareness';"), 1);
+  assert.equal(at("const Y = require('yjs/dist/yjs.cjs');"), 1);
+  assert.equal(at('open.store!.map.get(id);'), 1);
+  assert.equal(at("import { Doc } from 'yjs-like';"), 0);
   assert.equal(at('Y.applyUpdate(store.doc, seed);'), 1);
   assert.equal(at('open.store.doc.on("update", f);'), 1);
   assert.equal(at('cur.store.map.get(id);'), 1);
