@@ -150,10 +150,14 @@ function emptyView(viewerId: string, laneIds: readonly string[] = []): Projected
   };
 }
 
-function snapshotAt<T>(state: PolicyState, kind: ItemMeta['kind'], id: string, rev: number, fallback: T): T {
+/**
+ * The stored snapshot of an item at `rev`. There is no fallback to the live record, which may be a
+ * newer, hidden revision: an item whose visible revision has no snapshot is left out of the view.
+ */
+function snapshotAt<T>(state: PolicyState, kind: ItemMeta['kind'], id: string, rev: number): T | undefined {
   const byRev = own(state.versions, itemKey(kind, id));
   if (byRev && Object.hasOwn(byRev, rev)) return byRev[rev] as T;
-  return fallback;
+  return undefined;
 }
 
 function filterHistory(
@@ -228,7 +232,8 @@ function projectForMember(
     if (!meta) continue;
     const vis = visibleVersionForMember(member, meta, project, process);
     if (!vis) continue;
-    const snap = snapshotAt<MarkupRecord>(state, 'markup', id, vis.rev, current);
+    const snap = snapshotAt<MarkupRecord>(state, 'markup', id, vis.rev);
+    if (!snap) continue;
     markups[id] = {
       id: snap.id,
       rev: vis.rev,
@@ -250,7 +255,8 @@ function projectForMember(
     if (!Object.hasOwn(markups, current.markupId)) continue;
     const vis = visibleVersionForMember(member, meta, project, process);
     if (!vis) continue;
-    const snap = snapshotAt<Placement>(state, 'placement', id, vis.rev, current);
+    const snap = snapshotAt<Placement>(state, 'placement', id, vis.rev);
+    if (!snap) continue;
     placements[id] = {
       id: snap.id,
       rev: vis.rev,
@@ -276,7 +282,8 @@ function projectForMember(
     if (!meta) continue;
     const vis = visibleVersionForMember(member, meta, project, process);
     if (!vis) continue;
-    const snap = snapshotAt<Issue>(state, 'issue', id, vis.rev, current);
+    const snap = snapshotAt<Issue>(state, 'issue', id, vis.rev);
+    if (!snap) continue;
 
     const laneEntry = own(own(state.ops.laneStatus, id), vis.viaLaneId);
     const status = laneEntry?.status ?? meta.initialStatus ?? null;
@@ -336,7 +343,8 @@ function projectForMember(
     if (!parentVisible) continue;
     const vis = visibleVersionForMember(member, meta, project, process);
     if (!vis) continue;
-    const snap = snapshotAt<Response>(state, 'response', id, vis.rev, current);
+    const snap = snapshotAt<Response>(state, 'response', id, vis.rev);
+    if (!snap) continue;
     responses[id] = {
       id: snap.id,
       rev: vis.rev,

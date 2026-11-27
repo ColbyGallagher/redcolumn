@@ -192,9 +192,15 @@ test('released versions are frozen; withdrawal marks withdrawn without erasing; 
   state = executeAction(state, 'c_checker', { type: 'release', gateId: 'client-to-firm', toLaneIds: ['firm'], items: [{ kind: 'issue', id: 'i1' }] }, { project, process, now: 3000, opSeq: 20 }).state;
 
   const meta = metaOf(state, 'issue', 'i1')!;
-  // Firm sees rev 2 (released), NEVER rev 1 (draft).
-  assert.equal(canActorSeeVersion('lead_u', meta, 2, project, process), true);
+  // Numbering on the first crossing adds rev 3: rev 2's wording plus the issue number. The firm sees
+  // that revision, NEVER rev 1 (draft).
+  assert.equal(canActorSeeVersion('lead_u', meta, 3, project, process), true);
   assert.equal(canActorSeeVersion('lead_u', meta, 1, project, process), false);
+  assert.equal(viewAs('lead_u', project, process, state).issues.i1?.title, 'v2 released text');
+  assert.equal(viewAs('lead_u', project, process, state).issues.i1?.number, 1);
+
+  // An amendment after the release stays in the client lane, and withdrawing must not publish it.
+  state = executeAction(state, 'c_checker', { type: 'editIssue', id: 'i1', title: 'SECRET_DRAFT_V4' }, { project, process, now: 3500, opSeq: 25 }).state;
 
   // Deleting a released item is refused; withdrawing is allowed.
   const delAttempt = executeAction(state, 'c_checker', { type: 'deleteItem', kind: 'issue', id: 'i1' }, { project, process, now: 4000, opSeq: 30 });
@@ -205,6 +211,9 @@ test('released versions are frozen; withdrawal marks withdrawn without erasing; 
   assert.ok(withdrawn.ok);
   const firmView = viewAs('lead_u', project, process, withdrawn.state);
   assert.equal(firmView.issues.i1?.withdrawn, true);
+  assert.equal(firmView.issues.i1?.title, 'v2 released text');
+  assert.equal(firmView.issues.i1?.rev, 3);
+  assert.deepEqual(scanViewForCanaries(firmView, ['SECRET_DRAFT_V4']), []);
   assert.equal(firmView.counts.totalIssues, 0);
 });
 

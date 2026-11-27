@@ -251,7 +251,7 @@ test('delegation limits and at-least-one-admin rule are enforced', () => {
   };
   assert.equal(hasAtLeastOneActiveAdmin(noAdminProject), false);
   const removeLastAdmin = authorizeAction(
-    { type: 'members.manage', nextProject: noAdminProject },
+    { type: 'members.manage', targetUserId: 'admin', nextProject: noAdminProject },
     { actorUserId: 'admin', project, process, state },
   );
   assert.equal(removeLastAdmin.ok, false);
