@@ -9,7 +9,6 @@ declare const self: DedicatedWorkerGlobalScope;
 const FPDFBitmap_BGRA = 4;
 const FPDF_ANNOT = 0x01;
 const FPDF_REVERSE_BYTE_ORDER = 0x10;
-const FPDF_THIN_LINE = 0x20;
 const FPDF_PAGEOBJ_PATH = 2;
 const FPDF_PAGEOBJ_FORM = 5;
 const FPDF_SEGMENT_LINETO = 0;
@@ -46,6 +45,13 @@ interface Host {
   formInfo: number;
   /** Top-level object count of pages parsed so far (a cost profile for the viewer). */
   objects: Map<number, number>;
+  /** Pages are thinned as they load (Disable Line Weights). */
+  thin: boolean;
+  /**
+   * A second handle on the same bytes that draws with Disable Line Weights, opened when first
+   * needed. Thinning changes the parsed pages, so it stays off the handle everything else reads.
+   */
+  hairline: Host | null;
 }
 
 /**
@@ -142,6 +148,7 @@ function getPage(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number, host: 
   if (parsed) parsed.ms = performance.now() - t0;
   if (!host.objects.has(pageIndex)) host.objects.set(pageIndex, m.FPDFPage_CountObjects(page));
   applyHidden(m, page, doc.hidden.get(pageIndex));
+  if (host.thin) thinPage(m, page);
   if (host.form) m.FORM_OnAfterLoadPage(page, host.form);
   host.pages.set(pageIndex, page);
   if (host.pages.size > PAGE_CACHE_SIZE) {
@@ -158,8 +165,37 @@ function getPage(m: WrappedPdfiumModule, doc: OpenDoc, pageIndex: number, host: 
   return page;
 }
 
+/**
+ * Disable Line Weights on a parsed page, in memory only: every path in its content (inside forms
+ * too) gets width 0, which PDFium strokes one device pixel wide at any zoom, and no dash pattern.
+ * Annotations are not page objects, so markups keep their weights. PDFium has no render flag for
+ * this.
+ */
+function thinPage(m: WrappedPdfiumModule, page: number) {
+  const thin = (obj: number) => {
+    const type = m.FPDFPageObj_GetType(obj);
+    if (type === FPDF_PAGEOBJ_PATH) {
+      m.FPDFPageObj_SetStrokeWidth(obj, 0);
+      m.FPDFPageObj_SetDashArray(obj, 0, 0, 0);
+    } else if (type === FPDF_PAGEOBJ_FORM) {
+      const n = m.FPDFFormObj_CountObjects(obj);
+      for (let i = 0; i < n; i++) thin(m.FPDFFormObj_GetObject(obj, i));
+    }
+  };
+  const n = m.FPDFPage_CountObjects(page);
+  for (let i = 0; i < n; i++) thin(m.FPDFPage_GetObject(page, i));
+}
+
+/** The handle that draws `source` (the document, or its render copy) with hairlines. */
+function hairlineHost(m: WrappedPdfiumModule, source: Host & { bytes: ArrayBuffer }, password: string): Host {
+  source.hairline ??= { ...openHandle(m, source.bytes, password), thin: true };
+  return source.hairline;
+}
+
 /** Closes every page of `host` and the document handle itself. */
 function closeHost(m: WrappedPdfiumModule, host: Host) {
+  if (host.hairline) closeHost(m, host.hairline);
+  host.hairline = null;
   for (const page of host.pages.values()) {
     if (host.form) m.FORM_OnBeforeClosePage(page, host.form);
     m.FPDF_ClosePage(page);
@@ -204,7 +240,7 @@ function openHandle(m: WrappedPdfiumModule, bytes: ArrayBuffer, password: string
   // Form fields are only drawn through a form-fill environment (FPDF_FFLDraw).
   const formInfo = m.PDFiumExt_OpenFormFillInfo();
   const form = formInfo ? m.PDFiumExt_InitFormFillEnvironment(handle, formInfo) : 0;
-  return { handle, release, form, formInfo, pages: new Map(), pinned: new Set(), busy: null, objects: new Map() };
+  return { handle, release, form, formInfo, pages: new Map(), pinned: new Set(), busy: null, objects: new Map(), thin: false, hairline: null };
 }
 
 async function open(bytes: ArrayBuffer, password = ''): Promise<{ docId: number; pages: PageSize[] }> {
@@ -675,7 +711,7 @@ async function renderPixels(m: WrappedPdfiumModule, doc: OpenDoc, host: Host, re
   host.busy = req.pageIndex;
   try {
     m.FPDFBitmap_FillRect(bitmap, 0, 0, w, h, req.transparent ? 0x00ffffff : 0xffffffff);
-    const flags = FPDF_ANNOT | FPDF_REVERSE_BYTE_ORDER | (req.thinLines ? FPDF_THIN_LINE : 0);
+    const flags = FPDF_ANNOT | FPDF_REVERSE_BYTE_ORDER;
     if (!(await drawPage(m, host, page, bitmap, req.x, req.y, pageSizePx(m, page, req.scale), flags, stop))) return null;
     return bitmapPixels(m, bitmap, w, h);
   } finally {
@@ -688,12 +724,13 @@ async function render(req: TileRequest, job: RenderJob): Promise<RenderResult | 
   const t0 = performance.now();
   const m = await lib();
   const doc = getDoc(req.docId);
-  const host = req.copy && doc.copy?.ok.has(req.pageIndex) ? doc.copy : doc;
+  const source = req.copy && doc.copy?.ok.has(req.pageIndex) ? doc.copy : doc;
+  const host = req.thinLines ? hairlineHost(m, source, doc.password) : source;
   const parsed = { ms: 0 };
   const rgba = await renderPixels(m, doc, host, req, () => job.cancelled, parsed);
   if (!rgba) return null;
   const bitmap = await createImageBitmap(new ImageData(rgba, req.width, req.height));
-  return { bitmap, ms: performance.now() - t0, parseMs: parsed.ms, objects: host.objects.get(req.pageIndex) ?? 0, fromCopy: host !== doc };
+  return { bitmap, ms: performance.now() - t0, parseMs: parsed.ms, objects: host.objects.get(req.pageIndex) ?? 0, fromCopy: source !== doc };
 }
 
 /**
@@ -2159,7 +2196,8 @@ async function handle(req: WorkerRequest) {
         const set = doc.hidden.get(req.pageIndex) ?? new Set<number>();
         for (const i of req.indices) set.add(i);
         doc.hidden.set(req.pageIndex, set);
-        for (const host of doc.copy ? [doc, doc.copy] : [doc]) {
+        for (const host of [doc, doc.copy, doc.hairline, doc.copy?.hairline]) {
+          if (!host) continue;
           const loaded = host.pages.get(req.pageIndex);
           if (loaded) applyHidden(m, loaded, set);
         }

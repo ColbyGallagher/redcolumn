@@ -122,7 +122,7 @@ export interface TileRequest {
   y: number;
   width: number;
   height: number;
-  /** Draws every line at hairline weight (Disable Line Weights). */
+  /** Draws the page content's lines one pixel wide and solid, not markups (Disable Line Weights). */
   thinLines?: boolean;
   /** Leaves unpainted page area transparent instead of white (Snapshot). */
   transparent?: boolean;

@@ -39,7 +39,7 @@ type Rewrite = { target: { page: number } | { form: PDFRef }; bytes: Uint8Array 
 const N = (s: string) => PDFName.of(s);
 
 /** Decodes a stream: native inflate for plain Flate (fast), pdf-lib for anything else. */
-async function decode(stream: PDFRawStream): Promise<Uint8Array> {
+export async function decode(stream: PDFRawStream): Promise<Uint8Array> {
   const filter = stream.dict.lookup(N('Filter'));
   const name = filter instanceof PDFArray && filter.size() === 1 ? filter.lookup(0) : filter;
   if (name === N('FlateDecode') && !stream.dict.has(N('DecodeParms'))) {
@@ -53,12 +53,12 @@ async function decode(stream: PDFRawStream): Promise<Uint8Array> {
   return decodePDFRawStream(stream).decode();
 }
 
-async function deflate(bytes: Uint8Array): Promise<Uint8Array> {
+export async function deflate(bytes: Uint8Array): Promise<Uint8Array> {
   const out = new Blob([bytes as BlobPart]).stream().pipeThrough(new CompressionStream('deflate'));
   return new Uint8Array(await new Response(out).arrayBuffer());
 }
 
-function flateStream(context: PDFContext, bytes: Uint8Array, dict?: PDFDict): PDFRawStream {
+export function flateStream(context: PDFContext, bytes: Uint8Array, dict?: PDFDict): PDFRawStream {
   const d = dict ? (dict.clone(context) as PDFDict) : context.obj({});
   d.delete(N('DecodeParms'));
   d.set(N('Filter'), N('FlateDecode'));

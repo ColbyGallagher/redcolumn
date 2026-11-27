@@ -1,6 +1,6 @@
 # Dark pages, dimmer and line weights
 
-These change how pages look **on screen only**. Printing and saving are not affected.
+These change how pages look. Saving is not affected. Printing is affected only by [Disable Line Weights](#disable-line-weights).
 
 ## Dark Mode (Pages)
 
@@ -19,7 +19,9 @@ Choose {{View > Dimmer}} (or press [[Ctrl+F5]]). Choose it again to turn it off.
 
 ## Disable Line Weights
 
-Draws every line in the PDF as a thin line. This makes busy drawings easier to read when zoomed out, and makes it easier to click on the exact line you want.
+Draws every line in the PDF as a thin, solid line at any zoom, without its thickness or dash pattern. This makes busy drawings easier to read, and makes it easier to see the exact point you are measuring from. Markups keep their own line weights and styles, and so do filled shapes: a thick line that the PDF stores as a filled shape stays thick.
+
+While it is on, the drawing also **prints** without line weights. Turn it off before printing to print line weights as drawn. The file itself is never changed.
 
 Choose {{View > Disable Line Weights}}. Choose it again to turn it off.
 

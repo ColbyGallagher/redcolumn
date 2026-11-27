@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PDFArray, PDFDocument, PDFName, PDFRawStream, PDFStream } from 'pdf-lib';
+import { decodePDFRawStream, PDFArray, PDFDict, PDFDocument, PDFName, PDFRawStream, PDFStream } from 'pdf-lib';
 import { parsePageRange, printablePdf } from './printPdf.ts';
 
 test('page ranges: lists, spans and open ends, in order without repeats', () => {
@@ -61,4 +61,25 @@ test('large pages tile onto paper, and pages can print last first', async () => 
   assert.deepEqual(tiled.getPage(9).getSize(), { width: 612, height: 792 });
   const reversed = await PDFDocument.load(await printablePdf(bytes, 'all', [0, 1], { reverse: true }));
   assert.deepEqual(reversed.getPages().map((p) => p.getWidth()), [612, 2592]);
+});
+
+test('Disable Line Weights prints content lines thin and solid, forms and graphics states too', async () => {
+  const src = await PDFDocument.create();
+  const page = src.addPage([200, 100]);
+  const ctx = src.context;
+  const form = ctx.register(ctx.flateStream('8 w [4 4] 0 d 0 0 m 9 9 l S', { Type: 'XObject', Subtype: 'Form', BBox: [0, 0, 10, 10] }));
+  const state = ctx.register(ctx.obj({ Type: 'ExtGState', LW: 5, D: [[2], 0] }));
+  page.node.set(PDFName.of('Resources'), ctx.obj({ XObject: { F: form }, ExtGState: { G: state } }));
+  // An operand and its operator in different streams.
+  page.node.set(PDFName.of('Contents'), ctx.obj([ctx.register(ctx.flateStream('q /G gs 3')), ctx.register(ctx.flateStream('w [6] 1 d (3 w) Tj /F Do Q'))]));
+  const bytes = await src.save();
+
+  const out = await PDFDocument.load(await printablePdf(bytes, 'all', [0], { thinLines: true }));
+  const text = (s: unknown) => Buffer.from(decodePDFRawStream(s as PDFRawStream).decode()).toString('latin1');
+  assert.equal(text(out.getPage(0).node.Contents()).replace(/\s+/g, ' ').trim(),'0 w q /G gs 0 w [] 0 d (3 w) Tj /F Do Q');
+  const resources = out.getPage(0).node.Resources()!;
+  assert.equal(text(resources.lookup(PDFName.of('XObject'), PDFDict).lookup(PDFName.of('F'))), '0 w [] 0 d 0 0 m 9 9 l S');
+  const gs = resources.lookup(PDFName.of('ExtGState'), PDFDict).lookup(PDFName.of('G'), PDFDict);
+  assert.equal(String(gs.lookup(PDFName.of('LW'))), '0');
+  assert.equal(String(gs.lookup(PDFName.of('D'))).replace(/\s+/g, ''), '[[]0]');
 });
