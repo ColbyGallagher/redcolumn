@@ -1294,6 +1294,7 @@ describe('three-lane wall proof with hostile client and canary scan (Postgres 17
           role: 'reviewer',
           level: 'review',
           scopeId: dsScopeId,
+          transitions: '*',
         },
         {
           subject: { kind: 'user', id: readOnlyUser.id },
@@ -1493,5 +1494,49 @@ describe('three-lane wall proof with hostile client and canary scan (Postgres 17
       [dsScopeId, dsIssueId],
     );
     assert.ok(withdrawnRow.rows[0]?.withdrawn_at !== null, 'release.withdraw must set withdrawn_at in Postgres');
+
+    // statusEvent asset upload: visible -> 403, hidden/missing -> byte-identical 404
+    const dsStatusEventId = 'se-ds-1';
+    assert.equal(
+      (await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${dsScopeId}/ops`, {
+        opId: 'op-ds-se-1',
+        schemaVersion: PROTOCOL_VERSION,
+        streamId: dsPrjStream,
+        type: 'status.transition',
+        entityId: dsStatusEventId,
+        payload: { issueId: dsIssueId, from: 'open', to: 'actioned', revisionSeenId: 'rev-ds-1' },
+      })).status,
+      200,
+    );
+    const visibleStatusEventUpload = await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${dsScopeId}/assets`, {
+      itemKind: 'statusEvent',
+      itemId: dsStatusEventId,
+      filename: 'status-note.pdf',
+      mediaType: 'application/pdf',
+      contentBase64: Buffer.from('status-payload', 'utf8').toString('base64'),
+    });
+    assert.equal(visibleStatusEventUpload.status, 403);
+
+    const hiddenStatusEventUpload = await rawHttp(baseUrl, partnerLeadCookie, 'POST', `/api/scopes/${dsScopeId}/assets`, {
+      itemKind: 'statusEvent',
+      itemId: dsStatusEventId,
+      filename: 'status-note.pdf',
+      mediaType: 'application/pdf',
+      contentBase64: Buffer.from('status-payload', 'utf8').toString('base64'),
+    });
+    const missingStatusEventUpload = await rawHttp(baseUrl, partnerLeadCookie, 'POST', `/api/scopes/${dsScopeId}/assets`, {
+      itemKind: 'statusEvent',
+      itemId: 'se-nonexistent-999',
+      filename: 'status-note.pdf',
+      mediaType: 'application/pdf',
+      contentBase64: Buffer.from('status-payload', 'utf8').toString('base64'),
+    });
+    assert.equal(hiddenStatusEventUpload.status, 404);
+    assert.equal(missingStatusEventUpload.status, 404);
+    assert.equal(
+      hiddenStatusEventUpload.text,
+      missingStatusEventUpload.text,
+      'statusEvent asset upload hidden vs missing must be byte-identical',
+    );
   });
 });

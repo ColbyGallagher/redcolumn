@@ -1592,6 +1592,17 @@ export class ReviewStore {
         return { ok: false, status: 404, error: 'not_found', code: 'not_found' };
       }
 
+      const meta = metaOf(scopeEntry.state, input.itemKind, input.itemId);
+      if (!meta || !visibleVersionForMember(member, meta, project, proc)) {
+        await client.query('ROLLBACK');
+        return { ok: false, status: 404, error: 'not_found', code: 'not_found' };
+      }
+
+      if (input.itemKind === 'statusEvent') {
+        await client.query('ROLLBACK');
+        return { ok: false, status: 403, error: 'forbidden', code: 'forbidden' };
+      }
+
       const policyCtx: PolicyContext = {
         actorUserId: userId,
         actorLaneId,
@@ -1599,16 +1610,6 @@ export class ReviewStore {
         process: proc,
         state: scopeEntry.state,
       };
-
-      if (input.itemKind === 'statusEvent') {
-        const meta = metaOf(scopeEntry.state, input.itemKind, input.itemId);
-        if (!meta || !visibleVersionForMember(member, meta, project, proc)) {
-          await client.query('ROLLBACK');
-          return { ok: false, status: 404, error: 'not_found', code: 'not_found' };
-        }
-        await client.query('ROLLBACK');
-        return { ok: false, status: 403, error: 'forbidden', code: 'forbidden' };
-      }
 
       const authOp: AnyOperation =
         input.itemKind === 'issue'
@@ -1657,7 +1658,6 @@ export class ReviewStore {
         return { ok: false, ...mapPolicyDeny(decision.reason) };
       }
 
-      const meta = metaOf(scopeEntry.state, input.itemKind, input.itemId)!;
       const storageKey = `projects/${projectId}/${sha256}`;
       await client.query(
         `INSERT INTO assets (project_id, sha256, size_bytes, media_type, storage_key)
