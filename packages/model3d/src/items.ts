@@ -2,7 +2,7 @@
  * Element data as the fragments worker returns it (attributes as { value }, relations as arrays of
  * related items), turned into what the 3D sidebar shows. Plain data, no three.js.
  */
-import type { PropertyGroup, SearchSet } from './controls.ts';
+import { BY_CLASS, type PropertyGroup, type SearchSet } from './controls.ts';
 
 /** One element's data: attributes are `{ value, type? }`, relations are arrays of related elements' data. */
 export type RawItem = Record<string, unknown>;
@@ -46,10 +46,11 @@ export function propertyGroups(item: RawItem): PropertyGroup[] {
   const defs = item.IsDefinedBy;
   if (isRelation(defs)) {
     for (const set of defs) {
-      const props = set.HasProperties ?? set.Quantities;
+      const quantities = isRelation(set.Quantities);
+      const props = quantities ? set.Quantities : set.HasProperties;
       if (!isRelation(props)) continue;
       const rows = props.map(propertyRow).filter((r): r is [string, string] => r !== null);
-      if (rows.length) sets.push({ title: attrText(set.Name) || 'Properties', rows });
+      if (rows.length) sets.push({ title: attrText(set.Name) || 'Properties', rows, ...(quantities ? { quantities } : {}) });
     }
   }
   sets.sort((a, b) => a.title.localeCompare(b.title));
@@ -65,4 +66,42 @@ export function matchesProperty(set: SearchSet, groups: PropertyGroup[]): boolea
   if (!name) return true;
   const value = set.value.trim().toLowerCase();
   return groups.some((g) => g.rows.some(([n, v]) => n.toLowerCase() === name && (!value || v.toLowerCase().includes(value))));
+}
+
+/** An element's properties as "set.name" to value, to compare revisions by. */
+export function flatProperties(groups: readonly PropertyGroup[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const g of groups) for (const [n, v] of g.rows) out[`${g.title}.${n}`] = v;
+  return out;
+}
+
+/** Preferred quantity names, best first: net before gross, then any of the kind. */
+const QUANTITY_NAMES = {
+  length: [/^length$/i, /^netlength$/i, /^grosslength$/i, /length$/i],
+  area: [/^netarea$/i, /^area$/i, /^net.*area$/i, /^grossarea$/i, /^gross.*area$/i, /area$/i],
+  volume: [/^netvolume$/i, /^volume$/i, /^net.*volume$/i, /^grossvolume$/i, /volume$/i],
+};
+
+/**
+ * An element's length, area and volume from its quantity sets (0 when it has none of a kind):
+ * for each kind, the first name in order of preference that it has.
+ */
+export function quantitiesOf(groups: readonly PropertyGroup[]): { length: number; area: number; volume: number } {
+  const rows = groups.filter((g) => g.quantities).flatMap((g) => g.rows);
+  const pick = (names: RegExp[]) => {
+    for (const re of names) {
+      const row = rows.find(([n, v]) => re.test(n) && Number.isFinite(Number.parseFloat(v)));
+      if (row) return Number.parseFloat(row[1]);
+    }
+    return 0;
+  };
+  return { length: pick(QUANTITY_NAMES.length), area: pick(QUANTITY_NAMES.area), volume: pick(QUANTITY_NAMES.volume) };
+}
+
+/** What an element is grouped under: its class, or the value of a property (any set, any case; '' when it has none). */
+export function groupKey(groups: readonly PropertyGroup[], category: string, groupBy: string): string {
+  const want = groupBy.trim().toLowerCase();
+  if (!want || want === BY_CLASS.toLowerCase()) return category;
+  for (const g of groups) for (const [n, v] of g.rows) if (n.toLowerCase() === want) return v;
+  return '';
 }

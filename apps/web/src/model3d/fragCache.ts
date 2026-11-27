@@ -6,7 +6,7 @@
 import { openLocal, sealLocal } from '../storage/localCrypto';
 
 /** Bumped when the fragments format or the conversion settings change, so older conversions are not used. */
-export const FRAG_VERSION = 1;
+export const FRAG_VERSION = 2;
 
 const DIR = 'model3d';
 

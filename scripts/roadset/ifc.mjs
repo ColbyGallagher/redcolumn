@@ -209,7 +209,7 @@ function sweep(al, s0, s1, top, lift, depth, step = 5) {
   return sections;
 }
 
-/** Every element of a revision: name, IFC type, level, sections and properties. */
+/** Every element of a revision: name, IFC type, level, sections, properties and quantities. */
 function elements(rev) {
   const out = [];
   const name = (kind, al, a, b, side = '') => `${kind} ${al.name}${side} CH${a.toFixed(0)}-${b.toFixed(0)}`;
@@ -225,6 +225,7 @@ function elements(rev) {
         level: 0,
         sections: sweep(al, a, b, [-half, 0, half], 0, WEARING),
         props: { ...props, Material: 'AC14 asphalt', Thickness: WEARING },
+        qty: { length: b - a, width: 2 * half, depth: WEARING },
       });
       // Revision B thickens one stretch of base course.
       const thick = rev === 'B' && al === MC00 && a === 400 ? 0.5 : BASE;
@@ -235,6 +236,7 @@ function elements(rev) {
         level: 1,
         sections: sweep(al, a, b, [-half, 0, half], -WEARING, thick),
         props: { ...props, Material: 'DGB20 crushed rock', Thickness: thick },
+        qty: { length: b - a, width: 2 * half, depth: thick },
       });
     }
   }
@@ -257,6 +259,7 @@ function elements(rev) {
           level: 0,
           sections: sweep(MC00, a, b, off, 0.15, 0.45),
           props: { Alignment: 'MC00', ChainageStart: a, ChainageEnd: b, KerbType: kerbType, Height: 0.15 },
+          qty: { length: b - a, width: KERB_W, depth: 0.45 },
         });
       }
     }
@@ -270,6 +273,7 @@ function elements(rev) {
       level: 0,
       sections: sweep(MC00, 600, 640, [HALF_W, HALF_W + 3], 0, WEARING + BASE),
       props: { Alignment: 'MC00', ChainageStart: 600, ChainageEnd: 640, Material: 'AC14 asphalt on DGB20', Thickness: WEARING + BASE },
+      qty: { length: 40, width: 3, depth: WEARING + BASE },
     });
     out.push({
       name: 'Kerb MC00 bus bay CH600-640',
@@ -278,6 +282,7 @@ function elements(rev) {
       level: 0,
       sections: sweep(MC00, 600, 640, [HALF_W + 3, HALF_W + 3 + KERB_W], 0.15, 0.45),
       props: { Alignment: 'MC00', ChainageStart: 600, ChainageEnd: 640, KerbType: 'Barrier', Height: 0.15 },
+      qty: { length: 40, width: KERB_W, depth: 0.45 },
     });
   }
   return out;
@@ -415,6 +420,16 @@ export function kestrelIfc(rev = 'A') {
     );
     const pset = add(`IFCPROPERTYSET(${q(guid(`pset ${el.name}`))},$,'Kestrel_Element',$,(${props.join(',')}))`);
     add(`IFCRELDEFINESBYPROPERTIES(${q(guid(`rel pset ${el.name}`))},$,$,$,(${id}),${pset})`);
+    // Quantities: along the control line, plan area and solid volume (for the quantities table).
+    const { length, width, depth } = el.qty;
+    const qtys = [
+      add(`IFCQUANTITYLENGTH('Length',$,$,${r(length)},$)`),
+      add(`IFCQUANTITYLENGTH('Width',$,$,${r(width)},$)`),
+      add(`IFCQUANTITYAREA('NetArea',$,$,${r(length * width)},$)`),
+      add(`IFCQUANTITYVOLUME('NetVolume',$,$,${r(length * width * depth)},$)`),
+    ];
+    const qto = add(`IFCELEMENTQUANTITY(${q(guid(`qto ${el.name}`))},$,'Qto_KestrelQuantities',$,$,(${qtys.join(',')}))`);
+    add(`IFCRELDEFINESBYPROPERTIES(${q(guid(`rel qto ${el.name}`))},$,$,$,(${id}),${qto})`);
   }
   for (const lv of levels) add(`IFCRELCONTAINEDINSPATIALSTRUCTURE(${q(guid(`rel level ${lv.name}`))},$,$,$,(${lv.members.join(',')}),${lv.id})`);
 

@@ -4,6 +4,30 @@
  * here they never freeze the window.
  */
 import { IfcImporter } from '@thatopen/fragments';
+import * as WEBIFC from 'web-ifc';
+
+/**
+ * IFC 4.3 physical elements the importer's list leaves out, added so they are drawn and listed:
+ * kerbs and other road, rail, marine and geotechnical elements.
+ */
+const MORE_ELEMENTS = [
+  WEBIFC.IFCKERB,
+  WEBIFC.IFCREINFORCEDSOIL,
+  WEBIFC.IFCSIGNAL,
+  WEBIFC.IFCMOORINGDEVICE,
+  WEBIFC.IFCNAVIGATIONELEMENT,
+  WEBIFC.IFCCAISSONFOUNDATION,
+  WEBIFC.IFCIMPACTPROTECTIONDEVICE,
+  WEBIFC.IFCVIBRATIONDAMPER,
+  WEBIFC.IFCMOBILETELECOMMUNICATIONSAPPLIANCE,
+  WEBIFC.IFCCONVEYORSEGMENT,
+  WEBIFC.IFCLIQUIDTERMINAL,
+  WEBIFC.IFCELECTRICFLOWTREATMENTDEVICE,
+  WEBIFC.IFCDISTRIBUTIONBOARD,
+  WEBIFC.IFCBOREHOLE,
+  WEBIFC.IFCGEOSLICE,
+  WEBIFC.IFCGEOMODEL,
+];
 
 export interface ConvertRequest {
   ifc: Uint8Array;
@@ -33,6 +57,7 @@ scope.onmessage = async (e) => {
   try {
     const importer = new IfcImporter();
     importer.wasm = { path: new URL('.', wasm).href, absolute: true };
+    for (const c of MORE_ELEMENTS) importer.classes.elements.add(c);
     const fragments = await importer.process({
       bytes: ifc,
       progressCallback: (fraction) => scope.postMessage({ type: 'progress', fraction }),

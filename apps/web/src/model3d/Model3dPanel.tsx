@@ -6,6 +6,7 @@ import type { ModelView } from '../documents/openTabs';
 import { lazy } from '../i18n/lazy';
 import { exportSearchSets, updateModelLibrary, useModelLibrary } from './library';
 import { Issues } from './Issues';
+import { Compare, prettyClass, Quantities } from './Review';
 import { sheetsAt, type SheetHit } from './links';
 import { sheetOverlay, type SheetSetting, type SheetSource } from './sheetOverlays';
 
@@ -97,7 +98,6 @@ function nodeItems(node: TreeNode): ItemMap {
   return ids.length ? { [node.modelId]: ids } : {};
 }
 
-const prettyClass = (c: string) => (c.startsWith('IFC') ? `Ifc${c.slice(3, 4)}${c.slice(4).toLowerCase()}` : c);
 
 function TreeRow({ node, depth, controls }: { node: TreeNode; depth: number; controls: ModelControls }) {
   // Down to the storeys at first; elements open on request.
@@ -224,6 +224,8 @@ export function Model3dPanel({ view, fileHash, sheets, onDownload, onSaveFile, o
           ))}
         </ul>
       </Section>
+      <Quantities controls={controls} state={state} onSaveFile={onSaveFile} />
+      <Compare controls={controls} state={state} onNotice={onNotice} />
       <SheetsInModel controls={controls} state={state} sheets={sheets} fileHash={fileHash} />
       <Issues controls={controls} state={state} fileHash={fileHash} topics={fileHash ? (lib.issues[fileHash] ?? []) : []} sheets={sheets} onSaveFile={onSaveFile} onNotice={onNotice} />
       <SavedViews controls={controls} fileHash={fileHash} views={fileHash ? (lib.views[fileHash] ?? []) : []} profiles={lib.profiles} sets={lib.sets} profileId={state.profileId} />

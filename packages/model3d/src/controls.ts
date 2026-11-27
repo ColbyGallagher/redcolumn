@@ -3,7 +3,8 @@
  * app's ribbon and commands can use it (as types) without loading the viewer.
  */
 
-export type ModelNav = 'Orbit' | 'FirstPerson' | 'Plan';
+/** Walk: first person at eye height over the floor, kept out of walls (W A S D or the arrow keys). */
+export type ModelNav = 'Orbit' | 'FirstPerson' | 'Plan' | 'Walk';
 export type ModelProjection = 'Perspective' | 'Orthographic';
 /** What a click in the view does: pick an element, place a clipping plane, or measure. */
 export type ModelTool = 'select' | 'clip' | 'length' | 'area' | 'angle' | 'volume';
@@ -44,6 +45,10 @@ export interface ModelState {
   heights: [number, number] | null;
   /** Drapes still being laid over the model. */
   draping: number;
+  /** A small plan of the models in a corner, with the camera on it. */
+  miniMap: boolean;
+  /** The other revision the model is being compared with (its name), or null. */
+  comparing: string | null;
 }
 
 export const INITIAL_STATE: ModelState = {
@@ -65,6 +70,8 @@ export const INITIAL_STATE: ModelState = {
   georeferenced: false,
   heights: null,
   draping: 0,
+  miniMap: false,
+  comparing: null,
 };
 
 export type ModelAction =
@@ -88,7 +95,10 @@ export type ModelAction =
   | { type: 'georeference'; modelId: string; matrix: number[] }
   | { type: 'sheetOverlays'; overlays: SheetOverlay[] }
   /** Moves the camera to look from `position` at `target` (grid easting, northing, height). */
-  | { type: 'lookAtPlace'; camera: PlaceCamera };
+  | { type: 'lookAtPlace'; camera: PlaceCamera }
+  | { type: 'miniMap' }
+  /** Takes the other revision away, and the colours the comparison gave. */
+  | { type: 'endCompare' };
 
 /** A camera on the map: where it is and what it looks at, as grid easting, northing and height. */
 export interface PlaceCamera {
@@ -221,6 +231,8 @@ export interface ClassEntry {
 export interface PropertyGroup {
   /** 'Attributes', or a property or quantity set's name. */
   title: string;
+  /** A quantity set (lengths, areas, volumes measured for the element), not a property set. */
+  quantities?: boolean;
   rows: [name: string, value: string][];
 }
 
@@ -293,6 +305,13 @@ export interface ModelBrowser {
   cameraPlace(): PlaceCamera | null;
   /** A picture of the view as it is now (a JPEG data URL), at most `maxWidth` pixels wide. */
   snapshot(maxWidth: number): string | null;
+  /**
+   * Loads another revision of the model (an IFC file) beside it and compares the two element by
+   * element (by GlobalId): what only this model has, what only the other has, and what changed.
+   */
+  compare(ifc: Uint8Array, name: string): Promise<RevisionDiff>;
+  /** Count, length, area and volume of the elements (all, or the selection), grouped by class or a property. */
+  quantities(groupBy: string, scope: 'all' | 'selection'): Promise<QuantityTable>;
 }
 
 /** Sidebar actions, run like the ribbon's. */
@@ -357,4 +376,137 @@ export function parseSearchSets(json: string): SearchSet[] {
 export function paletteColour(i: number): string {
   const hue = Math.round((i * 137.508) % 360);
   return `hsl(${hue}, 65%, 50%)`;
+}
+
+// --- review tools: version compare, quantities and walking ---
+
+/** An element of a revision, as compared: its properties (by "set.name") and its bounds. */
+export interface RevisionItem {
+  guid: string;
+  localId: number;
+  name: string;
+  category: string;
+  props: Record<string, string>;
+  box: [Vec3, Vec3] | null;
+}
+
+export interface RevisionEntry {
+  guid: string;
+  name: string;
+  category: string;
+  /** Where to find it: the model (this one, or the other revision) and its local id there. */
+  modelId: string;
+  localId: number;
+  /** Changed: its shape or position moved. */
+  geometry?: boolean;
+  /** Changed: properties, as "set.name: before → after" (this model's value second). */
+  changes?: string[];
+}
+
+export interface RevisionDiff {
+  /** The other revision's name. */
+  other: string;
+  /** Only in this model. */
+  added: RevisionEntry[];
+  /** Only in the other revision. */
+  removed: RevisionEntry[];
+  changed: RevisionEntry[];
+  unchanged: number;
+}
+
+const median = (xs: number[]) => {
+  if (!xs.length) return 0;
+  const s = [...xs].sort((a, b) => a - b);
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m]! : (s[m - 1]! + s[m]!) / 2;
+};
+
+/**
+ * Compares two revisions element by element, by GlobalId. Bounds are compared after taking away
+ * the shift most elements share (two conversions of a file can place it differently); a corner
+ * moving more than `tolerance` (metres) counts as a change of shape. Returns that shift too: the
+ * other revision moved by it lines up with this one.
+ */
+export function diffRevisions(
+  mine: readonly RevisionItem[],
+  theirs: readonly RevisionItem[],
+  ids: { mine: string; theirs: string; other: string },
+  tolerance = 0.002,
+): { diff: RevisionDiff; shift: Vec3 } {
+  const byGuid = new Map(theirs.map((t) => [t.guid, t]));
+  const mineGuids = new Set(mine.map((m) => m.guid));
+  const centre = (b: [Vec3, Vec3]): Vec3 => [(b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2, (b[0][2] + b[1][2]) / 2];
+  const deltas: Vec3[] = [];
+  for (const m of mine) {
+    const t = byGuid.get(m.guid);
+    if (m.box && t?.box) {
+      const [a, b] = [centre(m.box), centre(t.box)];
+      deltas.push([a[0] - b[0], a[1] - b[1], a[2] - b[2]]);
+    }
+  }
+  const shift: Vec3 = [median(deltas.map((d) => d[0])), median(deltas.map((d) => d[1])), median(deltas.map((d) => d[2]))];
+  const entry = (x: RevisionItem, modelId: string): RevisionEntry => ({ guid: x.guid, name: x.name, category: x.category, modelId, localId: x.localId });
+  const moved = (a: [Vec3, Vec3], b: [Vec3, Vec3]) => [0, 1].some((c) => [0, 1, 2].some((i) => Math.abs(a[c]![i]! - b[c]![i]! - shift[i]!) > tolerance));
+  const diff: RevisionDiff = { other: ids.other, added: [], removed: [], changed: [], unchanged: 0 };
+  for (const m of mine) {
+    const t = byGuid.get(m.guid);
+    if (!t) {
+      diff.added.push(entry(m, ids.mine));
+      continue;
+    }
+    const changes: string[] = [];
+    for (const k of [...new Set([...Object.keys(t.props), ...Object.keys(m.props)])].sort()) {
+      const [before, after] = [t.props[k] ?? '', m.props[k] ?? ''];
+      if (before !== after) changes.push(`${k}: ${before || '(none)'} → ${after || '(none)'}`);
+    }
+    const geometry = m.box && t.box ? moved(m.box, t.box) : !!m.box !== !!t.box;
+    if (!changes.length && !geometry) diff.unchanged++;
+    else diff.changed.push({ ...entry(m, ids.mine), ...(geometry ? { geometry } : {}), ...(changes.length ? { changes } : {}) });
+  }
+  for (const t of theirs) if (!mineGuids.has(t.guid)) diff.removed.push(entry(t, ids.theirs));
+  const byName = (a: RevisionEntry, b: RevisionEntry) => a.name.localeCompare(b.name);
+  diff.added.sort(byName);
+  diff.removed.sort(byName);
+  diff.changed.sort(byName);
+  return { diff, shift };
+}
+
+export interface QuantityRow {
+  /** The class, or the property's value ('' when the elements do not have it). */
+  key: string;
+  count: number;
+  /** Metres, square metres and cubic metres, summed from the elements' quantity sets. */
+  length: number;
+  area: number;
+  volume: number;
+  /** The volume was measured from the shapes, as no quantity set gave one. */
+  measuredVolume?: boolean;
+  items: ItemMap;
+}
+
+export interface QuantityTable {
+  groupBy: string;
+  rows: QuantityRow[];
+  /** Property names the elements have, to group by. */
+  properties: string[];
+}
+
+/** What grouping by class is called (any other name groups by that property). */
+export const BY_CLASS = 'Class';
+
+/** Walking: eye height, the highest step taken in a stride, how close to walls, and speeds (m, m/s). */
+export const WALK = { eye: 1.7, step: 0.5, reach: 0.35, speed: 1.6, run: 5 };
+
+/**
+ * How far to move this frame, on the ground (scene x and z), for the keys held: W/S or up/down
+ * forward and back, A/D or left/right sideways, looking toward `yaw` (0 = north, -z).
+ */
+export function walkMove(keys: ReadonlySet<string>, yaw: number, dt: number, run = false): [number, number] {
+  const has = (...k: string[]) => k.some((x) => keys.has(x));
+  const fwd = (has('w', 'arrowup') ? 1 : 0) - (has('s', 'arrowdown') ? 1 : 0);
+  const side = (has('d', 'arrowright') ? 1 : 0) - (has('a', 'arrowleft') ? 1 : 0);
+  if (!fwd && !side) return [0, 0];
+  const d = ((run ? WALK.run : WALK.speed) * dt) / Math.hypot(fwd, side);
+  // Forward is (sin yaw, -cos yaw); right is (cos yaw, sin yaw).
+  return [(fwd * Math.sin(yaw) + side * Math.cos(yaw)) * d, (-fwd * Math.cos(yaw) + side * Math.sin(yaw)) * d];
 }

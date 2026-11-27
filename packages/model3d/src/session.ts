@@ -12,7 +12,15 @@ import {
   padBox,
   searchable,
   densify,
+  diffRevisions,
+  walkMove,
+  WALK,
+  BY_CLASS,
   type ClassEntry,
+  type QuantityRow,
+  type QuantityTable,
+  type RevisionDiff,
+  type RevisionItem,
   type ItemMap,
   type ModelAction,
   type ModelControls,
@@ -28,12 +36,17 @@ import {
   type TreeNode,
   type ViewDirection,
 } from './controls.ts';
-import { attrText, matchesProperty, propertyGroups, type RawItem } from './items.ts';
+import { attrText, flatProperties, groupKey, matchesProperty, propertyGroups, quantitiesOf, type RawItem } from './items.ts';
 
 type Measurer = OBF.LengthMeasurement | OBF.AreaMeasurement | OBF.AngleMeasurement | OBF.VolumeMeasurement;
 type MeasureTool = 'length' | 'area' | 'angle' | 'volume';
 type Vec3 = [number, number, number];
 const GHOST_OPACITY = 0.12;
+/** Comparing revisions: what only this model has, what changed, and what only the other has. */
+const COMPARE_COLOURS = { added: '#2fb344', changed: '#f59f00', removed: '#e03131' };
+/** Keys that walk (lower case, as KeyboardEvent.key). */
+const WALK_KEYS = new Set(['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']);
+type Hit = { point: THREE.Vector3; modelId: string; localId: number; distance: number };
 /** Elements asked for at a time when reading their data from the worker. */
 const CHUNK = 2000;
 /** Relations read for an element's properties: its property and quantity sets. */
@@ -100,6 +113,16 @@ export class ModelSession implements ModelControls {
   private hidden: OBC.ModelIdMap | null = null;
   private readonly measurers = new Map<MeasureTool, Measurer>();
   private readonly offs: (() => void)[] = [];
+  /** The other revision loaded to compare with, while there is one. */
+  private compareId: string | null = null;
+  /** The mini-map: a camera looking straight down on the models, and the marker it shows the camera with. */
+  private mini: { camera: THREE.OrthographicCamera; marker: THREE.Mesh; area: { left: number; top: number; size: number } | null } | null = null;
+  /** Walking: the keys held, whether Shift (run) is, the last frame's time, and a step still working out where it lands. */
+  private readonly walkKeys = new Set<string>();
+  private walkRun = false;
+  private walkLast = 0;
+  private walkBusy = false;
+  private walkFrame = 0;
 
   private constructor(container: HTMLElement, assets: ModelAssets) {
     this.assets = assets;
@@ -134,6 +157,23 @@ export class ModelSession implements ModelControls {
     this.components.get(OBC.Clipper).enabled = false;
     this.listen(container, 'dblclick', () => void this.place());
     this.listen(window, 'keydown', (e) => this.key(e as KeyboardEvent));
+    // Walking keys go to the view before the app's shortcuts see them.
+    this.listen(window, 'keydown', (e) => this.walkKey(e as KeyboardEvent, true), true);
+    this.listen(window, 'keyup', (e) => this.walkKey(e as KeyboardEvent, false), true);
+    this.listen(window, 'blur', () => this.walkKeys.clear());
+    // A click on the mini-map moves the camera there, before the camera controls take it as a drag.
+    this.listen(container, 'pointerdown', (e) => this.miniMapClick(e as PointerEvent), true);
+    // ...and the rest of that click stays out of selecting.
+    for (const type of ['pointerup', 'mouseup', 'click', 'dblclick'])
+      this.listen(
+        container,
+        type,
+        (e) => {
+          if (this.onMiniMap(e as MouseEvent)) e.stopPropagation();
+        },
+        true,
+      );
+    this.world.renderer!.onAfterUpdate.add(() => this.drawMiniMap());
   }
 
   // --- what the ribbon reads and runs (ModelControls) ---
@@ -162,6 +202,11 @@ export class ModelSession implements ModelControls {
     const camera = this.world.camera;
     switch (a.type) {
       case 'nav':
+        this.stopWalk();
+        if (a.mode === 'Walk') {
+          await this.startWalk();
+          return;
+        }
         // Plan looks straight down with a parallel projection; first person needs perspective.
         if (a.mode === 'Plan') await camera.projection.set('Orthographic');
         if (a.mode === 'FirstPerson') await camera.projection.set('Perspective');
@@ -260,6 +305,10 @@ export class ModelSession implements ModelControls {
         return this.showSheets(a.overlays);
       case 'lookAtPlace':
         return this.lookAtPlace(a.camera);
+      case 'miniMap':
+        return this.update({ miniMap: !this.current.miniMap });
+      case 'endCompare':
+        return this.endCompare();
     }
   }
 
@@ -374,23 +423,39 @@ export class ModelSession implements ModelControls {
   }
 
   /** The highest element of the shown models straight below a scene point (x, z), looking down from well above them. */
-  private async topHit(x: number, z: number): Promise<{ point: THREE.Vector3; modelId: string; localId: number } | null> {
+  private async topHit(x: number, z: number): Promise<Hit | null> {
+    if (!this.gridToScene) return null;
+    return this.castRay(new THREE.Vector3(x, this.scenePoint(0, 0, 0).y + 10_000, z), new THREE.Vector3(0, -1, 0));
+  }
+
+  /** The nearest element of the shown models along a ray from `origin` in direction `dir`, within `far`. */
+  private async castRay(origin: THREE.Vector3, dir: THREE.Vector3, far = 100_000): Promise<Hit | null> {
     const dom = this.world.renderer?.three.domElement;
-    if (!dom || !this.gridToScene) return null;
-    const top = this.scenePoint(0, 0, 0).y + 10_000;
-    const camera = new THREE.OrthographicCamera(-0.01, 0.01, 0.01, -0.01, 0.01, 100_000);
-    camera.up.set(0, 0, -1);
-    camera.position.set(x, top, z);
-    camera.lookAt(x, top - 1, z);
+    if (!dom) return null;
+    // A pinhole camera at the origin looking along the ray: a raycast through its middle is the ray.
+    const camera = new THREE.OrthographicCamera(-0.01, 0.01, 0.01, -0.01, 0.001, far);
+    if (Math.abs(dir.y) > 0.99) camera.up.set(0, 0, -1);
+    camera.position.copy(origin);
+    camera.lookAt(origin.clone().add(dir));
     camera.updateMatrixWorld();
     camera.updateProjectionMatrix();
+    // Raycasts go through the view's canvas: one asked for as its tab comes forward waits for it to show.
+    for (let i = 0; i < 120 && !dom.getBoundingClientRect().width && !this.disposed; i++) await new Promise((r) => requestAnimationFrame(r));
     const rect = dom.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
     const mouse = new THREE.Vector2(rect.left + rect.width / 2, rect.top + rect.height / 2);
-    let best: { point: THREE.Vector3; modelId: string; localId: number } | null = null;
+    return this.nearestHit(camera, mouse, dom, origin, far);
+  }
+
+  /** The nearest element of the shown models under a screen point, seen by `camera`. */
+  private async nearestHit(camera: THREE.Camera, mouse: THREE.Vector2, dom: HTMLCanvasElement, from: THREE.Vector3, far = Infinity): Promise<Hit | null> {
+    let best: Hit | null = null;
     for (const [modelId, model] of this.fragments.list) {
       if (!model.object.visible) continue;
-      const r = await model.raycast({ camera, mouse, dom }).catch(() => null);
-      if (r && (!best || r.point.y > best.point.y)) best = { point: r.point.clone(), modelId, localId: r.localId };
+      const r = await model.raycast({ camera: camera as THREE.PerspectiveCamera, mouse, dom }).catch(() => null);
+      if (!r) continue;
+      const distance = r.point.distanceTo(from);
+      if (distance <= far && (!best || distance < best.distance)) best = { point: r.point.clone(), modelId, localId: r.localId, distance };
     }
     return best;
   }
@@ -410,13 +475,18 @@ export class ModelSession implements ModelControls {
 
   // --- what the 3D panel reads (ModelBrowser) ---
 
+  /** The models opened in the view (not another revision loaded to compare with). */
+  private own(): [string, FragmentsModel][] {
+    return [...this.fragments.list].filter(([id]) => id !== this.compareId);
+  }
+
   models(): ModelInfo[] {
-    return [...this.fragments.list].map(([id, model]) => ({ id, name: this.names.get(id) ?? id, visible: model.object.visible, elements: this.elementCounts.get(id) ?? 0 }));
+    return this.own().map(([id, model]) => ({ id, name: this.names.get(id) ?? id, visible: model.object.visible, elements: this.elementCounts.get(id) ?? 0 }));
   }
 
   async tree(): Promise<TreeNode[]> {
     const out: TreeNode[] = [];
-    for (const [id, model] of this.fragments.list) {
+    for (const [id, model] of this.own()) {
       const root = await model.getSpatialStructure();
       type Spatial = typeof root;
       const ids: number[] = [];
@@ -453,7 +523,7 @@ export class ModelSession implements ModelControls {
 
   async classes(): Promise<ClassEntry[]> {
     const by = new Map<string, ItemMap>();
-    for (const [id, model] of this.fragments.list) {
+    for (const [id, model] of this.own()) {
       for (const [category, ids] of Object.entries(await this.itemsByCategory(model))) {
         const entry = by.get(category) ?? {};
         entry[id] = ids;
@@ -492,7 +562,7 @@ export class ModelSession implements ModelControls {
   async find(set: SearchSet): Promise<ItemMap> {
     const out: ItemMap = {};
     if (!searchable(set)) return out;
-    for (const [id, model] of this.fragments.list) {
+    for (const [id, model] of this.own()) {
       const candidates = Object.entries(await this.itemsByCategory(model))
         .filter(([category]) => matchesCategory(set, category))
         .flatMap(([, ids]) => ids);
@@ -594,6 +664,314 @@ export class ModelSession implements ModelControls {
     return out.toDataURL('image/jpeg', 0.8);
   }
 
+  // --- review tools: comparing revisions, quantities, the mini-map and walking ---
+
+  async compare(ifc: Uint8Array, name: string): Promise<RevisionDiff> {
+    await this.endCompare();
+    const [mine] = this.own();
+    if (!mine) throw new Error('There is no model to compare with.');
+    const frags = await this.convert(ifc, {});
+    if (this.disposed) throw new DOMException('The view was closed.', 'AbortError');
+    const otherId = `compare:${crypto.randomUUID()}`;
+    this.compareId = otherId;
+    const other = await this.fragments.core.load(frags, { modelId: otherId, camera: this.world.camera.three });
+    const { diff, shift } = diffRevisions(await this.revisionItems(mine[1]), await this.revisionItems(other), { mine: mine[0], theirs: otherId, other: name });
+    // Two conversions can place the same file differently: line the other up with this one.
+    other.object.position.add(new THREE.Vector3(...shift));
+    other.object.updateMatrixWorld(true);
+    await this.showComparison(diff, mine[1], other);
+    this.update({ comparing: name });
+    return diff;
+  }
+
+  /** A model's elements with geometry, as compared: GlobalId, name, class, properties and bounds. */
+  private async revisionItems(model: FragmentsModel): Promise<RevisionItem[]> {
+    const out: RevisionItem[] = [];
+    for (const [category, ids] of Object.entries(await this.itemsByCategory(model))) {
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const part = ids.slice(i, i + CHUNK);
+        const [data, boxes] = await Promise.all([model.getItemsData(part, WITH_PSETS) as Promise<RawItem[]>, model.getBoxes(part)]);
+        part.forEach((localId, j) => {
+          const item = data[j];
+          const guid = attrText(item?._guid);
+          if (!item || !guid) return;
+          const box = boxes[j];
+          out.push({
+            guid,
+            localId,
+            name: attrText(item.Name) || category,
+            category,
+            props: flatProperties(propertyGroups(item)),
+            box: box && !box.isEmpty() ? [box.min.toArray(), box.max.toArray()] : null,
+          });
+        });
+      }
+    }
+    return out;
+  }
+
+  /** Colours a comparison: added and changed in this model, the rest faint, and of the other only what was removed, in red. */
+  private async showComparison(diff: RevisionDiff, mine: FragmentsModel, other: FragmentsModel): Promise<void> {
+    const ids = (list: { localId: number }[]) => list.map((e) => e.localId);
+    const all = Object.values(await this.itemsByCategory(mine)).flat();
+    if (all.length) await mine.setOpacity(all, GHOST_OPACITY);
+    for (const [list, colour] of [
+      [diff.added, COMPARE_COLOURS.added],
+      [diff.changed, COMPARE_COLOURS.changed],
+    ] as const) {
+      if (!list.length) continue;
+      await mine.resetOpacity(ids(list));
+      await mine.setColor(ids(list), new THREE.Color(colour));
+    }
+    const theirs = Object.values(await this.itemsByCategory(other)).flat();
+    if (theirs.length) await other.setVisible(theirs, false);
+    if (diff.removed.length) {
+      await other.setVisible(ids(diff.removed), true);
+      await other.setColor(ids(diff.removed), new THREE.Color(COMPARE_COLOURS.removed));
+    }
+    await this.fragments.core.update(true);
+  }
+
+  private async endCompare(): Promise<void> {
+    const id = this.compareId;
+    if (!id) return;
+    this.compareId = null;
+    const model = this.fragments.list.get(id);
+    if (model) {
+      await this.highlighter?.clear('select');
+      model.object.removeFromParent();
+      await this.fragments.core.disposeModel(id);
+    }
+    for (const [, m] of this.own()) {
+      await m.resetColor(undefined);
+      await m.resetOpacity(undefined);
+    }
+    await this.showHidden();
+    this.update({ comparing: null, profileId: null });
+  }
+
+  async quantities(groupBy: string, scope: 'all' | 'selection'): Promise<QuantityTable> {
+    const selected = scope === 'selection' ? this.selected() : null;
+    const rows = new Map<string, QuantityRow>();
+    const names = new Set<string>();
+    for (const [id, model] of this.own()) {
+      const pick = selected?.[id];
+      for (const [category, all] of Object.entries(await this.itemsByCategory(model))) {
+        const ids = scope === 'selection' ? all.filter((l) => pick?.has(l)) : all;
+        for (let i = 0; i < ids.length; i += CHUNK) {
+          const part = ids.slice(i, i + CHUNK);
+          const data = (await model.getItemsData(part, WITH_PSETS)) as RawItem[];
+          part.forEach((localId, j) => {
+            const item = data[j];
+            if (!item) return;
+            const groups = propertyGroups(item);
+            for (const g of groups) if (!g.quantities) for (const [n] of g.rows) names.add(n);
+            const key = groupKey(groups, category, groupBy);
+            const q = quantitiesOf(groups);
+            const row = rows.get(key) ?? { key, count: 0, length: 0, area: 0, volume: 0, items: {} };
+            row.count++;
+            row.length += q.length;
+            row.area += q.area;
+            row.volume += q.volume;
+            (row.items[id] ??= []).push(localId);
+            rows.set(key, row);
+          });
+        }
+      }
+    }
+    // Where no quantity set gave a volume, measure the shapes.
+    for (const row of rows.values()) {
+      if (row.volume) continue;
+      let v = 0;
+      for (const [mid, ids] of Object.entries(row.items)) v += (await this.fragments.list.get(mid)?.getItemsVolume(ids).catch(() => 0)) ?? 0;
+      if (v > 0) Object.assign(row, { volume: v, measuredVolume: true });
+    }
+    names.delete('GlobalId');
+    return {
+      groupBy,
+      rows: [...rows.values()].sort((a, b) => a.key.localeCompare(b.key)),
+      properties: [BY_CLASS, ...[...names].sort((a, b) => a.localeCompare(b))],
+    };
+  }
+
+  /** Where the mini-map is in the view (CSS pixels from the canvas's top left), while it shows. */
+  miniMapArea(): { left: number; top: number; size: number } | null {
+    return this.current.miniMap ? (this.mini?.area ?? null) : null;
+  }
+
+  /** The bounds of every model in the view. */
+  private allBox(): THREE.Box3 {
+    const box = new THREE.Box3();
+    for (const model of this.fragments.list.values()) if (model.object.visible) box.union(model.box);
+    return box;
+  }
+
+  /** After each frame, the mini-map in the bottom-right corner: the models from straight above, with the camera's place and heading. */
+  private drawMiniMap(): void {
+    if (!this.current.miniMap || this.disposed) return;
+    const renderer = this.world.renderer?.three;
+    const box = this.allBox();
+    if (!renderer || box.isEmpty()) return;
+    if (!this.mini) {
+      const shape = new THREE.Shape([new THREE.Vector2(0, -1), new THREE.Vector2(0.6, 0.7), new THREE.Vector2(0, 0.3), new THREE.Vector2(-0.6, 0.7)]);
+      const marker = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: '#e03131', depthTest: false, side: THREE.DoubleSide }));
+      // The shape is drawn in x/y; lay it flat, pointing north (-z).
+      marker.geometry.rotateX(Math.PI / 2);
+      marker.renderOrder = 10;
+      // Only the mini-map's camera sees layer 1.
+      marker.layers.set(1);
+      this.world.scene.three.add(marker);
+      const camera = new THREE.OrthographicCamera();
+      camera.layers.enable(1);
+      camera.up.set(0, 0, -1);
+      this.mini = { camera, marker, area: null };
+    }
+    const size = renderer.getSize(new THREE.Vector2());
+    const side = Math.round(Math.min(180, size.x * 0.3, size.y * 0.4));
+    if (side < 60) return void (this.mini.area = null);
+    const [x, y] = [size.x - side - 10, 10];
+    this.mini.area = { left: x, top: size.y - y - side, size: side };
+    const { camera, marker } = this.mini;
+    const centre = box.getCenter(new THREE.Vector3());
+    const half = (Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2) * 1.08 || 1;
+    Object.assign(camera, { left: -half, right: half, top: half, bottom: -half, near: 0.1, far: box.max.y - box.min.y + 2000 });
+    camera.position.set(centre.x, box.max.y + 1000, centre.z);
+    camera.lookAt(centre.x, box.min.y, centre.z);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();
+    const eye = this.world.camera.controls.getPosition(new THREE.Vector3());
+    marker.position.set(eye.x, box.max.y + 1, eye.z);
+    marker.rotation.y = -this.orientation().yaw;
+    marker.scale.setScalar(half / 14);
+    const colour = renderer.getClearColor(new THREE.Color());
+    const alpha = renderer.getClearAlpha();
+    renderer.setScissorTest(true);
+    renderer.setScissor(x, y, side, side);
+    renderer.setViewport(x, y, side, side);
+    renderer.setClearColor('#20252b', 0.9);
+    renderer.clear(true, true, false);
+    renderer.render(this.world.scene.three, camera);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, size.x, size.y);
+    renderer.setClearColor(colour, alpha);
+  }
+
+  /** Where a mouse event is on the mini-map (0..1 across and down), or null when it is not on it. */
+  private onMiniMap(e: MouseEvent): [number, number] | null {
+    const area = this.miniMapArea();
+    const dom = this.world.renderer?.three.domElement;
+    if (!area || !dom) return null;
+    const rect = dom.getBoundingClientRect();
+    const [u, v] = [(e.clientX - rect.left - area.left) / area.size, (e.clientY - rect.top - area.top) / area.size];
+    return u < 0 || u > 1 || v < 0 || v > 1 ? null : [u, v];
+  }
+
+  /** A press on the mini-map moves the camera over that spot (keeping how it looks), instead of turning the view. */
+  private miniMapClick(e: PointerEvent): void {
+    const uv = this.onMiniMap(e);
+    if (!uv || !this.mini) return;
+    const [u, v] = uv;
+    e.stopPropagation();
+    e.preventDefault();
+    const at = new THREE.Vector3(u * 2 - 1, 1 - v * 2, 0).unproject(this.mini.camera);
+    void this.moveOver(at.x, at.z);
+  }
+
+  private async moveOver(x: number, z: number): Promise<void> {
+    const controls = this.world.camera.controls;
+    const p = controls.getPosition(new THREE.Vector3());
+    const t = controls.getTarget(new THREE.Vector3());
+    const [dx, dz] = [x - t.x, z - t.z];
+    if (this.current.nav === 'Walk') {
+      // Walking: stand on whatever is there.
+      const floor = await this.castRay(new THREE.Vector3(x, this.allBox().max.y + 100, z), new THREE.Vector3(0, -1, 0));
+      const dy = floor ? floor.point.y + WALK.eye - p.y : 0;
+      return void (await controls.setLookAt(x, p.y + dy, z, x + t.x - p.x, t.y + dy, z + t.z - p.z, false));
+    }
+    await controls.setLookAt(p.x + dx, p.y, p.z + dz, x, t.y, z, true);
+  }
+
+  /** Walking: from where the camera looks (the middle of the view), at eye height, looking level. */
+  private async startWalk(): Promise<void> {
+    const camera = this.world.camera;
+    const dom = this.world.renderer?.three.domElement;
+    await camera.projection.set('Perspective');
+    const controls = camera.controls;
+    const from = controls.getPosition(new THREE.Vector3());
+    const look = camera.three.getWorldDirection(new THREE.Vector3());
+    let ground: THREE.Vector3 | null = null;
+    if (dom) {
+      const rect = dom.getBoundingClientRect();
+      ground = (await this.nearestHit(camera.three, new THREE.Vector2(rect.left + rect.width / 2, rect.top + rect.height / 2), dom, from))?.point ?? null;
+    }
+    if (!ground) {
+      const t = controls.getTarget(new THREE.Vector3());
+      ground = (await this.castRay(new THREE.Vector3(t.x, this.allBox().max.y + 100, t.z), new THREE.Vector3(0, -1, 0)))?.point ?? null;
+    }
+    const flat = new THREE.Vector3(look.x, 0, look.z);
+    if (flat.lengthSq() < 1e-8) flat.set(0, 0, -1);
+    flat.normalize();
+    camera.set('FirstPerson');
+    const eye = ground ? ground.clone().setY(ground.y + WALK.eye) : from;
+    await controls.setLookAt(eye.x, eye.y, eye.z, eye.x + flat.x, eye.y, eye.z + flat.z, false);
+    this.update({ nav: 'Walk', projection: 'Perspective' });
+    this.walkKeys.clear();
+    this.walkLast = performance.now();
+    this.walkFrame = requestAnimationFrame(this.walkTick);
+  }
+
+  private stopWalk(): void {
+    cancelAnimationFrame(this.walkFrame);
+    this.walkFrame = 0;
+    this.walkKeys.clear();
+  }
+
+  private walkKey(e: KeyboardEvent, down: boolean): void {
+    if (this.current.nav !== 'Walk') return;
+    const k = e.key.toLowerCase();
+    this.walkRun = e.shiftKey;
+    if (!down) return void this.walkKeys.delete(k);
+    // Only while the pointer is over this view, and not while typing in a box.
+    const typing = e.target instanceof HTMLElement && (e.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName));
+    if (!WALK_KEYS.has(k) || typing || !this.container.matches(':hover')) return;
+    this.walkKeys.add(k);
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  private readonly walkTick = (now: number): void => {
+    if (this.disposed || this.current.nav !== 'Walk') return;
+    this.walkFrame = requestAnimationFrame(this.walkTick);
+    // A step still finding where it lands: the time carries over to the next one.
+    if (this.walkBusy) return;
+    const dt = Math.min(0.25, (now - this.walkLast) / 1000);
+    this.walkLast = now;
+    const [dx, dz] = walkMove(this.walkKeys, this.orientation().yaw, dt, this.walkRun);
+    if (!dx && !dz) return;
+    this.walkBusy = true;
+    void this.walkStep(dx, dz, dt)
+      .catch((err: unknown) => console.warn('3D view: walking:', err))
+      .finally(() => (this.walkBusy = false));
+  };
+
+  /** One stride: stopped short of walls (a ray ahead at knee height), then onto the floor below (a ray down). */
+  private async walkStep(dx: number, dz: number, dt: number): Promise<void> {
+    const controls = this.world.camera.controls;
+    const pos = controls.getPosition(new THREE.Vector3());
+    const ahead = controls.getTarget(new THREE.Vector3()).sub(pos);
+    const move = new THREE.Vector3(dx, 0, dz);
+    const length = move.length();
+    const knee = pos.clone().setY(pos.y - WALK.eye + WALK.step + 0.05);
+    const wall = await this.castRay(knee, move.clone().normalize(), length + WALK.reach);
+    const next = wall ? pos.clone() : pos.clone().add(move);
+    if (wall && wall.distance > WALK.reach) next.add(move.setLength(wall.distance - WALK.reach));
+    // Steps up to knee height are climbed; with nothing below, the walker falls (9 m/s) or stays put.
+    const floor = await this.castRay(next.clone().setY(next.y - WALK.eye + WALK.step), new THREE.Vector3(0, -1, 0), 10_000);
+    if (floor) next.y = Math.max(floor.point.y + WALK.eye, Math.min(next.y, next.y - 9 * dt));
+    if (this.disposed || this.current.nav !== 'Walk' || next.distanceTo(pos) < 1e-6) return;
+    await controls.setLookAt(next.x, next.y, next.z, next.x + ahead.x, next.y + ahead.y, next.z + ahead.z, false);
+  }
+
   /** Goes back to a saved view: its camera, section box, hidden elements and colour profile. */
   private async applyView(view: SavedView, profile: ResolvedProfile | null): Promise<void> {
     const camera = this.world.camera;
@@ -663,9 +1041,9 @@ export class ModelSession implements ModelControls {
     for (const l of this.listeners) l();
   }
 
-  private listen(target: EventTarget, type: string, fn: (e: Event) => void) {
-    target.addEventListener(type, fn);
-    this.offs.push(() => target.removeEventListener(type, fn));
+  private listen(target: EventTarget, type: string, fn: (e: Event) => void, capture = false) {
+    target.addEventListener(type, fn, capture);
+    this.offs.push(() => target.removeEventListener(type, fn, capture));
   }
 
   /** Looks at what the camera is looking at from a direction (top, front, ...), keeping the distance. */
@@ -910,6 +1288,7 @@ export class ModelSession implements ModelControls {
   dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.stopWalk();
     this.resize.disconnect();
     for (const off of this.offs) off();
     this.listeners.clear();
