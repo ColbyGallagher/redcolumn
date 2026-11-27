@@ -57,14 +57,18 @@ test.describe('measure tools', () => {
     expect((await app.markups())[0]!.measurement).toBe(`11'-1 5/16"`);
   });
 
-  test('Escape cancels a measurement in progress', async ({ app }) => {
+  test('Escape keeps a measurement in progress and ends the command', async ({ app }) => {
     await app.tool('polylength');
     await app.clicks([
       [300, 450],
       [500, 450],
     ]);
     await app.page.keyboard.press('Escape');
-    expect(await app.markups()).toEqual([]);
+    const markups = await app.markups();
+    expect(markups).toHaveLength(1);
+    expect(markups[0]!.type).toBe('polylength');
+    expect(markups[0]!.points).toHaveLength(2);
+    expect((await app.toolState()).tool).toBe('select');
   });
 
   test('undo removes the last measurement', async ({ app }) => {

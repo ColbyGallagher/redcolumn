@@ -126,16 +126,24 @@ test.describe('text markups', () => {
     expect(m.spans).toEqual([{ start: 9, end: 13, style: { bold: true } }]);
   });
 
-  test('Escape cancels an edit', async ({ app }) => {
-    await textBox(app);
-    await app.page.keyboard.type('KEEP');
-    await commit(app);
-    const c = await app.at([450, 525]);
-    await app.page.mouse.dblclick(c.x, c.y);
-    await app.page.keyboard.type(' AND MORE');
+  test('Escape keeps the text being typed and ends the command', async ({ app }) => {
+    await app.tool('typewriter');
+    await app.clicks([[350, 480]]);
+    await expect(editor(app)).toBeVisible();
+    await app.page.keyboard.type('HELLO');
     await app.page.keyboard.press('Escape');
     await expect(editor(app)).toHaveCount(0);
-    expect(await textOf(app)).toBe('KEEP');
+    expect(await textOf(app)).toBe('HELLO');
+    expect((await app.toolState()).tool).toBe('select');
+
+    const c = await app.at([365, 488]);
+    await app.page.mouse.dblclick(c.x, c.y);
+    await expect(editor(app)).toBeVisible();
+    await app.page.keyboard.press('End');
+    await app.page.keyboard.type(' WORLD');
+    await app.page.keyboard.press('Escape');
+    await expect(editor(app)).toHaveCount(0);
+    expect(await textOf(app)).toBe('HELLO WORLD');
   });
 
   test('Enter makes a new line', async ({ app }) => {
