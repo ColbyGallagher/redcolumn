@@ -1428,7 +1428,7 @@ export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet,
       mayEdit: (m) => this.mayEdit(m),
       hasConnectors: this.hasConnectors,
     });
-    if (!plan.put.length && !plan.remove.length) return;
+    if (!plan.put.length) return;
     this.doc.transact(() => {
       for (const m of plan.put) this.map.set(m.id, m);
     }, LOCAL);

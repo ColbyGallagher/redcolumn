@@ -193,7 +193,7 @@ test('planUpdate shifts text spans when text changes without an explicit spans p
 
 // ---- planUpdate: connector rerouting & permissions ----------------------------------------
 
-test('planUpdate re-routes glued connectors when a shape moves, rotates or changes page, respecting mayEdit', () => {
+test("planUpdate re-routes glued connectors when a shape moves or a connector's link changes, respecting mayEdit", () => {
   const a = shape('a', 0, 0);
   const b = shape('b', 0, 150);
   const cMine = markup('c1', 'connector', [[50, 50], [50, 150]], { author: 'Nadia', connect: { from: { id: 'a' }, to: { id: 'b' } } });
