@@ -16,9 +16,13 @@ import {
 } from './auth.ts';
 import { InProcessBroadcaster, type Broadcaster } from './broadcaster.ts';
 import { isOriginAllowed, type ServerConfig } from './config.ts';
+import { deriveCursorKey } from './cursor.ts';
 import { checkDbConnection, type Database } from './db.ts';
 import { createLogger } from './logger.ts';
+import type { NotificationSink } from './notifications.ts';
 import { OpPipeline, type OpPipelineHooks } from './pipeline.ts';
+import { registerReviewRoutes } from './reviewRoutes.ts';
+import { ReviewStore } from './reviewStore.ts';
 import { attachWebSocketServer, type WsHandle } from './ws.ts';
 
 export interface BuildServerOptions {
@@ -28,6 +32,12 @@ export interface BuildServerOptions {
   logger?: Logger;
   broadcaster?: Broadcaster;
   pipelineHooks?: OpPipelineHooks;
+  /** Non-BYPASSRLS Postgres role used for RLS-enforced review reads. */
+  readerRole?: string;
+  /** Secret used to derive the AEAD key for opaque stream cursors. */
+  cursorSecret?: string;
+  /** Sink for capturing outbound notifications/emails. */
+  notifications?: NotificationSink;
 }
 
 export interface ServerInstance {
@@ -35,6 +45,7 @@ export interface ServerInstance {
   broadcaster: Broadcaster;
   pipeline: OpPipeline;
   ws: WsHandle;
+  reviewStore?: ReviewStore;
 }
 
 const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -94,6 +105,15 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
     return { ok: true };
   });
 
+  const reviewStore = options.readerRole
+    ? new ReviewStore({
+        pool,
+        readerRole: options.readerRole,
+        cursorKey: deriveCursorKey(options.cursorSecret),
+        notifications: options.notifications,
+      })
+    : undefined;
+
   const ws = attachWebSocketServer({
     httpServer: app.server,
     config,
@@ -101,7 +121,20 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
     pipeline,
     broadcaster,
     logger,
+    reviewStore,
   });
+
+  if (reviewStore) {
+    registerReviewRoutes({
+      app,
+      db,
+      config,
+      reviewStore,
+      onReviewEvents: (events) => {
+        void ws.publishReviewEvents(events);
+      },
+    });
+  }
 
   // Routes opt in to rate limiting with `config.rateLimit`. The limit keys on `request.ip`,
   // which is the socket address unless Fastify's trustProxy is configured.
@@ -179,5 +212,5 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
     await ws.close();
   });
 
-  return { app, broadcaster, pipeline, ws };
+  return { app, broadcaster, pipeline, ws, reviewStore };
 }

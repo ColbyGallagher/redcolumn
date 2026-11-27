@@ -9,6 +9,7 @@ import type { Broadcaster } from './broadcaster.ts';
 import { isOriginAllowed, type ServerConfig } from './config.ts';
 import type { Database } from './db.ts';
 import type { OpPipeline } from './pipeline.ts';
+import type { ReviewEvent, ReviewStore } from './reviewStore.ts';
 
 export interface WsServerOptions {
   httpServer: HttpServer;
@@ -17,6 +18,7 @@ export interface WsServerOptions {
   pipeline: OpPipeline;
   broadcaster: Broadcaster;
   logger: Logger;
+  reviewStore?: ReviewStore;
 }
 
 export interface WsHandle {
@@ -25,6 +27,8 @@ export interface WsHandle {
   closeSession: (sessionId: string) => void;
   /** Re-checks every open socket's session now and closes those that are no longer valid. */
   revalidateSessions: () => Promise<void>;
+  /** Fans out review events only to subscribed connections allowed by Postgres RLS. */
+  publishReviewEvents: (events: readonly ReviewEvent[]) => Promise<void>;
   close: () => Promise<void>;
 }
 
@@ -47,6 +51,7 @@ interface Connection {
   session: SessionInfo;
   token: string;
   ended: boolean;
+  subscribedStreams: Set<string>;
 }
 
 function writeHttpError(socket: Duplex, statusCode: number, reason: string): void {
@@ -74,7 +79,7 @@ function rawStreamId(op: unknown): string | null {
 }
 
 export function attachWebSocketServer(options: WsServerOptions): WsHandle {
-  const { httpServer, config, db, pipeline, broadcaster, logger } = options;
+  const { httpServer, config, db, pipeline, broadcaster, logger, reviewStore } = options;
 
   const wss = new WebSocketServer({
     noServer: true,
@@ -83,6 +88,36 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
 
   const alive = new WeakMap<WebSocket, boolean>();
   const connections = new Map<WebSocket, Connection>();
+
+  const publishReviewEvents = async (events: readonly ReviewEvent[]): Promise<void> => {
+    if (!reviewStore || events.length === 0) return;
+    for (const ev of events) {
+      for (const [ws, conn] of connections) {
+        if (conn.ended || ws.readyState !== WebSocket.OPEN) continue;
+        if (!conn.subscribedStreams.has(ev.streamId)) continue;
+        try {
+          const visible = await reviewStore.canUserSeeEvent(conn.session.user.id, ev.streamId, ev.seq);
+          if (!visible || conn.ended || ws.readyState !== WebSocket.OPEN) continue;
+          const cursor = reviewStore.sealStreamCursor(conn.session.user.id, ev.streamId, ev.seq);
+          sendJson(ws, {
+            type: 'event',
+            event: {
+              opId: ev.opId,
+              opType: ev.opType,
+              itemKind: ev.itemKind,
+              entityId: ev.entityId,
+              versionRev: ev.versionRev,
+              payload: ev.payload,
+              receivedAt: ev.receivedAt,
+            },
+            cursor,
+          });
+        } catch (err) {
+          logger.warn({ err, userId: conn.session.user.id }, 'Failed to evaluate review event visibility');
+        }
+      }
+    }
+  };
 
   const endSession = (ws: WebSocket, conn: Connection) => {
     if (conn.ended) return;
@@ -125,7 +160,7 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
       alive.set(ws, true);
     });
 
-    const conn: Connection = { session, token, ended: false };
+    const conn: Connection = { session, token, ended: false, subscribedStreams: new Set() };
     connections.set(ws, conn);
 
     const actor: Actor = { userId: session.user.id, partyId: null, groupId: null };
@@ -134,6 +169,7 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
 
     const cleanup = () => {
       connections.delete(ws);
+      conn.subscribedStreams.clear();
       for (const unsubscribe of subscriptions.values()) {
         unsubscribe();
       }
@@ -208,7 +244,8 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
           forbidden(streamId);
           return;
         }
-        if (!subscriptions.has(streamId)) {
+        conn.subscribedStreams.add(streamId);
+        if (!subscriptions.has(streamId) && !reviewStore?.resolveStreamScope(streamId)) {
           const unsubscribe = broadcaster.subscribe(streamId, (event) => {
             if (!conn.ended) sendJson(ws, { type: 'event', event });
           });
@@ -220,6 +257,7 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
 
       if (typed.type === 'unsubscribe') {
         const streamId = typeof typed.streamId === 'string' ? typed.streamId : '';
+        conn.subscribedStreams.delete(streamId);
         const unsubscribe = subscriptions.get(streamId);
         if (unsubscribe) {
           unsubscribe();
@@ -229,10 +267,61 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
         return;
       }
 
+      if (typed.type === 'sync') {
+        if (!reviewStore) {
+          sendJson(ws, { type: 'error', code: 'unsupported', message: 'Sync feed is not configured' });
+          return;
+        }
+        const streamId = typeof typed.streamId === 'string' ? typed.streamId : '';
+        if (!STREAM_ID_RE.test(streamId)) {
+          sendJson(ws, { type: 'error', code: 'invalid_stream_id', message: 'Invalid streamId' });
+          return;
+        }
+        const cursor = typeof typed.cursor === 'string' ? typed.cursor : null;
+        try {
+          const feed = await reviewStore.readSyncFeed(streamId, session.user.id, cursor);
+          if (!feed.ok) {
+            sendJson(ws, { type: 'error', code: 'invalid_cursor', message: 'Invalid cursor' });
+            return;
+          }
+          sendJson(ws, { type: 'sync_result', streamId, events: feed.events, cursor: feed.cursor });
+        } catch (err) {
+          logger.error({ err, userId: session.user.id }, 'Failed to read sync feed');
+          sendJson(ws, { type: 'error', code: 'internal_error', message: 'Failed to read sync feed' });
+        }
+        return;
+      }
+
       if (typed.type === 'op') {
         const streamId = rawStreamId(typed.op);
         if (streamId !== null && !authorizeStream(actor, streamId, 'write')) {
           forbidden(streamId);
+          return;
+        }
+        const reviewScope = streamId !== null ? reviewStore?.resolveStreamScope(streamId) : null;
+        if (reviewStore && reviewScope) {
+          const opId =
+            typed.op && typeof typed.op === 'object' && typeof (typed.op as { opId?: unknown }).opId === 'string'
+              ? (typed.op as { opId: string }).opId
+              : null;
+          try {
+            const outcome = await reviewStore.submitOperation(reviewScope.scopeId, session.user.id, typed.op);
+            if (!outcome.ok) {
+              const rejection =
+                outcome.code === 'not_found'
+                  ? { code: 'not_found', message: 'Not found' }
+                  : { code: outcome.code, message: outcome.error };
+              sendJson(ws, { type: 'ack', result: { ok: false, opId, rejection } });
+              return;
+            }
+            sendJson(ws, { type: 'ack', result: { ok: true, opId, streamId } });
+            if (outcome.events.length > 0) {
+              await publishReviewEvents(outcome.events);
+            }
+          } catch (err) {
+            logger.error({ err, userId: session.user.id }, 'Failed to process review operation');
+            sendJson(ws, { type: 'error', code: 'internal_error', message: 'Failed to process operation' });
+          }
           return;
         }
         try {
@@ -333,6 +422,7 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
       }
     },
     revalidateSessions,
+    publishReviewEvents,
     close: async () => {
       clearInterval(heartbeatTimer);
       httpServer.off('upgrade', onUpgrade);
