@@ -4,6 +4,7 @@ import { PDFArray, PDFDict, PDFDocument, PDFName, PDFNumber, PDFString } from 'p
 import {
   actionTarget,
   describeAction,
+  filterBookmarkRows,
   flattenBookmarks,
   indentBookmark,
   insertBookmark,
@@ -196,4 +197,72 @@ test('nameBookmarksByPage renames a page\'s own bookmark where it is and leaves 
   assert.deepEqual([res.renamed, res.added], [3, 1]);
   // The tree passed in is not changed.
   assert.equal(tree[1]!.children[0]!.title, 'A-101');
+});
+
+test('filterBookmarkRows preserves ancestors of nested matches, is case-insensitive, and supports pageLabel', () => {
+  const node = (id: string, title: string, pageIndex: number, children: Bookmark[] = []): Bookmark => ({
+    id,
+    title,
+    pageIndex,
+    rect: null,
+    children,
+  });
+  const tree: Bookmark[] = [
+    node('arch', 'Architectural', 0, [
+      node('plans', 'Floor Plans', 1, [
+        node('l1', 'Level 1 Plan', 1),
+        node('l2', 'Level 2 Plan', 2),
+      ]),
+      node('elev', 'Elevations', 3),
+    ]),
+    node('struct', 'Structural', 4, [node('fnd', 'Foundation', 4)]),
+  ];
+  const labels = ['G-001', 'A-101', 'A-102', 'A-201', 'S-101'];
+  const pageLabel = (i: number) => labels[i] ?? `Page ${i + 1}`;
+
+  // Nested match preserves non-matching grandparent and parent with matched: false.
+  assert.deepEqual(
+    filterBookmarkRows(tree, 'level 2').map((r) => [r.bookmark.id, r.depth, r.matched]),
+    [
+      ['arch', 0, false],
+      ['plans', 1, false],
+      ['l2', 2, true],
+    ],
+  );
+
+  // Case-insensitive match against pageLabel.
+  assert.deepEqual(
+    filterBookmarkRows(tree, 's-101', pageLabel).map((r) => [r.bookmark.id, r.depth, r.matched]),
+    [
+      ['struct', 0, true],
+      ['fnd', 1, true],
+    ],
+  );
+
+  // Matching ancestor keeps matched: true; non-matching children are omitted.
+  assert.deepEqual(
+    filterBookmarkRows(tree, 'ARCHITECTURAL').map((r) => [r.bookmark.id, r.depth, r.matched]),
+    [['arch', 0, true]],
+  );
+
+  // Empty or whitespace-only query returns all rows with matched: true.
+  assert.deepEqual(
+    filterBookmarkRows(tree, '   ').map((r) => [r.bookmark.id, r.depth, r.matched]),
+    flattenBookmarks(tree).map((r) => [r.bookmark.id, r.depth, true]),
+  );
+
+  // No-match case returns empty array.
+  assert.deepEqual(filterBookmarkRows(tree, 'electrical', pageLabel), []);
+
+  // Null pageIndex does not invoke pageLabel or crash.
+  const nullPageTree: Bookmark[] = [{ ...node('x', 'External Link', 0), pageIndex: null as unknown as number }];
+  let called = false;
+  assert.deepEqual(
+    filterBookmarkRows(nullPageTree, 'external', () => {
+      called = true;
+      return 'A-101';
+    }).map((r) => [r.bookmark.id, r.matched]),
+    [['x', true]],
+  );
+  assert.equal(called, false);
 });

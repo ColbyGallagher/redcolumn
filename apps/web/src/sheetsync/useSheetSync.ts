@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LocalExcelTarget, localExcel, SyncStoppedError, targetFor, type SyncLink, type SyncTarget } from './targets';
 import { tableKey, type TableCell } from './table';
@@ -292,7 +293,7 @@ export function useSheetSync(docKey: string | null) {
         setLink(made.link);
         setStatus({ kind: 'synced', at: Date.now() });
       } catch (err) {
-        setStatus({ kind: 'error', message: err instanceof Error ? err.message : 'Could not create the workbook.' });
+        setStatus({ kind: 'error', message: err instanceof Error ? err.message : msg('Could not create the workbook.') });
       }
     },
     [docKey],

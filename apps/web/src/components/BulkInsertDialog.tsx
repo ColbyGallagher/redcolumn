@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { CAD_ACCEPT } from '../cad/files';
 import { useRef, useState } from 'react';
 
@@ -44,24 +45,24 @@ export function BulkInsertDialog({ initial, currentPage, onInsert, onCancel }: P
           if (e.key === 'Escape') onCancel();
         }}
       >
-        <h3>Bulk Insert PDFs</h3>
-        <p>All pages of each file are inserted into this document, in this order.</p>
-        <ol className="combine-list" role="listbox" aria-label="Files to insert">
+        <h3>{msg('Bulk Insert PDFs')}</h3>
+        <p>{msg('All pages of each file are inserted into this document, in this order.')}</p>
+        <ol className="combine-list" role="listbox" aria-label={msg('Files to insert')}>
           {items.map((f, i) => (
             <li key={`${f.name}-${i}`} role="option" aria-selected={i === picked} className={i === picked ? 'picked' : ''} onClick={() => setPicked(i)}>
               <span className="name">{f.name}</span>
             </li>
           ))}
-          {!items.length && <li className="empty">Add PDFs or pictures to insert.</li>}
+          {!items.length && <li className="empty">{msg('Add PDFs or pictures to insert.')}</li>}
         </ol>
         <div className="row">
           <button type="button" className="btn" onClick={() => input.current?.click()}>
-            Add Files…
+            {msg('Add Files…')}
           </button>
-          <button type="button" className="btn" disabled={!items.length} onClick={() => move(picked, -1)} title="Move up">
+          <button type="button" className="btn" disabled={!items.length} onClick={() => move(picked, -1)} title={msg('Move up')}>
             ↑
           </button>
-          <button type="button" className="btn" disabled={!items.length} onClick={() => move(picked, 1)} title="Move down">
+          <button type="button" className="btn" disabled={!items.length} onClick={() => move(picked, 1)} title={msg('Move down')}>
             ↓
           </button>
           <button
@@ -73,7 +74,7 @@ export function BulkInsertDialog({ initial, currentPage, onInsert, onCancel }: P
               setPicked(Math.max(0, picked - 1));
             }}
           >
-            Remove
+            {msg('Remove')}
           </button>
         </div>
         <input
@@ -89,19 +90,19 @@ export function BulkInsertDialog({ initial, currentPage, onInsert, onCancel }: P
           }}
         />
         <div className="form-grid">
-          <label htmlFor="bulk-insert-where">Insert</label>
+          <label htmlFor="bulk-insert-where">{msg('Insert')}</label>
           <select id="bulk-insert-where" value={where} onChange={(e) => setWhere(e.target.value as BulkInsertWhere)}>
-            <option value="after">After page {currentPage}</option>
-            <option value="start">At the start</option>
-            <option value="end">At the end</option>
+            <option value="after">{msg('After page {currentPage}', { currentPage })}</option>
+            <option value="start">{msg('At the start')}</option>
+            <option value="end">{msg('At the end')}</option>
           </select>
         </div>
         <div className="actions">
           <button type="button" className="btn" onClick={onCancel}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="submit" className="btn primary" disabled={!valid}>
-            Insert
+            {msg('Insert')}
           </button>
         </div>
       </form>

@@ -1,3 +1,6 @@
+import { msg, msgParts } from '@nb/i18n';
+import { lazy } from '../i18n/lazy';
+import { keyed } from '../i18n/keyed';
 import { useMemo, useRef, useState } from 'react';
 import { COLUMN_TYPES, importColumnsXml, MARKUP_LABELS, columnsToXml, type ColumnSet, type ColumnType, type CustomColumn, type Markup, type MarkupStatusDef } from '@nb/markup';
 import { FUNCTION_NAMES, parseFormula } from '../columns/formula';
@@ -21,23 +24,23 @@ interface Props {
 }
 
 /** What each built-in column is, shown when it is selected. */
-const BUILT_IN_HINTS: Partial<Record<string, string>> = {
-  seq: 'Each markup’s ID: numbered 1, 2, 3… in the order markups are made, never reused.',
-  subject: 'The markup’s subject; its type’s name until one is typed.',
-  page: 'The page number the markup is on.',
-  sheet: 'The page’s label or sheet number.',
-  space: 'The Spaces the markup lies in.',
-  measurement: 'The measurement’s value at its page or viewport scale.',
-  assembly: 'The assembly a measurement is taken off as (Tools › Takeoff › Assemblies).',
-  author: 'Who made the markup.',
-  date: 'When the markup was last changed.',
-  status: 'The markup’s status. Define the statuses on the Statuses tab.',
-  checked: 'Bluebeam’s checkmark: ticked off, separate from the status.',
-  comment: 'The markup’s comment, or the text of a text box.',
-  type: 'The kind of markup.',
-  color: 'The markup’s line colour.',
-  capture: 'A picture of the markup taken with right-click › Capture.',
-};
+const BUILT_IN_HINTS = lazy((): Partial<Record<string, string>> => ({
+  seq: msg('Each markup’s ID: numbered 1, 2, 3… in the order markups are made, never reused.'),
+  subject: msg('The markup’s subject; its type’s name until one is typed.'),
+  page: msg('The page number the markup is on.'),
+  sheet: msg('The page’s label or sheet number.'),
+  space: msg('The Spaces the markup lies in.'),
+  measurement: msg('The measurement’s value at its page or viewport scale.'),
+  assembly: msg('The assembly a measurement is taken off as (Tools › Takeoff › Assemblies).'),
+  author: msg('Who made the markup.'),
+  date: msg('When the markup was last changed.'),
+  status: msg('The markup’s status. Define the statuses on the Statuses tab.'),
+  checked: msg('Bluebeam’s checkmark: ticked off, separate from the status.'),
+  comment: msg('The markup’s comment, or the text of a text box.'),
+  type: msg('The kind of markup.'),
+  color: msg('The markup’s line colour.'),
+  capture: msg('A picture of the markup taken with right-click › Capture.'),
+}));
 
 const builtInId = (key: string) => `builtin:${key}`;
 
@@ -45,7 +48,7 @@ const TYPE_ICONS: Record<ColumnType, string> = { text: 'Aa', multiline: '¶', ch
 
 function formulaError(c: CustomColumn, all: readonly CustomColumn[]): string | null {
   if (c.type !== 'formula') return null;
-  if (!c.formula?.trim()) return 'Enter a formula';
+  if (!c.formula?.trim()) return msg('Enter a formula');
   try {
     parseFormula(c.formula);
   } catch (err) {
@@ -53,7 +56,7 @@ function formulaError(c: CustomColumn, all: readonly CustomColumn[]): string | n
   }
   const names = new Set([...BUILT_IN_COLUMNS.map((b) => b.label.toLowerCase()), 'comment', 'color', ...all.map((x) => x.name.trim().toLowerCase())]);
   const missing = [...c.formula.matchAll(/\[([^\]]*)\]/g)].map((m) => m[1]!.trim()).find((n) => !names.has(n.toLowerCase()));
-  return missing !== undefined ? `No column named [${missing}]` : null;
+  return missing !== undefined ? msg('No column named [{missing}]', { missing }) : null;
 }
 
 /**
@@ -82,13 +85,13 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
 
   const nameProblem = (c: CustomColumn) => {
     const n = c.name.trim().toLowerCase();
-    if (!n) return 'Name is required';
-    if (BUILT_IN_COLUMNS.some((b) => b.label.toLowerCase() === n)) return 'A built-in column has this name';
-    if (columns.some((o) => o.id !== c.id && o.name.trim().toLowerCase() === n)) return 'Another column has this name';
+    if (!n) return msg('Name is required');
+    if (BUILT_IN_COLUMNS.some((b) => b.label.toLowerCase() === n)) return msg('A built-in column has this name');
+    if (columns.some((o) => o.id !== c.id && o.name.trim().toLowerCase() === n)) return msg('Another column has this name');
     return null;
   };
-  const problems = columns.map((c) => nameProblem(c) ?? formulaError(c, columns) ?? (c.type === 'choice' && !c.options?.length ? 'Add at least one choice' : null));
-  const statusProblem = statuses.some((s) => !s.name.trim()) ? 'Every status needs a name' : null;
+  const problems = columns.map((c) => nameProblem(c) ?? formulaError(c, columns) ?? (c.type === 'choice' && !c.options?.length ? msg('Add at least one choice') : null));
+  const statusProblem = statuses.some((s) => !s.name.trim()) ? msg('Every status needs a name') : null;
   const valid = problems.every((p) => !p) && !statusProblem;
 
   const preview = useMemo(() => {
@@ -130,7 +133,7 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
       ].filter((x) => !names.has(x.name.toLowerCase()) && !ss.some((y) => y.id === x.id));
       return [...ss, ...punch];
     });
-    setMessage(`Added ${add.length} punch list column(s) and statuses. Save to apply.`);
+    setMessage(msg('Added {count} punch list column(s) and statuses. Save to apply.', { count: add.length }));
   };
 
   const move = (id: string, by: -1 | 1) =>
@@ -160,61 +163,61 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
     setColumns(set.columns);
     if (set.statuses) setStatuses(set.statuses);
     setSelectedId(set.columns[0]?.id ?? null);
-    setMessage(`${how}: ${set.columns.length} column(s), ${(set.statuses ?? statuses).length - 1} status(es). Save to apply.`);
+    setMessage(msg('{how}: {count} column(s), {count2} status(es). Save to apply.', { how, count: set.columns.length, count2: (set.statuses ?? statuses).length - 1 }));
   };
 
   const refsFor = selected ? [...BUILT_IN_COLUMNS.filter((b) => b.key !== 'color').map((b) => b.label), ...columns.filter((c) => c.id !== selected.id).map((c) => c.name)] : [];
 
   return (
     <div className="modal-backdrop" onMouseDown={onClose}>
-      <div className="modal columns-dialog" role="dialog" aria-label="Custom columns" onMouseDown={(e) => e.stopPropagation()}>
+      <div className="modal columns-dialog" role="dialog" aria-label={msg('Custom columns')} onMouseDown={(e) => e.stopPropagation()}>
         <div className="columns-head">
-          <h3>Markup Columns &amp; Statuses</h3>
+          <h3>{msg('Markup Columns & Statuses')}</h3>
           <div className="tabs" role="tablist">
             <button role="tab" aria-selected={tab === 'columns'} className={tab === 'columns' ? 'active' : ''} onClick={() => setTab('columns')}>
-              Columns ({BUILT_IN_COLUMNS.length + columns.length})
+              {msg('Columns ({count})', { count: BUILT_IN_COLUMNS.length + columns.length })}
             </button>
             <button role="tab" aria-selected={tab === 'statuses'} className={tab === 'statuses' ? 'active' : ''} onClick={() => setTab('statuses')}>
-              Statuses ({statuses.length - 1})
+              {msg('Statuses ({count})', { count: statuses.length - 1 })}
             </button>
           </div>
         </div>
-        {readOnly && <p className="columns-readonly">This document is read-only; columns can be viewed and exported but not changed.</p>}
+        {readOnly && <p className="columns-readonly">{msg('This document is read-only; columns can be viewed and exported but not changed.')}</p>}
 
         {tab === 'columns' ? (
           <div className="columns-body">
             <div className="columns-list">
               <ul>
-                <li className="col-section">Built-in</li>
+                <li className="col-section">{msg('Built-in')}</li>
                 {BUILT_IN_COLUMNS.map((b) => (
                   <li key={b.key}>
-                    <button className={`col-row builtin${builtInId(b.key) === selectedId ? ' active' : ''}`} onClick={() => setSelectedId(builtInId(b.key))} title="Built-in: always there, cannot be deleted">
+                    <button className={`col-row builtin${builtInId(b.key) === selectedId ? ' active' : ''}`} onClick={() => setSelectedId(builtInId(b.key))} title={msg('Built-in: always there, cannot be deleted')}>
                       <span className="col-type-icon" aria-hidden="true">
                         🔒
                       </span>
                       <span className="col-name">{b.label}</span>
-                      {!shownInList(b.key) && <span className="col-hidden">hidden</span>}
+                      {!shownInList(b.key) && <span className="col-hidden">{msg('hidden')}</span>}
                     </button>
                   </li>
                 ))}
-                <li className="col-section">Custom</li>
+                <li className="col-section">{msg('Custom')}</li>
                 {columns.map((c, i) => (
                   <li key={c.id}>
                     <button className={`col-row${c.id === selectedId ? ' active' : ''}${problems[i] ? ' invalid' : ''}`} onClick={() => setSelectedId(c.id)}>
                       <span className="col-type-icon">{TYPE_ICONS[c.type]}</span>
-                      <span className="col-name">{c.name || 'Untitled'}</span>
+                      <span className="col-name">{c.name || msg('Untitled')}</span>
                       {c.required && (
-                        <span className="req" title="Required">
+                        <span className="req" title={msg('Required')}>
                           *
                         </span>
                       )}
                     </button>
                   </li>
                 ))}
-                {!columns.length && <li className="empty">No custom columns yet. Add one below.</li>}
+                {!columns.length && <li className="empty">{msg('No custom columns yet. Add one below.')}</li>}
               </ul>
               <div className="col-add">
-                <span>Add column</span>
+                <span>{msg('Add column')}</span>
                 <div className="col-add-grid">
                   {COLUMN_TYPES.map((t) => (
                     <button key={t.value} className="btn small" disabled={readOnly} title={t.hint} onClick={() => addColumn(t.value)}>
@@ -222,8 +225,8 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
                     </button>
                   ))}
                 </div>
-                <button className="btn small" disabled={readOnly} title="Location, Trade, Due date, Assigned to and a Done checkmark, plus Open / Ready for inspection / Closed statuses: a punch list" onClick={addPunchList}>
-                  + Punch list columns
+                <button className="btn small" disabled={readOnly} title={msg('Location, Trade, Due date, Assigned to and a Done checkmark, plus Open / Ready for inspection / Closed statuses: a punch list')} onClick={addPunchList}>
+                  {msg('+ Punch list columns')}
                 </button>
               </div>
             </div>
@@ -232,45 +235,45 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
               {builtIn ? (
                 <div className="builtin-editor">
                   <h4>{builtIn.label}</h4>
-                  <p className="hint-text">{BUILT_IN_HINTS[builtIn.key]}</p>
-                  <p className="hint-text">Built-in columns are always there: they cannot be renamed or deleted. Their options apply straight away, to your profile.</p>
+                  <p className="hint-text">{BUILT_IN_HINTS()[builtIn.key]}</p>
+                  <p className="hint-text">{msg('Built-in columns are always there: they cannot be renamed or deleted. Their options apply straight away, to your profile.')}</p>
                   <label className="col-toggle">
                     <input type="checkbox" checked={shownInList(builtIn.key)} onChange={(e) => setShownInList(builtIn.key, e.target.checked)} />
                     <span>
-                      <b>Show in the Markups list</b>
+                      <b>{msg('Show in the Markups list')}</b>
                     </span>
                   </label>
                   {builtIn.key === 'status' && (
                     <>
                       <div className="col-field">
-                        <span>Status history</span>
+                        <span>{msg('Status history')}</span>
                         <label className="col-toggle">
                           <input type="radio" name="status-history" checked={list.statusHistory !== 'latest'} onChange={() => onListChange((l) => ({ ...l, statusHistory: 'all' }))} />
                           <span>
-                            <b>Every status change</b> — the whole history, as Bluebeam lists it
+                            {keyed(msgParts('{b} — the whole history, as Bluebeam lists it', { b: <b>{msg('Every status change')}</b> }))}
                           </span>
                         </label>
                         <label className="col-toggle">
                           <input type="radio" name="status-history" checked={list.statusHistory === 'latest'} onChange={() => onListChange((l) => ({ ...l, statusHistory: 'latest' }))} />
                           <span>
-                            <b>Latest status only</b>
+                            <b>{msg('Latest status only')}</b>
                           </span>
                         </label>
                       </div>
                       <label className="col-toggle">
                         <input type="checkbox" checked={list.statusDetails !== false} onChange={(e) => onListChange((l) => ({ ...l, statusDetails: e.target.checked }))} />
                         <span>
-                          <b>Show who changed it and when</b> — “Completed set by Julie Smit on 28/01/2026 at 2:30 PM”
+                          {keyed(msgParts('{b} — “Completed set by Julie Smit on 28/01/2026 at 2:30 PM”', { b: <b>{msg('Show who changed it and when')}</b> }))}
                         </span>
                       </label>
-                      <p className="hint-text">Every status change is recorded with who made it and when, and saved in the PDF so Bluebeam shows the same history.</p>
+                      <p className="hint-text">{msg('Every status change is recorded with who made it and when, and saved in the PDF so Bluebeam shows the same history.')}</p>
                     </>
                   )}
                   {builtIn.key === 'comment' && (
                     <label className="col-toggle">
                       <input type="checkbox" checked={list.wrapComments !== false} onChange={(e) => onListChange((l) => ({ ...l, wrapComments: e.target.checked }))} />
                       <span>
-                        <b>Wrap comments</b> — show all of a comment; rows grow to fit
+                        {keyed(msgParts('{b} — show all of a comment; rows grow to fit', { b: <b>{msg('Wrap comments')}</b> }))}
                       </span>
                     </label>
                   )}
@@ -278,22 +281,22 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
                     <label className="col-toggle">
                       <input type="checkbox" checked={list.typeIcons !== false} onChange={(e) => onListChange((l) => ({ ...l, typeIcons: e.target.checked }))} />
                       <span>
-                        <b>Show type icons</b> — a cloud, arrow… beside each subject, in the markup’s colour
+                        {keyed(msgParts('{b} — a cloud, arrow… beside each subject, in the markup’s colour', { b: <b>{msg('Show type icons')}</b> }))}
                       </span>
                     </label>
                   )}
                 </div>
               ) : !selected ? (
-                <p className="empty">Select a column to edit it, or add one.</p>
+                <p className="empty">{msg('Select a column to edit it, or add one.')}</p>
               ) : (
                 <fieldset disabled={readOnly}>
                   <label className="col-field">
-                    <span>Name</span>
+                    <span>{msg('Name')}</span>
                     <input value={selected.name} aria-invalid={!!nameProblem(selected)} onChange={(e) => patch({ name: e.target.value })} />
                     {nameProblem(selected) && <em className="col-error">{nameProblem(selected)}</em>}
                   </label>
                   <div className="col-field">
-                    <span>Type</span>
+                    <span>{msg('Type')}</span>
                     <div className="col-types">
                       {COLUMN_TYPES.map((t) => (
                         <button
@@ -320,14 +323,14 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
                     <label className="col-toggle">
                       <input type="checkbox" checked={!!selected.required} onChange={(e) => patch({ required: e.target.checked })} />
                       <span>
-                        <b>Required</b> — markups without a value are flagged in the list
+                        {keyed(msgParts('{b} — markups without a value are flagged in the list', { b: <b>{msg('Required')}</b> }))}
                       </span>
                     </label>
                   )}
 
                   {selected.type === 'choice' && (
                     <div className="col-field">
-                      <span>Choices</span>
+                      <span>{msg('Choices')}</span>
                       <ul className="col-options">
                         {(selected.options ?? []).map((o, i) => (
                           <li key={i}>
@@ -335,14 +338,14 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
                               value={o}
                               onChange={(e) => patch({ options: selected.options!.map((x, j) => (j === i ? e.target.value : x)) })}
                             />
-                            <button className="btn flat" title="Move up" disabled={i === 0} onClick={() => {
+                            <button className="btn flat" title={msg('Move up')} disabled={i === 0} onClick={() => {
                               const next = [...selected.options!];
                               [next[i - 1], next[i]] = [next[i]!, next[i - 1]!];
                               patch({ options: next });
                             }}>
                               ↑
                             </button>
-                            <button className="btn flat" title="Remove" onClick={() => patch({ options: selected.options!.filter((_, j) => j !== i) })}>
+                            <button className="btn flat" title={msg('Remove')} onClick={() => patch({ options: selected.options!.filter((_, j) => j !== i) })}>
                               ×
                             </button>
                           </li>
@@ -351,7 +354,7 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
                       <div className="row">
                         <input
                           value={newOption}
-                          placeholder="New choice"
+                          placeholder={msg('New choice')}
                           onChange={(e) => setNewOption(e.target.value)}
                           onKeyDown={(e) => {
                             if (e.key === 'Enter' && newOption.trim()) {
@@ -368,7 +371,7 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
                             setNewOption('');
                           }}
                         >
-                          Add
+                          {msg('Add')}
                         </button>
                       </div>
                     </div>
@@ -376,19 +379,19 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
 
                   {selected.type === 'formula' && (
                     <div className="col-field">
-                      <span>Formula</span>
+                      <span>{msg('Formula')}</span>
                       <textarea
                         ref={formulaRef}
                         className="col-formula"
                         rows={3}
                         spellCheck={false}
                         value={selected.formula ?? ''}
-                        placeholder="[Quantity] * [Unit Cost]"
+                        placeholder={msg('[Quantity] * [Unit Cost]')}
                         aria-invalid={!!formulaError(selected, columns)}
                         onChange={(e) => patch({ formula: e.target.value })}
                       />
                       <div className="col-insert">
-                        <span>Columns</span>
+                        <span>{msg('Columns')}</span>
                         {refsFor.map((n) => (
                           <button key={n} className="chip" onClick={() => insertRef(`[${n}]`)}>
                             {n}
@@ -396,7 +399,7 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
                         ))}
                       </div>
                       <div className="col-insert">
-                        <span>Functions</span>
+                        <span>{msg('Functions')}</span>
                         {FUNCTION_NAMES.map((f) => (
                           <button key={f} className="chip fn" onClick={() => insertRef(`${f}(`)}>
                             {f}
@@ -412,12 +415,12 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
                         {formulaError(selected, columns) ? (
                           <>⚠ {formulaError(selected, columns)}</>
                         ) : !sample ? (
-                          <>✓ Formula is valid. Draw a markup to preview its result.</>
+                          <>{msg('✓ Formula is valid. Draw a markup to preview its result.')}</>
                         ) : preview?.error ? (
                           <>⚠ {preview.error}</>
                         ) : (
                           <>
-                            ✓ For {sample.subject || MARKUP_LABELS[sample.type]} on page {sample.pageIndex + 1}: <b>{preview?.text || '(empty)'}</b>
+                            {keyed(msgParts('✓ For {value} on page {page}: {b}', { value: sample.subject || MARKUP_LABELS[sample.type], page: sample.pageIndex + 1, b: <b>{preview?.text || msg('(empty)')}</b> }))}
                           </>
                         )}
                       </div>
@@ -426,9 +429,9 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
 
                   {(selected.type === 'number' || selected.type === 'formula') && (
                     <label className="col-field inline">
-                      <span>Decimal places</span>
+                      <span>{msg('Decimal places')}</span>
                       <select value={selected.decimals ?? ''} onChange={(e) => patch({ decimals: e.target.value === '' ? undefined : Number(e.target.value) })}>
-                        <option value="">Auto</option>
+                        <option value="">{msg('Auto')}</option>
                         {[0, 1, 2, 3, 4].map((d) => (
                           <option key={d} value={d}>
                             {d}
@@ -440,12 +443,12 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
 
                   {selected.type !== 'formula' && (
                     <label className="col-field">
-                      <span>Default value for new markups</span>
+                      <span>{msg('Default value for new markups')}</span>
                       {selected.type === 'checkmark' ? (
                         <input type="checkbox" checked={selected.defaultValue === 'true'} onChange={(e) => patch({ defaultValue: e.target.checked ? 'true' : undefined })} />
                       ) : selected.type === 'choice' ? (
                         <select value={selected.defaultValue ?? ''} onChange={(e) => patch({ defaultValue: e.target.value || undefined })}>
-                          <option value="">(none)</option>
+                          <option value="">{msg('(none)')}</option>
                           {(selected.options ?? []).map((o) => (
                             <option key={o} value={o}>
                               {o}
@@ -464,23 +467,23 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
 
                   <div className="col-editor-actions">
                     <button className="btn small" disabled={columns[0]?.id === selected.id} onClick={() => move(selected.id, -1)}>
-                      Move up
+                      {msg('Move up')}
                     </button>
                     <button className="btn small" disabled={columns.at(-1)?.id === selected.id} onClick={() => move(selected.id, 1)}>
-                      Move down
+                      {msg('Move down')}
                     </button>
                     <span className="grow" />
                     <button
                       className="btn small danger"
                       onClick={() => {
-                        if (!confirm(`Delete the column "${selected.name}"? Its values are removed from the list (they stay stored on markups until overwritten).`)) return;
+                        if (!confirm(msg('Delete the column "{name}"? Its values are removed from the list (they stay stored on markups until overwritten).', { name: selected.name }))) return;
                         const i = columns.findIndex((c) => c.id === selected.id);
                         const rest = columns.filter((c) => c.id !== selected.id);
                         setColumns(rest);
                         setSelectedId(rest[Math.min(i, rest.length - 1)]?.id ?? null);
                       }}
                     >
-                      Delete column
+                      {msg('Delete column')}
                     </button>
                   </div>
                 </fieldset>
@@ -489,7 +492,7 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
           </div>
         ) : (
           <div className="statuses-body">
-            <p className="hint-text">Statuses markups can be given in the list and Properties. Reviewers see the colour next to each markup.</p>
+            <p className="hint-text">{msg('Statuses markups can be given in the list and Properties. Reviewers see the colour next to each markup.')}</p>
             <ul className="status-rows">
               {statuses.map((s, i) => (
                 <li key={s.id}>
@@ -501,17 +504,17 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
                     onChange={(e) => setStatuses((all) => all.map((x) => (x.id === s.id ? { ...x, name: e.target.value } : x)))}
                   />
                   {s.id === 'none' ? (
-                    <span className="hint-text">No status</span>
+                    <span className="hint-text">{msg('No status')}</span>
                   ) : (
                     <>
-                      <button className="btn flat" title="Move up" disabled={readOnly || i <= 1} onClick={() => setStatuses((all) => {
+                      <button className="btn flat" title={msg('Move up')} disabled={readOnly || i <= 1} onClick={() => setStatuses((all) => {
                         const next = [...all];
                         [next[i - 1], next[i]] = [next[i]!, next[i - 1]!];
                         return next;
                       })}>
                         ↑
                       </button>
-                      <button className="btn flat" title="Remove" disabled={readOnly} onClick={() => setStatuses((all) => all.filter((x) => x.id !== s.id))}>
+                      <button className="btn flat" title={msg('Remove')} disabled={readOnly} onClick={() => setStatuses((all) => all.filter((x) => x.id !== s.id))}>
                         ×
                       </button>
                     </>
@@ -524,7 +527,7 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
               disabled={readOnly}
               onClick={() => setStatuses((all) => [...all, { id: crypto.randomUUID(), name: `Status ${all.length}`, color: '#f59e0b' }])}
             >
-              + Add status
+              {msg('+ Add status')}
             </button>
             {statusProblem && <p className="col-error">{statusProblem}</p>}
           </div>
@@ -533,37 +536,37 @@ export function ColumnsDialog({ initial, readOnly, sample, cellContext, profileT
         {message && <p className="columns-message">{message}</p>}
         {!readOnly && !valid && (
           <p className="col-error" role="alert">
-            Can’t save yet: {statusProblem ?? `${columns[problems.findIndex((p) => p)]?.name || 'Untitled'}: ${problems.find((p) => p)}`}
+            {msg('Can’t save yet: {value}', { value: statusProblem ?? `${columns[problems.findIndex((p) => p)]?.name || msg('Untitled')}: ${problems.find((p) => p)}` })}
           </p>
         )}
         <div className="actions columns-actions">
-          <button className="btn small" disabled={readOnly} onClick={() => importRef.current?.click()} title="Load columns and statuses from an XML file">
-            Import XML…
+          <button className="btn small" disabled={readOnly} onClick={() => importRef.current?.click()} title={msg('Load columns and statuses from an XML file')}>
+            {msg('Import XML…')}
           </button>
-          <button className="btn small" onClick={() => onExportXml(columnsToXml({ columns, statuses }))} title="Save these columns and statuses as XML to share">
-            Export XML
+          <button className="btn small" onClick={() => onExportXml(columnsToXml({ columns, statuses }))} title={msg('Save these columns and statuses as XML to share')}>
+            {msg('Export XML')}
           </button>
-          <button className="btn small" disabled={readOnly || !profileTemplate} onClick={() => profileTemplate && load(profileTemplate, 'Loaded profile defaults')} title="Use the columns saved in your profile">
-            Load profile defaults
+          <button className="btn small" disabled={readOnly || !profileTemplate} onClick={() => profileTemplate && load(profileTemplate, msg('Loaded profile defaults'))} title={msg('Use the columns saved in your profile')}>
+            {msg('Load profile defaults')}
           </button>
           <button
             className="btn small"
             disabled={!valid}
             onClick={() => {
               onSaveTemplate({ columns, statuses });
-              setMessage('Saved as your profile’s default columns: new documents start with them.');
+              setMessage(msg('Saved as your profile’s default columns: new documents start with them.'));
             }}
-            title="New documents will start with these columns and statuses"
+            title={msg('New documents will start with these columns and statuses')}
           >
-            Set as profile default
+            {msg('Set as profile default')}
           </button>
           <span className="grow" />
           <button className="btn" onClick={onClose}>
-            {readOnly ? 'Close' : 'Cancel'}
+            {readOnly ? msg('Close') : msg('Cancel')}
           </button>
           {!readOnly && (
             <button className="btn primary" disabled={!valid} onClick={() => onSave({ columns: columns.map((c) => ({ ...c, name: c.name.trim() })), statuses })}>
-              Save
+              {msg('Save')}
             </button>
           )}
         </div>

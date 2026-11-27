@@ -72,6 +72,9 @@ test('pdf font names read back as keywords or the font name', () => {
   assert.equal(familyFromPdfName('Calibri-Bold'), 'Calibri');
   assert.equal(familyFromPdfName('ABCDEF+Segoe UI'), 'Segoe UI');
   assert.equal(familyFromPdfName('Arial Narrow'), 'Arial Narrow');
+  assert.equal(familyFromPdfName('ArialNarrow'), 'Arial Narrow');
+  assert.equal(familyFromPdfName('ArialNarrow-Bold'), 'Arial Narrow');
+  assert.equal(familyFromPdfName('ABCDEF+ArialNarrow-BoldItalic'), 'Arial Narrow');
 });
 
 test('fsType decides whether a font may be embedded', () => {

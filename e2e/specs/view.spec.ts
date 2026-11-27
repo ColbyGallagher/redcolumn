@@ -26,6 +26,38 @@ test.describe('view', () => {
     expect((await app.view()).zoom).toBeGreaterThanOrEqual(fit - 1e-6);
   });
 
+  test('fit width brings the page back across the view after zooming off centre (#493)', async ({ app }) => {
+    // The page's sides on screen, by its two top corners.
+    const sides = async () => [(await app.at([0, 0])).x, (await app.at([1224, 0])).x] as const;
+    await app.cmd('view.singlePage');
+    await app.cmd('view.fitWidth');
+    const [left, right] = await sides();
+    // Zoom in about the top-left corner of the view, which leaves the page far off to the right.
+    await app.page.evaluate(() => window.__nb.viewer.zoomBy(8, 0, 0));
+    await app.cmd('view.fitWidth');
+    const after = await sides();
+    expect(after[0]).toBeCloseTo(left, 1);
+    expect(after[1]).toBeCloseTo(right, 1);
+  });
+
+  test('fit page shows the entire page in every layout', async ({ app }) => {
+    // A window much wider than the sheet's shape, so its height is what limits the zoom.
+    await app.page.setViewportSize({ width: 1440, height: 600 });
+    for (const layout of ['view.continuous', 'view.singlePage', 'view.continuousSideBySide', 'view.sideBySide']) {
+      await app.cmd(layout);
+      await app.cmd('view.actualSize');
+      await app.cmd('view.fitPage');
+      const view = (await app.page.locator('canvas').first().boundingBox())!;
+      for (const corner of [[0, 0], [1224, 792]] as const) {
+        const at = await app.at(corner);
+        expect(at.x, layout).toBeGreaterThanOrEqual(view.x);
+        expect(at.x, layout).toBeLessThanOrEqual(view.x + view.width);
+        expect(at.y, layout).toBeGreaterThanOrEqual(view.y);
+        expect(at.y, layout).toBeLessThanOrEqual(view.y + view.height);
+      }
+    }
+  });
+
   test('page layouts', async ({ app }) => {
     const LAYOUTS: [string, string][] = [
       ['view.singlePage', 'single'],
@@ -59,6 +91,20 @@ test.describe('view', () => {
     expect((await app.view()).rotation).toBe(3);
     // The page itself is not rotated.
     expect(await app.pageInfo(1)).toMatchObject({ width: 1224, height: 792 });
+  });
+
+  test('rotate view (Ctrl+Shift+Plus) turns only the document in front', async ({ app }) => {
+    await app.open('plan-rev1.pdf');
+    await app.page.keyboard.press('Control+Shift+Equal');
+    await expect.poll(async () => (await app.view()).rotation).toBe(1);
+    const tabs = app.page.getByRole('tablist', { name: 'Documents', exact: true }).getByRole('tab');
+    // The other open document is not turned with it.
+    await tabs.filter({ hasText: /^plan\.pdf/ }).click();
+    await expect.poll(async () => (await app.documents()).find((d) => d.active)?.name).toMatch(/^plan\.pdf/);
+    expect((await app.view()).rotation).toBe(0);
+    // And the turned one is still turned when it comes back to the front.
+    await tabs.filter({ hasText: /^plan-rev1/ }).click();
+    await expect.poll(async () => (await app.view()).rotation).toBe(1);
   });
 
   test('page navigation', async ({ app }) => {
@@ -318,7 +364,7 @@ test.describe('view', () => {
     await expect.poll(active).toBe('plan-rev1.pdf');
   });
 
-  test('split with one file open shows it on both sides, in sync, with no file picker', async ({ app }) => {
+  test('split with one file open shows independent panes and a tab in the right pane, with no file picker', async ({ app }) => {
     expect((await app.command('view.unsplit')).enabled).toBe(false);
     await app.tool('rect');
     await app.drag([300, 450], [350, 500]);
@@ -328,10 +374,16 @@ test.describe('view', () => {
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(true);
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
     expect(picked).toBe(false);
-    // One document, one markup store, two views; Synchronise Document is on.
+    // One document, one markup store, two independent views (Synchronise is off).
     expect(await app.documents()).toHaveLength(1);
-    await expect.poll(async () => (await app.command('view.syncDocument')).checked).toBe(true);
+    await expect.poll(async () => (await app.command('view.syncDocument')).checked).toBe(false);
     expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
+    // The right pane shows the mirrored document's tab, and Move to Left Pane is disabled so it cannot duplicate.
+    const rightTabs = app.page.getByRole('tablist', { name: 'Right pane documents' }).getByRole('tab');
+    await expect(rightTabs).toHaveCount(1);
+    await rightTabs.first().click({ button: 'right' });
+    await expect(app.page.getByRole('menuitem', { name: 'Move to Left Pane' })).toBeDisabled();
+    await app.page.keyboard.press('Escape');
     // Switch Panes has nothing to swap.
     expect((await app.command('view.switchPanes')).enabled).toBe(false);
     expect(await app.documents()).toHaveLength(1);
@@ -340,6 +392,18 @@ test.describe('view', () => {
     await expect.poll(async () => (await app.command('view.split')).checked).toBe(false);
     await expect(app.page.locator('main.stage canvas')).toHaveCount(1);
     expect(await app.page.evaluate(() => window.__nb.tools.store.all().length)).toBe(1);
+  });
+
+  test('split with one file open starts synchronised when the preference is enabled', async ({ app }) => {
+    await app.cmd('file.preferences');
+    const dialog = app.page.getByRole('dialog');
+    await dialog.getByRole('button', { name: 'Document' }).click();
+    await dialog.getByLabel('Synchronise Panes When Splitting a Single Document').check();
+    await dialog.getByRole('button', { name: 'Save' }).click();
+    await expect(dialog).toBeHidden();
+    await app.cmd('view.split');
+    await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
+    await expect.poll(async () => (await app.command('view.syncDocument')).checked).toBe(true);
   });
 
   test('page edits while the view is mirrored reach both panes', async ({ app }) => {
@@ -363,10 +427,11 @@ test.describe('view', () => {
     await app.cmd('view.split');
     await expect(app.page.locator('main.stage canvas')).toHaveCount(2, { timeout: 15_000 });
     await expect.poll(() => app.page.evaluate(() => !!window.__nb.viewerB?.pageSize(0))).toBe(true);
-    const sizes = () => app.page.evaluate(() => [window.__nb.viewer.pageSize(0), window.__nb.viewerB?.pageSize(0)]);
-    const [before] = await sizes();
-    // Rotate with the right pane active.
+    // Rotate with the right pane active: its current page (the views are independent) is the one turned.
     await app.page.locator('main.stage').nth(1).click({ position: { x: 5, y: 5 } });
+    const page = await app.page.evaluate(() => window.__nb.viewerB!.currentPageIndex);
+    const sizes = () => app.page.evaluate((p) => [window.__nb.viewer.pageSize(p), window.__nb.viewerB?.pageSize(p)], page);
+    const [before] = await sizes();
     await app.cmd('document.rotatePages');
     await expect
       .poll(async () => {

@@ -1,15 +1,18 @@
 import { useSyncExternalStore } from 'react';
+import { msg, msgc, msgParts } from '@nb/i18n';
 import { clampViewDistance, DEFAULT_DISPLAY_PREFS, LIGHTING_PRESETS, VIEW_DISTANCE_RANGE, type ModelBackground, type ModelLighting } from '@nb/model3d/controls';
 import type { ModelView } from '../documents/openTabs';
+import { keyed } from '../i18n/keyed';
+import { lazy } from '../i18n/lazy';
 import { settings, useSettings } from '../settings/settings';
 
-const BACKGROUNDS: readonly [ModelBackground, string][] = [
-  ['theme', 'Follow App Theme'],
-  ['dark', 'Dark Studio'],
-  ['light', 'Light Paper'],
-  ['sky', 'Sky Gradient'],
-  ['custom', 'Custom Colour'],
-];
+const backgrounds = lazy((): readonly [ModelBackground, string][] => [
+  ['theme', msg('Follow App Theme')],
+  ['dark', msg('Dark Studio')],
+  ['light', msg('Light Paper')],
+  ['sky', msg('Sky Gradient')],
+  ['custom', msg('Custom Colour')],
+]);
 
 /** The view distance slider runs on a log scale, so it is as easy to set 200 m as 50 km. */
 const LOG_MIN = Math.log10(VIEW_DISTANCE_RANGE.min);
@@ -23,12 +26,12 @@ const fromSlider = (t: number) => {
 const toSlider = (m: number) => (Math.log10(clampViewDistance(m)) - LOG_MIN) / (LOG_MAX - LOG_MIN);
 const formatDistance = (m: number) => (m >= 1000 ? `${(m / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 })} km` : `${Math.round(m)} m`);
 
-const LIGHTINGS: readonly [ModelLighting, string][] = [
-  ['daylight', 'Daylight'],
-  ['overcast', 'Overcast'],
-  ['contrast', 'High Contrast'],
-  ['custom', 'Custom'],
-];
+const lightings = lazy((): readonly [ModelLighting, string][] => [
+  ['daylight', msg('Daylight')],
+  ['overcast', msg('Overcast')],
+  ['contrast', msg('High Contrast')],
+  ['custom', msgc('lighting preset', 'Custom')],
+]);
 
 /**
  * The 3D Display & Scene panel: live look-and-feel controls for background, lighting, render style,
@@ -73,16 +76,16 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
   return (
     <div className="m3d-panel m3d-display">
       <details className="m3d-section" open>
-        <summary>Background</summary>
+        <summary>{msg('Background')}</summary>
         <div className="m3d-body m3d-display-grid">
           <label className="m3d-field">
-            <span>Style</span>
+            <span>{msg('Style')}</span>
             <select
-              aria-label="Background style"
+              aria-label={msg('Background style')}
               value={s.model3dBackground}
               onChange={(e) => settings.set({ model3dBackground: e.target.value as ModelBackground })}
             >
-              {BACKGROUNDS.map(([v, label]) => (
+              {backgrounds().map(([v, label]) => (
                 <option key={v} value={v}>
                   {label}
                 </option>
@@ -91,10 +94,10 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
           </label>
           {s.model3dBackground === 'custom' && (
             <label className="m3d-field">
-              <span>Colour</span>
+              <span>{msg('Colour')}</span>
               <input
                 type="color"
-                aria-label="Background colour"
+                aria-label={msg('Background colour')}
                 value={s.model3dBackgroundColour}
                 onChange={(e) => settings.set({ model3dBackgroundColour: e.target.value })}
               />
@@ -104,16 +107,16 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
       </details>
 
       <details className="m3d-section" open>
-        <summary>Lighting</summary>
+        <summary>{msg('Lighting')}</summary>
         <div className="m3d-body m3d-display-grid">
           <label className="m3d-field">
-            <span>Preset</span>
+            <span>{msg('Preset')}</span>
             <select
-              aria-label="Lighting preset"
+              aria-label={msg('Lighting preset')}
               value={s.model3dLighting}
               onChange={(e) => setLighting(e.target.value as ModelLighting)}
             >
-              {LIGHTINGS.map(([v, label]) => (
+              {lightings().map(([v, label]) => (
                 <option key={v} value={v}>
                   {label}
                 </option>
@@ -121,57 +124,49 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
             </select>
           </label>
           <label className="m3d-slider">
-            <span>
-              Ambient <strong>{s.model3dAmbientIntensity.toFixed(1)}</strong>
-            </span>
+            <span>{keyed(msgParts('Ambient {value}', { value: <strong>{s.model3dAmbientIntensity.toFixed(1)}</strong> }))}</span>
             <input
               type="range"
               min="0"
               max="4"
               step="0.1"
-              aria-label="Ambient light"
+              aria-label={msg('Ambient light')}
               value={s.model3dAmbientIntensity}
               onChange={(e) => settings.set({ model3dLighting: 'custom', model3dAmbientIntensity: e.target.valueAsNumber })}
             />
           </label>
           <label className="m3d-slider">
-            <span>
-              Sun brightness <strong>{s.model3dSunIntensity.toFixed(1)}</strong>
-            </span>
+            <span>{keyed(msgParts('Sun brightness {value}', { value: <strong>{s.model3dSunIntensity.toFixed(1)}</strong> }))}</span>
             <input
               type="range"
               min="0"
               max="5"
               step="0.1"
-              aria-label="Sun brightness"
+              aria-label={msg('Sun brightness')}
               value={s.model3dSunIntensity}
               onChange={(e) => settings.set({ model3dLighting: 'custom', model3dSunIntensity: e.target.valueAsNumber })}
             />
           </label>
           <label className="m3d-slider">
-            <span>
-              Sun direction <strong>{Math.round(s.model3dSunAzimuth)}°</strong>
-            </span>
+            <span>{keyed(msgParts('Sun direction {value}', { value: <strong>{Math.round(s.model3dSunAzimuth)}°</strong> }))}</span>
             <input
               type="range"
               min="0"
               max="360"
               step="5"
-              aria-label="Sun direction"
+              aria-label={msg('Sun direction')}
               value={s.model3dSunAzimuth}
               onChange={(e) => settings.set({ model3dLighting: 'custom', model3dSunAzimuth: e.target.valueAsNumber })}
             />
           </label>
           <label className="m3d-slider">
-            <span>
-              Sun height <strong>{Math.round(s.model3dSunElevation)}°</strong>
-            </span>
+            <span>{keyed(msgParts('Sun height {value}', { value: <strong>{Math.round(s.model3dSunElevation)}°</strong> }))}</span>
             <input
               type="range"
               min="10"
               max="85"
               step="1"
-              aria-label="Sun height"
+              aria-label={msg('Sun height')}
               value={s.model3dSunElevation}
               onChange={(e) => settings.set({ model3dLighting: 'custom', model3dSunElevation: e.target.valueAsNumber })}
             />
@@ -180,7 +175,7 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
       </details>
 
       <details className="m3d-section" open>
-        <summary>Appearance &amp; Overlays</summary>
+        <summary>{msg('Appearance & Overlays')}</summary>
         <div className="m3d-body m3d-display-grid">
           <label className="m3d-check">
             <input
@@ -188,7 +183,7 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
               checked={s.model3dWireframe}
               onChange={(e) => settings.set({ model3dWireframe: e.target.checked })}
             />
-            Wireframe
+            {msg('Wireframe')}
           </label>
           <label className="m3d-check">
             <input
@@ -197,18 +192,16 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
               disabled={!controls}
               onChange={() => controls?.run({ type: 'ghost' })}
             />
-            Ghost hidden elements
+            {msg('Ghost hidden elements')}
           </label>
           <label className="m3d-slider">
-            <span>
-              Ghost opacity <strong>{Math.round(s.model3dGhostOpacity * 100)}%</strong>
-            </span>
+            <span>{keyed(msgParts('Ghost opacity {value}', { value: <strong>{Math.round(s.model3dGhostOpacity * 100)}%</strong> }))}</span>
             <input
               type="range"
               min="0.05"
               max="0.6"
               step="0.01"
-              aria-label="Ghost opacity"
+              aria-label={msg('Ghost opacity')}
               value={s.model3dGhostOpacity}
               onChange={(e) => settings.set({ model3dGhostOpacity: e.target.valueAsNumber })}
             />
@@ -220,7 +213,7 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
               disabled={!controls}
               onChange={() => controls?.run({ type: 'grid' })}
             />
-            Reference grid
+            {msg('Reference grid')}
           </label>
           <label className="m3d-check">
             <input
@@ -229,13 +222,13 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
               disabled={!controls}
               onChange={() => controls?.run({ type: 'miniMap' })}
             />
-            Mini-map
+            {msg('Mini-map')}
           </label>
         </div>
       </details>
 
       <details className="m3d-section" open>
-        <summary>Camera</summary>
+        <summary>{msg('Camera')}</summary>
         <div className="m3d-body m3d-display-grid">
           <div className="panel-toolbar">
             <button
@@ -245,7 +238,7 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
               disabled={!controls}
               onClick={() => controls?.run({ type: 'projection', projection: 'Perspective' })}
             >
-              Perspective
+              {msg('Perspective')}
             </button>
             <button
               type="button"
@@ -254,46 +247,42 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
               disabled={!controls}
               onClick={() => controls?.run({ type: 'projection', projection: 'Orthographic' })}
             >
-              Orthographic
+              {msg('Orthographic')}
             </button>
           </div>
           <label className="m3d-slider">
-            <span>
-              Field of view <strong>{Math.round(s.model3dFov)}°</strong>
-            </span>
+            <span>{keyed(msgParts('Field of view {value}', { value: <strong>{Math.round(s.model3dFov)}°</strong> }))}</span>
             <input
               type="range"
               min="25"
               max="95"
               step="1"
-              aria-label="Field of view"
+              aria-label={msg('Field of view')}
               disabled={state?.projection === 'Orthographic'}
               value={s.model3dFov}
               onChange={(e) => settings.set({ model3dFov: e.target.valueAsNumber })}
             />
           </label>
-          <label className="m3d-slider" title="How far the camera sees: raise it to find a model a long way off">
-            <span>
-              View distance <strong>{formatDistance(clampViewDistance(s.model3dViewDistance))}</strong>
-            </span>
+          <label className="m3d-slider" title={msg('How far the camera sees: raise it to find a model a long way off')}>
+            <span>{keyed(msgParts('View distance {value}', { value: <strong>{formatDistance(clampViewDistance(s.model3dViewDistance))}</strong> }))}</span>
             <input
               type="range"
               min="0"
               max="1"
               step="0.005"
-              aria-label="View distance"
+              aria-label={msg('View distance')}
               value={toSlider(s.model3dViewDistance)}
               onChange={(e) => settings.set({ model3dViewDistance: fromSlider(e.target.valueAsNumber) })}
             />
           </label>
           <label className="m3d-field">
-            <span>View distance (m)</span>
+            <span>{msg('View distance (m)')}</span>
             <input
               type="number"
               min={VIEW_DISTANCE_RANGE.min}
               max={VIEW_DISTANCE_RANGE.max}
               step="100"
-              aria-label="View distance in metres"
+              aria-label={msg('View distance in metres')}
               value={Math.round(clampViewDistance(s.model3dViewDistance))}
               onChange={(e) => {
                 if (Number.isFinite(e.target.valueAsNumber)) settings.set({ model3dViewDistance: clampViewDistance(e.target.valueAsNumber) });
@@ -302,10 +291,10 @@ export function Model3dDisplayPanel({ view, onOpenNavPrefs }: { view: ModelView 
           </label>
           <div className="panel-toolbar">
             <button type="button" className="btn small" onClick={onOpenNavPrefs}>
-              Navigation settings…
+              {msg('Navigation settings…')}
             </button>
             <button type="button" className="btn small" onClick={resetDisplay}>
-              Reset display
+              {msg('Reset display')}
             </button>
           </div>
         </div>

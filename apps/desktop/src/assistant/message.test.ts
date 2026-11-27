@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { PassThrough } from 'node:stream';
 import test from 'node:test';
-import { assistantNodePath, mcpLaunch } from './argv.ts';
+import { assistantNodePath, mcpLaunch, parseMcpCliArgs } from './argv.ts';
 import { parseEndpoint } from './endpoint.ts';
-import { OFFLINE, handleMcpMessage, takeLines, toolContent } from './message.ts';
+import { ASSISTANT_METHODS, COMPACT_CORE_METHODS, OFFLINE, handleMcpMessage, takeLines, toolContent } from './message.ts';
+import { attachStdio } from './stdio.ts';
 
 test('development runs Electron as Node so the GUI executable can read stdin', () => {
   assert.deepEqual(mcpLaunch('C:\\Redcolumn\\redcolumn.exe', 'C:\\Redcolumn\\resources\\assistant\\mcp-cli.js'), {
@@ -140,4 +142,165 @@ test('a page picture rides along as an image block, beside the text the model re
   assert.deepEqual(toolContent({ image: 'none' }).content, [{ type: 'text', text: '{"image":"none"}' }]);
   assert.deepEqual(toolContent({ image: { mimeType: 'text/plain', data: 'x' } }).content.length, 1);
   assert.deepEqual(toolContent('plain').content, [{ type: 'text', text: 'plain' }]);
+});
+
+test('mcpLaunch appends --compact when requested and parseMcpCliArgs validates flags', () => {
+  assert.deepEqual(mcpLaunch('C:\\Redcolumn\\redcolumn.exe', 'mcp-cli.js', undefined, true), {
+    command: 'C:\\Redcolumn\\redcolumn.exe',
+    args: ['mcp-cli.js', '--compact'],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+  });
+  assert.deepEqual(mcpLaunch('C:\\Redcolumn\\redcolumn.exe', 'mcp-cli.js', 'node.exe', true), {
+    command: 'node.exe',
+    args: ['mcp-cli.js', '--compact'],
+    env: {},
+  });
+  assert.deepEqual(parseMcpCliArgs([]), { compact: false });
+  assert.deepEqual(parseMcpCliArgs(['--compact']), { compact: true });
+  const bad = parseMcpCliArgs(['--unknown']);
+  assert.equal(bad.compact, false);
+  assert.match(bad.error ?? '', /Unknown argument: --unknown/);
+});
+
+test('compact mode lists the 10 core tools plus tool_search and tool_call', async () => {
+  const res = JSON.parse(
+    (await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), async () => ({}), { compact: true })) ?? '',
+  ) as { result: { tools: { name: string; title: string; annotations: { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint?: boolean; openWorldHint: boolean } }[] } };
+
+  assert.deepEqual(
+    res.result.tools.map((t) => t.name),
+    [...COMPACT_CORE_METHODS, 'tool_search', 'tool_call'],
+  );
+  const searchTool = res.result.tools.find((t) => t.name === 'tool_search')!;
+  assert.deepEqual(searchTool.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+  const callTool = res.result.tools.find((t) => t.name === 'tool_call')!;
+  assert.deepEqual(callTool.annotations, { readOnlyHint: false, destructiveHint: true, openWorldHint: false });
+});
+
+test('tool_search lists all tools compactly without a query and returns full schemas for matches', async () => {
+  const neverCall = async () => {
+    throw new Error('tool_search should not call the desktop app');
+  };
+
+  const allRes = JSON.parse(
+    (await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'tool_search', arguments: {} } }), neverCall, { compact: true })) ?? '',
+  ) as { result: { content: { text: string }[]; isError: boolean } };
+  assert.equal(allRes.result.isError, false);
+  const all = JSON.parse(allRes.result.content[0]!.text) as { tools: Record<string, unknown>[] };
+  assert.equal(all.tools.length, ASSISTANT_METHODS.length);
+  for (const t of all.tools) {
+    assert.deepEqual(Object.keys(t).sort(), ['annotations', 'name', 'title']);
+  }
+
+  // Whitespace-only query behaves the same as omitted query.
+  const blankRes = JSON.parse(
+    (await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'tool_search', arguments: { query: '   ' } } }), neverCall, { compact: true })) ?? '',
+  ) as { result: { content: { text: string }[]; isError: boolean } };
+  assert.equal(JSON.parse(blankRes.result.content[0]!.text).tools.length, ASSISTANT_METHODS.length);
+
+  // Case-insensitive search across name, title, and description returns full schemas.
+  const stitchRes = JSON.parse(
+    (await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'tool_search', arguments: { query: 'STITCH' } } }), neverCall, { compact: true })) ?? '',
+  ) as { result: { content: { text: string }[]; isError: boolean } };
+  assert.equal(stitchRes.result.isError, false);
+  const stitch = JSON.parse(stitchRes.result.content[0]!.text) as { tools: { name: string; title: string; description: string; inputSchema: unknown; annotations: unknown }[] };
+  assert.ok(stitch.tools.length > 0);
+  assert.ok(stitch.tools.some((t) => t.name === 'get_stitching'));
+  for (const t of stitch.tools) {
+    assert.ok(t.description);
+    assert.ok(t.inputSchema);
+    assert.ok(t.annotations);
+  }
+
+  const noneRes = JSON.parse(
+    (await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'tool_search', arguments: { query: 'definitely_no_such_tool_xyz' } } }), neverCall, { compact: true })) ?? '',
+  ) as { result: { content: { text: string }[]; isError: boolean } };
+  assert.deepEqual(JSON.parse(noneRes.result.content[0]!.text), { tools: [] });
+});
+
+test('tool_call forwards valid tools including images and errors, and refuses unknown or recursive names', async () => {
+  const seen: { name: string; args: Record<string, unknown> }[] = [];
+  const call = async (name: string, args: Record<string, unknown>) => {
+    seen.push({ name, args });
+    if (name === 'get_stitch_image') {
+      return { page: 1, scale: 1.5, image: { mimeType: 'image/png', data: 'iVBORw0KGgo=' } };
+    }
+    if (name === 'list_assemblies') {
+      throw new Error('No document is open.');
+    }
+    if (name === 'list_viewports') {
+      throw new Error(OFFLINE);
+    }
+    return { ok: true, name, args };
+  };
+
+  // Normal forwarding + default arguments.
+  const ok = JSON.parse(
+    (await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'tool_call', arguments: { name: 'get_sheet_info', arguments: { page: 2 } } } }), call, { compact: true })) ?? '',
+  ) as { result: { content: { text: string }[]; isError: boolean } };
+  assert.equal(ok.result.isError, false);
+  assert.deepEqual(JSON.parse(ok.result.content[0]!.text), { ok: true, name: 'get_sheet_info', args: { page: 2 } });
+  assert.deepEqual(seen.at(-1), { name: 'get_sheet_info', args: { page: 2 } });
+
+  // Omitted arguments defaults to {}.
+  await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'tool_call', arguments: { name: 'get_sheet_info' } } }), call, { compact: true });
+  assert.deepEqual(seen.at(-1), { name: 'get_sheet_info', args: {} });
+
+  // Image blocks are preserved.
+  const img = JSON.parse(
+    (await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'tool_call', arguments: { name: 'get_stitch_image', arguments: { page: 1 } } } }), call, { compact: true })) ?? '',
+  ) as { result: { content: { type: string; text?: string; mimeType?: string; data?: string }[]; isError: boolean } };
+  assert.equal(img.result.isError, false);
+  assert.deepEqual(img.result.content.map((c) => c.type), ['text', 'image']);
+  assert.deepEqual(img.result.content[1], { type: 'image', mimeType: 'image/png', data: 'iVBORw0KGgo=' });
+
+  // Error handling preserves isError semantics (true for tool errors, false for OFFLINE).
+  const errRes = JSON.parse(
+    (await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'tool_call', arguments: { name: 'list_assemblies' } } }), call, { compact: true })) ?? '',
+  ) as { result: { content: { text: string }[]; isError: boolean } };
+  assert.equal(errRes.result.isError, true);
+  assert.equal(errRes.result.content[0]!.text, 'No document is open.');
+
+  const offlineRes = JSON.parse(
+    (await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'tools/call', params: { name: 'tool_call', arguments: { name: 'list_viewports' } } }), call, { compact: true })) ?? '',
+  ) as { result: { content: { text: string }[]; isError: boolean } };
+  assert.equal(offlineRes.result.isError, false);
+  assert.equal(offlineRes.result.content[0]!.text, OFFLINE);
+
+  // Refuses unknown and recursive tool names without calling the app.
+  const before = seen.length;
+  for (const badName of ['does_not_exist', 'tool_search', 'tool_call', '', 123, undefined]) {
+    const res = JSON.parse(
+      (await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 6, method: 'tools/call', params: { name: 'tool_call', arguments: badName === undefined ? {} : { name: badName } } }), call, { compact: true })) ?? '',
+    ) as { result: { content: { text: string }[]; isError: boolean } };
+    assert.equal(res.result.isError, true, `refuses ${String(badName)}`);
+  }
+  assert.equal(seen.length, before);
+
+  // Direct call to a non-core tool still works in compact mode.
+  const direct = JSON.parse(
+    (await handleMcpMessage(JSON.stringify({ jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'get_sheet_graph', arguments: { page: 1 } } }), call, { compact: true })) ?? '',
+  ) as { result: { content: { text: string }[]; isError: boolean } };
+  assert.equal(direct.result.isError, false);
+  assert.deepEqual(JSON.parse(direct.result.content[0]!.text), { ok: true, name: 'get_sheet_graph', args: { page: 1 } });
+});
+
+test('attachStdio forwards compact option to handleMcpMessage', async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const chunks: string[] = [];
+  output.on('data', (chunk: Buffer) => chunks.push(chunk.toString('utf8')));
+
+  const mcp = attachStdio(input, output, async () => ({}), { compact: true });
+  input.write(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }) + '\n');
+  await new Promise<void>((resolve) => {
+    input.once('mcp-idle', resolve);
+    mcp.closeWhenDrained();
+  });
+  const reply = JSON.parse(chunks.join('').trim()) as { result: { tools: { name: string }[] } };
+  assert.deepEqual(
+    reply.result.tools.map((t) => t.name),
+    [...COMPACT_CORE_METHODS, 'tool_search', 'tool_call'],
+  );
+  mcp.stop();
 });

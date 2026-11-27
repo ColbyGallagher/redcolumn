@@ -1,3 +1,5 @@
+import { msg, msgParts } from '@nb/i18n';
+import { keyed } from '../i18n/keyed';
 import { useMemo, useRef, useState } from 'react';
 import { leftoverTargets, pairInOrder, type SheetPair } from '@nb/stitch';
 import type { StoredManualStitch } from '@nb/markup';
@@ -36,7 +38,7 @@ interface Props {
 const pct = (n: number) => `${Math.round(n * 100)}%`;
 const range = (from: number, to: number) => (to > from ? `${from}-${to}` : `${from}`);
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const SIZE_NOTE = 'Page size or rotation differs from its stitched sheet: copied without snapping';
+const sizeNote = () => msg('Page size or rotation differs from its stitched sheet: copied without snapping');
 
 /**
  * Apply Stitching to Other Sheets: pick another discipline's plan sheets, check how they pair
@@ -78,15 +80,15 @@ export function ApplyStitchingDialog({ documents, onApply, onShow, onClose }: Pr
   const sizeOff = pairs.filter(mismatched).length;
   const problem =
     picked === null
-      ? 'Enter target sheets as a page range such as 5-8.'
+      ? msg('Enter target sheets as a page range such as 5-8.')
       : target.readOnly
-        ? `${target.name} is read-only.`
+        ? msg('{name} is read-only.', { name: target.name })
         : !used.length
-          ? 'Pick at least one target sheet.'
+          ? msg('Pick at least one target sheet.')
           : twice !== undefined
-            ? `${target.label(twice)} is paired twice.`
+            ? msg('{label} is paired twice.', { label: target.label(twice) })
             : !(tolerance >= 0 && tolerance <= 50)
-              ? 'The snap tolerance is 0 to 50 mm.'
+              ? msg('The snap tolerance is 0 to 50 mm.')
               : null;
   const changeTarget = (id: string) => {
     const d = documents.find((x) => x.id === id) ?? source;
@@ -107,7 +109,7 @@ export function ApplyStitchingDialog({ documents, onApply, onShow, onClose }: Pr
     setError(null);
     setStopped(false);
     try {
-      const copyOnly = new Map(pairs.filter(mismatched).map((p) => [p.target!, SIZE_NOTE]));
+      const copyOnly = new Map(pairs.filter(mismatched).map((p) => [p.target!, sizeNote()]));
       const out = await onApply(target.id, pairs, tolerance, { copyOnly, onProgress: (d, n) => setBusy(`Applying… ${d} of ${n}`), signal: ac.signal });
       if (!ac.signal.aborted) setResults(out);
     } catch (e) {
@@ -123,14 +125,14 @@ export function ApplyStitchingDialog({ documents, onApply, onShow, onClose }: Pr
   const close = () => {
     if (!busy) onClose();
   };
-  const undoHint = `Edit › Undo in ${target.name} puts it back.`;
+  const undoHint = msg('Edit › Undo in {name} puts it back.', { name: target.name });
 
   return (
     <div className="modal-backdrop" onMouseDown={close}>
       <form
         className="modal page-tools print-dialog apply-stitching"
         role="dialog"
-        aria-label="Apply Stitching to Other Sheets"
+        aria-label={msg('Apply Stitching to Other Sheets')}
         aria-busy={!!busy}
         onMouseDown={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
@@ -142,16 +144,16 @@ export function ApplyStitchingDialog({ documents, onApply, onShow, onClose }: Pr
           if (!results && !problem && !busy) void apply();
         }}
       >
-        <h3>Apply Stitching to Other Sheets</h3>
+        <h3>{msg('Apply Stitching to Other Sheets')}</h3>
         {!results ? (
           <>
-            <p className="muted">Copies the match lines and regions of the stitched sheets onto another discipline&rsquo;s plans, at the same place on each page, then snaps each line onto the match line drawn close by.</p>
+            <p className="muted">{msg('Copies the match lines and regions of the stitched sheets onto another discipline’s plans, at the same place on each page, then snaps each line onto the match line drawn close by.')}</p>
             <fieldset disabled={!!busy}>
-              <legend>Target sheets</legend>
+              <legend>{msg('Target sheets')}</legend>
               {documents.length > 1 && (
                 <label className="row">
-                  Document
-                  <select aria-label="Target document" value={target.id} onChange={(e) => changeTarget(e.target.value)}>
+                  {msg('Document')}
+                  <select aria-label={msg('Target document')} value={target.id} onChange={(e) => changeTarget(e.target.value)}>
                     {documents.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.name}
@@ -161,22 +163,19 @@ export function ApplyStitchingDialog({ documents, onApply, onShow, onClose }: Pr
                 </label>
               )}
               <label className="row">
-                Pages
-                <input type="text" aria-label="Target pages" value={text} placeholder={`e.g. 5-8 (of ${target.pageCount})`} onChange={(e) => (setText(e.target.value), setEdits(new Map()))} />
+                {keyed(msgParts('Pages{input}', { input: <input type="text" aria-label={msg('Target pages')} value={text} placeholder={msg('e.g. 5-8 (of {pageCount})', { pageCount: target.pageCount })} onChange={(e) => (setText(e.target.value), setEdits(new Map()))} /> }))}
               </label>
               <label className="row">
-                Snap within
-                <input type="number" aria-label="Snap tolerance (mm)" min={0} max={50} step={0.5} value={tolerance} onChange={(e) => setTolerance(Number(e.target.value))} style={{ width: '5em' }} />
-                mm on paper (0: copy only)
+                {keyed(msgParts('Snap within{input}mm on paper (0: copy only)', { input: <input type="number" aria-label={msg('Snap tolerance (mm)')} min={0} max={50} step={0.5} value={tolerance} onChange={(e) => setTolerance(Number(e.target.value))} style={{ width: '5em' }} /> }))}
               </label>
             </fieldset>
             <fieldset disabled={!!busy}>
-              <legend>Pairing</legend>
+              <legend>{msg('Pairing')}</legend>
               <table className="apply-stitching-pairs" style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
                   <tr>
-                    <th style={{ textAlign: 'left' }}>Stitched sheet</th>
-                    <th style={{ textAlign: 'left' }}>Copy onto</th>
+                    <th style={{ textAlign: 'left' }}>{msg('Stitched sheet')}</th>
+                    <th style={{ textAlign: 'left' }}>{msg('Copy onto')}</th>
                     <th />
                   </tr>
                 </thead>
@@ -185,8 +184,8 @@ export function ApplyStitchingDialog({ documents, onApply, onShow, onClose }: Pr
                     <tr key={p.source}>
                       <td>{source.label(p.source)}</td>
                       <td>
-                        <select aria-label={`Target for ${source.label(p.source)}`} value={p.target ?? ''} onChange={(e) => setEdits(new Map(edits).set(p.source, e.target.value === '' ? null : Number(e.target.value)))}>
-                          <option value="">— Skip —</option>
+                        <select aria-label={msg('Target for {label}', { label: source.label(p.source) })} value={p.target ?? ''} onChange={(e) => setEdits(new Map(edits).set(p.source, e.target.value === '' ? null : Number(e.target.value)))}>
+                          <option value="">{msg('— Skip —')}</option>
                           {choices.map((c) => (
                             <option key={c} value={c}>
                               {target.label(c)}
@@ -194,17 +193,16 @@ export function ApplyStitchingDialog({ documents, onApply, onShow, onClose }: Pr
                           ))}
                         </select>
                         {mismatched(p) && (
-                          <span className="print-error" title={SIZE_NOTE}>
-                            {' '}
-                            ⚠ Different page size or rotation: copy only
+                          <span className="print-error" title={sizeNote()}>
+                            {' ' + msg('⚠ Different page size or rotation: copy only', {  })}
                           </span>
                         )}
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        <button type="button" className="btn small" title="Swap with the row above" disabled={i === 0} onClick={() => swap(i, i - 1)}>
+                        <button type="button" className="btn small" title={msg('Swap with the row above')} disabled={i === 0} onClick={() => swap(i, i - 1)}>
                           ▲
                         </button>
-                        <button type="button" className="btn small" title="Swap with the row below" disabled={i === pairs.length - 1} onClick={() => swap(i, i + 1)}>
+                        <button type="button" className="btn small" title={msg('Swap with the row below')} disabled={i === pairs.length - 1} onClick={() => swap(i, i + 1)}>
                           ▼
                         </button>
                       </td>
@@ -216,31 +214,33 @@ export function ApplyStitchingDialog({ documents, onApply, onShow, onClose }: Pr
             <ul className="apply-stitching-notes muted">
               {replaced.sheets > 0 && (
                 <li className="print-error">
-                  Replaces {plural(replaced.lines, 'match line')}
-                  {replaced.regions ? ` and ${plural(replaced.regions, 'region')}` : ''} on {plural(replaced.sheets, 'sheet')} of {target.name}
-                  {replaced.broken ? `; ${plural(replaced.broken, 'line')} on other sheets lose${replaced.broken === 1 ? 's' : ''} its match` : ''}.
+                  {replaced.regions
+                    ? msg('Replaces {lines, plural, one {# match line} other {# match lines}} and {regions, plural, one {# region} other {# regions}} on {sheets, plural, one {# sheet} other {# sheets}} of {name}', { lines: replaced.lines, regions: replaced.regions, sheets: replaced.sheets, name: target.name })
+                    : msg('Replaces {lines, plural, one {# match line} other {# match lines}} on {sheets, plural, one {# sheet} other {# sheets}} of {name}', { lines: replaced.lines, sheets: replaced.sheets, name: target.name })}
+                  {replaced.broken ? msg('; {count, plural, one {# line on other sheets loses its match} other {# lines on other sheets lose their match}}', { count: replaced.broken }) : ''}
+                  .
                 </li>
               )}
-              {unpartnered > 0 && <li className="print-error">{plural(unpartnered, 'copied line')} will have no partner: the sheet it joins is skipped.</li>}
-              {stopped && <li>Stopped: nothing was changed.</li>}
-              {leftover > 0 && <li>{plural(leftover, 'target sheet')} beyond the stitched sheets {leftover === 1 ? 'is' : 'are'} left out.</li>}
-              {sizeOff > 0 && <li>{plural(sizeOff, 'pair')} with different page sizes {sizeOff === 1 ? 'is' : 'are'} copied without snapping (different page size or rotation).</li>}
+              {unpartnered > 0 && <li className="print-error">{msg('{count, plural, one {# copied line} other {# copied lines}} will have no partner: the sheet it joins is skipped.', { count: unpartnered })}</li>}
+              {stopped && <li>{msg('Stopped: nothing was changed.')}</li>}
+              {leftover > 0 && <li>{msg('{count, plural, one {# target sheet beyond the stitched sheets is} other {# target sheets beyond the stitched sheets are}} left out.', { count: leftover })}</li>}
+              {sizeOff > 0 && <li>{msg('{count, plural, one {# pair with different page sizes is} other {# pairs with different page sizes are}} copied without snapping (different page size or rotation).', { count: sizeOff })}</li>}
               <li>{undoHint}</li>
             </ul>
           </>
         ) : (
           <>
             <p>
-              Copied onto {plural(results.length, 'sheet')} of {target.name}; {results.filter((r) => r.snapped === r.lines).length} snapped to their drawn match lines.
-              {results.some((r) => r.unpartnered) && ` ${plural(results.reduce((s, r) => s + r.unpartnered, 0), 'line')} have no partner (their sheet was skipped).`}
+              {msg('Copied onto {sheets, plural, one {# sheet} other {# sheets}} of {name}; {count} snapped to their drawn match lines.', { sheets: results.length, name: target.name, count: results.filter((r) => r.snapped === r.lines).length })}
+              {results.some((r) => r.unpartnered) && ' ' + msg('{count, plural, one {# line has} other {# lines have}} no partner (their sheet was skipped).', { count: results.reduce((s, r) => s + r.unpartnered, 0) })}
             </p>
             <table className="apply-stitching-results" style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: 'left' }}>Sheet</th>
-                  <th style={{ textAlign: 'left' }}>Lines snapped</th>
-                  <th style={{ textAlign: 'left' }}>Confidence</th>
-                  <th style={{ textAlign: 'left' }}>Moved</th>
+                  <th style={{ textAlign: 'left' }}>{msg('Sheet')}</th>
+                  <th style={{ textAlign: 'left' }}>{msg('Lines snapped')}</th>
+                  <th style={{ textAlign: 'left' }}>{msg('Confidence')}</th>
+                  <th style={{ textAlign: 'left' }}>{msg('Moved')}</th>
                   <th />
                 </tr>
               </thead>
@@ -249,15 +249,15 @@ export function ApplyStitchingDialog({ documents, onApply, onShow, onClose }: Pr
                   <tr key={r.target} className={r.snapped === r.lines ? 'snapped' : 'flagged'} title={r.problem ?? undefined}>
                     <td>{target.label(r.target)}</td>
                     <td>
-                      {r.snapped} of {r.lines}
-                      {r.problem && <span className="print-error"> ⚠ {r.problem}: kept where copied</span>}
-                      {r.unpartnered > 0 && <span className="print-error"> ⚠ {plural(r.unpartnered, 'line')} without a partner</span>}
+                      {r.snapped} {msg('of')} {r.lines}
+                      {r.problem && <span className="print-error"> {msg('⚠ {problem}: kept where copied', { problem: r.problem })}</span>}
+                      {r.unpartnered > 0 && <span className="print-error"> {msg('⚠ {count, plural, one {# line} other {# lines}} without a partner', { count: r.unpartnered })}</span>}
                     </td>
                     <td>{r.checked ? pct(r.confidence) : 'n/a'}</td>
-                    <td>{r.movedMm.toFixed(1)} mm</td>
+                    <td>{msg('{movedMm} mm', { movedMm: r.movedMm.toFixed(1) })}</td>
                     <td>
                       <button type="button" className="btn small" onClick={() => onShow(target.id, r.target)}>
-                        View
+                        {msg('View')}
                       </button>
                     </td>
                   </tr>
@@ -274,20 +274,20 @@ export function ApplyStitchingDialog({ documents, onApply, onShow, onClose }: Pr
             <>
               {busy ? (
                 <button type="button" className="btn" onClick={() => abort.current?.abort()}>
-                  Stop
+                  {msg('Stop')}
                 </button>
               ) : (
                 <button type="button" className="btn" onClick={close}>
-                  Cancel
+                  {msg('Cancel')}
                 </button>
               )}
               <button type="submit" className="btn primary" disabled={!!problem || !!busy} autoFocus>
-                {busy ?? 'Apply'}
+                {busy ?? msg('Apply')}
               </button>
             </>
           ) : (
             <button type="button" className="btn primary" onClick={onClose} autoFocus>
-              Close
+              {msg('Close')}
             </button>
           )}
         </div>

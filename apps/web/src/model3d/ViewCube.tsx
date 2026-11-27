@@ -1,12 +1,14 @@
 import { useState, useSyncExternalStore } from 'react';
+import { msg } from '@nb/i18n';
 import type { CornerDirection, ViewDirection } from '@nb/model3d';
 import type { ModelView } from '../documents/openTabs';
+import { lazy } from '../i18n/lazy';
 
 type Face = 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right';
 
 const FACES: { dir: Face; label: string; transform: string }[] = [
-  { dir: 'top', label: 'Top', transform: 'rotateX(90deg)' },
-  { dir: 'bottom', label: 'Bottom', transform: 'rotateX(-90deg)' },
+  { dir: 'top', get label() { return msg('Top'); }, transform: 'rotateX(90deg)' },
+  { dir: 'bottom', get label() { return msg('Bottom'); }, transform: 'rotateX(-90deg)' },
   { dir: 'front', label: 'S', transform: '' },
   { dir: 'back', label: 'N', transform: 'rotateY(180deg)' },
   { dir: 'right', label: 'E', transform: 'rotateY(90deg)' },
@@ -23,16 +25,16 @@ const ROTATE: Record<Face, (v: [number, number, number]) => [number, number, num
   left: ([x, y, z]) => [-z, y, x],
 };
 
-const CORNER_NAMES: Record<CornerDirection, string> = {
-  'top-ne': 'Top north-east',
-  'top-nw': 'Top north-west',
-  'top-se': 'Top south-east',
-  'top-sw': 'Top south-west',
-  'bottom-ne': 'Bottom north-east',
-  'bottom-nw': 'Bottom north-west',
-  'bottom-se': 'Bottom south-east',
-  'bottom-sw': 'Bottom south-west',
-};
+const cornerTitles = lazy((): Record<CornerDirection, string> => ({
+  'top-ne': msg('Top north-east isometric view'),
+  'top-nw': msg('Top north-west isometric view'),
+  'top-se': msg('Top south-east isometric view'),
+  'top-sw': msg('Top south-west isometric view'),
+  'bottom-ne': msg('Bottom north-east isometric view'),
+  'bottom-nw': msg('Bottom north-west isometric view'),
+  'bottom-se': msg('Bottom south-east isometric view'),
+  'bottom-sw': msg('Bottom south-west isometric view'),
+}));
 
 /**
  * The cube corner a face's corner is on: `u` and `v` are -1 or 1 across and down the face. In the
@@ -72,13 +74,22 @@ export function ViewCube({ view }: { view: ModelView }) {
     return o ? cubeTransform(o.yaw, o.pitch) : '';
   });
   if (!key) return null;
+  const titles: Record<Face | 'iso', string> = {
+    top: msg('Top view'),
+    bottom: msg('Bottom view'),
+    front: msg('Front view'),
+    back: msg('Back view'),
+    left: msg('Left view'),
+    right: msg('Right view'),
+    iso: msg('Isometric view'),
+  };
   const look = (direction: ViewDirection) => view.controls()?.run({ type: 'direction', direction });
   return (
-    <div className="view-cube" aria-label="View cube">
+    <div className="view-cube" aria-label={msg('View cube')}>
       <div className="view-cube-body" style={{ transform: `translateZ(-24px) ${key}` }}>
         {FACES.map((f) => (
           <div key={f.dir} className={`view-cube-face ${f.dir}`} style={{ transform: `${f.transform} translateZ(24px)` }}>
-            <button type="button" className="view-cube-side" title={`${f.dir[0]!.toUpperCase()}${f.dir.slice(1)} view`} onClick={() => look(f.dir)}>
+            <button type="button" className="view-cube-side" title={titles[f.dir]} onClick={() => look(f.dir)}>
               {f.label}
             </button>
             {CORNERS.map((c) => {
@@ -89,8 +100,8 @@ export function ViewCube({ view }: { view: ModelView }) {
                   type="button"
                   className={`view-cube-corner ${c.pos}${hot === corner ? ' hot' : ''}`}
                   data-corner={corner}
-                  title={`${CORNER_NAMES[corner]} isometric view`}
-                  aria-label={`${CORNER_NAMES[corner]} isometric view`}
+                  title={cornerTitles()[corner]}
+                  aria-label={cornerTitles()[corner]}
                   onPointerEnter={() => setHot(corner)}
                   onPointerLeave={() => setHot((h) => (h === corner ? null : h))}
                   onClick={() => look(corner)}
@@ -100,7 +111,7 @@ export function ViewCube({ view }: { view: ModelView }) {
           </div>
         ))}
       </div>
-      <button type="button" className="view-cube-iso" title="Isometric view" onClick={() => look('iso')}>
+      <button type="button" className="view-cube-iso" title={titles.iso} onClick={() => look('iso')}>
         ⌂
       </button>
     </div>

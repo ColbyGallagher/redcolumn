@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useState } from 'react';
 import { warningText, summaryText } from '../cad/messages';
 import { cadSession, useCadConversion } from '../cad/session';
@@ -15,9 +16,9 @@ export function CadReportBar({ fileId, onConvertAgain }: Props) {
   const { conversion } = entry;
   const { report } = conversion;
   return (
-    <div className="slow-drawing cad-report" role="status" aria-label="Drawing conversion">
+    <div className="slow-drawing cad-report" role="status" aria-label={msg('Drawing conversion')}>
       <p>
-        <span className="experimental-badge">Experimental</span> {summaryText(conversion.source.name, report)} The original drawing is not changed.
+        <span className="experimental-badge">{msg('Experimental')}</span> {summaryText(conversion.source.name, report)} {msg('The original drawing is not changed.')}
       </p>
       {open && report.warnings.length > 0 && (
         <ul className="cad-report-list">
@@ -29,14 +30,14 @@ export function CadReportBar({ fileId, onConvertAgain }: Props) {
       <div className="slow-drawing-actions">
         {report.warnings.length > 0 && (
           <button className="btn" onClick={() => setOpen(!open)} aria-expanded={open}>
-            {open ? 'Hide Details' : 'Details'}
+            {open ? msg('Hide Details') : msg('Details')}
           </button>
         )}
         <button className="btn" onClick={onConvertAgain}>
-          Convert Again…
+          {msg('Convert Again…')}
         </button>
         <button className="btn" onClick={() => cadSession.dismiss(fileId)}>
-          Close
+          {msg('Close')}
         </button>
       </div>
     </div>

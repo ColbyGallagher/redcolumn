@@ -53,7 +53,7 @@ Compare marks what changed on the sheet. For a document that is mostly text, suc
 1. Open both revisions in tabs.
 2. Choose the **Old revision** and the **New revision**, then **Compare**.
 
-The **AI** panel (marked Experimental) opens beside the sheet with a list of changes, each one **Added**, **Removed**, **Modified**, **Moved** or **Unchanged**. Each change shows the paragraph from the old revision and the one from the new. A paragraph that only moved, or was lightly reworded, is not an addition plus a removal. For a **Modified** paragraph the changed words are shown (removed in red, added in green). Click a change and both revisions are shown side by side, each zoomed to its paragraph. **Previous** and **Next** step through them.
+The **AI** panel opens beside the sheet with a list of changes, each one **Added**, **Removed**, **Modified**, **Moved** or **Unchanged**. Each change shows the paragraph from the old revision and the one from the new. A paragraph that only moved, or was lightly reworded, is not an addition plus a removal. For a **Modified** paragraph the changed words are shown (removed in red, added in green). Click a change and both revisions are shown side by side, each zoomed to its paragraph. **Previous** and **Next** step through them.
 
 **Who decided each match.** Every change carries a label:
 

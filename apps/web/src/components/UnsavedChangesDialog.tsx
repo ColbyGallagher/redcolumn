@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import { useEffect, useSyncExternalStore } from 'react';
 
 export type UnsavedChoice = 'save' | 'discard' | 'cancel';
@@ -58,17 +59,17 @@ export function UnsavedChangesDialog() {
   return (
     <div className="modal-backdrop" onMouseDown={() => finish('cancel')}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="unsaved-title" onMouseDown={(e) => e.stopPropagation()}>
-        <h3 id="unsaved-title">Save changes?</h3>
-        <p>{prompt.name} has changes that are not saved. Save them before closing?</p>
+        <h3 id="unsaved-title">{msg('Save changes?')}</h3>
+        <p>{msg('{name} has changes that are not saved. Save them before closing?', { name: prompt.name })}</p>
         <div className="actions">
           <button type="button" className="btn" onClick={() => finish('cancel')}>
-            Cancel
+            {msg('Cancel')}
           </button>
           <button type="button" className="btn" onClick={() => finish('discard')}>
-            Don&apos;t Save
+            {msg("Don't Save")}
           </button>
           <button type="button" className="btn primary" autoFocus onClick={() => finish('save')}>
-            Save
+            {msg('Save')}
           </button>
         </div>
       </div>

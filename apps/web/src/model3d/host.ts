@@ -3,6 +3,7 @@
  * loaded with a dynamic import() the first time a model opens, so opening and working with PDFs
  * never downloads or runs any of them (scripts/check-bundle.mjs checks this on every build).
  */
+import { msg } from '@nb/i18n';
 import { modelGeoreference } from './onDrawing';
 import type { ModelView } from '../documents/openTabs';
 import type { StoredFile } from '../storage/fileStore';
@@ -99,7 +100,7 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
       return () => listeners.delete(listener);
     },
     async addModel(extra, extraBytes, onProgress) {
-      if (disposed || !session || !ready) throw new Error('The 3D view is not ready yet.');
+      if (disposed || !session || !ready) throw new Error(msg('The 3D view is not ready yet.'));
       onProgress?.(statusText('start'));
       const cached = await readFragments(extra.hash);
       if (disposed || !session) return;

@@ -3,6 +3,7 @@ import { isMac } from '../commands/keys';
 import { settings, steppedZoom } from '../settings/settings';
 import { deskColour } from '../theme/themes';
 import { applyAffine, composeAffine, IDENTITY, invertAffine, rotationAffine, type Affine } from './affine';
+import { fitWidthView } from './fitWidthView';
 import { keepView, type KeepPlan } from './keepView';
 import { spreadRows } from './layout';
 import { LONG_PRESS_MS, LONG_PRESS_SLOP_PX, PenGuard, pinchStep, type Pt } from './gestures';
@@ -121,6 +122,8 @@ export interface ViewState {
   panX: number;
   panY: number;
   mode: LayoutMode;
+  /** Clockwise quarter turns of the view (View → Rotate View), which belongs to the document shown. */
+  rotation: number;
 }
 
 /**
@@ -503,8 +506,10 @@ export class TileViewer {
     return best;
   }
 
-  setDocument(doc: PdfDocument) {
+  /** Shows `doc` from its first page, with the view turned `turns` clockwise quarter turns (by default, as it is). */
+  setDocument(doc: PdfDocument, turns = this.turns) {
     this.doc = doc;
+    this.turns = ((turns % 4) + 4) % 4;
     this.stitchLayout = null;
     this.clearTiles();
     this.costs.clear();
@@ -742,7 +747,7 @@ export class TileViewer {
     this.showTarget(index);
     if (!keep) return;
     if (keep.refit) {
-      if (this.mode === 'continuous') this.fit();
+      if (this.mode === 'continuous') this.fitToWidth();
       return;
     }
     const [x, y] = this.pageToWorld(this.pageIndex, keep.centre);
@@ -767,7 +772,8 @@ export class TileViewer {
     if (!from) return null;
     // At fit: the old page fitted (the whole page, or its width in continuous layout).
     const saved = { zoom: this.zoom, panX: this.panX, panY: this.panY };
-    this.fit();
+    if (this.mode === 'continuous') this.fitWidth();
+    else this.fit();
     const fitZoom = this.zoom;
     Object.assign(this, saved);
     const atFit = Math.abs(saved.zoom - fitZoom) <= fitZoom * 0.01;
@@ -879,10 +885,10 @@ export class TileViewer {
     return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
   }
 
+  /** Fit Page: zoom so everything shown (in continuous layout, the current page or spread) is in view. */
   fit() {
     if (this.mode === 'continuous') {
-      this.fitWidth();
-      this.scrollToPage(this.pageIndex);
+      this.fitContinuousPage();
       return;
     }
     const b = this.worldBounds();
@@ -895,11 +901,36 @@ export class TileViewer {
     this.invalidate();
   }
 
+  private fitContinuousPage() {
+    const row = this.currentRow().flatMap((i) => this.placementOf(i) ?? []).map((p) => this.placementBounds(p));
+    if (!row.length) return;
+    const x = Math.min(...row.map((b) => b.x));
+    const y = Math.min(...row.map((b) => b.y));
+    const w = Math.max(...row.map((b) => b.x + b.w)) - x;
+    const h = Math.max(...row.map((b) => b.y + b.h)) - y;
+    const { clientWidth: cw, clientHeight: ch } = this.canvas;
+    // 24 px of desk at each side; 16 above and below, as scrolling to a page leaves above it.
+    this.zoom = Math.max(MIN_ZOOM, Math.min(maxZoom(), (cw - 48) / w, (ch - 32) / h));
+    this.panX = cw / 2 - (x + w / 2) * this.zoom;
+    // A page shorter than the view is centred, so it stays the one at the middle of the screen (in focus).
+    this.panY = Math.max(16, (ch - h * this.zoom) / 2) - y * this.zoom;
+    this.invalidate();
+  }
+
   /** Zoom so the page fills the viewport width. */
   fitToWidth() {
-    this.fitWidth();
-    if (this.mode === 'continuous') this.scrollToPage(this.pageIndex);
-    else this.invalidate();
+    if (this.mode === 'continuous') {
+      this.fitWidth();
+      this.scrollToPage(this.pageIndex);
+      return;
+    }
+    // What is shown: the page, its spread or the stitched set.
+    const bounds = this.worldBounds();
+    if (!Number.isFinite(bounds.w)) return;
+    const { clientWidth: width, clientHeight: height } = this.canvas;
+    const camera = { zoom: this.zoom, panX: this.panX, panY: this.panY };
+    Object.assign(this, fitWidthView({ bounds, viewport: { width, height }, camera, minZoom: MIN_ZOOM, maxZoom: maxZoom() }));
+    this.invalidate();
   }
 
   /** 100% zoom (one CSS pixel per PDF point). */
@@ -909,14 +940,16 @@ export class TileViewer {
 
   /** Current page and camera, for back/forward navigation. */
   getView(): ViewState {
-    return { pageIndex: this.pageIndex, zoom: this.zoom, panX: this.panX, panY: this.panY, mode: this.mode };
+    return { pageIndex: this.pageIndex, zoom: this.zoom, panX: this.panX, panY: this.panY, mode: this.mode, rotation: this.turns };
   }
 
   setView(view: ViewState) {
+    const turned = view.rotation !== this.turns;
+    this.turns = view.rotation;
     if (view.mode === 'stitch' && this.stitchLayout) {
-      if (this.mode !== 'stitch') this.setStitch(this.stitchLayout);
+      if (this.mode !== 'stitch' || turned) this.setStitch(this.stitchLayout);
       this.pageIndex = view.pageIndex;
-    } else if (view.mode !== 'stitch' && (this.mode !== view.mode || view.pageIndex !== this.pageIndex)) {
+    } else if (view.mode !== 'stitch' && (turned || this.mode !== view.mode || view.pageIndex !== this.pageIndex)) {
       this.pageMode = view.mode === 'continuous' ? 'continuous' : 'single';
       this.showPages(view.pageIndex);
     }

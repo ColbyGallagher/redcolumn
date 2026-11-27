@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { msg, msgc } from '@nb/i18n';
 import type { ClassEntry, ColourAction, ColourProfile, ItemMap, ModelControls, ModelInfo, ModelState, ResolvedProfile, SavedView, SearchSet, SelectionInfo, SheetOverlay, TreeNode } from '@nb/model3d';
 import { itemCount, paletteColour, parseSearchSets, searchable } from '@nb/model3d/controls';
 import type { ModelView } from '../documents/openTabs';
 import type { StoredFile } from '../storage/fileStore';
 import { MODEL_ACCEPT } from './files';
+import { lazy } from '../i18n/lazy';
 import { exportSearchSets, updateModelLibrary, useModelLibrary } from './library';
 import { Issues } from './Issues';
 import { Compare, prettyClass, Quantities } from './Review';
@@ -70,15 +72,15 @@ function ItemButtons({ controls, items, label }: { controls: ModelControls; item
   const empty = !itemCount(items);
   return (
     <span className="m3d-actions">
-      <button type="button" className="icon-btn" title={`Isolate ${label}`} aria-label={`Isolate ${label}`} disabled={empty} onClick={() => controls.run({ type: 'isolateItems', items })}>
+      <button type="button" className="icon-btn" title={msg('Isolate {label}', { label })} aria-label={msg('Isolate {label}', { label })} disabled={empty} onClick={() => controls.run({ type: 'isolateItems', items })}>
         <Icon d="M5 5h6v6H5z">
           <path d="M1.5 3V1.5H3M13 1.5h1.5V3M14.5 13v1.5H13M3 14.5H1.5V13" />
         </Icon>
       </button>
-      <button type="button" className="icon-btn" title={`Hide ${label}`} aria-label={`Hide ${label}`} disabled={empty} onClick={() => controls.run({ type: 'itemsVisible', items, visible: false })}>
+      <button type="button" className="icon-btn" title={msg('Hide {label}', { label })} aria-label={msg('Hide {label}', { label })} disabled={empty} onClick={() => controls.run({ type: 'itemsVisible', items, visible: false })}>
         <Icon d={`${EYE}M2.5 2.5l11 11`} />
       </button>
-      <button type="button" className="icon-btn" title={`Show ${label}`} aria-label={`Show ${label}`} disabled={empty} onClick={() => controls.run({ type: 'itemsVisible', items, visible: true })}>
+      <button type="button" className="icon-btn" title={msg('Show {label}', { label })} aria-label={msg('Show {label}', { label })} disabled={empty} onClick={() => controls.run({ type: 'itemsVisible', items, visible: true })}>
         <Icon d={EYE}>
           <circle cx="8" cy="8" r="2" />
         </Icon>
@@ -116,10 +118,10 @@ function TreeRow({ node, depth, controls, forceOpen = false }: { node: TreeNode;
   return (
     <li>
       <div className="m3d-row" style={{ paddingLeft: depth * 12 }}>
-        <button type="button" className="m3d-twisty" aria-label={expanded ? 'Collapse' : 'Expand'} aria-expanded={node.children.length ? expanded : undefined} disabled={!node.children.length} onClick={() => setOpen(!expanded)}>
+        <button type="button" className="m3d-twisty" aria-label={expanded ? msg('Collapse') : msg('Expand')} aria-expanded={node.children.length ? expanded : undefined} disabled={!node.children.length} onClick={() => setOpen(!expanded)}>
           {node.children.length ? (expanded ? '▾' : '▸') : ''}
         </button>
-        <button type="button" className="m3d-name" title={`${label} (${prettyClass(node.category)}): select`} onClick={() => controls.run({ type: 'selectItems', items, fit: true })}>
+        <button type="button" className="m3d-name" title={msg('{label} ({category}): select', { label, category: prettyClass(node.category) })} onClick={() => controls.run({ type: 'selectItems', items, fit: true })}>
           {label}
           {node.category && label !== prettyClass(node.category) && <span className="m3d-class">{prettyClass(node.category)}</span>}
         </button>
@@ -136,8 +138,14 @@ function TreeRow({ node, depth, controls, forceOpen = false }: { node: TreeNode;
   );
 }
 
-const describeSet = (s: SearchSet) =>
-  [s.category && prettyClass(s.category.toUpperCase()), s.property && (s.value ? `${s.property} contains “${s.value}”` : `has ${s.property}`)].filter(Boolean).join(', ');
+/** What a search set looks for, with its property test in the words given. */
+const describeWith = (s: SearchSet, contains: (property: string, value: string) => string, has: (property: string) => string) =>
+  [s.category && prettyClass(s.category.toUpperCase()), s.property && (s.value ? contains(s.property, s.value) : has(s.property))].filter(Boolean).join(', ');
+
+/** The name an unnamed set is saved with: kept and exported with the set, so it stays English. */
+const defaultSetName = (s: SearchSet) => describeWith(s, (property, value) => `${property} contains “${value}”`, (property) => `has ${property}`);
+
+const describeSet = (s: SearchSet) => describeWith(s, (property, value) => msg('{property} contains “{value}”', { property, value }), (property) => msg('has {property}', { property }));
 
 /** A colour profile's sets searched, ready for the view. */
 async function resolve(profile: ColourProfile, sets: readonly SearchSet[], controls: ModelControls): Promise<ResolvedProfile> {
@@ -190,8 +198,8 @@ export function Model3dTreePanel({ view, libraryModels = [], onAddModelFiles, on
   const loadedIds = useMemo(() => new Set(models.map((m) => m.id)), [models]);
   const availableLibrary = useMemo(() => libraryModels.filter((f) => !loadedIds.has(f.id)), [libraryModels, loadedIds]);
 
-  if (!view) return <p className="empty m3d-empty">Open an IFC model to explore its structure and classes.</p>;
-  if (!controls || !state) return <p className="empty m3d-empty">The model is loading…</p>;
+  if (!view) return <p className="empty m3d-empty">{msg('Open an IFC model to explore its structure and classes.')}</p>;
+  if (!controls || !state) return <p className="empty m3d-empty">{msg('The model is loading…')}</p>;
 
   const colourByClass = () => {
     if (state.profileId === CLASS_PROFILE) return controls.run({ type: 'applyProfile', id: null, profile: null });
@@ -200,11 +208,11 @@ export function Model3dTreePanel({ view, libraryModels = [], onAddModelFiles, on
 
   const addFiles = async (files: File[]) => {
     if (!files.length || !onAddModelFiles) return;
-    setAdding(`Adding ${files[0]!.name}…`);
+    setAdding(msg('Adding {name}…', { name: files[0]!.name }));
     try {
       await onAddModelFiles(files, (text) => setAdding(text));
     } catch (err) {
-      onNotice?.(`Could not add model: ${err instanceof Error ? err.message : String(err)}`);
+      onNotice?.(msg('Could not add model: {error}', { error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setAdding(null);
     }
@@ -213,11 +221,11 @@ export function Model3dTreePanel({ view, libraryModels = [], onAddModelFiles, on
   const addFromLibrary = async (file: StoredFile) => {
     if (!onAddLibraryModel) return;
     setLibOpen(false);
-    setAdding(`Adding ${file.name}…`);
+    setAdding(msg('Adding {name}…', { name: file.name }));
     try {
       await onAddLibraryModel(file, (text) => setAdding(text));
     } catch (err) {
-      onNotice?.(`Could not add ${file.name}: ${err instanceof Error ? err.message : String(err)}`);
+      onNotice?.(msg('Could not add {name}: {error}', { name: file.name, error: err instanceof Error ? err.message : String(err) }));
     } finally {
       setAdding(null);
     }
@@ -226,17 +234,17 @@ export function Model3dTreePanel({ view, libraryModels = [], onAddModelFiles, on
   return (
     <div className="m3d-panel">
       <div className="panel-toolbar">
-        <button type="button" className="btn small" onClick={() => controls.run({ type: 'fitAll' })} title="Frame all models">
-          Fit all
+        <button type="button" className="btn small" onClick={() => controls.run({ type: 'fitAll' })} title={msg('Frame all models')}>
+          {msg('Fit all')}
         </button>
-        <button type="button" className="btn small" aria-pressed={state.ghost} onClick={() => controls.run({ type: 'ghost' })} title="Show hidden elements faintly">
-          Ghost
+        <button type="button" className="btn small" aria-pressed={state.ghost} onClick={() => controls.run({ type: 'ghost' })} title={msg('Show hidden elements faintly')}>
+          {msg('Ghost')}
         </button>
         <button type="button" className="btn small" disabled={!state.hidden && !state.profileId} onClick={() => controls.run({ type: 'showAll' })}>
-          Show all
+          {msg('Show all')}
         </button>
       </div>
-      <Section title="Models" count={models.length}>
+      <Section title={msg('Models')} count={models.length}>
         <ul className="m3d-list">
           {models.map((m) => (
             <li key={m.id} className="m3d-row">
@@ -245,11 +253,11 @@ export function Model3dTreePanel({ view, libraryModels = [], onAddModelFiles, on
               </label>
               <span className="m3d-count">{m.elements.toLocaleString()}</span>
               <span className="m3d-actions">
-                <button type="button" className="icon-btn" title={`Zoom to ${m.name}`} aria-label={`Zoom to ${m.name}`} onClick={() => controls.run({ type: 'fitModel', modelId: m.id })}>
+                <button type="button" className="icon-btn" title={msg('Zoom to {name}', { name: m.name })} aria-label={msg('Zoom to {name}', { name: m.name })} onClick={() => controls.run({ type: 'fitModel', modelId: m.id })}>
                   <Icon d="M2 5.5V2h3.5M10.5 2H14v3.5M14 10.5V14h-3.5M5.5 14H2v-3.5" />
                 </button>
                 {models.length > 1 && (
-                  <button type="button" className="icon-btn" title={`Remove ${m.name} from view`} aria-label={`Remove ${m.name}`} onClick={() => controls.run({ type: 'removeModel', modelId: m.id })}>
+                  <button type="button" className="icon-btn" title={msg('Remove {name} from view', { name: m.name })} aria-label={msg('Remove {name}', { name: m.name })} onClick={() => controls.run({ type: 'removeModel', modelId: m.id })}>
                     ×
                   </button>
                 )}
@@ -266,10 +274,10 @@ export function Model3dTreePanel({ view, libraryModels = [], onAddModelFiles, on
                     type="button"
                     className="btn small"
                     disabled={!!adding}
-                    title="Federate one or more IFC files into this 3D view"
+                    title={msg('Federate one or more IFC files into this 3D view')}
                     onClick={() => fileInput.current?.click()}
                   >
-                    + Add model…
+                    {msg('+ Add model…')}
                   </button>
                   <input
                     ref={fileInput}
@@ -291,18 +299,18 @@ export function Model3dTreePanel({ view, libraryModels = [], onAddModelFiles, on
                   className="btn small"
                   disabled={!!adding}
                   aria-expanded={libOpen}
-                  title="Add an IFC model already in your Library"
+                  title={msg('Add an IFC model already in your Library')}
                   onClick={() => setLibOpen((v) => !v)}
                 >
-                  From library…
+                  {msg('From library…')}
                 </button>
               )}
             </div>
             {libOpen && availableLibrary.length > 0 && (
-              <ul className="m3d-lib-picker" aria-label="Library models to federate">
+              <ul className="m3d-lib-picker" aria-label={msg('Library models to federate')}>
                 {availableLibrary.map((f) => (
                   <li key={f.id}>
-                    <button type="button" className="m3d-name" title={`Add ${f.name} to this 3D view`} onClick={() => void addFromLibrary(f)}>
+                    <button type="button" className="m3d-name" title={msg('Add {name} to this 3D view', { name: f.name })} onClick={() => void addFromLibrary(f)}>
                       + {f.name}
                     </button>
                   </li>
@@ -317,48 +325,48 @@ export function Model3dTreePanel({ view, libraryModels = [], onAddModelFiles, on
           </div>
         )}
       </Section>
-      <div className="m3d-subtabs" role="tablist" aria-label="Hierarchy view">
+      <div className="m3d-subtabs" role="tablist" aria-label={msg('Hierarchy view')}>
         <button type="button" role="tab" aria-selected={tab === 'tree'} className={`btn small${tab === 'tree' ? ' active' : ''}`} onClick={() => setTab('tree')}>
-          Spatial tree
+          {msg('Spatial tree')}
         </button>
         <button type="button" role="tab" aria-selected={tab === 'classes'} className={`btn small${tab === 'classes' ? ' active' : ''}`} onClick={() => setTab('classes')}>
-          Classes{classes ? ` (${classes.length})` : ''}
+          {classes ? msg('Classes ({count})', { count: String(classes.length) }) : msg('Classes')}
         </button>
       </div>
       <input
         className="m3d-filter"
         type="search"
-        aria-label={tab === 'tree' ? 'Filter spatial tree' : 'Filter classes'}
-        placeholder={tab === 'tree' ? 'Filter tree…' : 'Filter classes…'}
+        aria-label={tab === 'tree' ? msg('Filter spatial tree') : msg('Filter classes')}
+        placeholder={tab === 'tree' ? msg('Filter tree…') : msg('Filter classes…')}
         value={filter}
         onChange={(e) => setFilter(e.target.value)}
       />
       {tab === 'tree' ? (
         filteredTree ? (
           filteredTree.length ? (
-            <ul className="m3d-tree" aria-label="Spatial tree">
+            <ul className="m3d-tree" aria-label={msg('Spatial tree')}>
               {filteredTree.map((n) => (
                 <TreeRow key={n.modelId} node={n} depth={0} controls={controls} forceOpen={!!q} />
               ))}
             </ul>
           ) : (
-            <p className="empty">No element matches “{filter}”.</p>
+            <p className="empty">{msg('No element matches “{filter}”.', { filter })}</p>
           )
         ) : (
-          <p className="empty">Reading the model…</p>
+          <p className="empty">{msg('Reading the model…')}</p>
         )
       ) : (
         <>
           <div className="panel-toolbar">
             <button type="button" className="btn small" aria-pressed={state.profileId === CLASS_PROFILE} disabled={!classes?.length} onClick={colourByClass}>
-              Colour by class
+              {msg('Colour by class')}
             </button>
           </div>
-          <ul className="m3d-list" aria-label="Classes">
+          <ul className="m3d-list" aria-label={msg('Classes')}>
             {(filteredClasses ?? []).map((c, i) => (
               <li key={c.category} className="m3d-row">
                 {state.profileId === CLASS_PROFILE && <span className="m3d-swatch" style={{ background: paletteColour(i) }} />}
-                <button type="button" className="m3d-name" title={`Select every ${prettyClass(c.category)}`} onClick={() => controls.run({ type: 'selectItems', items: c.items })}>
+                <button type="button" className="m3d-name" title={msg('Select every {category}', { category: prettyClass(c.category) })} onClick={() => controls.run({ type: 'selectItems', items: c.items })}>
                   {prettyClass(c.category)}
                 </button>
                 <span className="m3d-count">{c.count.toLocaleString()}</span>
@@ -366,7 +374,7 @@ export function Model3dTreePanel({ view, libraryModels = [], onAddModelFiles, on
               </li>
             ))}
           </ul>
-          {filteredClasses && !filteredClasses.length && <p className="empty">No class matches “{filter}”.</p>}
+          {filteredClasses && !filteredClasses.length && <p className="empty">{msg('No class matches “{filter}”.', { filter })}</p>}
         </>
       )}
     </div>
@@ -377,25 +385,25 @@ export function Model3dTreePanel({ view, libraryModels = [], onAddModelFiles, on
 export function Model3dViewsPanel({ view, fileHash }: { view: ModelView | null; fileHash: string | null }) {
   const { state, controls } = useModel(view);
   const lib = useModelLibrary();
-  if (!view) return <p className="empty m3d-empty">Open an IFC model to save viewpoints, switch storeys, or section the model.</p>;
-  if (!controls || !state) return <p className="empty m3d-empty">The model is loading…</p>;
+  if (!view) return <p className="empty m3d-empty">{msg('Open an IFC model to save viewpoints, switch storeys, or section the model.')}</p>;
+  if (!controls || !state) return <p className="empty m3d-empty">{msg('The model is loading…')}</p>;
   const storeys = state.views.filter((v) => v.kind === 'storey');
   const elevations = state.views.filter((v) => v.kind === 'elevation');
   return (
     <div className="m3d-panel">
       <SavedViews controls={controls} fileHash={fileHash} views={fileHash ? (lib.views[fileHash] ?? []) : []} profiles={lib.profiles} sets={lib.sets} profileId={state.profileId} />
-      <Section title="Storeys &amp; elevations" count={state.views.length || undefined}>
+      <Section title={msg('Storeys & elevations')} count={state.views.length || undefined}>
         {state.openView && (
           <div className="panel-toolbar">
             <button type="button" className="btn small" onClick={() => controls.run({ type: 'openView', id: null })}>
-              Back to 3D
+              {msg('Back to 3D')}
             </button>
           </div>
         )}
         {!state.views.length ? (
-          <p className="empty">No storey plans or elevations were found in this model.</p>
+          <p className="empty">{msg('No storey plans or elevations were found in this model.')}</p>
         ) : (
-          <ul className="m3d-list" aria-label="Storeys and elevations">
+          <ul className="m3d-list" aria-label={msg('Storeys and elevations')}>
             {[...storeys, ...elevations].map((v) => (
               <li key={v.id} className="m3d-row">
                 <button
@@ -405,26 +413,26 @@ export function Model3dViewsPanel({ view, fileHash }: { view: ModelView | null; 
                   onClick={() => controls.run({ type: 'openView', id: state.openView === v.id ? null : v.id })}
                 >
                   {v.label}
-                  <span className="m3d-class">{v.kind}</span>
+                  <span className="m3d-class">{v.kind === 'storey' ? msgc('model view kind', 'storey') : msgc('model view kind', 'elevation')}</span>
                 </button>
               </li>
             ))}
           </ul>
         )}
       </Section>
-      <Section title="Sectioning" count={state.clipPlanes || undefined}>
+      <Section title={msg('Sectioning')} count={state.clipPlanes || undefined}>
         <div className="panel-toolbar">
           <button type="button" className="btn small" aria-pressed={state.sectionBox} onClick={() => controls.run({ type: 'sectionBox' })}>
-            Section box
+            {msg('Section box')}
           </button>
           <button type="button" className="btn small" aria-pressed={state.tool === 'clip'} onClick={() => controls.run({ type: 'tool', tool: state.tool === 'clip' ? 'select' : 'clip' })}>
-            Clipping plane
+            {msg('Clipping plane')}
           </button>
           <button type="button" className="btn small" disabled={!state.clipPlanes} onClick={() => controls.run({ type: 'clearClips' })}>
-            Remove all
+            {msg('Remove all')}
           </button>
         </div>
-        {state.tool === 'clip' && <p className="empty">Double-click a surface in the model to place a clipping plane. Press Delete to remove the hovered plane.</p>}
+        {state.tool === 'clip' && <p className="empty">{msg('Double-click a surface in the model to place a clipping plane. Press Delete to remove the hovered plane.')}</p>}
       </Section>
     </div>
   );
@@ -435,8 +443,8 @@ export function Model3dSetsPanel({ view, onDownload, onNotice }: { view: ModelVi
   const { state, controls } = useModel(view);
   const lib = useModelLibrary();
   const classes = useAsk<ClassEntry[]>(controls, (c) => c.classes(), state?.modelsVersion);
-  if (!view) return <p className="empty m3d-empty">Open an IFC model to build search sets and appearance profiles.</p>;
-  if (!controls || !state) return <p className="empty m3d-empty">The model is loading…</p>;
+  if (!view) return <p className="empty m3d-empty">{msg('Open an IFC model to build search sets and appearance profiles.')}</p>;
+  if (!controls || !state) return <p className="empty m3d-empty">{msg('The model is loading…')}</p>;
   const colourByClass = () => {
     if (state.profileId === CLASS_PROFILE) return controls.run({ type: 'applyProfile', id: null, profile: null });
     controls.run({ type: 'applyProfile', id: CLASS_PROFILE, profile: (classes ?? []).map((c, i) => ({ items: c.items, action: { kind: 'colour', colour: paletteColour(i) } })) });
@@ -445,10 +453,10 @@ export function Model3dSetsPanel({ view, onDownload, onNotice }: { view: ModelVi
     <div className="m3d-panel">
       <div className="panel-toolbar">
         <button type="button" className="btn small" aria-pressed={state.profileId === CLASS_PROFILE} disabled={!classes?.length} onClick={colourByClass}>
-          Colour by class
+          {msg('Colour by class')}
         </button>
         <button type="button" className="btn small" disabled={!state.hidden && !state.profileId} onClick={() => controls.run({ type: 'showAll' })}>
-          Show all
+          {msg('Show all')}
         </button>
       </div>
       <SetsAndColours controls={controls} sets={lib.sets} profiles={lib.profiles} profileId={state.profileId} classes={classes ?? []} onDownload={onDownload} onNotice={onNotice} />
@@ -472,8 +480,8 @@ export function Model3dIssuesPanel({
 }) {
   const { state, controls } = useModel(view);
   const lib = useModelLibrary();
-  if (!view) return <p className="empty m3d-empty">Open an IFC model to track BCF issues.</p>;
-  if (!controls || !state) return <p className="empty m3d-empty">The model is loading…</p>;
+  if (!view) return <p className="empty m3d-empty">{msg('Open an IFC model to track BCF issues.')}</p>;
+  if (!controls || !state) return <p className="empty m3d-empty">{msg('The model is loading…')}</p>;
   return (
     <div className="m3d-panel">
       <Issues controls={controls} state={state} fileHash={fileHash} topics={fileHash ? (lib.issues[fileHash] ?? []) : []} sheets={sheets} onSaveFile={onSaveFile} onNotice={onNotice} />
@@ -484,8 +492,8 @@ export function Model3dIssuesPanel({
 /** Sheets panel: georeferenced PDF sheets overlaid on a plane or draped over the 3D model. */
 export function Model3dSheetsPanel({ view, fileHash, sheets }: { view: ModelView | null; fileHash: string | null; sheets: readonly SheetSource[] }) {
   const { state, controls } = useModel(view);
-  if (!view) return <p className="empty m3d-empty">Open an IFC model to overlay registered PDF sheets.</p>;
-  if (!controls || !state) return <p className="empty m3d-empty">The model is loading…</p>;
+  if (!view) return <p className="empty m3d-empty">{msg('Open an IFC model to overlay registered PDF sheets.')}</p>;
+  if (!controls || !state) return <p className="empty m3d-empty">{msg('The model is loading…')}</p>;
   return (
     <div className="m3d-panel">
       <SheetsInModel controls={controls} state={state} sheets={sheets} fileHash={fileHash} />
@@ -496,8 +504,8 @@ export function Model3dSheetsPanel({ view, fileHash, sheets }: { view: ModelView
 /** Takeoff & Compare panel: element quantities takeoff (with Excel export) and revision comparison. */
 export function Model3dReviewPanel({ view, onSaveFile, onNotice }: { view: ModelView | null; onSaveFile: (name: string, data: Blob) => void; onNotice: (text: string) => void }) {
   const { state, controls } = useModel(view);
-  if (!view) return <p className="empty m3d-empty">Open an IFC model to inspect quantities or compare revisions.</p>;
-  if (!controls || !state) return <p className="empty m3d-empty">The model is loading…</p>;
+  if (!view) return <p className="empty m3d-empty">{msg('Open an IFC model to inspect quantities or compare revisions.')}</p>;
+  if (!controls || !state) return <p className="empty m3d-empty">{msg('The model is loading…')}</p>;
   return (
     <div className="m3d-panel">
       <Quantities controls={controls} state={state} onSaveFile={onSaveFile} />
@@ -514,6 +522,9 @@ export function Model3dPanel({ view }: PanelProps) {
   return <Model3dTreePanel view={view} />;
 }
 
+/** The name an unnamed view is saved with (and the box suggests): it is kept data, so it stays English. */
+const defaultViewName = (n: number) => `View ${n}`;
+
 function SavedViews(props: { controls: ModelControls; fileHash: string | null; views: SavedView[]; profiles: ColourProfile[]; sets: SearchSet[]; profileId: string | null }) {
   const { controls, fileHash, views, profiles, sets, profileId } = props;
   const [name, setName] = useState('');
@@ -522,7 +533,7 @@ function SavedViews(props: { controls: ModelControls; fileHash: string | null; v
   const save = async () => {
     // The class colouring is made on the spot, not kept, so a view keeps only library profiles.
     const keep = profiles.some((p) => p.id === profileId) ? profileId : null;
-    const view = await controls.capture(name.trim() || `View ${views.length + 1}`, keep);
+    const view = await controls.capture(name.trim() || defaultViewName(views.length + 1), keep);
     setViews((v) => [...v, view]);
     setName('');
   };
@@ -531,7 +542,7 @@ function SavedViews(props: { controls: ModelControls; fileHash: string | null; v
     controls.run({ type: 'applyView', view: v, profile: profile ? await resolve(profile, sets, controls) : null });
   };
   return (
-    <Section title="Saved views" count={views.length}>
+    <Section title={msg('Saved views')} count={views.length}>
       <form
         className="m3d-form"
         onSubmit={(e) => {
@@ -539,25 +550,25 @@ function SavedViews(props: { controls: ModelControls; fileHash: string | null; v
           void save();
         }}
       >
-        <input aria-label="View name" placeholder={`View ${views.length + 1}`} value={name} onChange={(e) => setName(e.target.value)} disabled={!fileHash} />
-        <button type="submit" className="btn small" disabled={!fileHash} title="Keep the camera, section box, hidden elements and colour profile">
-          Save view
+        <input aria-label={msg('View name')} placeholder={defaultViewName(views.length + 1)} value={name} onChange={(e) => setName(e.target.value)} disabled={!fileHash} />
+        <button type="submit" className="btn small" disabled={!fileHash} title={msg('Keep the camera, section box, hidden elements and colour profile')}>
+          {msg('Save view')}
         </button>
       </form>
-      <ul className="m3d-list" aria-label="Saved views">
+      <ul className="m3d-list" aria-label={msg('Saved views')}>
         {views.map((v) => (
           <li key={v.id} className={v.thumbnail ? 'm3d-view-card' : 'm3d-row'}>
             {v.thumbnail && (
-              <button type="button" className="m3d-view-thumb" title={`Go to ${v.name}`} onClick={() => void go(v)}>
+              <button type="button" className="m3d-view-thumb" title={msg('Go to {name}', { name: v.name })} onClick={() => void go(v)}>
                 <img src={v.thumbnail} alt={v.name} />
               </button>
             )}
             <div className="m3d-row">
-              <button type="button" className="m3d-name" title="Go to this view" onClick={() => void go(v)}>
+              <button type="button" className="m3d-name" title={msg('Go to this view')} onClick={() => void go(v)}>
                 {v.name}
               </button>
-              {v.sectionBox && <span className="m3d-class">section</span>}
-              <button type="button" className="icon-btn" aria-label={`Delete ${v.name}`} title="Delete" onClick={() => setViews((all) => all.filter((x) => x.id !== v.id))}>
+              {v.sectionBox && <span className="m3d-class">{msgc('saved view with a section box', 'section')}</span>}
+              <button type="button" className="icon-btn" aria-label={msg('Delete {name}', { name: v.name })} title={msg('Delete')} onClick={() => setViews((all) => all.filter((x) => x.id !== v.id))}>
                 ×
               </button>
             </div>
@@ -568,11 +579,11 @@ function SavedViews(props: { controls: ModelControls; fileHash: string | null; v
   );
 }
 
-const ACTIONS: { value: ColourAction['kind']; label: string }[] = [
-  { value: 'colour', label: 'Colour' },
-  { value: 'ghost', label: 'Ghost' },
-  { value: 'hide', label: 'Hide' },
-];
+const ACTIONS = lazy((): { value: ColourAction['kind']; label: string }[] => [
+  { value: 'colour', label: msgc('colour rule action', 'Colour') },
+  { value: 'ghost', label: msgc('colour rule action', 'Ghost') },
+  { value: 'hide', label: msgc('colour rule action', 'Hide') },
+]);
 
 function SetsAndColours(props: {
   controls: ModelControls;
@@ -594,11 +605,11 @@ function SetsAndColours(props: {
   const run = async (set: SearchSet, then: 'select' | 'isolate') => {
     const items = await controls.find(set);
     setFound((f) => ({ ...f, [set.id]: itemCount(items) }));
-    if (!itemCount(items)) return onNotice(`Nothing in the model matches “${set.name}”.`);
+    if (!itemCount(items)) return onNotice(msg('Nothing in the model matches “{name}”.', { name: set.name }));
     controls.run(then === 'select' ? { type: 'selectItems', items, fit: true } : { type: 'isolateItems', items });
   };
   const add = () => {
-    const set = { ...draft, id: crypto.randomUUID(), name: draft.name.trim() || describeSet(draft) };
+    const set = { ...draft, id: crypto.randomUUID(), name: draft.name.trim() || defaultSetName(draft) };
     setSets([...sets, set]);
     setDraft(blank);
   };
@@ -610,7 +621,7 @@ function SetsAndColours(props: {
 
   return (
     <>
-      <Section title="Search sets" count={sets.length}>
+      <Section title={msg('Search sets')} count={sets.length}>
         <form
           className="m3d-set-form"
           onSubmit={(e) => {
@@ -618,32 +629,32 @@ function SetsAndColours(props: {
             if (searchable(draft)) add();
           }}
         >
-          <input aria-label="Set name" placeholder="Name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
-          <input aria-label="Class" placeholder="Class (e.g. IFCWALL)" list="m3d-classes" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} />
+          <input aria-label={msg('Set name')} placeholder={msg('Name')} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          <input aria-label={msg('Class')} placeholder={msg('Class (e.g. IFCWALL)')} list="m3d-classes" value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })} />
           <datalist id="m3d-classes">
             {classes.map((c) => (
               <option key={c.category} value={c.category} />
             ))}
           </datalist>
-          <input aria-label="Property" placeholder="Property (e.g. Status)" value={draft.property} onChange={(e) => setDraft({ ...draft, property: e.target.value })} />
-          <input aria-label="Value contains" placeholder="Value contains" value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} disabled={!draft.property.trim()} />
-          <button type="submit" className="btn small" disabled={!searchable(draft)} title="Find elements by class, property or both">
-            Add set
+          <input aria-label={msg('Property')} placeholder={msg('Property (e.g. Status)')} value={draft.property} onChange={(e) => setDraft({ ...draft, property: e.target.value })} />
+          <input aria-label={msg('Value contains')} placeholder={msg('Value contains')} value={draft.value} onChange={(e) => setDraft({ ...draft, value: e.target.value })} disabled={!draft.property.trim()} />
+          <button type="submit" className="btn small" disabled={!searchable(draft)} title={msg('Find elements by class, property or both')}>
+            {msg('Add set')}
           </button>
         </form>
-        <ul className="m3d-list" aria-label="Search sets">
+        <ul className="m3d-list" aria-label={msg('Search sets')}>
           {sets.map((s) => (
             <li key={s.id} className="m3d-row">
-              <button type="button" className="m3d-name" title={`${describeSet(s)}: select`} onClick={() => void run(s, 'select')}>
+              <button type="button" className="m3d-name" title={msg('{set}: select', { set: describeSet(s) })} onClick={() => void run(s, 'select')}>
                 {s.name}
               </button>
               {found[s.id] !== undefined && <span className="m3d-count">{found[s.id]!.toLocaleString()}</span>}
-              <button type="button" className="icon-btn" title={`Isolate ${s.name}`} aria-label={`Isolate ${s.name}`} onClick={() => void run(s, 'isolate')}>
+              <button type="button" className="icon-btn" title={msg('Isolate {label}', { label: s.name })} aria-label={msg('Isolate {label}', { label: s.name })} onClick={() => void run(s, 'isolate')}>
                 <Icon d="M5 5h6v6H5z">
                   <path d="M1.5 3V1.5H3M13 1.5h1.5V3M14.5 13v1.5H13M3 14.5H1.5V13" />
                 </Icon>
               </button>
-              <button type="button" className="icon-btn" aria-label={`Delete ${s.name}`} title="Delete" onClick={() => setSets(sets.filter((x) => x.id !== s.id))}>
+              <button type="button" className="icon-btn" aria-label={msg('Delete {name}', { name: s.name })} title={msg('Delete')} onClick={() => setSets(sets.filter((x) => x.id !== s.id))}>
                 ×
               </button>
             </li>
@@ -651,10 +662,10 @@ function SetsAndColours(props: {
         </ul>
         <div className="panel-toolbar">
           <button type="button" className="btn small" onClick={() => importInput.current?.click()}>
-            Import…
+            {msg('Import…')}
           </button>
           <button type="button" className="btn small" disabled={!sets.length} onClick={() => onDownload('search sets.json', exportSearchSets(sets))}>
-            Export…
+            {msg('Export…')}
           </button>
           <input
             ref={importInput}
@@ -669,41 +680,41 @@ function SetsAndColours(props: {
                 try {
                   const read = parseSearchSets(text).filter((s) => !sets.some((x) => x.id === s.id));
                   setSets([...sets, ...read]);
-                  onNotice(read.length ? `Added ${read.length} search set${read.length === 1 ? '' : 's'}.` : 'No new search sets in that file.');
+                  onNotice(read.length ? msg('Added {count, plural, one {# search set} other {# search sets}}.', { count: read.length }) : msg('No new search sets in that file.'));
                 } catch {
-                  onNotice('That file is not a search set export.');
+                  onNotice(msg('That file is not a search set export.'));
                 }
               });
             }}
           />
         </div>
       </Section>
-      <Section title="Colour profiles" count={profiles.length}>
+      <Section title={msg('Colour profiles')} count={profiles.length}>
         <div className="panel-toolbar">
           <button
             type="button"
             className="btn small"
             disabled={!sets.length}
-            title={sets.length ? 'Colour, ghost or hide elements set by set' : 'Add a search set first'}
+            title={sets.length ? msg('Colour, ghost or hide elements set by set') : msg('Add a search set first')}
             onClick={() => setProfiles([...profiles, { id: crypto.randomUUID(), name: `Profile ${profiles.length + 1}`, rules: [{ setId: sets[0]!.id, action: { kind: 'colour', colour: '#e8590c' } }] }])}
           >
-            New profile
+            {msg('New profile')}
           </button>
         </div>
         {profiles.map((p) => (
           <div key={p.id} className="m3d-profile" data-profile={p.id}>
             <div className="m3d-row">
-              <input className="m3d-name" aria-label="Profile name" value={p.name} onChange={(e) => updateProfile(p.id, (x) => ({ ...x, name: e.target.value }))} />
+              <input className="m3d-name" aria-label={msg('Profile name')} value={p.name} onChange={(e) => updateProfile(p.id, (x) => ({ ...x, name: e.target.value }))} />
               <button type="button" className="btn small" aria-pressed={profileId === p.id} onClick={() => void show(p)}>
-                {profileId === p.id ? 'Showing' : 'Show'}
+                {profileId === p.id ? msg('Showing') : msg('Show')}
               </button>
-              <button type="button" className="icon-btn" aria-label={`Delete ${p.name}`} title="Delete" onClick={() => setProfiles(profiles.filter((x) => x.id !== p.id))}>
+              <button type="button" className="icon-btn" aria-label={msg('Delete {name}', { name: p.name })} title={msg('Delete')} onClick={() => setProfiles(profiles.filter((x) => x.id !== p.id))}>
                 ×
               </button>
             </div>
             {p.rules.map((r, i) => (
               <div key={i} className="m3d-rule">
-                <select aria-label="Search set" value={r.setId} onChange={(e) => updateProfile(p.id, (x) => ({ ...x, rules: x.rules.map((y, j) => (j === i ? { ...y, setId: e.target.value } : y)) }))}>
+                <select aria-label={msg('Search set')} value={r.setId} onChange={(e) => updateProfile(p.id, (x) => ({ ...x, rules: x.rules.map((y, j) => (j === i ? { ...y, setId: e.target.value } : y)) }))}>
                   {sets.map((s) => (
                     <option key={s.id} value={s.id}>
                       {s.name}
@@ -711,7 +722,7 @@ function SetsAndColours(props: {
                   ))}
                 </select>
                 <select
-                  aria-label="Action"
+                  aria-label={msg('Action')}
                   value={r.action.kind}
                   onChange={(e) => {
                     const kind = e.target.value as ColourAction['kind'];
@@ -719,7 +730,7 @@ function SetsAndColours(props: {
                     updateProfile(p.id, (x) => ({ ...x, rules: x.rules.map((y, j) => (j === i ? { ...y, action } : y)) }));
                   }}
                 >
-                  {ACTIONS.map((a) => (
+                  {ACTIONS().map((a) => (
                     <option key={a.value} value={a.value}>
                       {a.label}
                     </option>
@@ -728,18 +739,18 @@ function SetsAndColours(props: {
                 {r.action.kind === 'colour' && (
                   <input
                     type="color"
-                    aria-label="Colour"
+                    aria-label={msg('Colour')}
                     value={r.action.colour}
                     onChange={(e) => updateProfile(p.id, (x) => ({ ...x, rules: x.rules.map((y, j) => (j === i ? { ...y, action: { kind: 'colour', colour: e.target.value } } : y)) }))}
                   />
                 )}
-                <button type="button" className="icon-btn" aria-label="Remove rule" title="Remove rule" onClick={() => updateProfile(p.id, (x) => ({ ...x, rules: x.rules.filter((_, j) => j !== i) }))}>
+                <button type="button" className="icon-btn" aria-label={msg('Remove rule')} title={msg('Remove rule')} onClick={() => updateProfile(p.id, (x) => ({ ...x, rules: x.rules.filter((_, j) => j !== i) }))}>
                   ×
                 </button>
               </div>
             ))}
             <button type="button" className="link-button" disabled={!sets.length} onClick={() => updateProfile(p.id, (x) => ({ ...x, rules: [...x.rules, { setId: sets[0]!.id, action: { kind: 'colour', colour: paletteColour(x.rules.length) } }] }))}>
-              Add rule
+              {msg('Add rule')}
             </button>
           </div>
         ))}
@@ -755,8 +766,8 @@ export function Model3dPropertiesPanel({ view, sheets, onOpenSheet }: { view: Mo
   // Where the selection lies on the map, asked again when it changes or the model is placed on the map.
   const place = useAsk(controls, (c) => c.selectionPlace(), state ? state.selectionVersion * 2 + (state.georeferenced ? 1 : 0) : undefined);
   const [filter, setFilter] = useState('');
-  if (!view) return <p className="empty m3d-empty">Select an element in a 3D model to see its properties.</p>;
-  if (!info?.first) return <p className="empty m3d-empty">{info?.count ? 'Reading the element…' : 'Click an element in the model to see its properties.'}</p>;
+  if (!view) return <p className="empty m3d-empty">{msg('Select an element in a 3D model to see its properties.')}</p>;
+  if (!info?.first) return <p className="empty m3d-empty">{info?.count ? msg('Reading the element…') : msg('Click an element in the model to see its properties.')}</p>;
   const { first, count } = info;
   const f = filter.trim().toLowerCase();
   const groups = first.groups
@@ -767,10 +778,10 @@ export function Model3dPropertiesPanel({ view, sheets, onOpenSheet }: { view: Mo
       <div className="m3d-props-head">
         <strong>{first.name || prettyClass(first.category)}</strong>
         <span className="m3d-class">{prettyClass(first.category)}</span>
-        {count > 1 && <span className="m3d-count">{`1 of ${count} selected`}</span>}
-        {first.guid && <code className="m3d-guid" title="IFC GlobalId">{first.guid}</code>}
+        {count > 1 && <span className="m3d-count">{msg('1 of {count} selected', { count: String(count) })}</span>}
+        {first.guid && <code className="m3d-guid" title={msg('IFC GlobalId')}>{first.guid}</code>}
       </div>
-      <input className="m3d-filter" type="search" aria-label="Filter properties" placeholder="Filter properties" value={filter} onChange={(e) => setFilter(e.target.value)} />
+      <input className="m3d-filter" type="search" aria-label={msg('Filter properties')} placeholder={msg('Filter properties')} value={filter} onChange={(e) => setFilter(e.target.value)} />
       {groups.map((g) => (
         <details key={g.title} className="m3d-section" open>
           <summary>{g.title}</summary>
@@ -786,7 +797,7 @@ export function Model3dPropertiesPanel({ view, sheets, onOpenSheet }: { view: Mo
           </table>
         </details>
       ))}
-      {!groups.length && <p className="empty">No property matches “{filter}”.</p>}
+      {!groups.length && <p className="empty">{msg('No property matches “{filter}”.', { filter })}</p>}
       {place && <OnDrawings hits={sheetsAt(sheets, place[0], place[1])} onOpen={onOpenSheet} />}
     </div>
   );
@@ -796,19 +807,19 @@ export function Model3dPropertiesPanel({ view, sheets, onOpenSheet }: { view: Mo
 function OnDrawings({ hits, onOpen }: { hits: SheetHit[]; onOpen: (hit: SheetHit) => void }) {
   return (
     <details className="m3d-section" open>
-      <summary>On drawings</summary>
+      <summary>{msg('On drawings')}</summary>
       {hits.length ? (
-        <ul className="m3d-list" aria-label="On drawings">
+        <ul className="m3d-list" aria-label={msg('On drawings')}>
           {hits.map((h) => (
             <li key={h.source.key} className="m3d-row">
-              <button type="button" className="btn small m3d-name" title={`Open ${h.source.label} where this element is`} onClick={() => onOpen(h)}>
+              <button type="button" className="btn small m3d-name" title={msg('Open {label} where this element is', { label: h.source.label })} onClick={() => onOpen(h)}>
                 {h.source.label}
               </button>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="empty">No open sheet registered to the map shows this element.</p>
+        <p className="empty">{msg('No open sheet registered to the map shows this element.')}</p>
       )}
     </details>
   );
@@ -863,13 +874,13 @@ function SheetsInModel({ controls, state, sheets, fileHash }: { controls: ModelC
     });
 
   return (
-    <Section title="Sheets in the model" count={shownKeys.length || undefined}>
+    <Section title={msg('Sheets in the model')} count={shownKeys.length || undefined}>
       {!state.georeferenced ? (
-        <p className="empty">This model has no position on the map (an IFC map conversion), so sheets cannot be placed in it.</p>
+        <p className="empty">{msg('This model has no position on the map (an IFC map conversion), so sheets cannot be placed in it.')}</p>
       ) : !sheets.length ? (
-        <p className="empty">Open a sheet registered to the map (a geospatial PDF, or one registered in the Geospatial panel) to show it here.</p>
+        <p className="empty">{msg('Open a sheet registered to the map (a geospatial PDF, or one registered in the Geospatial panel) to show it here.')}</p>
       ) : (
-        <ul className="m3d-list" aria-label="Sheets in the model">
+        <ul className="m3d-list" aria-label={msg('Sheets in the model')}>
           {sheets.map((s) => {
             const set = settings[s.key];
             return (
@@ -879,23 +890,24 @@ function SheetsInModel({ controls, state, sheets, fileHash }: { controls: ModelC
                 </label>
                 {set?.show && (
                   <div className="m3d-sheet-options">
-                    <select aria-label={`How ${s.label} shows`} value={set.mode} onChange={(e) => change(s.key, { mode: e.target.value as SheetSetting['mode'] })}>
-                      <option value="plane">On a plane</option>
-                      <option value="drape">Draped on the model</option>
+                    <select aria-label={msg('How {label} shows', { label: s.label })} value={set.mode} onChange={(e) => change(s.key, { mode: e.target.value as SheetSetting['mode'] })}>
+                      <option value="plane">{msg('On a plane')}</option>
+                      <option value="drape">{msg('Draped on the model')}</option>
                     </select>
                     {set.mode === 'plane' && (
-                      <label title="The plane's height (metres, the map's height datum)">
-                        RL{' '}
+                      <label title={msg('The plane\'s height (metres, the map\'s height datum)')}>
+                        {/* translators: Reduced Level, a height above the map's datum */}
+                        {msg('RL')}{' '}
                         <input
                           type="number"
                           step="0.1"
-                          aria-label={`${s.label} height`}
+                          aria-label={msg('{label} height', { label: s.label })}
                           value={set.height}
                           onChange={(e) => Number.isFinite(e.target.valueAsNumber) && change(s.key, { height: e.target.valueAsNumber })}
                         />
                       </label>
                     )}
-                    <input type="range" min="0.1" max="1" step="0.05" aria-label={`${s.label} opacity`} value={set.opacity} onChange={(e) => change(s.key, { opacity: e.target.valueAsNumber })} />
+                    <input type="range" min="0.1" max="1" step="0.05" aria-label={msg('{label} opacity', { label: s.label })} value={set.opacity} onChange={(e) => change(s.key, { opacity: e.target.valueAsNumber })} />
                   </div>
                 )}
               </li>
@@ -903,7 +915,7 @@ function SheetsInModel({ controls, state, sheets, fileHash }: { controls: ModelC
           })}
         </ul>
       )}
-      {state.draping > 0 && <p className="empty">Laying markups over the model…</p>}
+      {state.draping > 0 && <p className="empty">{msg('Laying markups over the model…')}</p>}
     </Section>
   );
 }

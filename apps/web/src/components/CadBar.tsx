@@ -1,7 +1,9 @@
 import { useEffect, useRef, type ReactNode, type RefObject } from 'react';
-import { MARKUP_LABELS, type Markup } from '@nb/markup';
+import { type Markup } from '@nb/markup';
+import { msg, msgc, parseNumber } from '@nb/i18n';
 import { parseLength, type Scale } from '@nb/measure';
-import { CAD_TOOL_LABELS, type CadTool } from '../markup/cadTools';
+import type { CadTool } from '../markup/cadTools';
+import { cadToolName, markupName } from '../i18n/names';
 import { parseRotationInput } from '../markup/rotationInput';
 import { settings, useSettings, type Settings } from '../settings/settings';
 
@@ -34,7 +36,7 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.getAttribute('role') === 'combobox' || t.isContentEditable)) return;
-      if (/^[0-9.-]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && first.current) {
+      if (/^[0-9.,-]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey && first.current) {
         first.current.focus();
         first.current.select();
       }
@@ -46,7 +48,7 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
   const unit = scale.unit === 'ft' && scale.feetInches ? 'ft-in' : scale.unit;
   const badLength = (text: string) => {
     const t = text.trim().replace(/^-/, '');
-    return !!t && !((parseLength(t, scale.unit) ?? 0) > 0) && Number(t) !== 0;
+    return !!t && !((parseLength(t, scale.unit) ?? 0) > 0) && parseNumber(t) !== 0;
   };
   let bad = false;
   const rotateParse = s.rotateAngle.trim() ? parseRotationInput(s.rotateAngle, 'ccw') : undefined;
@@ -91,99 +93,100 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
     case 'offset': {
       fields = (
         <>
-          {length('offsetDistance', 'Distance', 'through point', 'How far each copy is from the last. Leave empty to place the copy through the point you click.', first)}
-          {count('offsetCount', 'Copies', 1, 100, 'Copies each click makes, each one the distance further out', undefined)}
+          {length('offsetDistance', msg('Distance'), msg('through point'), msg('How far each copy is from the last. Leave empty to place the copy through the point you click.'), first)}
+          {count('offsetCount', msg('Copies'), 1, 100, msg('Copies each click makes, each one the distance further out'), undefined)}
         </>
       );
       const typed = s.offsetDistance.trim() && !badLength(s.offsetDistance);
-      step = source ? (typed ? 'Click the side for the copies' : 'Click where the copy goes through') : 'Click a line or shape to offset';
+      step = source ? (typed ? msg('Click the side for the copies') : msg('Click where the copy goes through')) : msg('Click a line or shape to offset');
       break;
     }
     case 'move':
     case 'copy':
-      fields = length('moveDistance', 'Distance', 'to the point', 'Type a distance to go that far the way the pointer points. Leave empty to go to the point you click.', first);
+      fields = length('moveDistance', msg('Distance'), msg('to the point'), msg('Type a distance to go that far the way the pointer points. Leave empty to go to the point you click.'), first);
       break;
     case 'scale':
       fields = (
-        <label title="Times bigger (0.5 halves it). Leave empty to scale by reference points.">
-          Factor
-          <input ref={first} value={s.scaleFactor} onChange={(e) => settings.set({ scaleFactor: e.target.value })} placeholder="by reference" aria-label="Scale factor" />×
+        <label title={msg('Times bigger (0.5 halves it). Leave empty to scale by reference points.')}>
+          {msg('Factor')}
+          <input ref={first} value={s.scaleFactor} onChange={(e) => settings.set({ scaleFactor: e.target.value })} placeholder={msg('by reference')} aria-label={msg('Scale factor')} />×
         </label>
       );
-      if (s.scaleFactor.trim() && !(Number(s.scaleFactor) > 0)) bad = true;
+      if (s.scaleFactor.trim() && !((parseNumber(s.scaleFactor) ?? 0) > 0)) bad = true;
       break;
     case 'lengthen':
       fields = (
         <>
-          <select value={s.lengthenMode} aria-label="Lengthen by" onChange={(e) => settings.set({ lengthenMode: e.target.value as Settings['lengthenMode'] })}>
-            <option value="delta">Change by</option>
-            <option value="total">Total length</option>
-            <option value="percent">Percent</option>
+          <select value={s.lengthenMode} aria-label={msg('Lengthen by')} onChange={(e) => settings.set({ lengthenMode: e.target.value as Settings['lengthenMode'] })}>
+            <option value="delta">{msg('Change by')}</option>
+            <option value="total">{msg('Total length')}</option>
+            <option value="percent">{msg('Percent')}</option>
           </select>
           {s.lengthenMode === 'percent' ? (
-            <label title="The new length as a percentage of the old">
-              <input ref={first} value={s.lengthenValue} onChange={(e) => settings.set({ lengthenValue: e.target.value })} placeholder="100" aria-label="Lengthen value" />%
+            <label title={msg('The new length as a percentage of the old')}>
+              <input ref={first} value={s.lengthenValue} onChange={(e) => settings.set({ lengthenValue: e.target.value })} placeholder="100" aria-label={msg('Lengthen value')} />%
             </label>
           ) : (
-            length('lengthenValue', 'Length', s.lengthenMode === 'delta' ? '+ or −' : '0', s.lengthenMode === 'delta' ? 'How much longer (negative: shorter)' : 'The length the line ends up', first)
+            length('lengthenValue', msg('Length'), s.lengthenMode === 'delta' ? msg('+ or −') : '0', s.lengthenMode === 'delta' ? msg('How much longer (negative: shorter)') : msg('The length the line ends up'), first)
           )}
         </>
       );
       break;
     case 'fillet':
-      fields = length('filletRadius', 'Radius', '0 (sharp)', 'The radius of the arc joining the lines. Empty or 0 meets them at a sharp corner.', first);
+      fields = length('filletRadius', msg('Radius'), msg('0 (sharp)'), msg('The radius of the arc joining the lines. Empty or 0 meets them at a sharp corner.'), first);
       break;
     case 'chamfer':
-      fields = length('chamferDistance', 'Distance', '0 (sharp)', 'How far back from the corner each line is cut. Empty or 0 meets them at a sharp corner.', first);
+      fields = length('chamferDistance', msg('Distance'), msg('0 (sharp)'), msg('How far back from the corner each line is cut. Empty or 0 meets them at a sharp corner.'), first);
       break;
     case 'mirror':
       fields = (
         <>
-          {check('mirrorKeep', 'Keep original', 'Make a mirrored copy; untick to flip the originals over instead')}
-          {check('mirrorPictures', 'Mirror pictures', 'Reverse images and signatures too; untick to keep them unreversed and upright')}
+          {check('mirrorKeep', msg('Keep original'), msg('Make a mirrored copy; untick to flip the originals over instead'))}
+          {check('mirrorPictures', msg('Mirror pictures'), msg('Reverse images and signatures too; untick to keep them unreversed and upright'))}
         </>
       );
       break;
     case 'rotateRef':
       fields = (
-        <label title="Counter-clockwise degrees, or a grade such as 2% or 1:50 (a positive grade rises to the right, a negative grade such as -2% falls to the right). Leave empty to rotate from a reference direction to a new one.">
-          Angle
-          <input ref={first} value={s.rotateAngle} onChange={(e) => settings.set({ rotateAngle: e.target.value })} placeholder="by reference" aria-label="Rotate angle" aria-invalid={rotateParse && !rotateParse.ok ? true : undefined} />{rotateParse?.ok && rotateParse.unit !== 'degrees' ? ` ${rotateParse.readout}` : '°'}
+        <label title={msg('Counter-clockwise degrees, or a grade such as 2% or 1:50 (a positive grade rises to the right, a negative grade such as -2% falls to the right). Leave empty to rotate from a reference direction to a new one.')}>
+          {msg('Angle')}
+          <input ref={first} value={s.rotateAngle} onChange={(e) => settings.set({ rotateAngle: e.target.value })} placeholder={msg('by reference')} aria-label={msg('Rotate angle')} aria-invalid={rotateParse && !rotateParse.ok ? true : undefined} />{rotateParse?.ok && rotateParse.unit !== 'degrees' ? ` ${rotateParse.readout}` : '°'}
         </label>
       );
       if (rotateParse && !rotateParse.ok) bad = true;
       break;
     case 'align':
-      fields = check('alignScale', 'Scale to fit', 'Also grow or shrink so the second source point lands on its target');
+      fields = check('alignScale', msg('Scale to fit'), msg('Also grow or shrink so the second source point lands on its target'));
       break;
     case 'arrayPolar':
       fields = (
         <>
-          {count('arrayCount', 'Items', 2, 500, 'How many in all, the original included', first)}
-          <label title="The angle the items spread through, counter-clockwise (360 for a full circle; negative goes clockwise)">
-            Fill
-            <input type="number" className="cad-count" min={-360} max={360} value={s.arrayAngle} onChange={(e) => settings.set({ arrayAngle: Math.max(-360, Math.min(360, Number(e.target.value) || 360)) })} aria-label="Fill angle" />°
+          {count('arrayCount', msg('Items'), 2, 500, msg('How many in all, the original included'), first)}
+          <label title={msg('The angle the items spread through, counter-clockwise (360 for a full circle; negative goes clockwise)')}>
+            {/* translators: the angle a polar array's copies spread through */}
+            {msgc('polar array', 'Fill')}
+            <input type="number" className="cad-count" min={-360} max={360} value={s.arrayAngle} onChange={(e) => settings.set({ arrayAngle: Math.max(-360, Math.min(360, Number(e.target.value) || 360)) })} aria-label={msg('Fill angle')} />°
           </label>
-          {check('arrayRotate', 'Rotate items', 'Turn each copy as it goes round; untick to keep them upright')}
+          {check('arrayRotate', msg('Rotate items'), msg('Turn each copy as it goes round; untick to keep them upright'))}
         </>
       );
       break;
     case 'arrayPath':
       fields = (
         <>
-          {count('arrayCount', 'Items', 2, 500, 'How many in all along the path, the original included', first)}
-          {check('arrayAlign', 'Align to path', 'Turn each copy to follow the path')}
+          {count('arrayCount', msg('Items'), 2, 500, msg('How many in all along the path, the original included'), first)}
+          {check('arrayAlign', msg('Align to path'), msg('Turn each copy to follow the path'))}
         </>
       );
       break;
     case 'divide':
       fields = (
         <>
-          <select value={s.divideMode} aria-label="Divide by" onChange={(e) => settings.set({ divideMode: e.target.value as Settings['divideMode'] })}>
-            <option value="count">Equal parts</option>
-            <option value="spacing">Every (Measure)</option>
+          <select value={s.divideMode} aria-label={msg('Divide by')} onChange={(e) => settings.set({ divideMode: e.target.value as Settings['divideMode'] })}>
+            <option value="count">{msg('Equal parts')}</option>
+            <option value="spacing">{msg('Every (Measure)')}</option>
           </select>
-          {s.divideMode === 'count' ? count('divideCount', 'Parts', 2, 1000, 'How many equal parts to mark the path into', first) : length('divideSpacing', 'Spacing', '0', 'A mark every this far along the path, from its start', first)}
+          {s.divideMode === 'count' ? count('divideCount', msg('Parts'), 2, 1000, msg('How many equal parts to mark the path into'), first) : length('divideSpacing', msg('Spacing'), '0', msg('A mark every this far along the path, from its start'), first)}
         </>
       );
       break;
@@ -191,7 +194,7 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
       break;
   }
 
-  const title = tool === 'offset' ? `Offset${source ? ` · ${MARKUP_LABELS[source.type]}` : ''}` : CAD_TOOL_LABELS[tool];
+  const title = tool === 'offset' ? (source ? msg('Offset · {kind}', { kind: markupName(source.type) }) : msgc('tool', 'Offset')) : cadToolName(tool);
   return (
     <form
       className="sketch-bar cad-bar"
@@ -210,7 +213,7 @@ export function CadBar({ tool, prompt, error, source, scale, onCancel }: Props) 
       <span className="sketch-title">{title}</span>
       {fields}
       <span className={`sketch-title cad-step${error || bad ? ' cad-error' : ''}`} role="status">
-        {bad ? 'Value not understood' : (error ?? step)}
+        {bad ? msg('Value not understood') : (error ?? step)}
       </span>
     </form>
   );

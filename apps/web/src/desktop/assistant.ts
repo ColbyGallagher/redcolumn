@@ -945,6 +945,10 @@ function listCommands(params: unknown, env: AssistantEnv) {
   };
 }
 
+/**
+ * A label ending in "…" opens a dialog. Labels are translated, but every translation keeps the
+ * closing "…" (i18n:check enforces it, and the pseudo-locales keep it last).
+ */
 function commandNeedsYou(command: AssistantCommand): boolean {
   return command.label.endsWith('…') || command.label.endsWith('...') || NEEDS_YOU.has(command.id);
 }
@@ -997,7 +1001,7 @@ function listAssemblies(docs: readonly AssistantDocument[], params: unknown) {
       name: a.name,
       ...(a.description ? { description: a.description } : {}),
       variables: a.variables,
-      items: a.items.map((i) => ({ name: i.name, unit: i.unit, formula: i.formula, ...(i.waste ? { waste: i.waste } : {}), ...(i.roundUp ? { roundUp: true } : {}), ...(i.roundUp && i.roundTo ? { roundTo: i.roundTo } : {}) })),
+      items: a.items.map((i) => ({ name: i.name, unit: i.unit, formula: i.formula, ...(i.waste ? { waste: i.waste } : {}), ...(i.roundUp ? { roundUp: true } : {}), ...(i.roundUp && i.roundTo ? { roundTo: i.roundTo } : {}), ...(i.roundUp && i.roundEach ? { roundEach: true } : {}) })),
     })),
     formulaNames: MEASURED_NAMES.map((n) => n.name),
   };

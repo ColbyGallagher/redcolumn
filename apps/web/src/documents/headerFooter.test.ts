@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { degrees, PDFArray, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from 'pdf-lib';
 import { addHeaderFooter, fillTokens, hasHeaderFooter, removeHeaderFooter, type HeaderFooterSpec } from './headerFooter.ts';
+import { assertValidPdf } from '@nb/markup/test/qpdf';
 
 const spec: HeaderFooterSpec = {
   text: { headerLeft: '<<file>>', footerRight: 'Page <<page>> of <<pages>>', footerCenter: '<<bates>> → <<label>>' },
@@ -39,6 +40,7 @@ const streams = (doc: PDFDocument, i: number) => {
 test('headers and footers go in tagged streams, wrapped so the page is untouched, and come off again', async () => {
   const original = await sample();
   const added = await addHeaderFooter(original, [0, 1], spec, (i) => ({ label: `A-10${i + 1}`, file: 'set.pdf', date: 'today' }));
+  assertValidPdf(added, 'addHeaderFooter');
   const doc = await PDFDocument.load(added);
   const s0 = streams(doc, 0);
   assert.equal(s0[0], 'q');
@@ -54,11 +56,14 @@ test('headers and footers go in tagged streams, wrapped so the page is untouched
   assert.equal(await hasHeaderFooter(added), true);
 
   // Adding again replaces rather than stacks.
-  const twice = await PDFDocument.load(await addHeaderFooter(added, [0], spec, () => ({ label: '', file: 'f', date: 'd' })));
+  const twiceBytes = await addHeaderFooter(added, [0], spec, () => ({ label: '', file: 'f', date: 'd' }));
+  assertValidPdf(twiceBytes, 'addHeaderFooter replace');
+  const twice = await PDFDocument.load(twiceBytes);
   const before = streams(await PDFDocument.load(original), 0).length;
   assert.equal(streams(twice, 0).length, before + 3);
 
   const removed = await removeHeaderFooter(added);
+  assertValidPdf(removed, 'removeHeaderFooter');
   assert.equal(await hasHeaderFooter(removed), false);
   const back = await PDFDocument.load(removed);
   assert.deepEqual(streams(back, 0), streams(await PDFDocument.load(original), 0));
