@@ -246,6 +246,19 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/policy:
+    dependencies:
+      '@nb/ops':
+        specifier: workspace:*
+        version: link:../ops
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.1
+        version: 26.6.1
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   packages/sheets:
     devDependencies:
       '@types/node':
