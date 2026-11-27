@@ -55,7 +55,21 @@ function parseCursor(cursor: string | null): number | null {
   return Number(match[1]);
 }
 
+/**
+ * Permission check run on each operation of a unit, with the rules in force when the server applies
+ * it. `state` is the committed state before the unit; `unit` is the whole single op or batch, so a
+ * check can see records created earlier in the same batch. Return `true` to allow, `false` for a
+ * plain `forbidden`, or a rejection to send back as the reason.
+ */
+export type Authorize = (
+  actor: OpsActor,
+  op: Operation,
+  state: OpsState,
+  unit: readonly Operation[],
+) => boolean | ServerRejection;
+
 interface StoredOpResult {
+  userId: string;
   fingerprint: string;
   message: Extract<ServerMessage, { type: 'ack' | 'reject' }>;
 }
@@ -66,12 +80,14 @@ export interface FakeSyncServerOptions {
   statuses?: readonly StatusDef[];
   /** Authoritative server clock. Defaults to a monotonic counter starting at 1_000_000. */
   clock?: () => number;
-  /** Optional permission check run before applying each op. */
-  authorize?: (actor: OpsActor, op: Operation, state: OpsState) => boolean;
+  /** Optional permission check run before applying each op (see {@link Authorize}). */
+  authorize?: Authorize;
   /** Maximum retained event history before catch-up falls back to a full snapshot. Defaults to 10_000. */
   maxLogLength?: number;
   /** When true, broadcasts committed events to the sender as well as peers (tests duplicate/echo handling). */
   echoToSender?: boolean;
+  /** Called with every committed event, before it is acknowledged or broadcast. */
+  onCommit?: (event: ServerEvent) => void;
 }
 
 /**
@@ -86,12 +102,13 @@ export class FakeSyncServer {
   private readonly opResults = new Map<string, StoredOpResult>();
   private readonly clients = new Set<InProcessTransport>();
   private readonly revokedUsers = new Set<string>();
-  private readonly protocol: ProtocolRange;
+  private protocol: ProtocolRange;
   private readonly statuses?: readonly StatusDef[];
   private readonly clock: () => number;
-  private authorize?: (actor: OpsActor, op: Operation, state: OpsState) => boolean;
+  private authorize?: Authorize;
   private readonly maxLogLength: number;
   private readonly echoToSender: boolean;
+  private readonly onCommit?: (event: ServerEvent) => void;
   private tick = 1_000_000;
 
   constructor(options: FakeSyncServerOptions = {}) {
@@ -102,6 +119,7 @@ export class FakeSyncServer {
     this.authorize = options.authorize;
     this.maxLogLength = options.maxLogLength ?? 10_000;
     this.echoToSender = options.echoToSender ?? false;
+    this.onCommit = options.onCommit;
   }
 
   get state(): OpsState {
@@ -116,9 +134,19 @@ export class FakeSyncServer {
     return formatCursor(this._seq);
   }
 
+  /** Committed events still in the retained log, oldest first. */
+  get history(): readonly ServerEvent[] {
+    return this.log;
+  }
+
   /** Updates the authorization callback (useful for testing permission changes over time). */
-  setAuthorize(fn: ((actor: OpsActor, op: Operation, state: OpsState) => boolean) | undefined): void {
+  setAuthorize(fn: Authorize | undefined): void {
     this.authorize = fn;
+  }
+
+  /** Changes the protocol versions accepted from new connections (simulates a server upgrade). */
+  setProtocol(range: ProtocolRange): void {
+    this.protocol = range;
   }
 
   /** Revokes a user's access immediately, notifying all of their active connections. */
@@ -151,7 +179,9 @@ export class FakeSyncServer {
     }
     const neg = negotiateProtocol(handshake.protocol, this.protocol);
     if (!neg.ok) {
+      // Nothing can be exchanged without an agreed version: say why, then close the connection.
       client._deliver({ type: 'welcome', protocol: neg });
+      client._forceDisconnect();
       return;
     }
     this.clients.add(client);
@@ -192,23 +222,28 @@ export class FakeSyncServer {
 
     const opIds = ops.map((o) => o.opId);
 
-    // 1. Idempotency check: if any opId was seen before, return the stored result (or refuse if payload changed).
-    for (const op of ops) {
-      const prev = this.opResults.get(op.opId);
-      if (prev) {
-        const fp = opFingerprint(op);
-        if (fp !== prev.fingerprint) {
-          client._deliver({
-            type: 'reject',
-            opIds,
-            failedOpId: op.opId,
-            reason: { code: 'op_id_reused', opId: op.opId },
-          });
-          return;
-        }
-        client._deliver(structuredClone(prev.message));
+    // 1. Idempotency check: if any opId was seen before, return the stored result (or refuse if the
+    //    content changed, the sender differs, or the unit only partly matches the one first sent).
+    const seen = ops.map((op) => this.opResults.get(op.opId));
+    const first = seen.find((prev) => prev !== undefined);
+    if (first) {
+      const sameUnit = first.message.opIds.length === opIds.length && first.message.opIds.every((id, i) => id === opIds[i]);
+      const reused = !sameUnit
+        ? seen.findIndex((prev) => prev !== undefined)
+        : ops.findIndex(
+            (op, i) => seen[i]?.userId !== client.actor.userId || seen[i]?.fingerprint !== opFingerprint(op),
+          );
+      if (reused >= 0) {
+        client._deliver({
+          type: 'reject',
+          opIds,
+          failedOpId: ops[reused]!.opId,
+          reason: { code: 'op_id_reused', opId: ops[reused]!.opId },
+        });
         return;
       }
+      client._deliver(structuredClone(first.message));
+      return;
     }
 
     // 2. Validate shape with `@nb/ops`.
@@ -222,7 +257,7 @@ export class FakeSyncServer {
           failedOpId: op.opId,
           reason: parsed.rejection,
         };
-        this.recordResults(ops, msg);
+        this.recordResults(client.actor.userId, ops, msg);
         client._deliver(msg);
         return;
       }
@@ -232,14 +267,15 @@ export class FakeSyncServer {
     // 3. Authorization check (rules in force now).
     if (this.authorize) {
       for (const op of validated) {
-        if (!this.authorize(client.actor, op, this._state)) {
+        const verdict = this.authorize(client.actor, op, this._state, validated);
+        if (verdict !== true) {
           const msg: Extract<ServerMessage, { type: 'reject' }> = {
             type: 'reject',
             opIds,
             failedOpId: op.opId,
-            reason: { code: 'forbidden' },
+            reason: verdict === false ? { code: 'forbidden' } : verdict,
           };
-          this.recordResults(validated, msg);
+          this.recordResults(client.actor.userId, validated, msg);
           client._deliver(msg);
           return;
         }
@@ -265,7 +301,7 @@ export class FakeSyncServer {
           failedOpId: validated[0]!.opId,
           reason: result.rejection,
         };
-        this.recordResults(validated, msg);
+        this.recordResults(client.actor.userId, validated, msg);
         client._deliver(msg);
         return;
       }
@@ -281,7 +317,7 @@ export class FakeSyncServer {
           failedOpId: failed.opId,
           reason,
         };
-        this.recordResults(validated, msg);
+        this.recordResults(client.actor.userId, validated, msg);
         client._deliver(msg);
         return;
       }
@@ -301,6 +337,7 @@ export class FakeSyncServer {
       laneId: client.laneId,
     };
     this.log.push(event);
+    this.onCommit?.(structuredClone(event));
     if (this.log.length > this.maxLogLength) {
       this.log.splice(0, this.log.length - this.maxLogLength);
     }
@@ -314,7 +351,7 @@ export class FakeSyncServer {
       actor: { ...client.actor },
       laneId: client.laneId,
     };
-    this.recordResults(validated, ackMsg);
+    this.recordResults(client.actor.userId, validated, ackMsg);
     client._deliver(structuredClone(ackMsg));
 
     for (const peer of [...this.clients]) {
@@ -323,9 +360,13 @@ export class FakeSyncServer {
     }
   }
 
-  private recordResults(ops: readonly Operation[], message: Extract<ServerMessage, { type: 'ack' | 'reject' }>): void {
+  private recordResults(
+    userId: string,
+    ops: readonly Operation[],
+    message: Extract<ServerMessage, { type: 'ack' | 'reject' }>,
+  ): void {
     for (const op of ops) {
-      this.opResults.set(op.opId, { fingerprint: opFingerprint(op), message });
+      this.opResults.set(op.opId, { userId, fingerprint: opFingerprint(op), message });
     }
   }
 }

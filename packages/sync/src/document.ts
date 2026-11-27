@@ -312,6 +312,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
         doc.confirmedOpIds = new Set(saved.confirmedOpIds);
         if (saved.setup) doc.applySetup(saved.setup);
         if (saved.revoked) {
+          // Stay read-only after a restart until the server lets this user back in.
           doc.revoked = true;
           doc._connection = 'revoked';
           doc.clearSetup();
@@ -319,7 +320,8 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
         doc.restoreHistoryRequests(saved.history ?? []);
       }
     }
-    doc.rebaseAndProject(false);
+    // Anything saved that no longer applies goes to the inbox rather than vanishing.
+    doc.rebaseAndProject();
     return doc;
   }
 
@@ -419,6 +421,11 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
   /** Confirmed server state (what the server has acknowledged). */
   confirmedState(): OpsState {
     return this.confirmed;
+  }
+
+  /** Operations waiting for the server, in the order they will be sent. */
+  pendingOperations(): readonly Operation[] {
+    return this.pending;
   }
 
   /** Current optimistic state (confirmed state with pending operations applied on top). */
@@ -758,7 +765,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       this.batchDepth -= 1;
       if (isOuter) {
         this.batchDraft = null;
-        this.rebaseAndProject(false);
+        this.rebaseAndProject();
       }
       throw err;
     }
@@ -1029,7 +1036,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     try {
       fn(draft);
     } catch (err) {
-      this.rebaseAndProject(false);
+      this.rebaseAndProject();
       throw err;
     }
     this.commitDraft(draft);
@@ -1265,7 +1272,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     }
 
     // Re-apply cleanly so batchId/batchSize metadata matches `pending`.
-    this.rebaseAndProject(false);
+    this.rebaseAndProject();
     this.schedulePersist();
     this.notifyAll();
 
@@ -1601,7 +1608,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       const specs = deferred.step.forward.filter((s) =>
         s.groups.some((g) => touched.has(`${opKind(s.type)}:${s.entityId}:${g}`)),
       );
-      this.rebaseAndProject(true);
+      this.rebaseAndProject();
       const ops = specs.length ? this.materializeUndoOps(specs) : null;
       if (ops) {
         const res = applyUnits(this.view, ops, this.optimisticContext());
@@ -1614,7 +1621,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       this.refreshProjection();
       void this.flush();
     } else if (this.pending.length !== before) {
-      this.rebaseAndProject(true);
+      this.rebaseAndProject();
     }
   }
 
@@ -1633,7 +1640,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       this.pending = this.pending.filter((o) => !d.opIds.has(o.opId));
       d.resolve({ ok: false, reason });
     }
-    this.rebaseAndProject(false);
+    this.rebaseAndProject();
     this.schedulePersist();
     this.notifyAll();
   }
@@ -1651,6 +1658,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
   private handleTransportState(state: TransportState): void {
     if (this.destroyed) return;
     if (state === 'disconnected') {
+      // An undo already sent keeps waiting: it is resent on reconnect and settles on the answer.
       this.inFlightOpIds.clear();
       this.failInFlightUndos('offline');
       if (this._connection !== 'revoked' && this._connection !== 'update_required') {
@@ -1677,15 +1685,18 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
           }
           return;
         }
+        // Only a successful welcome lifts a revocation.
+        if (this.revoked) {
+          this.revoked = false;
+          this.notify();
+        }
         if (msg.snapshot) {
           this.applySnapshot(msg.snapshot.state, msg.snapshot.cursor, msg.snapshot.appliedOpIds);
         }
         if (msg.events?.length) {
           for (const ev of msg.events) this.applyServerEvent(ev, false);
-          this.rebaseAndProject(true);
+          this.rebaseAndProject();
         }
-        // Only a successful welcome lifts a revocation.
-        this.revoked = false;
         this.setConnection('connected');
         this.schedulePersist();
         this.notifyAll();
@@ -1735,6 +1746,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       for (const v of Object.values(rec.versions)) alreadyApplied.add(v.op);
     }
     for (const id of alreadyApplied) this.confirmedOpIds.add(id);
+    this.dropAppliedFromInbox();
 
     // Drop any pending ops that are already reflected in the snapshot.
     const newlyConfirmed = this.pending.filter((o) => alreadyApplied.has(o.opId));
@@ -1748,7 +1760,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       }
     }
 
-    this.rebaseAndProject(true);
+    this.rebaseAndProject();
   }
 
   private handleAck(msg: Extract<ServerMessage, { type: 'ack' }>): void {
@@ -1775,7 +1787,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     const deferred = this.pendingUndos.find(
       (d) => msg.opIds.some((id) => d.opIds.has(id)) && [...d.opIds].every((id) => this.confirmedOpIds.has(id)),
     );
-    this.rebaseAndProject(true);
+    this.rebaseAndProject();
     if (deferred) {
       this.completeDeferredUndo(deferred, true);
     } else {
@@ -1794,8 +1806,9 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
 
     const deferred = this.pendingUndos.find((d) => msg.opIds.some((id) => d.opIds.has(id)));
     if (deferred) {
-      this.rebaseAndProject(true);
+      this.rebaseAndProject(opIdSet);
       this.completeDeferredUndo(deferred, false, msg.reason);
+      void this.flush();
       return;
     }
 
@@ -1814,7 +1827,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     }
 
     // Rebase remaining pending ops, cascading any dependent ops to the inbox.
-    this.rebaseAndProject(true, opIdSet);
+    this.rebaseAndProject(opIdSet);
     this.schedulePersist();
     this.notifyAll();
     void this.flush();
@@ -1833,6 +1846,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       };
       this.applyConfirmedUnit(unapplied, ctx);
       for (const op of unapplied) this.confirmedOpIds.add(op.opId);
+      this.dropAppliedFromInbox();
     }
 
     this.cursor = event.cursor;
@@ -1849,7 +1863,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       }
     }
 
-    if (shouldRebase) this.rebaseAndProject(true);
+    if (shouldRebase) this.rebaseAndProject();
   }
 
   private applyConfirmedUnit(ops: readonly (Operation | ServerEvent['ops'][number])[], ctx: ApplyContext): void {
@@ -1909,7 +1923,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
 
   // ---- Rebase, projection & persistence ---------------------------------------------------
 
-  private rebaseAndProject(collectRejectedToInbox: boolean, previouslyRejected?: ReadonlySet<string>): void {
+  private rebaseAndProject(previouslyRejected?: ReadonlySet<string>): void {
     const out = rebasePending({
       confirmed: this.confirmed,
       pending: this.pending,
@@ -1917,6 +1931,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       now: this.clock(),
       labelOf: describeOps,
       previouslyRejected,
+      awaitingServer: this.inFlightOpIds,
     });
     this.view = out.viewState;
     this.pending = out.kept;
@@ -1924,12 +1939,11 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     if (out.rejected.length) {
       for (const id of out.rejectedOpIds) this.inFlightOpIds.delete(id);
 
-      // Undo/redo ops never go to the inbox: their request is reported as failed instead.
-      if (collectRejectedToInbox) {
-        for (const entry of out.rejected) {
-          if (entry.ops.every((o) => this.undoTrackedOpIds.has(o.opId))) continue;
-          if (!this.inbox.some((e) => e.id === entry.id)) this.pushInbox(entry);
-        }
+      // An undo's own operations are reported to its caller, never to the inbox; check that before
+      // settling the undo below, which stops tracking them.
+      for (const entry of out.rejected) {
+        if (entry.ops.every((o) => this.undoTrackedOpIds.has(o.opId))) continue;
+        if (!this.inbox.some((e) => e.id === entry.id)) this.pushInbox(entry);
       }
 
       this.dropInvalidatedUndoSteps(out.rejectedOpIds);
@@ -1967,6 +1981,17 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
 
   private pushInbox(entry: InboxEntry): void {
     this.inbox = [...this.inbox, entry];
+  }
+
+  /**
+   * Removes inbox entries the server turns out to have applied. When access is removed, work whose
+   * acknowledgement had not arrived goes to the inbox although the server may already have
+   * accepted it; once the server's state shows it was applied, the entry would be wrong.
+   */
+  private dropAppliedFromInbox(): void {
+    if (!this.inbox.length) return;
+    const kept = this.inbox.filter((e) => !e.ops.every((o) => this.confirmedOpIds.has(o.opId)));
+    if (kept.length !== this.inbox.length) this.inbox = kept;
   }
 
   private optimisticContext(): ApplyContext {
