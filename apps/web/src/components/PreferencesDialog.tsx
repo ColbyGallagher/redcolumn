@@ -476,6 +476,13 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
           ['sideBySide', msg('Side by Side')],
           ['continuousSideBySide', msg('Continuous Side by Side')],
         ])}
+        {select('pageZoom', msg('Default Zoom'), [
+          ['auto', msg('Auto (Fit Page / Fit Width)')],
+          ['fitPage', msg('Fit Page')],
+          ['fitWidth', msg('Fit Width')],
+          ['actualSize', msg('Actual Size')],
+        ])}
+        <C>{check('coverPage', msg('Show Cover Page in Side-by-Side'))}</C>
         {num('maxZoom', msg('Maximum Zoom'), { min: 400, max: 12800, step: 100, unit: '%' })}
         <C>{check('syncSplitView', msg('Synchronise Panes When Splitting a Single Document'))}</C>
         {select('optimiseDrawings', msg('Optimise Slow Drawings'), [

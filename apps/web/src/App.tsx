@@ -365,13 +365,18 @@ const DRAWING_PAGE_PT = 17 * 72;
 /** The window.__nb handle for the console and the end-to-end tests (e2e/): development and VITE_E2E builds only. */
 const TEST_HOOK = import.meta.env.DEV || import.meta.env.VITE_E2E === '1';
 
-/** Preferences › Document › Page Layout, for a document shown for the first time this session. */
-function applyPageLayout(viewer: TileViewer, doc: PdfDocument) {
-  const layout = settings.get().pageLayout;
+/** Preferences › Document › Page Layout & Default Zoom, for a document shown for the first time this session. */
+function applyPageLayout(viewer: TileViewer, doc: PdfDocument): { columns: 1 | 2; cover: boolean } {
+  const { pageLayout: layout, pageZoom, coverPage } = settings.get();
   const drawings = doc.pages.some((p) => Math.max(p.width, p.height) > DRAWING_PAGE_PT);
   const continuous = layout === 'continuous' || layout === 'continuousSideBySide' || (layout === 'auto' && !drawings);
-  viewer.setSpread(layout === 'sideBySide' || layout === 'continuousSideBySide' ? 2 : 1, viewer.spread.cover);
+  const columns: 1 | 2 = layout === 'sideBySide' || layout === 'continuousSideBySide' ? 2 : 1;
+  viewer.setSpread(columns, coverPage);
   viewer.setPageMode(continuous ? 'continuous' : 'single');
+  if (pageZoom === 'fitPage') viewer.fit();
+  else if (pageZoom === 'fitWidth') viewer.fitToWidth();
+  else if (pageZoom === 'actualSize') viewer.actualSize();
+  return { columns, cover: coverPage };
 }
 
 /**
@@ -1929,7 +1934,7 @@ export function App() {
       // A stitched view's camera only makes sense with its stitch layout, so just return to its page.
       if (view?.mode === 'stitch') c.viewer.goToPage(view.pageIndex);
       else if (view) c.viewer.setView(view);
-      else applyPageLayout(c.viewer, packed.doc);
+      else setSpread(applyPageLayout(c.viewer, packed.doc));
     },
     [ctl, ctlB],
   );
@@ -9032,12 +9037,21 @@ export function App() {
         pageCount={count}
         disabled={!o || !count}
         zoom={s?.zoom ?? 1}
+        fitMode={s?.fitMode ?? null}
+        maxZoom={prefs.maxZoom}
         continuous={s?.mode === 'continuous'}
+        columns={s?.columns ?? spread.columns}
+        cover={s?.cover ?? spread.cover}
         onZoomIn={() => viewer?.zoomSteps(settings.get().buttonZoomStep, 1)}
         onZoomOut={() => viewer?.zoomSteps(settings.get().buttonZoomStep, -1)}
         onFit={() => viewer?.fit()}
         onFitWidth={() => viewer?.fitToWidth()}
-        onToggleContinuous={() => viewer?.setPageMode(s?.mode === 'continuous' ? 'single' : 'continuous')}
+        onActualSize={() => viewer?.actualSize()}
+        onLayout={(columns, cover, continuous) => {
+          setSpread({ columns, cover });
+          viewer?.setSpread(columns, cover);
+          viewer?.setPageMode(continuous ? 'continuous' : 'single');
+        }}
         tool={toolsState.tool}
         onTool={(t) => (which === 'b' ? ctlB : ctl)?.tools.setTool(t)}
         sheetLabel={sh[idx]?.number ?? undefined}
@@ -9367,6 +9381,7 @@ export function App() {
     continuous: () => v?.setPageMode('continuous'),
     spread: (columns, cover, continuous) => {
       setSpread({ columns, cover });
+      v?.setSpread(columns, cover);
       v?.setPageMode(continuous ? 'continuous' : 'single');
     },
     splitHorizontal: () => {

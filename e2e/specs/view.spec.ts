@@ -80,6 +80,43 @@ test.describe('view', () => {
     expect((await app.command('view.coverPage')).checked).toBe(true);
   });
 
+  test('page strip layout buttons and zoom presets menu (#507)', async ({ app }) => {
+    const nav = app.page.locator('.pagenav');
+    // All four page layouts are directly clickable on the bottom strip; Cover Page appears in side-by-side.
+    await nav.getByRole('button', { name: 'Side-by-Side', exact: true }).click();
+    await expect.poll(async () => (await app.command('view.sideBySide')).checked).toBe(true);
+    const coverBtn = nav.getByRole('button', { name: 'Show Cover Page in Side-by-Side', exact: true });
+    await expect(coverBtn).toBeVisible();
+    await coverBtn.click();
+    await expect.poll(async () => (await app.command('view.coverPage')).checked).toBe(true);
+
+    // Switching from Continuous to Continuous Side-by-Side refits the two-page spread.
+    await nav.getByRole('button', { name: 'Continuous Pages', exact: true }).click();
+    await expect.poll(async () => (await app.command('view.continuous')).checked).toBe(true);
+    const oneColZoom = (await app.view()).zoom;
+    await nav.getByRole('button', { name: 'Continuous Side-by-Side', exact: true }).click();
+    await expect.poll(async () => (await app.command('view.continuousSideBySide')).checked).toBe(true);
+    expect((await app.view()).zoom).toBeLessThan(oneColZoom * 0.65);
+
+    // Zoom presets dropdown offers percentage presets, Actual Size, Fit Page and Fit Width.
+    const zoomBtn = nav.getByRole('button', { name: 'Zoom presets', exact: true });
+    await zoomBtn.click();
+    await nav.getByRole('menuitem', { name: '200%', exact: true }).click();
+    expect((await app.view()).zoom).toBeCloseTo(2, 3);
+
+    await zoomBtn.click();
+    await nav.getByRole('menuitem', { name: /Actual Size/ }).click();
+    expect((await app.view()).zoom).toBeCloseTo(1, 3);
+
+    await zoomBtn.click();
+    await nav.getByRole('menuitem', { name: /Fit Page/ }).click();
+    await expect(nav.locator('button[title^="Fit page"]')).toHaveAttribute('aria-pressed', 'true');
+
+    await zoomBtn.click();
+    await nav.getByRole('menuitem', { name: /Fit Width/ }).click();
+    await expect(nav.locator('button[title^="Fit width"]')).toHaveAttribute('aria-pressed', 'true');
+  });
+
   test('rotate view turns the view, not the document', async ({ app }) => {
     await app.cmd('view.rotateClockwise');
     expect((await app.view()).rotation).toBe(1);
@@ -644,6 +681,41 @@ test.describe('view', () => {
       await expect.poll(async () => (await app.view()).pageIndex).toBe(1);
       await app.page.waitForTimeout(300);
       expect((await app.view()).pageIndex).toBe(1);
+    });
+  });
+
+  test.describe('book reading defaults: two-page, cover, fit page and wheel scroll (#507)', () => {
+    test.use({
+      settings: {
+        unitSystem: 'imperial',
+        lengthUnit: 'ft',
+        areaUnit: 'ft',
+        volumeUnit: 'ft',
+        pageLayout: 'sideBySide',
+        pageZoom: 'fitPage',
+        coverPage: true,
+        singlePageWheel: 'scroll',
+      },
+    });
+
+    test('opens in two-page fit page and wheel-scrolling between cover and spread keeps each spread fitted', async ({ app }) => {
+      await expect.poll(async () => (await app.command('view.sideBySide')).checked).toBe(true);
+      await expect.poll(async () => (await app.command('view.coverPage')).checked).toBe(true);
+      const coverZoom = (await app.view()).zoom;
+      const box = (await app.page.locator('canvas').first().boundingBox())!;
+      const cx = box.x + box.width / 2;
+      const cy = box.y + box.height / 2;
+      // Scroll down one wheel notch from cover (page 1) to spread (pages 2–3): refits to the two-page spread.
+      await app.page.mouse.move(cx, cy);
+      await app.page.mouse.wheel(0, 100);
+      await expect.poll(async () => (await app.view()).pageIndex).toBe(1);
+      const spreadZoom = (await app.view()).zoom;
+      expect(spreadZoom).toBeLessThan(coverZoom * 0.65);
+      // Scroll back up to cover (page 1): refits back to the single cover page.
+      await app.page.waitForTimeout(200);
+      await app.page.mouse.wheel(0, -100);
+      await expect.poll(async () => (await app.view()).pageIndex).toBe(0);
+      expect((await app.view()).zoom).toBeCloseTo(coverZoom, 4);
     });
   });
 
