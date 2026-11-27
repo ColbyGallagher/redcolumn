@@ -6,6 +6,7 @@ import { CountToolDialog } from './CountToolDialog';
 import { centreOf, type CountHit, type CountTool } from '../search/countFromHits';
 import { fileSource, type Labelled, type SearchSource } from '../search/sources';
 import { searchIndex, type Related } from '../search/index/client';
+import { settings, useSettings } from '../settings/settings';
 
 /** Where to look, as in Bluebeam's Search panel. */
 export type SearchScope = 'document' | 'page' | 'open' | 'recents' | 'folder';
@@ -142,6 +143,7 @@ interface Props {
 
 /** Find text in the document, the open documents, recent files or a folder, as in Bluebeam's Search panel. */
 export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources, memory, focusToken, onResults, onOpen, onRedactAll, countTools = [], onApplyCount, readOnly }: Props) {
+  const { zoomToSearchResults } = useSettings();
   const saved = memory.current;
   const [query, setQuery] = useState(saved?.query ?? '');
   const [scope, setScope] = useState<SearchScope>(saved?.scope ?? 'document');
@@ -521,6 +523,10 @@ export function SearchPanel({ activeId, activeKey, currentPage, sheets, sources,
             </label>
           );
         })}
+        <label className="field search-opt" title={msg('Zoom in on a search result when clicking it (off keeps your current zoom)')}>
+          <input type="checkbox" checked={zoomToSearchResults} onChange={(e) => settings.set({ zoomToSearchResults: e.target.checked })} />
+          {msg('Zoom to Search Results')}
+        </label>
       </div>
       <button className="search-results-head" aria-expanded={showResults} onClick={() => setShowResults(!showResults)}>
         <span className="chev">{showResults ? '▾' : '▸'}</span>

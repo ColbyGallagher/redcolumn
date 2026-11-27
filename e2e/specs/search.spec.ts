@@ -99,6 +99,31 @@ test.describe('text search', () => {
     await expect(app.page.locator('.search-hit')).toHaveCount(0);
   });
 
+  test('Zoom to Search Results can be turned off to keep the current zoom (#508)', async ({ app }) => {
+    const toggle = app.page.getByLabel('Zoom to Search Results');
+    await expect(toggle).toBeChecked();
+    await search(app, 'DOOR');
+    await expect(app.page.locator('.search-hit')).toHaveCount(PLAN.search.DOOR!.hits);
+
+    // Default (on): clicking a result zooms into it.
+    await app.fit();
+    const fitZoom = (await app.view()).zoom;
+    await app.page.locator('.search-hit').first().click();
+    await expect.poll(async () => (await app.view()).zoom).toBeGreaterThan(fitZoom * 1.5);
+
+    // Off: clicking a result on another page moves to that page without changing zoom.
+    await toggle.uncheck();
+    await app.cmd('view.actualSize');
+    const keepZoom = (await app.view()).zoom;
+    const page2Hit = app.page.locator('.search-hit', { has: app.page.locator('.num', { hasText: 'Page 2' }) }).first();
+    await page2Hit.click();
+    await expect.poll(async () => (await app.documents())[0]!.page).toBe(2);
+    expect((await app.view()).zoom).toBeCloseTo(keepZoom, 5);
+
+    // Turn back on so subsequent tests start with the default.
+    await toggle.check();
+  });
+
   test.afterEach(async ({ app }) => {
     expect(app.errors).toEqual([]);
   });

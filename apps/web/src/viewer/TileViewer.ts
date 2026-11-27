@@ -981,6 +981,33 @@ export class TileViewer {
     this.invalidate();
   }
 
+  /** Shows a rect in a page's space without changing the current zoom. */
+  panToRect(r: { x: number; y: number; w: number; h: number }, pageIndex = this.pageIndex) {
+    if (!this.doc) return;
+    const index = Math.max(0, Math.min(this.doc.pages.length - 1, pageIndex));
+    const savedZoom = this.zoom;
+    if (this.mode !== 'stitch' && !this.placementOf(index)) this.showPages(index);
+    this.pageIndex = index;
+    this.zoom = savedZoom;
+    const corners = [
+      [r.x, r.y],
+      [r.x + r.w, r.y],
+      [r.x + r.w, r.y + r.h],
+      [r.x, r.y + r.h],
+    ].map((c) => this.pageToWorld(index, c as PagePoint));
+    const xs = corners.map((c) => c[0]);
+    const ys = corners.map((c) => c[1]);
+    const { clientWidth: cw, clientHeight: ch } = this.canvas;
+    const placed = this.mode !== 'stitch' && this.columns === 1 ? this.placementOf(index) : undefined;
+    const page = placed ? this.placementBounds(placed) : null;
+    // When the page fits along an axis at the current zoom, keep it centred there instead of shifting it off-centre.
+    const cx = page && page.w * this.zoom <= cw ? page.x + page.w / 2 : (Math.max(...xs) + Math.min(...xs)) / 2;
+    const cy = page && this.mode === 'single' && page.h * this.zoom <= ch ? page.y + page.h / 2 : (Math.max(...ys) + Math.min(...ys)) / 2;
+    this.panX = cw / 2 - cx * this.zoom;
+    this.panY = ch / 2 - cy * this.zoom;
+    this.invalidate();
+  }
+
   /** Zooms `notches` flat steps of `stepPercent` percentage points (negative zooms out). */
   zoomSteps(stepPercent: number, notches: number, sx?: number, sy?: number) {
     this.zoomBy(steppedZoom(this.zoom, stepPercent, notches) / this.zoom, sx, sy);

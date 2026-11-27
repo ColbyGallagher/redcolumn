@@ -318,6 +318,8 @@ export interface Settings {
   continuousWheel: 'zoom' | 'scroll';
   /** How far a wheel notch scrolls, and how fast a trackpad zooms (1–10; 4 is the browser's rate). */
   wheelSensitivity: number;
+  /** Clicking a search result zooms in on it (otherwise the view moves to it at the current zoom). */
+  zoomToSearchResults: boolean;
   // General › Grid & Snap
   /** Snap to Content: nearest point on straight lines. */
   snapLines: boolean;
@@ -576,6 +578,7 @@ export const DEFAULT_SETTINGS: Settings = {
   singlePageWheel: 'zoom',
   continuousWheel: 'scroll',
   wheelSensitivity: 4,
+  zoomToSearchResults: true,
   snapLines: true,
   snapCurves: true,
   snapMidpoints: true,

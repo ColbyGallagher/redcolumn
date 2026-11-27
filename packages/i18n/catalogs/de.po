@@ -4452,7 +4452,7 @@ msgstr "Mengenformel"
 msgid "Read {code} as: length × height (the measurement’s depth if it has one, else the Wall Height variable) × 2 sides ÷ the area of one board."
 msgstr "Lesen Sie {code} als: Länge × Höhe (die Tiefe der Messung, falls vorhanden, sonst die Variable Wandhöhe) × 2 Seiten ÷ die Fläche einer Platte."
 
-#: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/BulkInsertDialog.tsx apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CombineDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/GeospatialPanel.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/OfflinePrefs.tsx apps/web/src/components/Ribbon.tsx apps/web/src/components/SessionsPanel.tsx apps/web/src/components/SlipSheetDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx
+#: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/GeospatialPanel.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/OfflinePrefs.tsx apps/web/src/components/ReorderList.tsx apps/web/src/components/Ribbon.tsx apps/web/src/components/SessionsPanel.tsx apps/web/src/components/SlipSheetDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx
 msgid "Remove"
 msgstr "Entfernen"
 
@@ -5176,7 +5176,7 @@ msgstr "Aus Bereichen…"
 msgid "Import template…"
 msgstr "Vorlage importieren…"
 
-#: apps/web/src/components/BookmarksPanel.tsx apps/web/src/components/BulkInsertDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CombineDialog.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/SetsPanel.tsx apps/web/src/components/StampsDialog.tsx
+#: apps/web/src/components/BookmarksPanel.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/ReorderList.tsx apps/web/src/components/SetsPanel.tsx apps/web/src/components/StampsDialog.tsx
 msgid "Move down"
 msgstr "Nach unten"
 
@@ -5188,7 +5188,7 @@ msgstr "Aus dem übergeordneten Element herausnehmen"
 msgid "Move the Place to the current view (links to it follow)"
 msgstr "Ort zur aktuellen Ansicht verschieben (Links dorthin folgen)"
 
-#: apps/web/src/components/BookmarksPanel.tsx apps/web/src/components/BulkInsertDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CombineDialog.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/SetsPanel.tsx apps/web/src/components/StampsDialog.tsx
+#: apps/web/src/components/BookmarksPanel.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/ReorderList.tsx apps/web/src/components/SetsPanel.tsx apps/web/src/components/StampsDialog.tsx
 msgid "Move up"
 msgstr "Nach oben"
 
@@ -12952,9 +12952,17 @@ msgstr "Zoomgeschwindigkeit"
 msgid "Zoom Steps"
 msgstr "Zoomstufen"
 
+#: apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/SearchPanel.tsx
+msgid "Zoom in on a search result when clicking it (off keeps your current zoom)"
+msgstr "Beim Klicken auf ein Suchergebnis heranzoomen (aus behält Ihren aktuellen Zoom bei)"
+
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Zoom to Cursor"
 msgstr "Auf Cursor zoomen"
+
+#: apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/SearchPanel.tsx
+msgid "Zoom to Search Results"
+msgstr "Auf Suchergebnisse zoomen"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Zooms toward the surface under the pointer, scaling speed by distance so you slow down as you get closer and never pass through objects"

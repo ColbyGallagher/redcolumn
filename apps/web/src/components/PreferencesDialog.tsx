@@ -526,6 +526,7 @@ export function PreferencesDialog({ author, onAuthor, onClose, initialCategory, 
         ])}
         <C>{check('invertWheelZoom', msg('Reverse Mouse Wheel when Zooming'))}</C>
         {num('wheelSensitivity', msg('Sensitivity'), { min: 1, max: 10 })}
+        <C>{check('zoomToSearchResults', msg('Zoom to Search Results'), { title: msg('Zoom in on a search result when clicking it (off keeps your current zoom)') })}</C>
         {head(msg('Zoom Steps'))}
         {num('ctrlWheelZoomStep', msg('Ctrl + Wheel'), { min: 1, max: 50, unit: '%' })}
         {num('wheelZoomStep', msg('Wheel'), { min: 1, max: 50, unit: '%' })}
