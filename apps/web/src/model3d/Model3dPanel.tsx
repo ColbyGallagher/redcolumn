@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
 import { msg, msgc } from '@nb/i18n';
-import type { ClassEntry, ColourAction, ColourProfile, ItemMap, ModelControls, ModelInfo, ModelState, ResolvedProfile, SavedView, SearchSet, SelectionInfo, TreeNode } from '@nb/model3d';
+import type { ClassEntry, ColourAction, ColourProfile, ItemMap, ModelControls, ModelInfo, ModelState, ResolvedProfile, SavedView, SearchSet, SelectionInfo, SheetOverlay, TreeNode } from '@nb/model3d';
 import { itemCount, paletteColour, parseSearchSets, searchable } from '@nb/model3d/controls';
 import type { ModelView } from '../documents/openTabs';
 import { lazy } from '../i18n/lazy';
 import { exportSearchSets, updateModelLibrary, useModelLibrary } from './library';
+import { sheetOverlay, type SheetSetting, type SheetSource } from './sheetOverlays';
 
 /** The profile made by Colour by Class (not kept in the library). */
 export const CLASS_PROFILE = '__classes';
@@ -148,6 +149,8 @@ interface PanelProps {
   view: ModelView | null;
   /** The model file's hash: its saved views are kept by it. */
   fileHash: string | null;
+  /** Open sheets registered to the map, which can be shown in the model. */
+  sheets: readonly SheetSource[];
   onDownload: (name: string, text: string) => void;
   onNotice: (text: string) => void;
 }
@@ -156,7 +159,7 @@ interface PanelProps {
  * The 3D panel: the models in the view, their spatial structure and classes, saved views, search
  * sets and colour profiles. Element properties are in the 3D Properties panel.
  */
-export function Model3dPanel({ view, fileHash, onDownload, onNotice }: PanelProps) {
+export function Model3dPanel({ view, fileHash, sheets, onDownload, onNotice }: PanelProps) {
   const { state, controls } = useModel(view);
   const lib = useModelLibrary();
   const models = useMemo<ModelInfo[]>(() => controls?.models() ?? [], [controls, state?.modelsVersion]);
@@ -218,6 +221,7 @@ export function Model3dPanel({ view, fileHash, onDownload, onNotice }: PanelProp
           ))}
         </ul>
       </Section>
+      <SheetsInModel controls={controls} state={state} sheets={sheets} fileHash={fileHash} />
       <SavedViews controls={controls} fileHash={fileHash} views={fileHash ? (lib.views[fileHash] ?? []) : []} profiles={lib.profiles} sets={lib.sets} profileId={state.profileId} />
       <SetsAndColours controls={controls} sets={lib.sets} profiles={lib.profiles} profileId={state.profileId} classes={classes ?? []} onDownload={onDownload} onNotice={onNotice} />
     </div>
@@ -492,5 +496,100 @@ export function Model3dPropertiesPanel({ view }: { view: ModelView | null }) {
       ))}
       {!groups.length && <p className="empty">{msg('No property matches “{filter}”.', { filter })}</p>}
     </div>
+  );
+}
+
+/** Each model's sheet settings while the app is open, by model file hash, then sheet key. */
+const sheetSettings = new Map<string, Record<string, SheetSetting>>();
+
+/**
+ * Sheets in the model: every open sheet registered to the map, shown where it lies as a picture on
+ * a level plane or with its markups draped over the model. Pictures follow the sheet's markups.
+ */
+function SheetsInModel({ controls, state, sheets, fileHash }: { controls: ModelControls; state: ModelState; sheets: readonly SheetSource[]; fileHash: string | null }) {
+  const [settings, setSettings] = useState<Record<string, SheetSetting>>(() => (fileHash ? (sheetSettings.get(fileHash) ?? {}) : {}));
+  const [edits, setEdits] = useState(0);
+  const shownKeys = sheets.filter((s) => settings[s.key]?.show).map((s) => s.key);
+  const shownStores = [...new Set(sheets.filter((s) => settings[s.key]?.show).map((s) => s.store))];
+  // Markups changed on a shown sheet: draw it again, a moment after the last change.
+  useEffect(() => {
+    let timer = 0;
+    const offs = shownStores.map((store) =>
+      store.subscribe(() => {
+        clearTimeout(timer);
+        timer = window.setTimeout(() => setEdits((n) => n + 1), 250);
+      }),
+    );
+    return () => {
+      clearTimeout(timer);
+      offs.forEach((off) => off());
+    };
+    // The shown sheets' keys say which stores to watch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shownKeys.join('|')]);
+  useEffect(() => {
+    if (fileHash) sheetSettings.set(fileHash, settings);
+    const abort = new AbortController();
+    void Promise.all(
+      sheets.filter((s) => settings[s.key]?.show).map((s) => sheetOverlay(s, settings[s.key]!, abort.signal).catch(() => null)),
+    ).then((overlays) => {
+      if (!abort.signal.aborted) controls.run({ type: 'sheetOverlays', overlays: overlays.filter((o): o is SheetOverlay => !!o) });
+    });
+    return () => abort.abort();
+    // `sheets` is new each render; its keys say when it changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [controls, settings, edits, shownKeys.join('|'), fileHash]);
+
+  const change = (key: string, patch: Partial<SheetSetting>) =>
+    setSettings((all) => {
+      const top = state.heights ? Math.round(state.heights[1] * 10) / 10 : 0;
+      const was = all[key] ?? { show: false, mode: 'plane' as const, height: top, opacity: 0.85 };
+      return { ...all, [key]: { ...was, ...patch } };
+    });
+
+  return (
+    <Section title={msg('Sheets in the model')} count={shownKeys.length || undefined}>
+      {!state.georeferenced ? (
+        <p className="empty">{msg('This model has no position on the map (an IFC map conversion), so sheets cannot be placed in it.')}</p>
+      ) : !sheets.length ? (
+        <p className="empty">{msg('Open a sheet registered to the map (a geospatial PDF, or one registered in the Geospatial panel) to show it here.')}</p>
+      ) : (
+        <ul className="m3d-list" aria-label={msg('Sheets in the model')}>
+          {sheets.map((s) => {
+            const set = settings[s.key];
+            return (
+              <li key={s.key} className="m3d-sheet">
+                <label className="m3d-row m3d-name" title={s.label}>
+                  <input type="checkbox" checked={!!set?.show} onChange={(e) => change(s.key, { show: e.target.checked })} /> {s.label}
+                </label>
+                {set?.show && (
+                  <div className="m3d-sheet-options">
+                    <select aria-label={msg('How {label} shows', { label: s.label })} value={set.mode} onChange={(e) => change(s.key, { mode: e.target.value as SheetSetting['mode'] })}>
+                      <option value="plane">{msg('On a plane')}</option>
+                      <option value="drape">{msg('Draped on the model')}</option>
+                    </select>
+                    {set.mode === 'plane' && (
+                      <label title={msg('The plane\'s height (metres, the map\'s height datum)')}>
+                        {/* translators: Reduced Level, a height above the map's datum */}
+                        {msg('RL')}{' '}
+                        <input
+                          type="number"
+                          step="0.1"
+                          aria-label={msg('{label} height', { label: s.label })}
+                          value={set.height}
+                          onChange={(e) => Number.isFinite(e.target.valueAsNumber) && change(s.key, { height: e.target.valueAsNumber })}
+                        />
+                      </label>
+                    )}
+                    <input type="range" min="0.1" max="1" step="0.05" aria-label={msg('{label} opacity', { label: s.label })} value={set.opacity} onChange={(e) => change(s.key, { opacity: e.target.valueAsNumber })} />
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {state.draping > 0 && <p className="empty">{msg('Laying markups over the model…')}</p>}
+    </Section>
   );
 }

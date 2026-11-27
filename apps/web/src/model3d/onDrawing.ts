@@ -1,3 +1,4 @@
+import { ifcGridTransform, parseStep, type IfcGridTransform } from '../geospatial/ifc';
 import { readModel, type GeoModel } from '../geospatial/model';
 import { readFile, type StoredFile } from '../storage/fileStore';
 
@@ -15,4 +16,17 @@ export function modelLinework(file: Pick<StoredFile, 'hash' | 'name'>): Promise<
     linework.set(file.hash, model);
   }
   return model;
+}
+
+/** Where a model's IFC coordinates lie on the map (its IfcMapConversion), by file hash. */
+const georeferences = new Map<string, Promise<IfcGridTransform>>();
+
+export function modelGeoreference(file: Pick<StoredFile, 'hash'>): Promise<IfcGridTransform> {
+  let geo = georeferences.get(file.hash);
+  if (!geo) {
+    geo = readFile(file.hash).then((bytes) => ifcGridTransform(parseStep(new TextDecoder().decode(bytes))));
+    geo.catch(() => georeferences.delete(file.hash));
+    georeferences.set(file.hash, geo);
+  }
+  return geo;
 }

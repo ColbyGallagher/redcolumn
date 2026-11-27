@@ -8,7 +8,7 @@ import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegi
 import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canBeCountSymbol, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds, symbolFromMarkups } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, turnedTo, boundsOf, isAiDraft, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
-import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
+import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, regionCrs, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
 import { EngineSupervisor } from './viewer/engineSupervisor';
 import { TileViewer, type PagePoint, type ViewerStats, type ViewState } from './viewer/TileViewer';
 import { TileDiagnostics } from './components/TileDiagnostics';
@@ -10315,6 +10315,20 @@ export function App() {
           <Model3dPanel
             view={activeModel?.view ?? null}
             fileHash={activeModel?.file.hash ?? null}
+            sheets={pdfTabs([...tabsA, ...tabsB])
+              .filter((t, i, all) => all.findIndex((x) => x.file.id === t.file.id) === i)
+              .flatMap((t) =>
+                t.store
+                  .allGeoRegions()
+                  .filter((region) => regionCrs(region))
+                  .map((region) => ({
+                    key: `${t.file.id}:${region.pageIndex}:${region.id}`,
+                    label: `${t.file.name.replace(/\.pdf$/i, '')} — ${pageLabelFor(t, region.pageIndex)}${region.name ? ` (${region.name})` : ''}`,
+                    region,
+                    doc: t.doc,
+                    store: t.store,
+                  })),
+              )}
             onDownload={(name, text) => download(name, new Blob([text], { type: 'application/json' }))}
             onNotice={setNotice}
           />

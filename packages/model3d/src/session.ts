@@ -11,6 +11,7 @@ import {
   orientationOf,
   padBox,
   searchable,
+  densify,
   type ClassEntry,
   type ItemMap,
   type ModelAction,
@@ -19,6 +20,7 @@ import {
   type ModelState,
   type ModelTool,
   type ResolvedProfile,
+  type SheetOverlay,
   type SavedView,
   type SearchSet,
   type SelectionInfo,
@@ -87,6 +89,13 @@ export class ModelSession implements ModelControls {
   private profileHidden: OBC.ModelIdMap = {};
   private readonly names = new Map<string, string>();
   private readonly elementCounts = new Map<string, number>();
+  /** Grid (easting, northing, height) to scene, from the first georeferenced model. */
+  private gridToScene: THREE.Matrix4 | null = null;
+  /** Sheets shown in the view, by overlay id. */
+  private readonly sheets = new Map<string, { version: string; object: THREE.Object3D }>();
+  private readonly sheetGroup = new THREE.Group();
+  /** Goes up with each change of the sheets, so a slow drape left behind by a newer one stops. */
+  private sheetRun = 0;
   private hidden: OBC.ModelIdMap | null = null;
   private readonly measurers = new Map<MeasureTool, Measurer>();
   private readonly offs: (() => void)[] = [];
@@ -244,7 +253,136 @@ export class ModelSession implements ModelControls {
         return this.applyProfile(a.id, a.profile);
       case 'applyView':
         return this.applyView(a.view, a.profile);
+      case 'georeference':
+        return this.georeference(a.modelId, a.matrix);
+      case 'sheetOverlays':
+        return this.showSheets(a.overlays);
     }
+  }
+
+  // --- sheets in the model (where both are on the map) ---
+
+  /**
+   * Places a model on the map: `matrix` takes its IFC coordinates (Z up) to grid easting, northing
+   * and height (column-major 4x4, from its IfcMapConversion). The fragments are drawn Y up (north
+   * -Z) and moved by the model's coordinates, so grid to scene is that move, the axis swap, and the
+   * inverse of `matrix`.
+   */
+  private async georeference(modelId: string, matrix: number[]): Promise<void> {
+    const model = this.fragments.list.get(modelId);
+    if (!model || this.gridToScene) return;
+    const [cx = 0, cy = 0, cz = 0] = await model.getCoordinates();
+    const toGrid = new THREE.Matrix4().fromArray(matrix);
+    if (Math.abs(toGrid.determinant()) < 1e-12) return;
+    // Scene (x, y, z) = (X, Z, -Y) + the model's coordinates, from IFC (X, Y, Z).
+    const swap = new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1);
+    this.gridToScene = new THREE.Matrix4().makeTranslation(cx, cy, cz).multiply(swap).multiply(toGrid.invert());
+    const sceneToGrid = this.gridToScene.clone().invert();
+    const box = model.box;
+    const lo = new THREE.Vector3(box.min.x, box.min.y, box.min.z).applyMatrix4(sceneToGrid).z;
+    const hi = new THREE.Vector3(box.max.x, box.max.y, box.max.z).applyMatrix4(sceneToGrid).z;
+    this.update({ georeferenced: true, heights: [Math.min(lo, hi), Math.max(lo, hi)] });
+  }
+
+  private scenePoint(e: number, n: number, h: number): THREE.Vector3 {
+    return new THREE.Vector3(e, n, h).applyMatrix4(this.gridToScene!);
+  }
+
+  /** Shows these sheets (and no others); an overlay whose version is unchanged is left as it is. */
+  private async showSheets(overlays: SheetOverlay[]): Promise<void> {
+    if (!this.gridToScene) return;
+    if (!this.sheetGroup.parent) this.world.scene.three.add(this.sheetGroup);
+    const run = ++this.sheetRun;
+    const wanted = new Set(overlays.map((o) => o.id));
+    for (const [id, shown] of this.sheets) {
+      const next = overlays.find((o) => o.id === id);
+      if (wanted.has(id) && next?.version === shown.version) continue;
+      this.sheetGroup.remove(shown.object);
+      disposeObject(shown.object);
+      this.sheets.delete(id);
+    }
+    const drapes = overlays.filter((o) => !this.sheets.has(o.id) && o.mode === 'drape');
+    for (const o of overlays) {
+      if (this.sheets.has(o.id) || o.mode !== 'plane' || !o.image) continue;
+      const object = this.planeOf(o);
+      this.sheetGroup.add(object);
+      this.sheets.set(o.id, { version: o.version, object });
+    }
+    this.update({ draping: drapes.length });
+    for (const o of drapes) {
+      const object = await this.drapeOf(o, run);
+      if (run !== this.sheetRun || this.disposed) {
+        if (object) disposeObject(object);
+        return;
+      }
+      if (object) {
+        this.sheetGroup.add(object);
+        this.sheets.set(o.id, { version: o.version, object });
+      }
+      this.update({ draping: this.current.draping - 1 });
+    }
+  }
+
+  /** A sheet's picture on a level plane at its height. */
+  private planeOf(o: SheetOverlay): THREE.Object3D {
+    const [tl, tr, br, bl] = o.corners.map(([e, n]) => this.scenePoint(e, n, o.height));
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute([...bl!.toArray(), ...br!.toArray(), ...tr!.toArray(), ...tl!.toArray()], 3));
+    // The canvas's top row is v = 1 (textures flip by default).
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2));
+    geometry.setIndex([0, 1, 2, 0, 2, 3]);
+    const map = new THREE.CanvasTexture(o.image!);
+    map.colorSpace = THREE.SRGBColorSpace;
+    map.anisotropy = 4;
+    const material = new THREE.MeshBasicMaterial({
+      map,
+      transparent: true,
+      opacity: o.opacity,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `sheet:${o.id}`;
+    mesh.renderOrder = 1;
+    return mesh;
+  }
+
+  /** A sheet's markups laid over the model: each line's points dropped onto the surface below them. */
+  private async drapeOf(o: SheetOverlay, run: number): Promise<THREE.Object3D | null> {
+    const group = new THREE.Group();
+    group.name = `sheet:${o.id}`;
+    const dom = this.world.renderer?.three.domElement;
+    if (!dom) return null;
+    const top = this.scenePoint(0, 0, 0).y + 10_000;
+    const camera = new THREE.OrthographicCamera(-0.01, 0.01, 0.01, -0.01, 0.01, 100_000);
+    camera.up.set(0, 0, -1);
+    const rect = dom.getBoundingClientRect();
+    const mouse = new THREE.Vector2(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    const lift = 0.05;
+    for (const line of o.lines) {
+      const segments: THREE.Vector3[][] = [[]];
+      for (const [e, n] of densify(line.points, 1, 600)) {
+        if (run !== this.sheetRun || this.disposed) return null;
+        const at = this.scenePoint(e, n, 0);
+        camera.position.set(at.x, top, at.z);
+        camera.lookAt(at.x, top - 1, at.z);
+        camera.updateMatrixWorld();
+        camera.updateProjectionMatrix();
+        let hit: THREE.Vector3 | null = null;
+        for (const model of this.fragments.list.values()) {
+          if (!model.object.visible) continue;
+          const r = await model.raycast({ camera, mouse, dom }).catch(() => null);
+          if (r && (!hit || r.point.y > hit.y)) hit = r.point.clone();
+        }
+        if (hit) segments[segments.length - 1]!.push(new THREE.Vector3(at.x, hit.y + lift, at.z));
+        else if (segments[segments.length - 1]!.length) segments.push([]);
+      }
+      const material = new THREE.LineBasicMaterial({ color: new THREE.Color(line.colour), transparent: o.opacity < 1, opacity: o.opacity, depthTest: true });
+      for (const pts of segments) if (pts.length > 1) group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), material));
+    }
+    return group;
   }
 
   /** Shows every element again, at full strength and in its own colours (a colour profile goes too). */
@@ -693,7 +831,9 @@ export class ModelSession implements ModelControls {
   /** Stops drawing while the view is not on screen (another tab in front, or the window hidden), and starts again. */
   setVisible(visible: boolean): void {
     if (this.disposed) return;
-    this.components.enabled = visible;
+    // Only the drawing pauses: switching the components off ends their animation loop for good
+    // (it stops scheduling itself and nothing starts it again).
+    this.components.get(OBC.Worlds).enabled = visible;
     if (visible) {
       this.world.renderer?.resize();
       void this.fragments.core.update(true);
@@ -706,6 +846,22 @@ export class ModelSession implements ModelControls {
     this.resize.disconnect();
     for (const off of this.offs) off();
     this.listeners.clear();
+    for (const { object } of this.sheets.values()) disposeObject(object);
+    this.sheets.clear();
     this.components.dispose();
   }
+}
+
+/** Frees what a sheet overlay drew with: geometry, materials and their pictures. */
+function disposeObject(object: THREE.Object3D): void {
+  object.removeFromParent();
+  object.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    mesh.geometry?.dispose();
+    const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+    for (const m of materials) {
+      (m as THREE.MeshBasicMaterial).map?.dispose();
+      m.dispose();
+    }
+  });
 }
