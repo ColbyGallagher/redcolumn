@@ -26,8 +26,16 @@ const KINDS = lazy(() => [
  * Version compare: another revision of the model loaded beside it and compared element by element
  * (by GlobalId). The view colours what was added, changed and removed; the lists select them.
  */
+/** Each view's comparison lists, kept while another panel is in front of this one. */
+const comparisons = new WeakMap<ModelControls, RevisionDiff>();
+
 export function Compare({ controls, state, onNotice }: CompareProps) {
-  const [diff, setDiff] = useState<RevisionDiff | null>(null);
+  const [diff, setDiffState] = useState<RevisionDiff | null>(() => comparisons.get(controls) ?? null);
+  const setDiff = (next: RevisionDiff | null) => {
+    if (next) comparisons.set(controls, next);
+    else comparisons.delete(controls);
+    setDiffState(next);
+  };
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   // The comparison ended (in the view, or another revision replaced it): its lists go too.
