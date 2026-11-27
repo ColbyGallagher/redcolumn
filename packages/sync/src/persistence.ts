@@ -9,7 +9,14 @@ export interface ByteSealer {
   open(stored: Uint8Array): Promise<Uint8Array> | Uint8Array;
 }
 
-/** Durable local storage for a synced document's confirmed state, pending queue, inbox, and undo stack. */
+/**
+ * Durable local storage for a synced document's confirmed state, pending queue, inbox, and undo stack
+ * (which together hold all of a document's markup content).
+ *
+ * Nothing is written to disk until the app installs an adapter with {@link setSyncPersistence}. When
+ * local encryption is on, the app must install a sealed adapter, e.g.
+ * `new IndexedDbSyncPersistence({ sealer: { seal: sealLocal, open: openLocal } })`.
+ */
 export interface SyncPersistence {
   load(key: string): Promise<PersistedSyncState | null>;
   save(key: string, state: PersistedSyncState): Promise<void>;
@@ -79,8 +86,11 @@ export interface IndexedDbSyncPersistenceOptions {
   dbName?: string;
   /** Object store name inside the database. Defaults to `'docs'`. */
   storeName?: string;
-  /** Optional sealing layer (e.g. `{ seal: sealLocal, open: openLocal }`). */
-  sealer?: ByteSealer;
+  /**
+   * Sealing layer (e.g. `{ seal: sealLocal, open: openLocal }`), or `null` to store plain bytes.
+   * Required so that writing document content to disk unencrypted is always an explicit choice.
+   */
+  sealer: ByteSealer | null;
   /** Optional IndexedDB factory override (defaults to `globalThis.indexedDB`). */
   indexedDB?: IDBFactory;
 }
@@ -120,17 +130,17 @@ export class IndexedDbSyncPersistence implements SyncPersistence {
   private readonly idbOverride?: IDBFactory;
   private dbPromise: Promise<IDBDatabase> | null = null;
 
-  constructor(options: IndexedDbSyncPersistenceOptions = {}) {
+  constructor(options: IndexedDbSyncPersistenceOptions) {
     this.dbName = options.dbName ?? 'nb-sync';
     this.storeName = options.storeName ?? 'docs';
-    this.sealer = options.sealer;
+    this.sealer = options.sealer ?? undefined;
     this.idbOverride = options.indexedDB;
   }
 
   private open(): Promise<IDBDatabase> {
     if (!this.dbPromise) {
       const factory = getIdbFactory(this.idbOverride);
-      this.dbPromise = new Promise<IDBDatabase>((resolve, reject) => {
+      const opening: Promise<IDBDatabase> = new Promise<IDBDatabase>((resolve, reject) => {
         const req = factory.open(this.dbName, 1);
         req.onupgradeneeded = () => {
           const db = req.result;
@@ -138,12 +148,29 @@ export class IndexedDbSyncPersistence implements SyncPersistence {
             db.createObjectStore(this.storeName);
           }
         };
-        req.onsuccess = () => resolve(req.result);
+        req.onsuccess = () => {
+          const db = req.result;
+          // Reopen on next use if the browser closes the connection (e.g. storage cleared) or
+          // another tab needs to upgrade the database.
+          db.onversionchange = () => {
+            db.close();
+            if (this.dbPromise === opening) this.dbPromise = null;
+          };
+          db.onclose = () => {
+            if (this.dbPromise === opening) this.dbPromise = null;
+          };
+          resolve(db);
+        };
+        req.onblocked = () => {
+          if (this.dbPromise === opening) this.dbPromise = null;
+          reject(new Error('IndexedDB open is blocked by another open connection'));
+        };
         req.onerror = () => {
-          this.dbPromise = null;
+          if (this.dbPromise === opening) this.dbPromise = null;
           reject(req.error ?? new Error('Failed to open IndexedDB database'));
         };
       });
+      this.dbPromise = opening;
     }
     return this.dbPromise;
   }
@@ -181,16 +208,17 @@ export class IndexedDbSyncPersistence implements SyncPersistence {
   }
 }
 
-const defaultFactory: SyncPersistenceFactory = () =>
-  typeof (globalThis as { indexedDB?: unknown }).indexedDB !== 'undefined'
-    ? new IndexedDbSyncPersistence()
-    : new MemorySyncPersistence();
+/**
+ * Until the app installs an adapter, synced state stays in memory: the default never writes document
+ * content to disk, so it can never bypass local encryption.
+ */
+const defaultFactory: SyncPersistenceFactory = () => new MemorySyncPersistence();
 
 let persistenceFactory: SyncPersistenceFactory = defaultFactory;
 
 /**
- * Sets how synced documents persist locally (e.g. installing a sealed IndexedDB adapter when local
- * encryption is turned on). Pass `null` to restore the default.
+ * Sets how synced documents persist locally. The app installs an IndexedDB adapter at start-up,
+ * sealed when local encryption is on. Pass `null` to restore the in-memory default.
  */
 export function setSyncPersistence(factory: SyncPersistenceFactory | null): void {
   persistenceFactory = factory ?? defaultFactory;

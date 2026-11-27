@@ -57,6 +57,7 @@ function testSealer(secret = 0x5a): ByteSealer {
 /** Minimal in-test IndexedDB fake covering the subset `IndexedDbSyncPersistence` uses. */
 function fakeIndexedDB() {
   const databases = new Map<string, Map<string, Map<string, unknown>>>();
+  const opened: Array<Record<string, unknown> & { closed: boolean }> = [];
 
   const factory = {
     open(name: string) {
@@ -68,7 +69,8 @@ function fakeIndexedDB() {
           stores = new Map();
           databases.set(name, stores);
         }
-        const db = {
+        const db: Record<string, unknown> & { closed: boolean } = {
+          closed: false,
           objectStoreNames: {
             contains: (s: string) => stores!.has(s),
           },
@@ -76,6 +78,7 @@ function fakeIndexedDB() {
             if (!stores!.has(s)) stores!.set(s, new Map());
           },
           transaction: (storeName: string) => {
+            if (db.closed) throw new Error('InvalidStateError: the database connection is closing');
             const storeMap = stores!.get(storeName);
             if (!storeMap) throw new Error(`Missing object store ${storeName}`);
             const tx: Record<string, unknown> = {
@@ -104,8 +107,11 @@ function fakeIndexedDB() {
             };
             return tx;
           },
-          close: () => undefined,
+          close: () => {
+            db.closed = true;
+          },
         };
+        opened.push(db);
         req.result = db;
         if (created) (req.onupgradeneeded as (() => void) | undefined)?.();
         (req.onsuccess as (() => void) | undefined)?.();
@@ -116,6 +122,15 @@ function fakeIndexedDB() {
 
   return {
     factory: factory as unknown as IDBFactory,
+    /** Closes every open connection the way the browser does, firing `onclose`. */
+    closeAll(): void {
+      for (const db of opened) {
+        if (db.closed) continue;
+        db.closed = true;
+        (db.onclose as (() => void) | undefined)?.();
+      }
+    },
+    openCount: () => opened.length,
     raw(dbName: string, storeName: string, key: string): unknown {
       return databases.get(dbName)?.get(storeName)?.get(key);
     },
@@ -183,7 +198,7 @@ test('IndexedDbSyncPersistence round-trips state with and without sealing via ID
 });
 
 test('IndexedDbSyncPersistence throws a clear error when indexedDB is unavailable', async () => {
-  const idb = new IndexedDbSyncPersistence();
+  const idb = new IndexedDbSyncPersistence({ sealer: null });
   await assert.rejects(() => idb.load('k1'), /IndexedDB is not available/);
 });
 
@@ -197,4 +212,31 @@ test('setSyncPersistence overrides and resets the default factory', () => {
   }
   assert.notEqual(defaultSyncPersistence(), custom);
   assert.ok(defaultSyncPersistence() instanceof MemorySyncPersistence);
+});
+
+test('IndexedDbSyncPersistence reopens the database after the browser closes the connection', async () => {
+  const fake = fakeIndexedDB();
+  const idb = new IndexedDbSyncPersistence({ dbName: 'reopen', sealer: null, indexedDB: fake.factory });
+  await idb.save('k1', sampleState('seq:1'));
+  fake.closeAll();
+  await idb.save('k1', sampleState('seq:2'));
+  assert.equal((await idb.load('k1'))?.cursor, 'seq:2');
+  assert.equal(fake.openCount(), 2);
+  await idb.close();
+});
+
+test('the default sync persistence never writes document content to IndexedDB', async () => {
+  const g = globalThis as { indexedDB?: unknown };
+  const before = g.indexedDB;
+  const fake = fakeIndexedDB();
+  g.indexedDB = fake.factory;
+  try {
+    const p = defaultSyncPersistence();
+    assert.ok(p instanceof MemorySyncPersistence);
+    await p.save('k1', sampleState('seq:3'));
+    assert.equal(fake.openCount(), 0, 'nothing was opened on disk');
+  } finally {
+    if (before === undefined) delete g.indexedDB;
+    else g.indexedDB = before;
+  }
 });

@@ -28,7 +28,9 @@ import { diffMarkup, projectMarkups, splitMarkup } from './project.ts';
 import { baseForGroup, buildRetryOps, groupPendingUnits, rebasePending } from './rebase.ts';
 import type {
   ConnectionState,
+  ForwardCheck,
   InboxEntry,
+  PersistedHistoryRequest,
   PersistedSetup,
   PersistedSyncState,
   ServerEvent,
@@ -78,11 +80,39 @@ function describeOps(ops: readonly Operation[]): string {
   return 'Edit';
 }
 
+/**
+ * Applies `ops` as consecutive units (single ops or batches of at most `MAX_BATCH_SIZE`), the way
+ * the server receives them. Stops at the first refused unit.
+ */
+function applyUnits(
+  state: OpsState,
+  ops: readonly Operation[],
+  ctx: ApplyContext,
+): { ok: true; state: OpsState } | { ok: false; rejection: ServerRejection } {
+  let next = state;
+  for (const unit of groupPendingUnits(ops)) {
+    const res = unit.length === 1 && unit[0]!.batchId === undefined
+      ? applyOp(next, unit[0]!, ctx)
+      : applyBatch(next, unit, ctx);
+    if (!res.ok) return { ok: false, rejection: res.rejection };
+    next = res.state;
+  }
+  return { ok: true, state: next };
+}
+
+function opKind(type: string): 'markup' | 'placement' {
+  return type.startsWith('markup.') ? 'markup' : 'placement';
+}
+
 interface DeferredUndo {
   opIds: Set<string>;
   kind: 'undo' | 'redo';
   step: UndoStep;
   emittedOps: Operation[];
+  /** True once any of its ops was handed to the transport (it may then be committed on the server). */
+  sent: boolean;
+  /** `historyEpoch` when the request started; a new edit since then means no redo step is pushed. */
+  epoch: number;
   resolve: (result: UndoResult) => void;
 }
 
@@ -91,7 +121,7 @@ interface PendingBatchDraft {
   checks: UndoGroupCheck[];
   inverse: UndoOpSpec[];
   forward: UndoOpSpec[];
-  forwardChecks: Array<{ kind: 'markup' | 'placement'; entityId: string; group: string }>;
+  forwardChecks: ForwardCheck[];
   addedMarkups: string[];
   label: string | null;
 }
@@ -185,7 +215,11 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
   private _editCount = 0;
   private editRule: EditRule | null;
   private _connection: ConnectionState = 'disconnected';
+  /** Set when the server revoked access; cleared only by a later successful welcome. */
+  private revoked = false;
   private _lastError: string | null = null;
+  /** The message last reported for a failed local save (cleared when a later save succeeds). */
+  private persistError: string | null = null;
 
   private transport: SyncTransport | null = null;
   private unsubTransportMessage: (() => void) | null = null;
@@ -197,7 +231,13 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
   private batchDepth = 0;
   private batchDraft: PendingBatchDraft | null = null;
   private persistChain: Promise<void> = Promise.resolve();
+  /** A save is queued and not started yet; it snapshots the latest state when it runs. */
+  private persistQueued = false;
   private destroyed = false;
+  /** Undo/redo requests run one at a time: each waits for the previous one to finish. */
+  private historyQueue: Promise<unknown> | null = null;
+  /** Bumped by every new local edit step, so an undo that finishes afterwards pushes no redo. */
+  private historyEpoch = 0;
 
   /** Undo/redo ops currently awaiting server confirmation. */
   private pendingUndos: DeferredUndo[] = [];
@@ -271,10 +311,51 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
         doc.redoStack = saved.redoStack;
         doc.confirmedOpIds = new Set(saved.confirmedOpIds);
         if (saved.setup) doc.applySetup(saved.setup);
+        if (saved.revoked) {
+          doc.revoked = true;
+          doc._connection = 'revoked';
+          doc.clearSetup();
+        }
+        doc.restoreHistoryRequests(saved.history ?? []);
       }
     }
     doc.rebaseAndProject(false);
     return doc;
+  }
+
+  /**
+   * Re-attaches undo/redo requests that were sent before a restart. Their ops are still in
+   * `pending` and resend with the same opIds; the step completes when the server confirms them.
+   */
+  private restoreHistoryRequests(requests: readonly PersistedHistoryRequest[]): void {
+    const waits: Promise<UndoResult>[] = [];
+    for (const req of requests) {
+      const stack = req.kind === 'undo' ? this.undoStack : this.redoStack;
+      const step = stack.find((s) => s.id === req.stepId);
+      if (!step || req.emittedOps.length !== step.inverse.length) continue;
+      const opIds = new Set(req.emittedOps.map((o) => o.opId));
+      for (const id of opIds) this.undoTrackedOpIds.add(id);
+      waits.push(
+        new Promise<UndoResult>((resolve) => {
+          this.pendingUndos.push({
+            opIds,
+            kind: req.kind,
+            step,
+            emittedOps: req.emittedOps,
+            sent: true,
+            epoch: this.historyEpoch,
+            resolve,
+          });
+        }),
+      );
+    }
+    if (waits.length) {
+      const tail = Promise.all(waits).then(() => undefined);
+      this.historyQueue = tail;
+      void tail.then(() => {
+        if (this.historyQueue === tail) this.historyQueue = null;
+      });
+    }
   }
 
   /** Connects to the server over `transport` (or the one passed to `open`), catches up, and flushes pending ops. */
@@ -284,7 +365,10 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     if (!this.transport) throw new Error('No transport configured for SyncDocument');
     this._lastError = null;
     this.inFlightOpIds.clear();
-    this.setConnection(this.cursor ? 'reconnecting' : 'connecting');
+    // A revoked (or too old) client stays in that state until the server welcomes it again.
+    if (this._connection !== 'revoked' && this._connection !== 'update_required') {
+      this.setConnection(this.cursor ? 'reconnecting' : 'connecting');
+    }
     await this.transport.connect({
       streamId: this.streamId,
       cursor: this.cursor,
@@ -294,8 +378,8 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
 
   /** Disconnects the transport. Queued pending operations stay persisted for the next reconnect. */
   async disconnect(): Promise<void> {
-    this.inFlightOpIds.clear();
     this.failInFlightUndos('offline');
+    this.inFlightOpIds.clear();
     if (this.transport) await this.transport.disconnect();
     if (this._connection !== 'revoked' && this._connection !== 'update_required') {
       this.setConnection('disconnected');
@@ -307,6 +391,16 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     if (this.destroyed || this._connection !== 'connected' || !this.transport) return;
     for (const unit of groupPendingUnits(this.pending)) {
       if (unit.some((o) => this.inFlightOpIds.has(o.opId))) continue;
+      const history = this.pendingUndos.find((d) => d.opIds.has(unit[0]!.opId));
+      if (history) {
+        // A multi-chunk undo goes one chunk at a time, so a refused chunk leaves later ones unsent.
+        const at = history.emittedOps.findIndex((o) => o.opId === unit[0]!.opId);
+        if (history.emittedOps.slice(0, at).some((o) => !this.confirmedOpIds.has(o.opId))) break;
+        if (!history.sent) {
+          history.sent = true;
+          this.schedulePersist();
+        }
+      }
       for (const op of unit) this.inFlightOpIds.add(op.opId);
       await this.transport.send(unit);
       // Stop if sending caused disconnect/revocation synchronously.
@@ -314,7 +408,10 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     }
   }
 
-  /** Waits until all queued local persistence writes have finished. */
+  /**
+   * Waits until all queued local persistence writes have finished. Rejects if the latest write
+   * failed; a failed write never stops later ones, so this resolves again once a save succeeds.
+   */
   whenPersisted(): Promise<void> {
     return this.persistChain;
   }
@@ -348,15 +445,12 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
    * or releases). Releases require an active connection and are never queued offline.
    */
   submitOps(ops: readonly Operation[], label?: string): boolean {
-    if (this._readOnly || !ops.length) return false;
+    if (this.readOnly || !ops.length) return false;
     if (ops.some((o) => o.type === 'release.create') && this._connection !== 'connected') {
       return false;
     }
     const stamped = this.stampBatch(ops);
-    const ctx = this.optimisticContext();
-    const res = stamped.length === 1 && stamped[0]!.batchId === undefined
-      ? applyOp(this.view, stamped[0]!, ctx)
-      : applyBatch(this.view, stamped, ctx);
+    const res = applyUnits(this.view, stamped, this.optimisticContext());
     if (!res.ok) {
       this.pushInbox({
         id: stamped[0]!.batchId ?? stamped[0]!.opId,
@@ -382,7 +476,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
   // ---- MarkupDocument core ----------------------------------------------------------------
 
   get readOnly(): boolean {
-    return this._readOnly || this._connection === 'revoked';
+    return this._readOnly || this.revoked;
   }
 
   get editCount(): number {
@@ -544,7 +638,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
             payload: {},
             clientTime: now,
           });
-          draft.checks.push({
+          this.recordGroupCheck(draft, {
             kind: 'placement',
             entityId: placement.id,
             group: 'deleted',
@@ -565,7 +659,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
           payload: {},
           clientTime: now,
         });
-        draft.checks.push({
+        this.recordGroupCheck(draft, {
           kind: 'markup',
           entityId: id,
           group: 'deleted',
@@ -681,11 +775,34 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
   }
 
   async undo(): Promise<UndoResult> {
-    return this.executeHistoryStep('undo');
+    return this.runHistory('undo');
   }
 
   async redo(): Promise<UndoResult> {
-    return this.executeHistoryStep('redo');
+    return this.runHistory('redo');
+  }
+
+  /**
+   * Runs undo/redo requests one after another: a second request starts only once the first is
+   * confirmed or refused, so it sees the stacks the first one left behind.
+   */
+  private runHistory(kind: 'undo' | 'redo'): Promise<UndoResult> {
+    // A request still waiting on the server cannot finish while offline; don't queue behind it.
+    if (this.pendingUndos.length && this._connection !== 'connected') {
+      return Promise.resolve(this.readOnly ? { ok: false, reason: 'forbidden' } : { ok: false, reason: 'offline' });
+    }
+    // Start at once when idle, so the request sees exactly the edits made before the call.
+    const prev = this.historyQueue;
+    const run = prev ? prev.then(() => this.executeHistoryStep(kind)) : this.executeHistoryStep(kind);
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.historyQueue = tail;
+    void tail.then(() => {
+      if (this.historyQueue === tail) this.historyQueue = null;
+    });
+    return run;
   }
 
   undoHistory(): { label: string; at: number }[] {
@@ -702,14 +819,16 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
 
   async destroy(): Promise<void> {
     this.destroyed = true;
-    this.failInFlightUndos('offline');
     if (this.unsubTransportMessage) this.unsubTransportMessage();
     if (this.unsubTransportState) this.unsubTransportState();
     this.unsubTransportMessage = null;
     this.unsubTransportState = null;
     this.listeners.clear();
     this.syncListeners.clear();
+    // Let a queued save finish first: it records sent undo requests so they complete after reopening.
     await this.persistChain.catch(() => undefined);
+    for (const d of this.pendingUndos.splice(0, this.pendingUndos.length)) d.resolve({ ok: false, reason: 'offline' });
+    this.undoTrackedOpIds.clear();
     await this.persistence?.close?.();
   }
 
@@ -875,12 +994,13 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     if (this.readOnly) return false;
     const entry = this.inbox.find((e) => e.id === id);
     if (!entry) return false;
-    const fresh = buildRetryOps(entry.ops, this.confirmed, this.view, this.newId, this.clock());
-    if (!fresh) return false;
-    const ctx = this.optimisticContext();
-    const res = fresh.length === 1 && fresh[0]!.batchId === undefined
-      ? applyOp(this.view, fresh[0]!, ctx)
-      : applyBatch(this.view, fresh, ctx);
+    const rebuilt = buildRetryOps(entry.ops, this.confirmed, this.view, this.newId, this.clock());
+    if (!rebuilt) return false;
+    // Re-chunk so an entry gathered from several batches still fits the batch size limit.
+    const fresh = this.stampBatch(
+      rebuilt.map(({ batchId: _batchId, batchSize: _batchSize, ...op }) => op as Operation),
+    );
+    const res = applyUnits(this.view, fresh, this.optimisticContext());
     if (!res.ok) return false;
 
     this.inbox = this.inbox.filter((e) => e.id !== id);
@@ -1141,6 +1261,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
         },
       ];
       this.redoStack = [];
+      this.historyEpoch += 1;
     }
 
     // Re-apply cleanly so batchId/batchSize metadata matches `pending`.
@@ -1177,6 +1298,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
   // ---- Undo / Redo execution --------------------------------------------------------------
 
   private async executeHistoryStep(kind: 'undo' | 'redo'): Promise<UndoResult> {
+    if (this.destroyed) return { ok: false, reason: 'offline' };
     if (this.readOnly) return { ok: false, reason: 'forbidden' };
     const stack = kind === 'undo' ? this.undoStack : this.redoStack;
     const step = stack[stack.length - 1];
@@ -1218,11 +1340,8 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       return { ok: false, reason: 'changed' };
     }
 
-    // 5. Optimistically apply as one unit (all or nothing).
-    const ctx = this.optimisticContext();
-    const res = emitted.length === 1 && emitted[0]!.batchId === undefined
-      ? applyOp(this.view, emitted[0]!, ctx)
-      : applyBatch(this.view, emitted, ctx);
+    // 5. Optimistically apply every chunk; if any chunk fails locally, nothing is applied or sent.
+    const res = applyUnits(this.view, emitted, this.optimisticContext());
     if (!res.ok) {
       if (kind === 'undo') this.undoStack = this.undoStack.slice(0, -1);
       else this.redoStack = this.redoStack.slice(0, -1);
@@ -1241,22 +1360,39 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     this.notifyAll();
 
     return new Promise<UndoResult>((resolve) => {
-      const deferred: DeferredUndo = { opIds, kind, step, emittedOps: emitted, resolve };
+      const deferred: DeferredUndo = {
+        opIds,
+        kind,
+        step,
+        emittedOps: emitted,
+        sent: false,
+        epoch: this.historyEpoch,
+        resolve,
+      };
       this.pendingUndos.push(deferred);
       void this.flush();
     });
   }
 
   private allChecksMatch(checks: readonly UndoGroupCheck[]): boolean {
+    const recordOf = (check: UndoGroupCheck): VersionedRecord | undefined =>
+      check.kind === 'markup' ? own(this.view.markups, check.entityId) : own(this.view.placements, check.entityId);
+    // Records this same step deleted: their other group checks still apply (undo restores first).
+    const deletedByStep = new Set<string>();
     for (const check of checks) {
-      const record: VersionedRecord | undefined =
-        check.kind === 'markup'
-          ? own(this.view.markups, check.entityId)
-          : own(this.view.placements, check.entityId);
+      if (check.group !== 'deleted') continue;
+      const record = recordOf(check);
+      if (record?.deleted && versionOf(record, 'deleted').op === check.expectedOpId) {
+        deletedByStep.add(`${check.kind}:${check.entityId}`);
+      }
+    }
+
+    for (const check of checks) {
+      const record = recordOf(check);
       if (!record) return false;
 
       if (check.group === '*') {
-        if (record.deleted) return false;
+        // A deleted record passes only if the delete was this step's own (its op is then allowed).
         const allowed = new Set<string>([check.expectedOpId, ...(check.revertedOpIds ?? [])]);
         if (!allowed.has(record.createdBy)) return false;
         for (const ver of Object.values(record.versions)) {
@@ -1265,7 +1401,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       } else if (check.group === 'deleted') {
         if (versionOf(record, 'deleted').op !== check.expectedOpId) return false;
       } else {
-        if (record.deleted) return false;
+        if (record.deleted && !deletedByStep.has(`${check.kind}:${check.entityId}`)) return false;
         if (versionOf(record, check.group).op !== check.expectedOpId) return false;
       }
     }
@@ -1373,6 +1509,19 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
         const origCheck = deferred.step.checks.find(
           (c) => c.kind === fc.kind && c.entityId === fc.entityId && (c.group === fc.group || c.group === '*'),
         );
+        if (fc.created) {
+          // The record was created by the step this one reverses: keep the "nobody else edited it"
+          // check, now also allowing our own restore op.
+          reverseChecks.push({
+            kind: fc.kind,
+            entityId: fc.entityId,
+            group: '*',
+            expectedOpId: fc.created.expectedOpId,
+            preOpId: origCheck?.expectedOpId ?? null,
+            revertedOpIds: [...fc.created.revertedOpIds, emittedOpId],
+          });
+          continue;
+        }
         reverseChecks.push({
           kind: fc.kind,
           entityId: fc.entityId,
@@ -1389,16 +1538,23 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
         checks: reverseChecks,
         inverse: deferred.step.forward,
         forward: deferred.step.inverse,
-        forwardChecks: deferred.step.checks.map((c) => ({
-          kind: c.kind,
-          entityId: c.entityId,
-          group: c.group === '*' ? 'deleted' : c.group,
-        })),
+        forwardChecks: deferred.step.checks.map((c): ForwardCheck =>
+          c.group === '*'
+            ? {
+                kind: c.kind,
+                entityId: c.entityId,
+                group: 'deleted',
+                created: { expectedOpId: c.expectedOpId, revertedOpIds: [...(c.revertedOpIds ?? [])] },
+              }
+            : { kind: c.kind, entityId: c.entityId, group: c.group },
+        ),
         sourceOpIds: deferred.emittedOps.map((o) => o.opId),
       };
 
       if (deferred.kind === 'undo') {
-        this.redoStack = [...this.redoStack, reverseStep];
+        // A new edit made while this undo was in flight discards redo, as it would have if the
+        // undo had finished first.
+        if (deferred.epoch === this.historyEpoch) this.redoStack = [...this.redoStack, reverseStep];
       } else {
         this.undoStack = [...this.undoStack, reverseStep];
       }
@@ -1410,7 +1566,8 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       return;
     }
 
-    // Rejected by server.
+    // Rejected by the server, or stale on rebase. Take back whatever part of it already applied.
+    this.rollBackPartialHistory(deferred);
     const reason: 'changed' | 'forbidden' = rejection?.code === 'forbidden' ? 'forbidden' : 'changed';
     if (reason === 'changed') {
       if (deferred.kind === 'undo') {
@@ -1424,19 +1581,61 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     deferred.resolve({ ok: false, reason });
   }
 
+  /**
+   * For a refused undo/redo sent in several chunks: drops its chunks that were not committed, and
+   * if earlier chunks were committed, queues compensating ops (the step's `forward` ops for the
+   * groups those chunks touched) so the request as a whole has no effect.
+   */
+  private rollBackPartialHistory(deferred: DeferredUndo): void {
+    const before = this.pending.length;
+    this.pending = this.pending.filter((o) => !deferred.opIds.has(o.opId) || this.confirmedOpIds.has(o.opId));
+    const committed = deferred.emittedOps
+      .map((op, i) => ({ op, spec: deferred.step.inverse[i] }))
+      .filter((e) => this.confirmedOpIds.has(e.op.opId) && e.spec);
+
+    if (committed.length) {
+      const touched = new Set<string>();
+      for (const { spec } of committed) {
+        for (const g of spec!.groups) touched.add(`${opKind(spec!.type)}:${spec!.entityId}:${g}`);
+      }
+      const specs = deferred.step.forward.filter((s) =>
+        s.groups.some((g) => touched.has(`${opKind(s.type)}:${s.entityId}:${g}`)),
+      );
+      this.rebaseAndProject(true);
+      const ops = specs.length ? this.materializeUndoOps(specs) : null;
+      if (ops) {
+        const res = applyUnits(this.view, ops, this.optimisticContext());
+        if (res.ok) {
+          this.pending = [...this.pending, ...ops];
+          this.view = res.state;
+        }
+      }
+      if (!ops) this._lastError = 'Part of an undo was applied and could not be taken back';
+      this.refreshProjection();
+      void this.flush();
+    } else if (this.pending.length !== before) {
+      this.rebaseAndProject(true);
+    }
+  }
+
+  /**
+   * Called when the connection drops. Undo/redo requests that never left the client are cancelled
+   * (`offline`). Requests already sent may have been committed: their ops stay queued (resent with
+   * the same opIds) and the request completes when the server confirms or refuses them.
+   */
   private failInFlightUndos(reason: 'offline' | 'forbidden'): void {
-    const active = this.pendingUndos.splice(0, this.pendingUndos.length);
+    const active = this.pendingUndos.filter((d) => reason === 'forbidden' || !d.sent);
+    if (!active.length) return;
+    this.pendingUndos = this.pendingUndos.filter((d) => !active.includes(d));
     for (const d of active) {
       for (const id of d.opIds) this.undoTrackedOpIds.delete(id);
       // Drop unacknowledged undo ops so they don't silently execute later after reporting failure.
       this.pending = this.pending.filter((o) => !d.opIds.has(o.opId));
       d.resolve({ ok: false, reason });
     }
-    if (active.length) {
-      this.rebaseAndProject(false);
-      this.schedulePersist();
-      this.notifyAll();
-    }
+    this.rebaseAndProject(false);
+    this.schedulePersist();
+    this.notifyAll();
   }
 
   // ---- Incoming transport messages --------------------------------------------------------
@@ -1485,6 +1684,8 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
           for (const ev of msg.events) this.applyServerEvent(ev, false);
           this.rebaseAndProject(true);
         }
+        // Only a successful welcome lifts a revocation.
+        this.revoked = false;
         this.setConnection('connected');
         this.schedulePersist();
         this.notifyAll();
@@ -1570,7 +1771,10 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     this.cursor = msg.cursor;
     this.pending = this.pending.filter((o) => !opIdSet.has(o.opId));
 
-    const deferred = this.pendingUndos.find((d) => msg.opIds.some((id) => d.opIds.has(id)));
+    // A multi-chunk undo completes only once every one of its chunks is confirmed.
+    const deferred = this.pendingUndos.find(
+      (d) => msg.opIds.some((id) => d.opIds.has(id)) && [...d.opIds].every((id) => this.confirmedOpIds.has(id)),
+    );
     this.rebaseAndProject(true);
     if (deferred) {
       this.completeDeferredUndo(deferred, true);
@@ -1695,7 +1899,9 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     this.confirmedOpIds.clear();
     this.undoStack = [];
     this.redoStack = [];
+    this.clearSetup();
     this.refreshProjection();
+    this.revoked = true;
     this.setConnection('revoked');
     this.schedulePersist();
     this.notifyAll();
@@ -1718,13 +1924,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     if (out.rejected.length) {
       for (const id of out.rejectedOpIds) this.inFlightOpIds.delete(id);
 
-      // Fail any tracked undo whose op became stale during rebase.
-      for (const d of [...this.pendingUndos]) {
-        if ([...d.opIds].some((id) => out.rejectedOpIds.has(id))) {
-          this.completeDeferredUndo(d, false, { code: 'conflict', conflicts: [] });
-        }
-      }
-
+      // Undo/redo ops never go to the inbox: their request is reported as failed instead.
       if (collectRejectedToInbox) {
         for (const entry of out.rejected) {
           if (entry.ops.every((o) => this.undoTrackedOpIds.has(o.opId))) continue;
@@ -1733,6 +1933,15 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       }
 
       this.dropInvalidatedUndoSteps(out.rejectedOpIds);
+      this.refreshProjection();
+
+      // Fail any tracked undo whose op became stale during rebase.
+      for (const d of [...this.pendingUndos]) {
+        if ([...d.opIds].some((id) => out.rejectedOpIds.has(id))) {
+          this.completeDeferredUndo(d, false, { code: 'conflict', conflicts: [] });
+        }
+      }
+      return;
     }
 
     this.refreshProjection();
@@ -1788,11 +1997,22 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     }
   }
 
+  private clearSetup(): void {
+    this.scaleSnapshot = {};
+    this.viewportSnapshot = [];
+    this.sheetSnapshot = {};
+    this.columnSnapshot = DEFAULT_COLUMN_SET;
+    this.customColumnSet = false;
+  }
+
   private snapshotForPersist(): PersistedSyncState {
-    // Exclude in-flight undo ops that haven't been confirmed yet from persisted pending queue
-    // so a crash mid-undo leaves the undo stack cleanly retryable.
-    const persistPending = this.pending.filter((o) => !this.undoTrackedOpIds.has(o.opId));
-    return {
+    // Undo/redo ops that never left the client are not persisted, so a crash before sending leaves
+    // the step cleanly retryable. Sent ones are kept (with a marker) because the server may have
+    // committed them; they resend with the same opIds and complete the step on reconnect.
+    const sentHistory = this.pendingUndos.filter((d) => d.sent);
+    const keep = new Set(sentHistory.flatMap((d) => [...d.opIds]));
+    const persistPending = this.pending.filter((o) => !this.undoTrackedOpIds.has(o.opId) || keep.has(o.opId));
+    const state: PersistedSyncState = {
       formatVersion: 1,
       confirmed: structuredClone(this.confirmed),
       cursor: this.cursor,
@@ -1808,14 +2028,51 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
         columnSet: this.customColumnSet ? structuredClone(this.columnSnapshot) : null,
       },
     };
+    if (sentHistory.length) {
+      state.history = sentHistory.map((d) => ({
+        kind: d.kind,
+        stepId: d.step.id,
+        emittedOps: structuredClone(d.emittedOps),
+      }));
+    }
+    if (this.revoked) {
+      // Keep only the rejected inbox (the user's own unsynced work) and the revoked flag.
+      delete state.setup;
+      state.revoked = true;
+    }
+    return state;
   }
 
+  /**
+   * Queues a save of the latest state. Saves run one at a time and coalesce: a save queued while
+   * another runs snapshots the state when it starts. A failed save is reported in `lastError` and
+   * never stops later saves.
+   */
   private schedulePersist(): void {
-    if (!this.persistence || this.destroyed) return;
-    const snap = this.snapshotForPersist();
+    if (!this.persistence || this.destroyed || this.persistQueued) return;
+    this.persistQueued = true;
     const persistence = this.persistence;
     const key = this.key;
-    this.persistChain = this.persistChain.then(() => persistence.save(key, snap));
+    const link = this.persistChain
+      .catch(() => undefined)
+      .then(() => {
+        this.persistQueued = false;
+        return persistence.save(key, this.snapshotForPersist());
+      });
+    this.persistChain = link;
+    link.then(
+      () => {
+        if (this.persistError === null) return;
+        if (this._lastError === this.persistError) this._lastError = null;
+        this.persistError = null;
+        this.notifySync();
+      },
+      (err: unknown) => {
+        this.persistError = `Could not save local changes: ${err instanceof Error ? err.message : String(err)}`;
+        this._lastError = this.persistError;
+        this.notifySync();
+      },
+    );
   }
 
   private setConnection(next: ConnectionState): void {

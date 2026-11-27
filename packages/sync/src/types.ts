@@ -110,6 +110,18 @@ export interface UndoOpSpec {
   groups: string[];
 }
 
+/** A group touched by an undo step's `forward` ops; becomes a check on the step pushed after it runs. */
+export interface ForwardCheck {
+  kind: 'markup' | 'placement';
+  entityId: string;
+  group: string;
+  /**
+   * Set when the original step created the record (a `'*'` check). The reverse step then checks
+   * `'*'` again, so undoing a re-done add still refuses if anyone else edited the record.
+   */
+  created?: { expectedOpId: string; revertedOpIds: string[] };
+}
+
 /** One entry on the client's local undo or redo stack. Plain JSON so it persists across restarts. */
 export interface UndoStep {
   id: string;
@@ -122,7 +134,7 @@ export interface UndoStep {
   /** Operations emitted to redo this step after it is undone, in application order. */
   forward: UndoOpSpec[];
   /** Group keys touched by `forward`, used to build the matching redo step's checks. */
-  forwardChecks: Array<{ kind: 'markup' | 'placement'; entityId: string; group: string }>;
+  forwardChecks: ForwardCheck[];
   /** OpIds originally emitted by this step (used to drop the step if those ops are rejected). */
   sourceOpIds: string[];
 }
@@ -146,6 +158,20 @@ export interface PersistedSyncState {
   redoStack: UndoStep[];
   confirmedOpIds: string[];
   setup?: PersistedSetup;
+  /** True once the server revoked access: the document reopens read-only with no cached content. */
+  revoked?: boolean;
+  /**
+   * Undo/redo requests whose ops already left the client but are not confirmed yet. Their ops stay
+   * in `pending` (resent with the same opIds) and the step completes once the server confirms them.
+   */
+  history?: PersistedHistoryRequest[];
+}
+
+/** An undo/redo request that was sent but not yet confirmed, kept across disconnects and restarts. */
+export interface PersistedHistoryRequest {
+  kind: 'undo' | 'redo';
+  stepId: string;
+  emittedOps: Operation[];
 }
 
 /** One committed event (single op or atomic batch) delivered by the server in stream order. */
