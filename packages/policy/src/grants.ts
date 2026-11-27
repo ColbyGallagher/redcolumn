@@ -372,7 +372,7 @@ export function canDelegateGrant(
     (g) => g.action === 'members.manage' && g.memberScope === 'any' && levelIncludes(g, targetGrant, scopes),
   );
   if (manageAll) return true;
-  const canManage = actorGrants.some((g) => g.action === 'members.manage');
+  const canManage = actorGrants.some((g) => g.action === 'members.manage' && levelIncludes(g, targetGrant, scopes));
   if (!canManage) return false;
 
   return actorGrants.some((g) => {

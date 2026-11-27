@@ -411,6 +411,16 @@ test('delegation can never widen member scope, process levels, level or scope id
   ];
   assert.equal(canDelegateGrant(laneEditor, g({ action: 'comment.edit', scope: 'party' })), false);
   assert.equal(canDelegateGrant(laneEditor, g({ action: 'comment.edit', scope: 'own' })), true);
+
+  // A session-scoped manager holding a project-level grant cannot delegate outside that session.
+  const sessionManager: Grant[] = [
+    { subject: { kind: 'user', id: 'cora' }, level: 'session', scopeId: 's1', action: 'members.manage', memberScope: 'party' },
+    { subject: { kind: 'user', id: 'cora' }, level: 'project', action: 'comment.create' },
+  ];
+  assert.equal(canDelegateGrant(sessionManager, g({ level: 'project', action: 'comment.create' })), false);
+  assert.equal(canDelegateGrant(sessionManager, g({ level: 'review', scopeId: 'r1', action: 'comment.create' })), false);
+  assert.equal(canDelegateGrant(sessionManager, g({ level: 'session', scopeId: 's2', action: 'comment.create' })), false);
+  assert.equal(canDelegateGrant(sessionManager, g({ level: 'session', scopeId: 's1', action: 'comment.create' })), true);
 });
 
 test('a coordinator cannot make themselves a project admin', () => {
@@ -426,6 +436,78 @@ test('a coordinator cannot make themselves a project admin', () => {
   );
   assert.equal(res.ok, false);
   assert.equal(!res.ok && res.reason.code, 'forbidden');
+});
+
+test('a non-any manager cannot move a member across parties or join a group holding wider authority', () => {
+  const base = twoSidedProject();
+  const project: ProjectConfig = {
+    ...base,
+    groups: [
+      ...base.groups,
+      { id: 'admins', name: 'Project Admins' },
+      { id: 'larch_admins', name: 'Client Admins', partyId: 'larch' },
+    ],
+    grants: [
+      { subject: { kind: 'user', id: 'priya' }, level: 'project', action: 'members.manage', memberScope: 'party' },
+    ],
+    roles: [
+      ...(base.roles ?? []),
+      { subject: { kind: 'group', id: 'admins' }, role: 'project_admin', level: 'project' },
+      { subject: { kind: 'group', id: 'larch_admins' }, role: 'project_admin', level: 'project' },
+    ],
+  };
+  const process = twoSidedProcess();
+  const state = createPolicyState();
+
+  // Review coordinator cannot move themselves across parties/lanes from client to firm.
+  const crossParty: ProjectConfig = {
+    ...project,
+    members: project.members.map((m) => (m.userId === 'cora' ? { ...m, partyId: 'fenwick' } : m)),
+  };
+  const moveSelf = authorizeAction(
+    { type: 'members.manage', targetUserId: 'cora', nextProject: crossParty },
+    { actorUserId: 'cora', project, process, state },
+  );
+  assert.equal(!moveSelf.ok && moveSelf.reason.code, 'forbidden');
+
+  // Review manager cannot add themselves to a group holding project_admin (party-less or same-party).
+  const coraJoinsAdmins: ProjectConfig = {
+    ...project,
+    members: project.members.map((m) => (m.userId === 'cora' ? { ...m, groupIds: [...m.groupIds, 'admins'] } : m)),
+  };
+  const reviewEsc = authorizeAction(
+    { type: 'members.manage', targetUserId: 'cora', nextProject: coraJoinsAdmins },
+    { actorUserId: 'cora', project, process, state },
+  );
+  assert.equal(!reviewEsc.ok && reviewEsc.reason.code, 'forbidden');
+
+  const coraJoinsPartyAdmins: ProjectConfig = {
+    ...project,
+    members: project.members.map((m) => (m.userId === 'cora' ? { ...m, groupIds: [...m.groupIds, 'larch_admins'] } : m)),
+  };
+  const reviewPartyEsc = authorizeAction(
+    { type: 'members.manage', targetUserId: 'cora', nextProject: coraJoinsPartyAdmins },
+    { actorUserId: 'cora', project, process, state },
+  );
+  assert.equal(!reviewPartyEsc.ok && reviewPartyEsc.reason.code, 'forbidden');
+
+  // Party manager cannot add themselves to a group outside their party or holding project_admin.
+  const priyaJoinsAdmins: ProjectConfig = {
+    ...project,
+    members: project.members.map((m) => (m.userId === 'priya' ? { ...m, groupIds: [...m.groupIds, 'admins'] } : m)),
+  };
+  const partyEsc = authorizeAction(
+    { type: 'members.manage', targetUserId: 'priya', nextProject: priyaJoinsAdmins },
+    { actorUserId: 'priya', project, process, state },
+  );
+  assert.equal(!partyEsc.ok && partyEsc.reason.code, 'forbidden');
+
+  // A project admin (`members.manage: any`) may still assign the admin group.
+  const adminAssign = authorizeAction(
+    { type: 'members.manage', targetUserId: 'cora', nextProject: coraJoinsAdmins },
+    { actorUserId: 'owen', project, process, state },
+  );
+  assert.equal(adminAssign.ok, true);
 });
 
 // --- Party matrix with party-less members ---

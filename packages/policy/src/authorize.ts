@@ -880,10 +880,29 @@ function authorizeMembersManage(
 
   const hasAny = manageGrants.some((g) => g.memberScope === 'any');
   if (!hasAny) {
+    if (targetParties.size > 1) {
+      return forbidden('members.manage', 'Cannot move a member to another party');
+    }
+    if (
+      targetAfter &&
+      targetAfter.groupIds.some((gid) => {
+        const group = nextProject.groups.find((gr) => gr.id === gid);
+        return group?.partyId != null && group.partyId !== targetAfter.partyId;
+      })
+    ) {
+      return forbidden('members.manage', 'Cannot assign a member to a group belonging to another party');
+    }
+    const partyGroupsOk =
+      !targetAfter ||
+      targetAfter.groupIds.every((gid) => {
+        const group = nextProject.groups.find((gr) => gr.id === gid);
+        return group !== undefined && group.partyId === member.partyId;
+      });
     const ownParty =
       manageGrants.some((g) => g.memberScope === 'party') &&
       member.partyId !== null &&
-      [...targetParties].every((p) => p === member.partyId);
+      [...targetParties].every((p) => p === member.partyId) &&
+      partyGroupsOk;
     // `review` scope: people taking part in this review (a member of one of its lanes, before or after).
     const inReview =
       manageGrants.some((g) => g.memberScope === 'review') &&
@@ -893,17 +912,26 @@ function authorizeMembersManage(
     }
   }
 
-  // Every grant the target gains (directly or through a role) must be one the actor may delegate.
+  // Every grant the target gains (directly or through a group, party, lane or role) must be one the actor may delegate.
   const scopes: DelegationScopes = {
     parentReviewOf: (sessionId) =>
       ctx.process.kind === 'session' && ctx.process.id === sessionId ? ctx.process.parentReviewId : undefined,
   };
-  const targetGrants = (p: ProjectConfig): Grant[] => [
-    ...p.grants.filter((g) => isUserSubject(g.subject, targetUserId)),
-    ...(p.roles ?? []).filter((r) => isUserSubject(r.subject, targetUserId)).flatMap(expandRoleAssignment),
-  ];
-  const had = new Set(targetGrants(before).map((g) => JSON.stringify(g)));
-  const gained = targetGrants(nextProject).filter((g) => !had.has(JSON.stringify(g)));
+  const targetGrants = (p: ProjectConfig, target: ProjectMember | undefined): Grant[] => {
+    if (!target) return [];
+    const targetLanes = memberLaneIds(target, ctx.process);
+    const all: Grant[] = [
+      ...p.grants,
+      ...(p.roles ?? []).flatMap(expandRoleAssignment),
+      ...(ctx.process.grants ?? []),
+      ...(ctx.process.roles ?? []).flatMap(expandRoleAssignment),
+    ];
+    return all.filter((g) => matchesSubject(target, g.subject, targetLanes));
+  };
+  const had = new Set(
+    (targetBefore?.state === 'removed' ? [] : targetGrants(before, targetBefore)).map((g) => JSON.stringify(g)),
+  );
+  const gained = targetGrants(nextProject, targetAfter).filter((g) => !had.has(JSON.stringify(g)));
   if (action.grantToDelegate) gained.push(action.grantToDelegate);
   if (gained.some((g) => !canDelegateGrant(grants, g, scopes))) {
     return forbidden('members.manage', 'Cannot delegate a grant wider than actor’s own authority');
