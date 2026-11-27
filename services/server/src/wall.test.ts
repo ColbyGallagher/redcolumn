@@ -15,7 +15,7 @@ import { createDb, type DbHandle } from './db.ts';
 import { createLogger } from './logger.ts';
 import { runMigrations } from './migrate.ts';
 import { InMemoryNotificationSink } from './notifications.ts';
-import type { SeedProjectFixture } from './reviewStore.ts';
+import { ReviewStore, type SeedProjectFixture } from './reviewStore.ts';
 import { RLS_TABLES } from './schema.ts';
 
 // Architecture checks (no database required) + hostile-client wall proof against Postgres 17.
@@ -201,6 +201,7 @@ describe('three-lane wall proof with hostile client and canary scan (Postgres 17
   const CANARY_INTERNAL_RESP = 'CANARY_INTERNAL_NOTE_R6T5';
   const CANARY_HELD_AT_CERTIFIER = 'CANARY_HELD_ISSUE_H1J7';
   const CANARY_SUBA_PRIVATE = 'CANARY_SUBA_PRIVATE_S4D2';
+  const CANARY_IDENTICAL_BYTES_FILENAME = 'CANARY_PRIVATE_CLAIM_P9M2.pdf';
 
   const PROJECT_ID = 'prj-wall-1';
   const SCOPE_ID = 'rev-wall-1';
@@ -341,6 +342,12 @@ describe('three-lane wall proof with hostile client and canary scan (Postgres 17
           transitions: '*',
         },
         {
+          subject: { kind: 'user', id: certifierChecker.id },
+          role: 'reviewer',
+          level: 'review',
+          scopeId: SCOPE_ID,
+        },
+        {
           subject: { kind: 'user', id: partnerLead.id },
           role: 'responder',
           level: 'review',
@@ -386,6 +393,14 @@ describe('three-lane wall proof with hostile client and canary scan (Postgres 17
           scopeId: SCOPE_ID,
           action: 'check.review' as const,
           scope: 'lane' as const,
+        },
+        // Give subA own-scoped comment.edit so subA can perform same-lane releases on its own items.
+        {
+          subject: { kind: 'user' as const, id: subA.id },
+          level: 'review' as const,
+          scopeId: SCOPE_ID,
+          action: 'comment.edit' as const,
+          scope: 'own' as const,
         },
       ],
     };
@@ -710,6 +725,18 @@ describe('three-lane wall proof with hostile client and canary scan (Postgres 17
       assert.equal(sharedAssetRes.status, 201);
       sharedAssetSha256 = (sharedAssetRes.json as { sha256: string }).sha256;
 
+      // Cross-lane identical-byte upload: client attaches the EXACT same bytes to a private draft
+      // under a confidential filename. Partner must still see only 'drainage-detail.pdf'.
+      const duplicateBytesRes = await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${SCOPE_ID}/assets`, {
+        itemKind: 'issue',
+        itemId: HIDDEN_DRAFT_ISSUE_ID,
+        filename: CANARY_IDENTICAL_BYTES_FILENAME,
+        mediaType: 'application/pdf',
+        contentBase64: Buffer.from('shared-drainage-pdf-bytes', 'utf8').toString('base64'),
+      });
+      assert.equal(duplicateBytesRes.status, 201);
+      assert.equal((duplicateBytesRes.json as { sha256: string }).sha256, sharedAssetSha256);
+
       // 4. Subconsultant A creates an internal response on iss-shared-1; subconsultant B must NOT see it.
       const subARespOp: Operation = {
         opId: 'op-suba-resp-1',
@@ -754,9 +781,10 @@ describe('three-lane wall proof with hostile client and canary scan (Postgres 17
       assert.equal(partnerIss1.record.title, 'Certifier approved wording for bearing pad');
       assert.equal(partnerIss1.record.owner.userId, clientAuthor.id);
 
-      // Partner can read the shared asset on iss-cert-3
+      // Partner can read the shared asset on iss-cert-3 and sees only the released lane's filename
       const sharedAssetGet = await rawHttp(baseUrl, partnerLeadCookie, 'GET', `/api/projects/${PROJECT_ID}/assets/${sharedAssetSha256}`);
       assert.equal(sharedAssetGet.status, 200);
+      assert.equal((sharedAssetGet.json as { filename: string }).filename, 'drainage-detail.pdf');
       partnerCapturedBytes.push(sharedAssetGet.text);
 
       // Partner WS received ONLY released events (no draft events, no raw seq)
@@ -1016,9 +1044,58 @@ describe('three-lane wall proof with hostile client and canary scan (Postgres 17
       partnerCapturedBytes.push(JSON.stringify(wsCursorErr));
       assert.equal(wsCursorErr.type, 'error');
       assert.equal(wsCursorErr.code, 'invalid_cursor');
+
+      // WS batch targeting a review stream must NOT bypass policy/RLS or touch hidden drafts
+      hostileWs.send(
+        JSON.stringify({
+          type: 'batch',
+          ops: [
+            {
+              opId: 'ws-batch-hostile-del',
+              schemaVersion: PROTOCOL_VERSION,
+              streamId: DOC_STREAM,
+              type: 'markup.delete',
+              entityId: HIDDEN_DRAFT_MARKUP_ID,
+              payload: {},
+            },
+          ],
+        }),
+      );
+      const wsBatchAck = await nextJsonMessage(hostileWs);
+      partnerCapturedBytes.push(JSON.stringify(wsBatchAck));
+      assert.equal(wsBatchAck.type, 'batch_ack');
+      assert.equal((wsBatchAck.result as { ok: boolean }).ok, false);
     } finally {
       hostileWs.close();
     }
+
+    // Confirm hidden draft markup was completely untouched by the hostile WS batch frame
+    const hiddenMkCheck = await rawHttp(
+      baseUrl,
+      clientAuthorCookie,
+      'GET',
+      `/api/scopes/${SCOPE_ID}/items/markup/${HIDDEN_DRAFT_MARKUP_ID}`,
+    );
+    assert.equal(hiddenMkCheck.status, 200);
+    assert.equal((hiddenMkCheck.json as { item: { record: { deleted: boolean } } }).item.record.deleted, false);
+
+    // Non-admin POST /api/projects/seed must return 403
+    const nonAdminSeed = await rawHttp(baseUrl, partnerLeadCookie, 'POST', '/api/projects/seed', {
+      process: { id: 'rev-unauthorized' },
+    });
+    partnerCapturedBytes.push(nonAdminSeed.text);
+    assert.equal(nonAdminSeed.status, 403);
+
+    // GET /api/scopes/:scopeId/search?q=<canary> must return empty AND strip query string from info logs
+    const getQuerySearch = await rawHttp(
+      baseUrl,
+      partnerLeadCookie,
+      'GET',
+      `/api/scopes/${SCOPE_ID}/search?q=${encodeURIComponent(CANARY_CLIENT_DRAFT)}`,
+    );
+    partnerCapturedBytes.push(getQuerySearch.text);
+    assert.equal(getQuerySearch.status, 200);
+    assert.deepEqual(getQuerySearch.json, { results: [] });
 
     // 6. Search queries (POST body so query terms don't touch URL) & count queries targeting canaries
     for (const canary of [
@@ -1087,6 +1164,7 @@ describe('three-lane wall proof with hostile client and canary scan (Postgres 17
       CANARY_DRAFT_MARKUP,
       CANARY_UNRELEASED_AMEND,
       CANARY_ASSET_FILENAME,
+      CANARY_IDENTICAL_BYTES_FILENAME,
       CANARY_ASSET_BODY,
       CANARY_CERTIFIER_EDITOR_NAME,
       CANARY_CLIENT_CHECKER_NAME,
@@ -1117,6 +1195,7 @@ describe('three-lane wall proof with hostile client and canary scan (Postgres 17
       CANARY_DRAFT_MARKUP,
       CANARY_UNRELEASED_AMEND,
       CANARY_ASSET_FILENAME,
+      CANARY_IDENTICAL_BYTES_FILENAME,
       CANARY_ASSET_BODY,
       CANARY_CERTIFIER_EDITOR_NAME,
       CANARY_CLIENT_CHECKER_NAME,
@@ -1126,5 +1205,293 @@ describe('three-lane wall proof with hostile client and canary scan (Postgres 17
     ]) {
       assert.equal(logCorpus.includes(canary), false, `canary "${canary}" leaked to info-level server logs`);
     }
+  });
+
+  it('resolves stream scopes from Postgres after restart and rejects prototype-polluting scope ids', async () => {
+    // Fresh ReviewStore instance (simulating server restart with empty in-memory streamToScope map)
+    const freshStore = new ReviewStore({
+      pool: dbHandle.pool,
+      readerRole: READER_ROLE,
+      cursorKey: deriveCursorKey('fictional-wall-proof-secret'),
+    });
+    assert.deepEqual(await freshStore.resolveStreamScope(DOC_STREAM), { projectId: PROJECT_ID, scopeId: SCOPE_ID });
+    assert.deepEqual(await freshStore.resolveStreamScope(PRJ_STREAM), { projectId: PROJECT_ID, scopeId: SCOPE_ID });
+    assert.equal(await freshStore.resolveStreamScope('unknown-stream-xyz'), null);
+
+    // Reserved/prototype-polluting scope ids must be rejected cleanly
+    for (const badId of ['__proto__', 'constructor', 'prototype']) {
+      const seedBad = await rawHttp(baseUrl, adminCookie, 'POST', '/api/projects/seed', {
+        process: { id: badId },
+      });
+      assert.equal(seedBad.status, 400);
+      const actBad = await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${badId}/actions`, {
+        type: 'check.submit',
+        itemKind: 'issue',
+        itemId: SHARED_ISSUE_1_ID,
+      });
+      assert.equal(actBad.status, 404);
+    }
+  });
+
+  it('filters release notifications by party_visibility and restricted documentSets, and enforces action/asset rules', async () => {
+    const CANARY_DOCSET_SECRET = 'CANARY_DOCSET_EXCLUDED_Q4W9';
+
+    // 1. Separated-lane same-lane release by Subconsultant A must NOT notify Subconsultant B
+    const subBCountBefore = notifications.forUser(subB.id).length;
+    const partnerLeadCountBefore = notifications.forUser(partnerLead.id).length;
+
+    const relSubAResp: Operation = {
+      opId: 'op-rel-suba-same-lane',
+      schemaVersion: PROTOCOL_VERSION,
+      streamId: PRJ_STREAM,
+      type: 'release.create',
+      entityId: 'rel-suba-same-lane',
+      payload: {
+        gateId: null,
+        toLaneIds: ['partner'],
+        items: [{ kind: 'response', id: SUBA_RESP_ID, rev: 1 }],
+      },
+    };
+    const sameLaneRes = await rawHttp(baseUrl, subACookie, 'POST', `/api/scopes/${SCOPE_ID}/ops`, relSubAResp);
+    assert.equal(sameLaneRes.status, 200, sameLaneRes.text);
+    assert.equal(
+      notifications.forUser(subB.id).length,
+      subBCountBefore,
+      'Subconsultant B must receive zero notifications for Subconsultant A same-lane release',
+    );
+    assert.ok(
+      notifications.forUser(partnerLead.id).length > partnerLeadCountBefore,
+      'Partner lead must receive notification for visible same-lane release',
+    );
+
+    // 2. Restricted documentSet: member in receiving lane excluded by documentSet receives zero notifications
+    const dsProjectId = 'prj-docset-wall-2';
+    const dsScopeId = 'rev-docset-wall-2';
+    const dsDocStream = 'doc-docset-wall-2';
+    const dsPrjStream = 'prj-docset-wall-2';
+    const readOnlyUser = await createLocalUser(dbHandle.db, {
+      email: 'readonly-client@wall.test',
+      name: 'Taylor Viewer',
+      password: 'fictional-password-8',
+    });
+    const readOnlyCookie = await login(baseUrl, readOnlyUser.email, 'fictional-password-8');
+
+    const rawDsProc = presets.twoSided({
+      id: dsScopeId,
+      clientMembers: [{ kind: 'party', id: 'ds-party-client' }],
+      firmMembers: [{ kind: 'party', id: 'ds-party-partner' }],
+      clientDraftVisibility: 'lane',
+      roles: [
+        {
+          subject: { kind: 'user', id: clientAuthor.id },
+          role: 'review_coordinator',
+          level: 'review',
+          scopeId: dsScopeId,
+          gateIds: ['ds-client-to-firm'],
+        },
+        {
+          subject: { kind: 'user', id: clientAuthor.id },
+          role: 'reviewer',
+          level: 'review',
+          scopeId: dsScopeId,
+        },
+        {
+          subject: { kind: 'user', id: readOnlyUser.id },
+          role: 'viewer',
+          level: 'review',
+          scopeId: dsScopeId,
+        },
+        {
+          subject: { kind: 'user', id: partnerLead.id },
+          role: 'responder',
+          level: 'review',
+          scopeId: dsScopeId,
+        },
+        {
+          subject: { kind: 'user', id: subB.id },
+          role: 'responder',
+          level: 'review',
+          scopeId: dsScopeId,
+        },
+      ],
+    });
+    const dsProc = {
+      ...rawDsProc,
+      lanes: rawDsProc.lanes.map((l) => ({ ...l, id: `ds-${l.id}` })),
+      gates: rawDsProc.gates.map((g) => ({
+        ...g,
+        id: `ds-${g.id}`,
+        fromLaneId: `ds-${g.fromLaneId}`,
+        toLaneIds: g.toLaneIds.map((t) => `ds-${t}`),
+      })),
+    };
+
+    const dsFixture: SeedProjectFixture = {
+      workspace: { id: 'ws-wall-1', name: 'Fictional Workspace' },
+      project: {
+        id: dsProjectId,
+        name: 'Fictional Restricted Set Project',
+        parties: [
+          { id: 'ds-party-client', name: 'Northwind Client', contractRole: 'client' },
+          { id: 'ds-party-partner', name: 'Apex Delivery', contractRole: 'lead_consultant' },
+        ],
+        groups: [],
+        members: [
+          { userId: clientAuthor.id, name: 'Pat Client', partyId: 'ds-party-client', groupIds: [], state: 'active' },
+          { userId: readOnlyUser.id, name: 'Taylor Viewer', partyId: 'ds-party-client', groupIds: [], state: 'active' },
+          { userId: partnerLead.id, name: 'Sam Partner', partyId: 'ds-party-partner', groupIds: [], state: 'active' },
+          { userId: subB.id, name: 'Jordan SubB', partyId: 'ds-party-partner', groupIds: [], state: 'active' },
+        ],
+        documentSets: [
+          {
+            id: 'docset-restricted-1',
+            name: 'Restricted Package',
+            // Explicitly includes clientAuthor, readOnlyUser, and partnerLead — excludes subB!
+            members: [
+              { kind: 'user', id: clientAuthor.id },
+              { kind: 'user', id: readOnlyUser.id },
+              { kind: 'user', id: partnerLead.id },
+            ],
+          },
+        ],
+        statuses: DEFAULT_STATUSES,
+        statusTransitions: DEFAULT_STATUS_TRANSITIONS,
+        defaultClosing: { allowedClosers: [{ kind: 'lane', id: 'ds-client' }] },
+        grants: [],
+      },
+      process: {
+        ...dsProc,
+        name: 'Restricted DocSet Review',
+        documentSetId: 'docset-restricted-1',
+        defaultDraftVisibility: 'lane',
+      },
+      documents: [],
+      documentStreamId: dsDocStream,
+      projectStreamId: dsPrjStream,
+    };
+
+    const seedDs = await rawHttp(baseUrl, adminCookie, 'POST', '/api/projects/seed', dsFixture);
+    assert.equal(seedDs.status, 201, seedDs.text);
+
+    const dsIssueId = 'iss-docset-1';
+    assert.equal(
+      (await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${dsScopeId}/ops`, {
+        opId: 'op-ds-iss-1',
+        schemaVersion: PROTOCOL_VERSION,
+        streamId: dsPrjStream,
+        type: 'issue.create',
+        entityId: dsIssueId,
+        payload: { scopeId: dsScopeId, title: CANARY_DOCSET_SECRET, status: 'open' },
+      })).status,
+      200,
+    );
+
+    const subBNotifsBeforeDs = notifications.forUser(subB.id).length;
+    const partnerNotifsBeforeDs = notifications.forUser(partnerLead.id).length;
+    assert.equal(
+      (await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${dsScopeId}/ops`, {
+        opId: 'op-ds-rel-1',
+        schemaVersion: PROTOCOL_VERSION,
+        streamId: dsPrjStream,
+        type: 'release.create',
+        entityId: 'rel-ds-1',
+        payload: {
+          gateId: 'ds-client-to-firm',
+          toLaneIds: ['ds-firm'],
+          items: [{ kind: 'issue', id: dsIssueId, rev: 1 }],
+        },
+      })).status,
+      200,
+    );
+
+    assert.equal(
+      notifications.forUser(subB.id).length,
+      subBNotifsBeforeDs,
+      'member excluded by restricted documentSet must receive zero release notifications',
+    );
+    assert.equal(
+      JSON.stringify(notifications.forUser(subB.id)).includes(CANARY_DOCSET_SECRET),
+      false,
+    );
+    assert.ok(
+      notifications.forUser(partnerLead.id).length > partnerNotifsBeforeDs,
+      'member included in restricted documentSet must receive release notification',
+    );
+
+    // 3. Action validation, release.withdraw, and uploadAsset authorization/lock/size checks
+    // Malformed action body -> 400 (never 500)
+    const malformedAction = await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${dsScopeId}/actions`, {
+      type: 'check.submit',
+    });
+    assert.equal(malformedAction.status, 400);
+
+    const unsupportedAction = await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${dsScopeId}/actions`, {
+      type: 'takeoff.share',
+      itemKind: 'issue',
+      itemId: dsIssueId,
+    });
+    assert.equal(unsupportedAction.status, 400);
+
+    // Read-only member in same lane cannot upload asset -> 403
+    const readOnlyUpload = await rawHttp(baseUrl, readOnlyCookie, 'POST', `/api/scopes/${dsScopeId}/assets`, {
+      itemKind: 'issue',
+      itemId: dsIssueId,
+      filename: 'unauthorized.pdf',
+      mediaType: 'application/pdf',
+      contentBase64: Buffer.from('small-payload', 'utf8').toString('base64'),
+    });
+    assert.equal(readOnlyUpload.status, 403);
+
+    // Oversized asset upload (> 512 KiB) -> 413 payload_too_large
+    const oversizedUpload = await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${dsScopeId}/assets`, {
+      itemKind: 'issue',
+      itemId: dsIssueId,
+      filename: 'huge.bin',
+      mediaType: 'application/octet-stream',
+      contentBase64: Buffer.alloc(600 * 1024, 0x41).toString('base64'),
+    });
+    assert.equal(oversizedUpload.status, 413);
+
+    // Lock item via record.lock -> uploading asset must fail with 409 locked
+    assert.equal(
+      (await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${dsScopeId}/actions`, {
+        type: 'record.lock',
+        itemKind: 'issue',
+        itemId: dsIssueId,
+        locked: true,
+      })).status,
+      200,
+    );
+    const lockedUpload = await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${dsScopeId}/assets`, {
+      itemKind: 'issue',
+      itemId: dsIssueId,
+      filename: 'after-lock.pdf',
+      mediaType: 'application/pdf',
+      contentBase64: Buffer.from('locked-payload', 'utf8').toString('base64'),
+    });
+    assert.equal(lockedUpload.status, 409);
+
+    // Unlock and withdraw the release -> releases.withdrawn_at is recorded in Postgres
+    assert.equal(
+      (await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${dsScopeId}/actions`, {
+        type: 'record.lock',
+        itemKind: 'issue',
+        itemId: dsIssueId,
+        locked: false,
+      })).status,
+      200,
+    );
+    const withdrawRes = await rawHttp(baseUrl, clientAuthorCookie, 'POST', `/api/scopes/${dsScopeId}/actions`, {
+      type: 'release.withdraw',
+      itemKind: 'issue',
+      itemId: dsIssueId,
+      laneIds: ['ds-firm'],
+    });
+    assert.equal(withdrawRes.status, 200, withdrawRes.text);
+    const withdrawnRow = await dbHandle.pool.query<{ withdrawn_at: Date | null }>(
+      `SELECT withdrawn_at FROM releases WHERE scope_id = $1 AND item_id = $2 AND to_lane_id = 'ds-firm'`,
+      [dsScopeId, dsIssueId],
+    );
+    assert.ok(withdrawnRow.rows[0]?.withdrawn_at !== null, 'release.withdraw must set withdrawn_at in Postgres');
   });
 });

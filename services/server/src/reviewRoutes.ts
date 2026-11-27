@@ -1,6 +1,5 @@
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'node:http';
 import type { ItemKind } from '@nb/ops';
-import type { PolicyAction } from '@nb/policy';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import type { Logger } from 'pino';
@@ -44,6 +43,16 @@ export function registerReviewRoutes(options: RegisterReviewRoutesOptions): void
     if (!session.user.isAdmin) {
       return reply.code(403).send({ error: 'forbidden' });
     }
+    const scopeId = request.body?.process?.id;
+    if (
+      typeof scopeId !== 'string' ||
+      scopeId.length === 0 ||
+      scopeId === '__proto__' ||
+      scopeId === 'constructor' ||
+      scopeId === 'prototype'
+    ) {
+      return reply.code(400).send({ error: 'invalid_scope_id' });
+    }
     const result = await reviewStore.seedFixture(request.body);
     return reply.code(201).send(result);
   });
@@ -62,7 +71,7 @@ export function registerReviewRoutes(options: RegisterReviewRoutesOptions): void
     return reply.code(outcome.status).send(outcome.data);
   });
 
-  app.post<{ Params: { scopeId: string }; Body: PolicyAction & { note?: string } }>(
+  app.post<{ Params: { scopeId: string }; Body: unknown }>(
     '/api/scopes/:scopeId/actions',
     async (request, reply) => {
       const session = await requireSession(request, reply);

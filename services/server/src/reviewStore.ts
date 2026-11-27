@@ -47,6 +47,62 @@ import { createNotification, type NotificationSink } from './notifications.ts';
 
 const VALID_ROLE_RE = /^[a-z_][a-z0-9_]{0,62}$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
+const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const VALID_ITEM_KINDS = new Set<string>(['markup', 'placement', 'issue', 'response', 'statusEvent']);
+const DEFAULT_MAX_ASSET_BYTES = 512 * 1024;
+
+function isSafeKey(key: string): boolean {
+  return key.length > 0 && !RESERVED_KEYS.has(key);
+}
+
+function assetRefKey(projectId: string, sha256: string, itemKind: string, itemId: string, versionRev: number): string {
+  return `${projectId}\0${sha256}\0${itemKind}\0${itemId}\0${versionRev}`;
+}
+
+type SupportedPolicyAction =
+  | { type: 'check.submit'; itemKind: ItemKind; itemId: string }
+  | { type: 'check.approve'; itemKind: ItemKind; itemId: string }
+  | { type: 'check.return'; itemKind: ItemKind; itemId: string; gateId?: string; note?: string }
+  | { type: 'record.lock'; itemKind: ItemKind; itemId: string; locked: boolean }
+  | { type: 'release.withdraw'; itemKind: ItemKind; itemId: string; laneIds: readonly string[] };
+
+function parsePolicyAction(raw: unknown): SupportedPolicyAction | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const obj = raw as Record<string, unknown>;
+  const type = obj.type;
+  if (typeof type !== 'string') return null;
+
+  const itemKind = obj.itemKind;
+  const itemId = obj.itemId;
+  if (typeof itemKind !== 'string' || !VALID_ITEM_KINDS.has(itemKind)) return null;
+  if (typeof itemId !== 'string' || itemId.length === 0) return null;
+
+  if (type === 'check.submit' || type === 'check.approve') {
+    return { type, itemKind: itemKind as ItemKind, itemId };
+  }
+  if (type === 'check.return') {
+    if (obj.gateId !== undefined && typeof obj.gateId !== 'string') return null;
+    if (obj.note !== undefined && typeof obj.note !== 'string') return null;
+    return {
+      type,
+      itemKind: itemKind as ItemKind,
+      itemId,
+      ...(obj.gateId !== undefined ? { gateId: obj.gateId } : {}),
+      ...(obj.note !== undefined ? { note: obj.note } : {}),
+    };
+  }
+  if (type === 'record.lock') {
+    if (typeof obj.locked !== 'boolean') return null;
+    return { type, itemKind: itemKind as ItemKind, itemId, locked: obj.locked };
+  }
+  if (type === 'release.withdraw') {
+    if (!Array.isArray(obj.laneIds) || !obj.laneIds.every((l) => typeof l === 'string' && isSafeKey(l))) {
+      return null;
+    }
+    return { type, itemKind: itemKind as ItemKind, itemId, laneIds: obj.laneIds as string[] };
+  }
+  return null;
+}
 
 export interface SeedDocumentPage {
   id: string;
@@ -81,22 +137,20 @@ export interface SeedProjectFixture {
   projectStreamId: string;
 }
 
+interface StoredScopeEntry {
+  processConfig: ProcessConfig;
+  documentStreamId: string;
+  projectStreamId: string;
+  state: PolicyState;
+}
+
 interface StoredProjectSettings {
   projectConfig: ProjectConfig;
-  scopes: Record<
-    string,
-    {
-      processConfig: ProcessConfig;
-      documentStreamId: string;
-      projectStreamId: string;
-      state: PolicyState;
-    }
-  >;
+  scopes: Record<string, StoredScopeEntry>;
 }
 
 export interface StoredAssetBlob {
   bytes: Buffer;
-  filename: string;
   mediaType: string;
 }
 
@@ -106,6 +160,7 @@ export interface ReviewStoreOptions {
   cursorKey: Buffer;
   notifications?: NotificationSink;
   now?: () => number;
+  maxAssetBytes?: number;
 }
 
 export interface ReviewEvent {
@@ -244,7 +299,9 @@ export class ReviewStore {
   private readonly cursorKey: Buffer;
   private readonly notifications?: NotificationSink;
   private readonly now: () => number;
+  private readonly maxAssetBytes: number;
   private readonly blobs = new Map<string, StoredAssetBlob>();
+  private readonly assetRefFilenames = new Map<string, string>();
   private readonly streamToScope = new Map<string, { projectId: string; scopeId: string }>();
 
   constructor(options: ReviewStoreOptions) {
@@ -256,6 +313,7 @@ export class ReviewStore {
     this.cursorKey = options.cursorKey;
     this.notifications = options.notifications;
     this.now = options.now ?? (() => Date.now());
+    this.maxAssetBytes = options.maxAssetBytes ?? DEFAULT_MAX_ASSET_BYTES;
   }
 
   /**
@@ -279,8 +337,36 @@ export class ReviewStore {
     }
   }
 
-  resolveStreamScope(streamId: string): { projectId: string; scopeId: string } | null {
-    return this.streamToScope.get(streamId) ?? null;
+  async resolveStreamScope(streamId: string): Promise<{ projectId: string; scopeId: string | null } | null> {
+    const cached = this.streamToScope.get(streamId);
+    if (cached) return cached;
+
+    const res = await this.pool.query<{ project_id: string; settings_json: StoredProjectSettings | null }>(
+      `SELECT s.project_id, p.settings_json
+       FROM streams s
+       LEFT JOIN projects p ON p.id = s.project_id
+       WHERE s.id = $1 AND s.project_id IS NOT NULL
+       LIMIT 1`,
+      [streamId],
+    );
+    const row = res.rows[0];
+    if (!row) return null;
+
+    const rawScopes = row.settings_json?.scopes;
+    if (rawScopes && typeof rawScopes === 'object') {
+      for (const [scopeId, entry] of Object.entries(rawScopes)) {
+        if (!isSafeKey(scopeId) || !entry || typeof entry !== 'object') continue;
+        if (entry.documentStreamId === streamId || entry.projectStreamId === streamId) {
+          const resolved = { projectId: row.project_id, scopeId };
+          this.streamToScope.set(streamId, resolved);
+          return resolved;
+        }
+      }
+    }
+
+    // Stream belongs to a project even if no scope entry matched; callers must never fall back to
+    // unguarded OpPipeline/broadcaster paths for project streams.
+    return { projectId: row.project_id, scopeId: null };
   }
 
   /** Checks whether `userId` can see a specific event via Postgres RLS. */
@@ -301,6 +387,9 @@ export class ReviewStore {
   /** Seeds a project, scope, lanes, gates, parties, members, documents, and streams into Postgres. */
   async seedFixture(fixture: SeedProjectFixture): Promise<{ projectId: string; scopeId: string }> {
     const { workspace, project, process: proc, documents, documentStreamId, projectStreamId } = fixture;
+    if (!isSafeKey(proc.id)) {
+      throw new Error(`Invalid scope id: ${proc.id}`);
+    }
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -317,6 +406,31 @@ export class ReviewStore {
         nextIssueNumber: 1,
         presentUserIds: [],
       };
+      const scopesMap = new Map<string, StoredScopeEntry>();
+      scopesMap.set(proc.id, {
+        processConfig: {
+          id: proc.id,
+          kind: proc.kind,
+          parentReviewId: proc.parentReviewId,
+          documentSetId: proc.documentSetId,
+          lanes: proc.lanes,
+          gates: proc.gates,
+          defaultDraftVisibility: proc.defaultDraftVisibility,
+          autoReleaseOnCreate: proc.autoReleaseOnCreate,
+          numberingMode: proc.numberingMode,
+          tickClosesIssue: proc.tickClosesIssue,
+          allowAmendmentWhileOpen: proc.allowAmendmentWhileOpen,
+          closing: proc.closing,
+          issueClosingOverrides: proc.issueClosingOverrides,
+          sessionState: proc.sessionState,
+          activeStage: proc.activeStage,
+          grants: proc.grants,
+          roles: proc.roles,
+        },
+        documentStreamId,
+        projectStreamId,
+        state: initialState,
+      });
       const settings: StoredProjectSettings = {
         projectConfig: {
           id: project.id,
@@ -331,32 +445,7 @@ export class ReviewStore {
           roles: project.roles,
           documentDesigners: project.documentDesigners,
         },
-        scopes: {
-          [proc.id]: {
-            processConfig: {
-              id: proc.id,
-              kind: proc.kind,
-              parentReviewId: proc.parentReviewId,
-              documentSetId: proc.documentSetId,
-              lanes: proc.lanes,
-              gates: proc.gates,
-              defaultDraftVisibility: proc.defaultDraftVisibility,
-              autoReleaseOnCreate: proc.autoReleaseOnCreate,
-              numberingMode: proc.numberingMode,
-              tickClosesIssue: proc.tickClosesIssue,
-              allowAmendmentWhileOpen: proc.allowAmendmentWhileOpen,
-              closing: proc.closing,
-              issueClosingOverrides: proc.issueClosingOverrides,
-              sessionState: proc.sessionState,
-              activeStage: proc.activeStage,
-              grants: proc.grants,
-              roles: proc.roles,
-            },
-            documentStreamId,
-            projectStreamId,
-            state: initialState,
-          },
-        },
+        scopes: Object.fromEntries(scopesMap),
       };
 
       await client.query(
@@ -566,8 +655,10 @@ export class ReviewStore {
   ): Promise<{
     projectId: string;
     settings: StoredProjectSettings;
-    scopeEntry: StoredProjectSettings['scopes'][string];
+    scopesMap: Map<string, StoredScopeEntry>;
+    scopeEntry: StoredScopeEntry;
   } | null> {
+    if (!isSafeKey(scopeId)) return null;
     const scopeRow = await client.query<{ project_id: string }>(`SELECT project_id FROM scopes WHERE id = $1`, [scopeId]);
     const projectId = scopeRow.rows[0]?.project_id;
     if (!projectId) return null;
@@ -577,9 +668,51 @@ export class ReviewStore {
       [projectId],
     );
     const settings = projRow.rows[0]?.settings_json;
-    const scopeEntry = settings?.scopes?.[scopeId];
-    if (!settings || !scopeEntry) return null;
-    return { projectId, settings, scopeEntry };
+    if (!settings || !settings.scopes || typeof settings.scopes !== 'object') return null;
+
+    const scopesMap = new Map<string, StoredScopeEntry>();
+    for (const [key, value] of Object.entries(settings.scopes)) {
+      if (isSafeKey(key) && value && typeof value === 'object') {
+        scopesMap.set(key, value);
+      }
+    }
+    const scopeEntry = scopesMap.get(scopeId);
+    if (!scopeEntry) return null;
+    return { projectId, settings, scopesMap, scopeEntry };
+  }
+
+  private async saveScopeState(
+    client: pg.PoolClient,
+    projectId: string,
+    settings: StoredProjectSettings,
+    scopesMap: Map<string, StoredScopeEntry>,
+    scopeId: string,
+    scopeEntry: StoredScopeEntry,
+    state: PolicyState,
+  ): Promise<void> {
+    if (!isSafeKey(scopeId)) {
+      throw new Error(`Invalid scope id: ${scopeId}`);
+    }
+    const nextScopes = new Map(scopesMap);
+    nextScopes.set(scopeId, { ...scopeEntry, state });
+    const nextSettings: StoredProjectSettings = {
+      projectConfig: settings.projectConfig,
+      scopes: Object.fromEntries(nextScopes),
+    };
+    await client.query(`UPDATE projects SET settings_json = $2::jsonb WHERE id = $1`, [
+      projectId,
+      JSON.stringify(nextSettings),
+    ]);
+  }
+
+  private async syncCheckingStateToDb(client: pg.PoolClient, meta: ItemMeta): Promise<void> {
+    if (meta.kind === 'markup') {
+      await client.query(`UPDATE markups SET checking_state = $2, updated_at = $3 WHERE id = $1`, [
+        meta.id,
+        toDbCheckingState(meta.checkingState),
+        new Date(this.now()),
+      ]);
+    }
   }
 
   private async syncItemAudiences(client: pg.PoolClient, meta: ItemMeta): Promise<void> {
@@ -876,7 +1009,7 @@ export class ReviewStore {
         return { ok: false, status: 404, error: 'not_found', code: 'not_found' };
       }
 
-      const { projectId, settings, scopeEntry } = loaded;
+      const { projectId, settings, scopesMap, scopeEntry } = loaded;
       const project = settings.projectConfig;
       const proc = scopeEntry.processConfig;
       let state = scopeEntry.state;
@@ -975,16 +1108,17 @@ export class ReviewStore {
         }
         state = { ...state, ops: applied.state };
 
-        const releaseSummaries: string[] = [];
+        const releasedItems: { ref: ItemRef; meta: ItemMeta; summary: string | null }[] = [];
         for (const ref of releasedRefs) {
           const curMeta = metaOf(state, ref.kind, ref.id);
           if (!curMeta) continue;
-          const nextReleasesByLane: Record<string, ReleasedVersionRecord[]> = {};
+          const nextReleasesMap = new Map<string, ReleasedVersionRecord[]>();
           for (const [k, v] of Object.entries(curMeta.releasesByLane)) {
-            nextReleasesByLane[k] = [...v];
+            if (isSafeKey(k)) nextReleasesMap.set(k, [...v]);
           }
           for (const toLaneId of op.payload.toLaneIds) {
-            const list = nextReleasesByLane[toLaneId] ?? [];
+            if (!isSafeKey(toLaneId)) continue;
+            const list = nextReleasesMap.get(toLaneId) ?? [];
             list.push({
               releaseId: op.entityId,
               rev: ref.rev,
@@ -993,7 +1127,7 @@ export class ReviewStore {
               at: nowMs,
               by: actor,
             });
-            nextReleasesByLane[toLaneId] = list;
+            nextReleasesMap.set(toLaneId, list);
 
             await client.query(
               `INSERT INTO releases (
@@ -1042,18 +1176,22 @@ export class ReviewStore {
           const updatedMeta: ItemMeta = {
             ...curMeta,
             checkingState: 'released',
-            releasesByLane: nextReleasesByLane,
+            releasesByLane: Object.fromEntries(nextReleasesMap),
           };
           state = { ...state, meta: { ...state.meta, [`${ref.kind}:${ref.id}`]: updatedMeta } };
           await this.syncItemAudiences(client, updatedMeta);
+          await this.syncCheckingStateToDb(client, updatedMeta);
 
           const verMap = own(state.versions, `${ref.kind}:${ref.id}`);
           const snap = (verMap ? verMap[ref.rev] : undefined) ?? itemOf(state.ops, ref.kind, ref.id);
           const cleanSnap = sanitizeRecordForRead(ref.kind, snap);
+          let summary: string | null = null;
           if (ref.kind === 'issue') {
             const num = typeof cleanSnap.number === 'number' ? `#${cleanSnap.number}` : ref.id;
-            releaseSummaries.push(`${num}: ${String(cleanSnap.title ?? '')}`);
+            summary = `${num}: ${String(cleanSnap.title ?? '')}`;
           }
+          releasedItems.push({ ref, meta: updatedMeta, summary });
+
           const targetStream = ref.kind === 'markup' || ref.kind === 'placement'
             ? scopeEntry.documentStreamId
             : scopeEntry.projectStreamId;
@@ -1072,18 +1210,25 @@ export class ReviewStore {
           events.push(ev);
         }
 
-        // Queue notifications strictly for members of the receiving lane(s).
-        const recipientIds = project.members
-          .filter((m) => m.state === 'active' && memberLaneIds(m, proc).some((l) => op.payload.toLaneIds.includes(l)))
-          .map((m) => m.userId);
-        if (recipientIds.length > 0) {
+        // Queue notifications per recipient, filtered strictly through @nb/policy visibility
+        // (respecting restricted documentSets and separated-lane party_visibility).
+        for (const candidate of project.members) {
+          if (candidate.state !== 'active') continue;
+          if (!memberLaneIds(candidate, proc).some((l) => op.payload.toLaneIds.includes(l))) continue;
+          const visibleItems = releasedItems.filter(
+            (item) => visibleVersionForMember(candidate, item.meta, project, proc) !== null,
+          );
+          if (visibleItems.length === 0) continue;
+          const visibleSummaries = visibleItems
+            .map((item) => item.summary)
+            .filter((s): s is string => s !== null);
           pendingNotifications.push({
             kind: 'release',
             projectId,
             scopeId,
-            recipientUserIds: recipientIds,
-            subject: `Items released (${releasedRefs.length})`,
-            body: releaseSummaries.length > 0 ? releaseSummaries.join('\n') : `Released ${releasedRefs.length} item(s).`,
+            recipientUserIds: [candidate.userId],
+            subject: `Items released (${visibleItems.length})`,
+            body: visibleSummaries.length > 0 ? visibleSummaries.join('\n') : `Released ${visibleItems.length} item(s).`,
           });
         }
       } else {
@@ -1219,11 +1364,7 @@ export class ReviewStore {
         events.push(ev);
       }
 
-      scopeEntry.state = state;
-      await client.query(`UPDATE projects SET settings_json = $2::jsonb WHERE id = $1`, [
-        projectId,
-        JSON.stringify(settings),
-      ]);
+      await this.saveScopeState(client, projectId, settings, scopesMap, scopeId, scopeEntry, state);
 
       await client.query('COMMIT');
 
@@ -1267,12 +1408,168 @@ export class ReviewStore {
     }
   }
 
-  /** Submits a workflow action (`check.submit`, `check.approve`, `check.return`, `release.withdraw`, etc.). */
+  /** Submits a workflow action (`check.submit`, `check.approve`, `check.return`, `record.lock`, `release.withdraw`). */
   async submitAction(
     scopeId: string,
     userId: string,
-    action: PolicyAction & { note?: string },
+    rawAction: unknown,
   ): Promise<ReviewWriteResult> {
+    const action = parsePolicyAction(rawAction);
+    if (!action) {
+      return { ok: false, status: 400, error: 'invalid_action', code: 'invalid_action' };
+    }
+
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const loaded = await this.loadScopeForUpdate(client, scopeId);
+      if (!loaded) {
+        await client.query('ROLLBACK');
+        return { ok: false, status: 404, error: 'not_found', code: 'not_found' };
+      }
+      const { projectId, settings, scopesMap, scopeEntry } = loaded;
+      const project = settings.projectConfig;
+      const proc = scopeEntry.processConfig;
+      let state = scopeEntry.state;
+
+      const member = findActiveMember(project, userId);
+      if (!member) {
+        await client.query('ROLLBACK');
+        return { ok: false, status: 403, error: 'forbidden', code: 'not_member' };
+      }
+      const actorLaneId = memberLaneIds(member, proc)[0];
+      if (!actorLaneId) {
+        await client.query('ROLLBACK');
+        return { ok: false, status: 404, error: 'not_found', code: 'not_found' };
+      }
+      const actor: Actor = { userId: member.userId, partyId: member.partyId, groupId: member.groupIds[0] ?? null };
+
+      const policyCtx: PolicyContext = {
+        actorUserId: userId,
+        actorLaneId,
+        project,
+        process: proc,
+        state,
+      };
+      const decision = authorizeAction(action as PolicyAction, policyCtx);
+      if (!decision.ok) {
+        await client.query('ROLLBACK');
+        return { ok: false, ...mapPolicyDeny(decision.reason) };
+      }
+
+      if (action.type === 'check.submit') {
+        const meta = metaOf(state, action.itemKind, action.itemId)!;
+        const nextMeta: ItemMeta = { ...meta, checkingState: 'submitted', approvedRev: null };
+        state = { ...state, meta: { ...state.meta, [`${meta.kind}:${meta.id}`]: nextMeta } };
+        await this.syncItemAudiences(client, nextMeta);
+        await this.syncCheckingStateToDb(client, nextMeta);
+      } else if (action.type === 'check.approve') {
+        const meta = metaOf(state, action.itemKind, action.itemId)!;
+        const nextMeta: ItemMeta = { ...meta, checkingState: 'approved', approvedRev: meta.latestRev };
+        state = { ...state, meta: { ...state.meta, [`${meta.kind}:${meta.id}`]: nextMeta } };
+        await this.syncItemAudiences(client, nextMeta);
+        await this.syncCheckingStateToDb(client, nextMeta);
+        for (const linked of releaseBundle([{ kind: action.itemKind, id: action.itemId, rev: meta.latestRev }], policyCtx)) {
+          const lMeta = metaOf(state, linked.kind, linked.id);
+          if (lMeta) {
+            const nextLinked: ItemMeta = { ...lMeta, checkingState: 'approved', approvedRev: linked.rev };
+            state = {
+              ...state,
+              meta: {
+                ...state.meta,
+                [`${linked.kind}:${linked.id}`]: nextLinked,
+              },
+            };
+            await this.syncItemAudiences(client, nextLinked);
+            await this.syncCheckingStateToDb(client, nextLinked);
+          }
+        }
+      } else if (action.type === 'check.return') {
+        const meta = metaOf(state, action.itemKind, action.itemId)!;
+        const gateId = checkerGateFor(policyCtx, action.itemKind, action.itemId, 'return')?.id ?? null;
+        const nextMeta: ItemMeta = {
+          ...meta,
+          checkingState: 'returned',
+          approvedRev: null,
+          checkedByGateId: gateId,
+          checkingLaneId: actorLaneId,
+          returnNote: action.note ?? null,
+        };
+        state = { ...state, meta: { ...state.meta, [`${meta.kind}:${meta.id}`]: nextMeta } };
+        await this.syncItemAudiences(client, nextMeta);
+        await this.syncCheckingStateToDb(client, nextMeta);
+      } else if (action.type === 'record.lock') {
+        const meta = metaOf(state, action.itemKind, action.itemId)!;
+        const nextMeta: ItemMeta = { ...meta, locked: action.locked };
+        state = { ...state, meta: { ...state.meta, [`${meta.kind}:${meta.id}`]: nextMeta } };
+      } else if (action.type === 'release.withdraw') {
+        const meta = metaOf(state, action.itemKind, action.itemId)!;
+        const nowMs = this.now();
+        const nextReleasesMap = new Map<string, ReleasedVersionRecord[]>();
+        for (const [k, v] of Object.entries(meta.releasesByLane)) {
+          if (isSafeKey(k)) nextReleasesMap.set(k, [...v]);
+        }
+        for (const laneId of action.laneIds) {
+          if (!isSafeKey(laneId)) continue;
+          const list = nextReleasesMap.get(laneId) ?? [];
+          list.push({
+            releaseId: `withdraw_${randomUUID()}`,
+            rev: meta.latestRev,
+            fromLaneId: actorLaneId,
+            gateId: null,
+            at: nowMs,
+            by: actor,
+            withdrawn: true,
+          });
+          nextReleasesMap.set(laneId, list);
+        }
+        const withdrawnInLanes = [...new Set([...(meta.withdrawnInLanes ?? []), ...action.laneIds])];
+        const nextMeta: ItemMeta = {
+          ...meta,
+          checkingState: 'withdrawn',
+          releasesByLane: Object.fromEntries(nextReleasesMap),
+          withdrawnInLanes,
+        };
+        state = { ...state, meta: { ...state.meta, [`${meta.kind}:${meta.id}`]: nextMeta } };
+        await client.query(
+          `UPDATE releases
+           SET withdrawn_at = $1, withdrawn_by = $2
+           WHERE scope_id = $3 AND item_kind = $4 AND item_id = $5
+             AND to_lane_id = ANY($6::text[]) AND withdrawn_at IS NULL`,
+          [new Date(nowMs), actor.userId, scopeId, action.itemKind, action.itemId, [...action.laneIds]],
+        );
+        await this.syncItemAudiences(client, nextMeta);
+        await this.syncCheckingStateToDb(client, nextMeta);
+      }
+
+      await this.saveScopeState(client, projectId, settings, scopesMap, scopeId, scopeEntry, state);
+      await client.query('COMMIT');
+      return { ok: true, status: 200, data: { ok: true }, events: [] };
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Uploads an asset bound to a specific visible item version, enforcing policy edit/lock/stage rules and size limits. */
+  async uploadAsset(
+    scopeId: string,
+    userId: string,
+    input: { itemKind: ItemKind; itemId: string; filename: string; mediaType: string; contentBase64: string },
+  ): Promise<ReviewWriteResult> {
+    // Reject oversized payloads before decoding to prevent excessive memory allocation.
+    const estimatedBytes = Math.ceil((input.contentBase64.length * 3) / 4);
+    if (estimatedBytes > this.maxAssetBytes + 3) {
+      return { ok: false, status: 413, error: 'payload_too_large', code: 'payload_too_large' };
+    }
+    const bytes = Buffer.from(input.contentBase64, 'base64');
+    if (bytes.byteLength > this.maxAssetBytes) {
+      return { ok: false, status: 413, error: 'payload_too_large', code: 'payload_too_large' };
+    }
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
@@ -1284,8 +1581,6 @@ export class ReviewStore {
       const { projectId, settings, scopeEntry } = loaded;
       const project = settings.projectConfig;
       const proc = scopeEntry.processConfig;
-      let state = scopeEntry.state;
-
       const member = findActiveMember(project, userId);
       if (!member) {
         await client.query('ROLLBACK');
@@ -1302,101 +1597,67 @@ export class ReviewStore {
         actorLaneId,
         project,
         process: proc,
-        state,
+        state: scopeEntry.state,
       };
-      const decision = authorizeAction(action, policyCtx);
+
+      if (input.itemKind === 'statusEvent') {
+        const meta = metaOf(scopeEntry.state, input.itemKind, input.itemId);
+        if (!meta || !visibleVersionForMember(member, meta, project, proc)) {
+          await client.query('ROLLBACK');
+          return { ok: false, status: 404, error: 'not_found', code: 'not_found' };
+        }
+        await client.query('ROLLBACK');
+        return { ok: false, status: 403, error: 'forbidden', code: 'forbidden' };
+      }
+
+      const authOp: AnyOperation =
+        input.itemKind === 'issue'
+          ? {
+              opId: `asset-auth-${randomUUID()}`,
+              schemaVersion: PROTOCOL_VERSION,
+              streamId: scopeEntry.projectStreamId,
+              type: 'issue.patch',
+              entityId: input.itemId,
+              basedOn: {},
+              payload: {},
+            }
+          : input.itemKind === 'markup'
+            ? {
+                opId: `asset-auth-${randomUUID()}`,
+                schemaVersion: PROTOCOL_VERSION,
+                streamId: scopeEntry.documentStreamId,
+                type: 'markup.patch',
+                entityId: input.itemId,
+                basedOn: {},
+                payload: {},
+              }
+            : input.itemKind === 'placement'
+              ? {
+                  opId: `asset-auth-${randomUUID()}`,
+                  schemaVersion: PROTOCOL_VERSION,
+                  streamId: scopeEntry.documentStreamId,
+                  type: 'placement.patch',
+                  entityId: input.itemId,
+                  basedOn: {},
+                  payload: {},
+                }
+              : {
+                  opId: `asset-auth-${randomUUID()}`,
+                  schemaVersion: PROTOCOL_VERSION,
+                  streamId: scopeEntry.projectStreamId,
+                  type: 'response.patch',
+                  entityId: input.itemId,
+                  basedOn: {},
+                  payload: { body: '' },
+                };
+
+      const decision = authorizeOp(authOp, policyCtx);
       if (!decision.ok) {
         await client.query('ROLLBACK');
         return { ok: false, ...mapPolicyDeny(decision.reason) };
       }
 
-      if (action.type === 'check.submit') {
-        const meta = metaOf(state, action.itemKind, action.itemId)!;
-        const nextMeta: ItemMeta = { ...meta, checkingState: 'submitted', approvedRev: null };
-        state = { ...state, meta: { ...state.meta, [`${meta.kind}:${meta.id}`]: nextMeta } };
-        await this.syncItemAudiences(client, nextMeta);
-      } else if (action.type === 'check.approve') {
-        const meta = metaOf(state, action.itemKind, action.itemId)!;
-        const nextMeta: ItemMeta = { ...meta, checkingState: 'approved', approvedRev: meta.latestRev };
-        state = { ...state, meta: { ...state.meta, [`${meta.kind}:${meta.id}`]: nextMeta } };
-        for (const linked of releaseBundle([{ kind: action.itemKind, id: action.itemId, rev: meta.latestRev }], policyCtx)) {
-          const lMeta = metaOf(state, linked.kind, linked.id);
-          if (lMeta) {
-            state = {
-              ...state,
-              meta: {
-                ...state.meta,
-                [`${linked.kind}:${linked.id}`]: { ...lMeta, checkingState: 'approved', approvedRev: linked.rev },
-              },
-            };
-          }
-        }
-      } else if (action.type === 'check.return') {
-        const meta = metaOf(state, action.itemKind, action.itemId)!;
-        const gateId = checkerGateFor(policyCtx, action.itemKind, action.itemId, 'return')?.id ?? null;
-        const nextMeta: ItemMeta = {
-          ...meta,
-          checkingState: 'returned',
-          approvedRev: null,
-          checkedByGateId: gateId,
-          checkingLaneId: actorLaneId,
-          returnNote: action.note ?? null,
-        };
-        state = { ...state, meta: { ...state.meta, [`${meta.kind}:${meta.id}`]: nextMeta } };
-      } else if (action.type === 'record.lock') {
-        const meta = metaOf(state, action.itemKind, action.itemId)!;
-        const nextMeta: ItemMeta = { ...meta, locked: action.locked };
-        state = { ...state, meta: { ...state.meta, [`${meta.kind}:${meta.id}`]: nextMeta } };
-      }
-
-      scopeEntry.state = state;
-      await client.query(`UPDATE projects SET settings_json = $2::jsonb WHERE id = $1`, [
-        projectId,
-        JSON.stringify(settings),
-      ]);
-      await client.query('COMMIT');
-      return { ok: true, status: 200, data: { ok: true }, events: [] };
-    } catch (err) {
-      await client.query('ROLLBACK').catch(() => {});
-      throw err;
-    } finally {
-      client.release();
-    }
-  }
-
-  /** Uploads an asset bound to a specific visible item version. */
-  async uploadAsset(
-    scopeId: string,
-    userId: string,
-    input: { itemKind: ItemKind; itemId: string; filename: string; mediaType: string; contentBase64: string },
-  ): Promise<ReviewWriteResult> {
-    const bytes = Buffer.from(input.contentBase64, 'base64');
-    const sha256 = createHash('sha256').update(bytes).digest('hex');
-
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      const loaded = await this.loadScopeForUpdate(client, scopeId);
-      if (!loaded) {
-        await client.query('ROLLBACK');
-        return { ok: false, status: 404, error: 'not_found', code: 'not_found' };
-      }
-      const { projectId, settings, scopeEntry } = loaded;
-      const member = findActiveMember(settings.projectConfig, userId);
-      if (!member) {
-        await client.query('ROLLBACK');
-        return { ok: false, status: 403, error: 'forbidden', code: 'not_member' };
-      }
-      const meta = metaOf(scopeEntry.state, input.itemKind, input.itemId);
-      if (!meta || !visibleVersionForMember(member, meta, settings.projectConfig, scopeEntry.processConfig)) {
-        await client.query('ROLLBACK');
-        return { ok: false, status: 404, error: 'not_found', code: 'not_found' };
-      }
-      if (!memberLaneIds(member, scopeEntry.processConfig).includes(meta.originLaneId)) {
-        await client.query('ROLLBACK');
-        return { ok: false, status: 403, error: 'forbidden', code: 'forbidden' };
-      }
-
+      const meta = metaOf(scopeEntry.state, input.itemKind, input.itemId)!;
       const storageKey = `projects/${projectId}/${sha256}`;
       await client.query(
         `INSERT INTO assets (project_id, sha256, size_bytes, media_type, storage_key)
@@ -1410,7 +1671,13 @@ export class ReviewStore {
       );
 
       await client.query('COMMIT');
-      this.blobs.set(storageKey, { bytes, filename: input.filename, mediaType: input.mediaType });
+      if (!this.blobs.has(storageKey)) {
+        this.blobs.set(storageKey, { bytes, mediaType: input.mediaType });
+      }
+      this.assetRefFilenames.set(
+        assetRefKey(projectId, sha256, input.itemKind, input.itemId, meta.latestRev),
+        input.filename,
+      );
       return {
         ok: true,
         status: 201,
@@ -1582,8 +1849,20 @@ export class ReviewStore {
   ): Promise<{ sha256: string; sizeBytes: number; mediaType: string; filename: string; contentBase64: string } | null> {
     if (!SHA256_RE.test(sha256)) return null;
     const row = await this.withReader(userId, async (client) => {
-      const res = await client.query<{ storage_key: string; media_type: string; size_bytes: string }>(
-        `SELECT storage_key, media_type, size_bytes FROM assets WHERE project_id = $1 AND sha256 = $2 LIMIT 1`,
+      const res = await client.query<{
+        storage_key: string;
+        media_type: string;
+        size_bytes: string;
+        item_kind: string;
+        item_id: string;
+        version_rev: number;
+      }>(
+        `SELECT a.storage_key, a.media_type, a.size_bytes, r.item_kind, r.item_id, r.version_rev
+         FROM assets a
+         JOIN asset_refs r ON r.project_id = a.project_id AND r.sha256 = a.sha256
+         WHERE a.project_id = $1 AND a.sha256 = $2
+         ORDER BY r.version_rev DESC, r.item_kind ASC, r.item_id ASC
+         LIMIT 1`,
         [projectId, sha256],
       );
       return res.rows[0] ?? null;
@@ -1591,11 +1870,14 @@ export class ReviewStore {
     if (!row) return null;
     const blob = this.blobs.get(row.storage_key);
     if (!blob) return null;
+    const filename =
+      this.assetRefFilenames.get(assetRefKey(projectId, sha256, row.item_kind, row.item_id, row.version_rev)) ??
+      sha256;
     return {
       sha256,
       sizeBytes: Number(row.size_bytes),
       mediaType: row.media_type,
-      filename: blob.filename,
+      filename,
       contentBase64: blob.bytes.toString('base64'),
     };
   }
@@ -1686,14 +1968,14 @@ export class ReviewStore {
       }
 
       const assetRes = await client.query<{
+        project_id: string;
         item_kind: string;
         item_id: string;
         version_rev: number;
         sha256: string;
-        storage_key: string;
         media_type: string;
       }>(
-        `SELECT r.item_kind, r.item_id, r.version_rev, a.sha256, a.storage_key, a.media_type
+        `SELECT a.project_id, r.item_kind, r.item_id, r.version_rev, a.sha256, a.media_type
          FROM asset_refs r
          JOIN assets a ON a.project_id = r.project_id AND a.sha256 = r.sha256`,
       );
@@ -1718,14 +2000,13 @@ export class ReviewStore {
         const iss = row.record_json;
         const matchingAssets = assetRes.rows
           .filter((a) => a.item_kind === 'issue' && a.item_id === row.item_id && a.version_rev === row.version_rev)
-          .map((a) => {
-            const blob = this.blobs.get(a.storage_key);
-            return {
-              sha256: a.sha256,
-              filename: blob?.filename ?? a.sha256,
-              mediaType: a.media_type,
-            };
-          });
+          .map((a) => ({
+            sha256: a.sha256,
+            filename:
+              this.assetRefFilenames.get(assetRefKey(a.project_id, a.sha256, a.item_kind, a.item_id, a.version_rev)) ??
+              a.sha256,
+            mediaType: a.media_type,
+          }));
         result.push({
           issueId: row.item_id,
           number: iss.number ?? null,

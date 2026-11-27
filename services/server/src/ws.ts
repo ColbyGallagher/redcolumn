@@ -245,7 +245,8 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
           return;
         }
         conn.subscribedStreams.add(streamId);
-        if (!subscriptions.has(streamId) && !reviewStore?.resolveStreamScope(streamId)) {
+        const reviewScope = reviewStore ? await reviewStore.resolveStreamScope(streamId) : null;
+        if (!subscriptions.has(streamId) && !reviewScope) {
           const unsubscribe = broadcaster.subscribe(streamId, (event) => {
             if (!conn.ended) sendJson(ws, { type: 'event', event });
           });
@@ -298,12 +299,16 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
           forbidden(streamId);
           return;
         }
-        const reviewScope = streamId !== null ? reviewStore?.resolveStreamScope(streamId) : null;
+        const reviewScope = streamId !== null && reviewStore ? await reviewStore.resolveStreamScope(streamId) : null;
         if (reviewStore && reviewScope) {
           const opId =
             typed.op && typeof typed.op === 'object' && typeof (typed.op as { opId?: unknown }).opId === 'string'
               ? (typed.op as { opId: string }).opId
               : null;
+          if (!reviewScope.scopeId) {
+            sendJson(ws, { type: 'ack', result: { ok: false, opId, rejection: { code: 'not_found', message: 'Not found' } } });
+            return;
+          }
           try {
             const outcome = await reviewStore.submitOperation(reviewScope.scopeId, session.user.id, typed.op);
             if (!outcome.ok) {
@@ -336,12 +341,33 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
 
       if (typed.type === 'batch') {
         const ops = Array.isArray(typed.ops) ? typed.ops : [];
+        let touchesReviewStream = false;
         for (const op of ops) {
           const streamId = rawStreamId(op);
           if (streamId !== null && !authorizeStream(actor, streamId, 'write')) {
             forbidden(streamId);
             return;
           }
+          if (streamId !== null && reviewStore) {
+            const reviewScope = await reviewStore.resolveStreamScope(streamId);
+            if (reviewScope !== null) {
+              touchesReviewStream = true;
+            }
+          }
+        }
+        if (touchesReviewStream) {
+          sendJson(ws, {
+            type: 'batch_ack',
+            result: {
+              ok: false,
+              results: [],
+              rejection: {
+                code: 'unsupported_batch',
+                message: 'Batch frames are not supported on review streams',
+              },
+            },
+          });
+          return;
         }
         try {
           const result = await pipeline.submitBatch(ops, actor, buf.byteLength);
