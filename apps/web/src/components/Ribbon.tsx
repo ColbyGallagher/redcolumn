@@ -240,6 +240,7 @@ const ICONS: Record<string, ReactNode> = {
   'view.syncPage': ic('M5 3h6v10H5zM2 8h1.5M12.5 8H14'),
   'view.unsplit': ic('M1.5 2.5h13v11h-13z'),
   'view.modelOnDrawings': ic('M1.5 4.5h9v9h-9z', <path d="M8 2.5 11.5 1l3 1.5v4L11.5 8 8 6.5z" />),
+  'view.syncModel': ic('M1.5 2.5h5v11h-5zM9.5 2.5h5v11h-5z', <path d="M5 8h6M9.5 6.5 11 8 9.5 9.5M6.5 6.5 5 8l1.5 1.5" />),
   'view.stitched': ic('M1.5 3.5h6v9h-6zM8.5 3.5h6v9h-6zM7 6h2M7 8h2M7 10h2'),
   'view.rulers': ic('M1.5 1.5h13v3h-10v10h-3zM6 1.5v1.5M9 1.5v1.5M12 1.5v1.5M1.5 7.5H3M1.5 10.5H3'),
   'view.grid': ic('M1.5 1.5h13v13h-13zM6 1.5v13M10.5 1.5v13M1.5 6h13M1.5 10.5h13'),
@@ -1225,6 +1226,7 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
               </Stack>
               <Stack>
                 <Cmd id="view.modelOnDrawings" label={msg('On Sheets')} />
+                <Cmd id="view.syncModel" label={msg('Sync with Sheet')} />
               </Stack>
             </Group>
             <Group id="Measure" label={msg('Measure')}>

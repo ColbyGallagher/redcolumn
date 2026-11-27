@@ -97,8 +97,17 @@ export type ModelAction =
   /** Moves the camera to look from `position` at `target` (grid easting, northing, height). */
   | { type: 'lookAtPlace'; camera: PlaceCamera }
   | { type: 'miniMap' }
+  /** Looks straight down on a place at a scale and heading (Plan navigation), as a synced sheet shows it. */
+  | { type: 'planView'; view: PlanView }
   /** Takes the other revision away, and the colours the comparison gave. */
   | { type: 'endCompare' };
+
+/** A plan on the map: its centre (grid easting, northing), its scale and which way is up on screen (a unit grid direction). */
+export interface PlanView {
+  centre: [number, number];
+  metresPerPixel: number;
+  up: [number, number];
+}
 
 /** A camera on the map: where it is and what it looks at, as grid easting, northing and height. */
 export interface PlaceCamera {
@@ -303,6 +312,8 @@ export interface ModelBrowser {
   findAt(easting: number, northing: number): Promise<boolean>;
   /** The camera on the map, or null when the model is not on the map. */
   cameraPlace(): PlaceCamera | null;
+  /** The plan shown, while the view looks straight down in Plan navigation; null otherwise or off the map. */
+  planView(): PlanView | null;
   /** A picture of the view as it is now (a JPEG data URL), at most `maxWidth` pixels wide. */
   snapshot(maxWidth: number): string | null;
   /**

@@ -18,11 +18,14 @@ two), **M** (about a week), **L** (several weeks).
 ## Later
 
 - Detached windows for multi-monitor work (L).
+- 3D models, after the #191 viewer: point clouds (LAS/E57) and IDS checks, redline on an issue's
+  viewpoint, clash detection, 4D sequencing, and MCP tools for models.
 
 ## Not planned
 
-- 3D PDF, CAD and Office plugins, printer drivers and scanner capture: not practical in a browser
-  app.
+- 3D PDF content (U3D/PRC), CAD and Office plugins, printer drivers and scanner capture: not
+  practical in a browser app. 3D models themselves are supported: IFC files open in a 3D viewer
+  linked to sheets registered to the same map (#191).
 
 ## Testing approach
 

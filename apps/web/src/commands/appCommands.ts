@@ -391,6 +391,8 @@ export interface CommandState {
   modelOnDrawings?: boolean;
   /** A 3D model is open in some tab (in front or not). */
   anyModelOpen?: boolean;
+  /** Split, with a model in front in one pane and a PDF in the other: what Sync View with Sheet needs. */
+  modelSheetPair?: boolean;
 }
 
 /** Panels opened by Bluebeam's Alt+ shortcuts. `markups` and `links` sit on the bottom. */
@@ -552,6 +554,10 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     {
       ...cmd('view.modelOnDrawings', 'View', msg('3D Models on Sheets'), a.modelOnDrawings, !!s.anyModelOpen, !!s.modelOnDrawings),
       hint: msg('Open an IFC model to draw it on sheets registered to the same map'),
+    },
+    {
+      ...cmd('view.syncModel', 'View', msg('Sync View with Sheet'), () => a.sync(s.sync ? null : 'document'), !!s.modelSheetPair, !!s.modelSheetPair && !!s.sync),
+      hint: msg('Split the view with a 3D model on one side and a sheet registered to the map on the other'),
     },
     cmd('view.rulers', 'View', msg('Rulers'), toggle('showRulers'), true, s.settings.showRulers),
     cmd('view.crosshair', 'View', msg('Full-Screen Crosshair'), toggle('crosshair'), true, s.settings.crosshair),

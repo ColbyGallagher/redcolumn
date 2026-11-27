@@ -101,6 +101,10 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
       document.removeEventListener('visibilitychange', apply);
       session?.dispose();
       session = null;
+      // Emptied as well as removed: a stale reference to the element (an old render's closure) then
+      // holds nothing of the view.
+      delete (element as unknown as { session?: unknown }).session;
+      element.replaceChildren();
       element.remove();
     },
   };

@@ -261,6 +261,59 @@ test.describe('3D models', () => {
     await expect.poll(() => session((s) => s.state().selected), { timeout: 30_000 }).toBe(1);
   });
 
+  test('view.syncModel: a model split beside a registered sheet looks down on what the sheet shows, and moving the model moves the sheet', async ({ app }) => {
+    const page = app.page;
+    await app.open('plan.pdf');
+    await page.evaluate((region) => (window.__nb.tools.store as unknown as { setPageGeo(p: number, r: unknown[]): void }).setPageGeo(0, [region]), PLAN_REGION);
+    await openModel(app);
+    await expect(view(app)).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
+    type Plan = { centre: [number, number]; metresPerPixel: number; up: [number, number] };
+    type Session = { state(): { georeferenced: boolean; nav: string }; planView(): Plan | null; run(a: unknown): void };
+    const session = <T,>(fn: (s: Session) => T) =>
+      page.evaluate((src) => {
+        const w = window as unknown as { __m3d?: Session };
+        w.__m3d ??= (document.querySelector('.model-view') as unknown as { session: Session }).session;
+        return new Function('s', `return (${src})(s)`)(w.__m3d);
+      }, fn.toString()) as Promise<T>;
+    await expect.poll(() => session((s) => s.state().georeferenced)).toBe(true);
+    // The model in the right pane, the plan in the left.
+    await page.locator('.doc-tab', { hasText: 'kestrel-road-revA.ifc' }).click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Open in Split View' }).click();
+    await expect(page.locator('.doc-tab', { hasText: 'plan' }).first()).toBeVisible();
+    type V = { pageView(): { centre: [number, number]; zoom: number }; zoomBy(k: number): void };
+    const sheet = () => page.evaluate(() => (window.__nb.viewer as unknown as V).pageView());
+
+    await app.cmd('view.syncModel');
+    await expect.poll(() => session((s) => s.state().nav)).toBe('Plan');
+    await expect.poll(() => session((s) => !!s.planView())).toBe(true);
+    // North up, as the plan is drawn.
+    const first = (await session((s) => s.planView()))!;
+    expect(first.up[1]).toBeGreaterThan(0.99);
+
+    // Zooming the sheet in zooms the model in.
+    await page.evaluate(() => (window.__nb.viewer as unknown as V).zoomBy(2));
+    await expect.poll(async () => (await session((s) => s.planView()))!.metresPerPixel / first.metresPerPixel).toBeCloseTo(0.5, 2);
+
+    // Moving the model 30 m east moves the sheet's centre east (right, on a north-up plan).
+    const before = await sheet();
+    await session((s) => {
+      const p = s.planView()!;
+      s.run({ type: 'planView', view: { ...p, centre: [p.centre[0] + 30, p.centre[1]] } });
+    });
+    await expect.poll(async () => (await sheet()).centre[0] - before.centre[0]).toBeGreaterThan(10);
+    expect(Math.abs((await sheet()).centre[1] - before.centre[1])).toBeLessThan(2);
+
+    // Off again: the sheet no longer follows.
+    await app.cmd('view.syncModel');
+    const still = await sheet();
+    await session((s) => {
+      const p = s.planView()!;
+      s.run({ type: 'planView', view: { ...p, centre: [p.centre[0] + 30, p.centre[1]] } });
+    });
+    await page.waitForTimeout(500);
+    expect((await sheet()).centre[0]).toBeCloseTo(still.centre[0], 1);
+  });
+
   test('an issue raised in the model shows as a cloud and callout on the plan, and its status set there comes back', async ({ app }) => {
     const page = app.page;
     await app.open('plan.pdf');

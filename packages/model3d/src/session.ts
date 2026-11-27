@@ -28,6 +28,7 @@ import {
   type ModelState,
   type ModelTool,
   type PlaceCamera,
+  type PlanView,
   type ResolvedProfile,
   type SheetOverlay,
   type SavedView,
@@ -115,6 +116,8 @@ export class ModelSession implements ModelControls {
   private readonly offs: (() => void)[] = [];
   /** The other revision loaded to compare with, while there is one. */
   private compareId: string | null = null;
+  /** The comparison shown, to colour again what a selection's highlight took the colours off. */
+  private compared: { diff: RevisionDiff; mine: FragmentsModel; other: FragmentsModel } | null = null;
   /** The mini-map: a camera looking straight down on the models, and the marker it shows the camera with. */
   private mini: { camera: THREE.OrthographicCamera; marker: THREE.Mesh; area: { left: number; top: number; size: number } | null } | null = null;
   /** Walking: the keys held, whether Shift (run) is, the last frame's time, and a step still working out where it lands. */
@@ -305,6 +308,8 @@ export class ModelSession implements ModelControls {
         return this.showSheets(a.overlays);
       case 'lookAtPlace':
         return this.lookAtPlace(a.camera);
+      case 'planView':
+        return this.showPlan(a.view);
       case 'miniMap':
         return this.update({ miniMap: !this.current.miniMap });
       case 'endCompare':
@@ -635,6 +640,55 @@ export class ModelSession implements ModelControls {
     return { position: p.toArray(), target: t.toArray(), projection: this.world.camera.projection.current, fov: three instanceof THREE.PerspectiveCamera ? three.fov : 60 };
   }
 
+  planView(): PlanView | null {
+    const cam = this.world.camera.three;
+    const width = this.container.clientWidth;
+    if (!this.gridToScene || this.current.nav !== 'Plan' || !(cam instanceof THREE.OrthographicCamera) || !width) return null;
+    const toGrid = this.gridToScene.clone().invert();
+    const target = this.world.camera.controls.getTarget(new THREE.Vector3());
+    // Up on screen, laid flat: straight down, the camera's up is the heading.
+    const up = new THREE.Vector3(0, 1, 0).applyQuaternion(cam.quaternion).setY(0);
+    if (up.lengthSq() < 1e-12) return null;
+    up.normalize();
+    const c = target.clone().applyMatrix4(toGrid);
+    const a = target.clone().add(up).applyMatrix4(toGrid);
+    const metresPerUnit = Math.hypot(a.x - c.x, a.y - c.y);
+    if (!(metresPerUnit > 0)) return null;
+    return {
+      centre: [c.x, c.y],
+      metresPerPixel: ((cam.right - cam.left) / cam.zoom / width) * metresPerUnit,
+      up: [(a.x - c.x) / metresPerUnit, (a.y - c.y) / metresPerUnit],
+    };
+  }
+
+  /** Looks straight down on a place at a scale and heading, in Plan navigation. */
+  private async showPlan(v: PlanView): Promise<void> {
+    const width = this.container.clientWidth;
+    if (!this.gridToScene || !width || !(v.metresPerPixel > 0)) return;
+    const camera = this.world.camera;
+    if (this.current.nav !== 'Plan') {
+      this.stopWalk();
+      await camera.projection.set('Orthographic');
+      camera.set('Plan');
+      this.update({ nav: 'Plan', projection: 'Orthographic' });
+    }
+    const cam = camera.three;
+    if (!(cam instanceof THREE.OrthographicCamera)) return;
+    const controls = camera.controls;
+    // The target keeps its height; the camera stands above it, a hair back from the heading so it keeps it.
+    const height = controls.getTarget(new THREE.Vector3()).applyMatrix4(this.gridToScene.clone().invert()).z;
+    const t = this.scenePoint(v.centre[0], v.centre[1], height);
+    const u = this.scenePoint(v.centre[0] + v.up[0], v.centre[1] + v.up[1], height).sub(t);
+    const unitsPerMetre = u.length();
+    if (!(unitsPerMetre > 0)) return;
+    u.normalize();
+    const d = Math.max(controls.distance, 50);
+    await Promise.all([
+      controls.setLookAt(t.x - u.x * d * 1e-4, t.y + d, t.z - u.z * d * 1e-4, t.x, t.y, t.z, false),
+      controls.zoomTo((cam.right - cam.left) / (width * v.metresPerPixel * unitsPerMetre), false),
+    ]);
+  }
+
   private async lookAtPlace(c: PlaceCamera): Promise<void> {
     if (!this.gridToScene) return;
     const camera = this.world.camera;
@@ -712,23 +766,27 @@ export class ModelSession implements ModelControls {
 
   /** Colours a comparison: added and changed in this model, the rest faint, and of the other only what was removed, in red. */
   private async showComparison(diff: RevisionDiff, mine: FragmentsModel, other: FragmentsModel): Promise<void> {
-    const ids = (list: { localId: number }[]) => list.map((e) => e.localId);
-    const all = Object.values(await this.itemsByCategory(mine)).flat();
+    this.compared = { diff, mine, other };
+    // What is selected keeps its highlight; the rest takes the comparison's colours.
+    const sel = this.highlighter?.selection.select ?? {};
+    const skip = (model: FragmentsModel) => sel[model.modelId] ?? new Set<number>();
+    const [skipMine, skipOther] = [skip(mine), skip(other)];
+    const ids = (list: { localId: number }[], skipped = skipMine) => list.map((e) => e.localId).filter((id) => !skipped.has(id));
+    const all = Object.values(await this.itemsByCategory(mine)).flat().filter((id) => !skipMine.has(id));
     if (all.length) await mine.setOpacity(all, GHOST_OPACITY);
     for (const [list, colour] of [
       [diff.added, COMPARE_COLOURS.added],
       [diff.changed, COMPARE_COLOURS.changed],
     ] as const) {
-      if (!list.length) continue;
+      if (!ids(list).length) continue;
       await mine.resetOpacity(ids(list));
       await mine.setColor(ids(list), new THREE.Color(colour));
     }
     const theirs = Object.values(await this.itemsByCategory(other)).flat();
-    if (theirs.length) await other.setVisible(theirs, false);
-    if (diff.removed.length) {
-      await other.setVisible(ids(diff.removed), true);
-      await other.setColor(ids(diff.removed), new THREE.Color(COMPARE_COLOURS.removed));
-    }
+    const removed = diff.removed.map((e) => e.localId);
+    if (theirs.length) await other.setVisible(theirs.filter((id) => !removed.includes(id)), false);
+    if (removed.length) await other.setVisible(removed, true);
+    if (ids(diff.removed, skipOther).length) await other.setColor(ids(diff.removed, skipOther), new THREE.Color(COMPARE_COLOURS.removed));
     await this.fragments.core.update(true);
   }
 
@@ -736,6 +794,7 @@ export class ModelSession implements ModelControls {
     const id = this.compareId;
     if (!id) return;
     this.compareId = null;
+    this.compared = null;
     const model = this.fragments.list.get(id);
     if (model) {
       await this.highlighter?.clear('select');
@@ -1185,8 +1244,15 @@ export class ModelSession implements ModelControls {
       h.zoomToSelection = false;
       const count = () =>
         this.update({ selected: Object.values(h.selection.select ?? {}).reduce((n, s) => n + s.size, 0), selectionVersion: this.current.selectionVersion + 1 });
+      // A highlight put back to normal also loses a comparison's colours: they go on again.
+      const recolour = () => {
+        const c = this.compared;
+        if (c && this.compareId && !this.disposed) void this.showComparison(c.diff, c.mine, c.other).catch(() => {});
+      };
       h.events.select?.onHighlight.add(count);
       h.events.select?.onClear.add(count);
+      h.events.select?.onHighlight.add(recolour);
+      h.events.select?.onClear.add(recolour);
       h.enabled = this.current.tool === 'select';
       this.highlighter = h;
     }
@@ -1294,6 +1360,21 @@ export class ModelSession implements ModelControls {
     this.listeners.clear();
     for (const { object } of this.sheets.values()) disposeObject(object);
     this.sheets.clear();
+    if (this.mini) disposeObject(this.mini.marker);
+    this.mini = null;
+    // The handlers this view gave the library's events go first: anything left holding a camera,
+    // world or list (a resize observer on the old canvas, say) then holds nothing of this view.
+    const camera = this.world.camera;
+    camera.controls.removeAllEventListeners();
+    camera.projection.onChanged.reset();
+    this.world.renderer?.onAfterUpdate.reset();
+    this.fragments.list.onItemSet.reset();
+    for (const m of this.measurers.values()) {
+      m.list.onItemAdded.reset();
+      m.list.onItemDeleted.reset();
+    }
+    this.highlighter?.events.select?.onHighlight.reset();
+    this.highlighter?.events.select?.onClear.reset();
     this.components.dispose();
   }
 }
