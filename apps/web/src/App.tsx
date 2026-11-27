@@ -234,7 +234,7 @@ import { PagesPanel, resetThumbnails } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
 import { librarySource, openSource } from './search/sources';
 import { countsFromHits, type CountTool } from './search/countFromHits';
-import { MenuBar, LEFT_TABS, leftTitles, type BottomTab, type LeftTab } from './components/MenuBar';
+import { MenuBar, leftTitles, type BottomTab, type LeftTab } from './components/MenuBar';
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
@@ -777,13 +777,13 @@ const PANEL_DRAG_TYPE = 'application/x-rc-panel';
 /** The side of the window a panel is docked on (the profile's choice). Narrow screens keep every panel in the left drawer. */
 const panelSide = (id: LeftTab): DockSide => (!narrowScreen() && profiles.active().state.rightPanels.includes(id) ? 'right' : 'left');
 
+/** Whether a rail panel belongs to a mode: PDF panels show with a drawing in front, 3D panels with a model, shared ones with both. */
+const inMode = (scope: 'pdf' | '3d' | 'shared' | undefined, forModel: boolean) => scope === 'shared' || (scope === '3d') === forModel;
+
 /** The first panel the profile docks on a side, which that side panel starts on. */
 const firstPanelOn = (side: DockSide, forModel = false): LeftTab | undefined => {
   const ws = profiles.active().state;
-  return RAIL().find(({ id, scope }) => {
-    const inScope = scope === 'shared' || (forModel ? scope === '3d' : scope !== '3d');
-    return inScope && panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked);
-  })?.id;
+  return RAIL().find(({ id, scope }) => inMode(scope, forModel) && panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked))?.id;
 };
 
 /** Progress within one of `count` steps of a job, as part of the whole. */
@@ -1093,7 +1093,9 @@ export function App() {
   const readSavedPanel = (side: DockSide, keyPrefix = 'nb.panel') => {
     try {
       const saved = JSON.parse(localStorage.getItem(`${keyPrefix}.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
-      const tab = saved?.tab && (LEFT_TABS as readonly string[]).includes(saved.tab) && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
+      // A tab of the other mode is not taken: a layout saved before the modes were split can hold a 3D panel.
+      const entry = RAIL().find((r) => r.id === saved?.tab && inMode(r.scope, keyPrefix === 'nb.panel3d'));
+      const tab = entry && panelSide(entry.id) === side ? entry.id : null;
       return { tab, open: typeof saved?.open === 'boolean' ? saved.open : null };
     } catch {
       return { tab: null, open: null };
@@ -1281,7 +1283,7 @@ export function App() {
   const resetLayout = () => {
     clearLayout();
     layoutRef.current = DEFAULT_LAYOUT;
-    for (const k of ['nb.panel.left', 'nb.panel.right', 'nb.railLabels', 'nb.rightRailLabels', ...SECTION_KEYS]) {
+    for (const k of ['nb.panel.left', 'nb.panel.right', 'nb.panel3d.left', 'nb.panel3d.right', 'nb.railLabels', 'nb.rightRailLabels', ...SECTION_KEYS]) {
       try {
         localStorage.removeItem(k);
       } catch {
@@ -1298,11 +1300,28 @@ export function App() {
     setBottomTab(DEFAULT_LAYOUT.bottomTab);
     setShowBottom(!narrow && !docked);
     setDockOpen(true);
-    setLeftTab(panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files'));
-    setRightTab(firstPanelOn('right') ?? 'properties');
-    // On a phone the panels are drawers over the drawing, so they stay shut.
-    setLeftOpen(!narrow);
-    setRightOpen(!narrow && !!firstPanelOn('right'));
+    // Both modes start again, and the one in front shows its own. On a phone the panels are drawers
+    // over the drawing, so they stay shut.
+    const defaults = {
+      pdf: {
+        leftTab: panelSide('files') === 'left' ? ('files' as const) : (firstPanelOn('left') ?? 'files'),
+        leftOpen: !narrow,
+        rightTab: firstPanelOn('right') ?? 'properties',
+        rightOpen: !narrow && !!firstPanelOn('right'),
+      },
+      model3d: {
+        leftTab: firstPanelOn('left', true) ?? 'model3d',
+        leftOpen: !narrow,
+        rightTab: firstPanelOn('right', true) ?? 'model3dProps',
+        rightOpen: !narrow && !!firstPanelOn('right', true),
+      },
+    };
+    modePanelsRef.current = defaults;
+    const front = defaults[prevModelActive.current ? 'model3d' : 'pdf'];
+    setLeftTab(front.leftTab);
+    setRightTab(front.rightTab);
+    setLeftOpen(front.leftOpen);
+    setRightOpen(front.rightOpen);
     setRailLabels({ left: true, right: true });
     setSplitRatio(0.5);
     setSplitHorizontal(false);
@@ -8435,8 +8454,7 @@ export function App() {
       const target = store[toKey];
       const pick = (side: DockSide, tab: LeftTab) => {
         const entry = RAIL().find((r) => r.id === tab);
-        const inScope = entry && (entry.scope === 'shared' || (isModelActive ? entry.scope === '3d' : entry.scope !== '3d'));
-        if (inScope && panelSide(tab) === side && !ws.hiddenPanels.includes(tab)) return tab;
+        if (entry && inMode(entry.scope, isModelActive) && panelSide(tab) === side && !ws.hiddenPanels.includes(tab)) return tab;
         return firstPanelOn(side, isModelActive) ?? tab;
       };
       setLeftTab(pick('left', target.leftTab));
@@ -8457,11 +8475,7 @@ export function App() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isModelActive, leftTab, leftOpen, rightTab, rightOpen]);
-  const orderedRail = RAIL().filter(({ id, scope }) => {
-    if (id === 'markups' && !ws.markupsDocked) return false;
-    if (scope === 'shared') return true;
-    return isModelActive ? scope === '3d' : scope !== '3d';
-  }).sort((a, b) => {
+  const orderedRail = RAIL().filter(({ id, scope }) => (id !== 'markups' || ws.markupsDocked) && inMode(scope, isModelActive)).sort((a, b) => {
     const ia = ws.panelOrder.indexOf(a.id);
     const ib = ws.panelOrder.indexOf(b.id);
     return (ia < 0 ? RAIL().length + RAIL().indexOf(a) : ia) - (ib < 0 ? RAIL().length + RAIL().indexOf(b) : ib);
