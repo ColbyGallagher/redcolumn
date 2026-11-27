@@ -60,6 +60,9 @@ export interface PageView {
 /** One page at a time; all pages in a scrolling column; or sheets joined at match lines. */
 export type LayoutMode = 'single' | 'continuous' | 'stitch';
 
+/** Sticky fit mode: keeps pages fitted across resize, layout changes and page turns until zoomed manually. */
+export type FitMode = 'page' | 'width' | null;
+
 export interface ViewerStats {
   /** The page in focus: the displayed page, or in a stitched view the sheet at the centre. */
   pageIndex: number;
@@ -68,6 +71,12 @@ export interface ViewerStats {
   mode: LayoutMode;
   /** View rotation in clockwise quarter turns. */
   rotation: number;
+  /** Active fit mode, or null when zoomed to a custom scale. */
+  fitMode: FitMode;
+  /** Pages per row (1: single column, 2: side-by-side). */
+  columns: 1 | 2;
+  /** First page sits alone on the right in side-by-side layout. */
+  cover: boolean;
 }
 
 /** Tile cache and render timings, for the development overlay. */
@@ -254,6 +263,8 @@ export class TileViewer {
   private pageMode: 'single' | 'continuous' = 'single';
   /** CSS pixels per world unit. */
   private zoom = 1;
+  /** Active fit mode (sticky across resize and page turns until an explicit zoom). */
+  private fitMode: FitMode = null;
   /** Screen position (CSS px) of the world origin. */
   private panX = 0;
   private panY = 0;
@@ -408,6 +419,10 @@ export class TileViewer {
     return this.mode;
   }
 
+  get currentFitMode(): FitMode {
+    return this.fitMode;
+  }
+
   /** Switches between one page at a time and a continuous scrolling column (leaves stitched views). */
   setPageMode(pageMode: 'single' | 'continuous') {
     this.pageMode = pageMode;
@@ -523,6 +538,7 @@ export class TileViewer {
     this.placements = [];
     this.pageIndex = 0;
     this.mode = 'single';
+    this.fitMode = null;
     this.clearTiles();
     this.costs.clear();
     this.invalidate();
@@ -530,7 +546,7 @@ export class TileViewer {
   }
 
   /** Single or continuous layout (per `pageMode`), showing page `index`. */
-  private showPages(index: number) {
+  private showPages(index: number, refitContinuous = false) {
     if (!this.doc) return;
     this.pageIndex = Math.max(0, Math.min(this.doc.pages.length - 1, index));
     this.queue = [];
@@ -568,15 +584,26 @@ export class TileViewer {
     let y = 0;
     for (const row of rows) y += placeRow(row, y, maxWidth, out) + PAGE_GAP;
     this.placements = out.sort((a, b) => a.pageIndex - b.pageIndex);
-    if (!wasContinuous) this.fitWidth();
-    this.scrollToPage(this.pageIndex);
+    if (!wasContinuous) {
+      this.fitWidth();
+      this.scrollToPage(this.pageIndex);
+    } else if (refitContinuous) {
+      if (this.fitMode === 'page') this.fitContinuousPage();
+      else {
+        this.fitWidth();
+        this.scrollToPage(this.pageIndex);
+      }
+    } else {
+      this.scrollToPage(this.pageIndex);
+    }
   }
 
   /** Side-by-Side (two pages per row) and Show Cover Page. */
   setSpread(columns: 1 | 2, cover: boolean) {
+    const columnsChanged = columns !== this.columns;
     this.columns = columns;
     this.cover = cover;
-    if (this.mode !== 'stitch') this.showPages(this.pageIndex);
+    if (this.mode !== 'stitch') this.showPages(this.pageIndex, columnsChanged || this.fitMode !== null);
   }
 
   get spread(): { columns: 1 | 2; cover: boolean } {
@@ -661,6 +688,7 @@ export class TileViewer {
     this.pageIndex = index;
     const scale = this.placementOf(index)?.scale ?? 1;
     this.zoom = Math.max(MIN_ZOOM, Math.min(maxZoom(), view.zoom / scale));
+    this.fitMode = null;
     const [wx, wy] = this.pageToWorld(index, view.centre);
     this.panX = this.canvas.clientWidth / 2 - wx * this.zoom;
     this.panY = this.canvas.clientHeight / 2 - wy * this.zoom;
@@ -673,6 +701,7 @@ export class TileViewer {
     const widest = Math.max(...(this.doc?.pages.map((p) => (this.turns % 2 ? p.height : p.width)) ?? [1]));
     const maxWidth = this.columns === 2 ? widest * 2 + PAGE_GAP : widest;
     this.zoom = Math.max(MIN_ZOOM, Math.min(maxZoom(), (this.canvas.clientWidth - 48) / maxWidth));
+    this.fitMode = 'width';
   }
 
   /** Continuous layout: bring a page's top edge to the top of the viewport. */
@@ -743,15 +772,22 @@ export class TileViewer {
    * spreads always fit the spread.
    */
   goToPage(index: number, keepView = false) {
+    const savedFit = this.fitMode;
     const keep = keepView ? this.viewToKeep(index) : null;
     this.showTarget(index);
     if (!keep) return;
     if (keep.refit) {
-      if (this.mode === 'continuous') this.fitToWidth();
+      if (this.mode === 'continuous') {
+        if (savedFit === 'page') this.fit();
+        else this.fitToWidth();
+      } else if (savedFit === 'width') {
+        this.fitToWidth();
+      }
       return;
     }
     const [x, y] = this.pageToWorld(this.pageIndex, keep.centre);
     this.zoom = Math.max(MIN_ZOOM, Math.min(maxZoom(), keep.zoom));
+    this.fitMode = savedFit;
     this.panX = this.canvas.clientWidth / 2 - x * this.zoom;
     this.panY = this.canvas.clientHeight / 2 - y * this.zoom;
     this.invalidate();
@@ -771,8 +807,8 @@ export class TileViewer {
     const from = this.doc.pages[under];
     if (!from) return null;
     // At fit: the old page fitted (the whole page, or its width in continuous layout).
-    const saved = { zoom: this.zoom, panX: this.panX, panY: this.panY };
-    if (this.mode === 'continuous') this.fitWidth();
+    const saved = { zoom: this.zoom, panX: this.panX, panY: this.panY, fitMode: this.fitMode };
+    if (this.mode === 'continuous' && saved.fitMode !== 'page') this.fitWidth();
     else this.fit();
     const fitZoom = this.zoom;
     Object.assign(this, saved);
@@ -896,6 +932,7 @@ export class TileViewer {
     const { clientWidth: cw, clientHeight: ch } = this.canvas;
     const margin = 24;
     this.zoom = Math.max(MIN_ZOOM, Math.min((cw - margin * 2) / b.w, (ch - margin * 2) / b.h));
+    this.fitMode = 'page';
     this.panX = (cw - b.w * this.zoom) / 2 - b.x * this.zoom;
     this.panY = (ch - b.h * this.zoom) / 2 - b.y * this.zoom;
     this.invalidate();
@@ -911,6 +948,7 @@ export class TileViewer {
     const { clientWidth: cw, clientHeight: ch } = this.canvas;
     // 24 px of desk at each side; 16 above and below, as scrolling to a page leaves above it.
     this.zoom = Math.max(MIN_ZOOM, Math.min(maxZoom(), (cw - 48) / w, (ch - 32) / h));
+    this.fitMode = 'page';
     this.panX = cw / 2 - (x + w / 2) * this.zoom;
     // A page shorter than the view is centred, so it stays the one at the middle of the screen (in focus).
     this.panY = Math.max(16, (ch - h * this.zoom) / 2) - y * this.zoom;
@@ -930,6 +968,7 @@ export class TileViewer {
     const { clientWidth: width, clientHeight: height } = this.canvas;
     const camera = { zoom: this.zoom, panX: this.panX, panY: this.panY };
     Object.assign(this, fitWidthView({ bounds, viewport: { width, height }, camera, minZoom: MIN_ZOOM, maxZoom: maxZoom() }));
+    this.fitMode = 'width';
     this.invalidate();
   }
 
@@ -954,6 +993,7 @@ export class TileViewer {
       this.showPages(view.pageIndex);
     }
     this.zoom = view.zoom;
+    this.fitMode = null;
     this.panX = view.panX;
     this.panY = view.panY;
     this.invalidate();
@@ -976,6 +1016,7 @@ export class TileViewer {
     const h = Math.max(...ys) - Math.min(...ys);
     const { clientWidth: cw, clientHeight: ch } = this.canvas;
     this.zoom = Math.max(MIN_ZOOM, Math.min(maxZoom(), Math.min(cw / (w * margin), ch / (h * margin))));
+    this.fitMode = null;
     this.panX = cw / 2 - ((Math.max(...xs) + Math.min(...xs)) / 2) * this.zoom;
     this.panY = ch / 2 - ((Math.max(...ys) + Math.min(...ys)) / 2) * this.zoom;
     this.invalidate();
@@ -1020,6 +1061,7 @@ export class TileViewer {
     this.panX = sx - (sx - this.panX) * k;
     this.panY = sy - (sy - this.panY) * k;
     this.zoom = next;
+    this.fitMode = null;
     this.invalidate();
   }
 
@@ -1117,6 +1159,21 @@ export class TileViewer {
     // panel is dragged. Redraw right here instead.
     this.canvas.width = w;
     this.canvas.height = h;
+    if (this.doc && this.canvas.clientWidth > 0 && this.canvas.clientHeight > 0) {
+      if (this.fitMode === 'page') this.fit();
+      else if (this.fitMode === 'width') {
+        if (this.mode === 'continuous') {
+          const prevZoom = this.zoom;
+          const midY = (this.canvas.clientHeight / 2 - this.panY) / prevZoom;
+          this.fitWidth();
+          const b = this.worldBounds();
+          if (Number.isFinite(b.w)) this.panX = this.canvas.clientWidth / 2 - (b.x + b.w / 2) * this.zoom;
+          this.panY = this.canvas.clientHeight / 2 - midY * this.zoom;
+        } else {
+          this.fitToWidth();
+        }
+      }
+    }
     cancelAnimationFrame(this.frame);
     this.draw();
   }
@@ -1708,10 +1765,19 @@ export class TileViewer {
    */
   private emitStats() {
     const pageCount = this.doc?.pages.length ?? 0;
-    const key = `${this.pageIndex}:${pageCount}:${Math.round(this.zoom * 1000)}:${this.mode}:${this.turns}`;
+    const key = `${this.pageIndex}:${pageCount}:${Math.round(this.zoom * 1000)}:${this.mode}:${this.turns}:${this.fitMode}:${this.columns}:${this.cover}`;
     if (key === this.lastStatsKey) return;
     this.lastStatsKey = key;
-    this.onStats({ pageIndex: this.pageIndex, pageCount, zoom: this.zoom, mode: this.mode, rotation: this.turns });
+    this.onStats({
+      pageIndex: this.pageIndex,
+      pageCount,
+      zoom: this.zoom,
+      mode: this.mode,
+      rotation: this.turns,
+      fitMode: this.fitMode,
+      columns: this.columns,
+      cover: this.cover,
+    });
   }
 
   diagnostics(): ViewerDiagnostics {
@@ -1812,9 +1878,19 @@ export class TileViewer {
     const target = down ? row.at(-1)! + 1 : row[0]! - 1;
     if (!this.doc || target < 0 || target >= this.doc.pages.length) return this.invalidate();
     this.pageWheel.used = true;
+    const prevFit = this.fitMode;
     const { zoom, panX } = this;
     this.goToPage(target);
+    if (prevFit === 'page') return;
+    if (prevFit === 'width') {
+      this.fitToWidth();
+      const ny = this.scrollRange('y', false);
+      this.panY = down ? ny.hi : ny.lo;
+      this.invalidate();
+      return;
+    }
     this.zoom = zoom;
+    this.fitMode = null;
     const nx = this.scrollRange('x', false);
     this.panX = Math.max(nx.lo, Math.min(nx.hi, panX));
     const ny = this.scrollRange('y', false);

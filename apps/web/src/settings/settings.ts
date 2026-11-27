@@ -303,6 +303,10 @@ export interface Settings {
   autosave: boolean;
   /** How a document is laid out when first shown: Auto puts drawings (larger than tabloid) a page at a time and scrolls smaller pages. */
   pageLayout: 'auto' | 'single' | 'continuous' | 'sideBySide' | 'continuousSideBySide';
+  /** Initial zoom when a document is first shown: Auto fits the page in single/side-by-side and fits the width in continuous. */
+  pageZoom: 'auto' | 'fitPage' | 'fitWidth' | 'actualSize';
+  /** Show the first page alone on the right (as a book cover) when opening in Side-by-Side layout. */
+  coverPage: boolean;
   /** Highest zoom the view allows, in percent. */
   maxZoom: number;
   /** Splitting a single document into two panes starts with Synchronise Document switched on. */
@@ -572,6 +576,8 @@ export const DEFAULT_SETTINGS: Settings = {
   documentRecovery: true,
   autosave: false,
   pageLayout: 'auto',
+  pageZoom: 'auto',
+  coverPage: false,
   maxZoom: 6400,
   syncSplitView: false,
   optimiseDrawings: 'ask',

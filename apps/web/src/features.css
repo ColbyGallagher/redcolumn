@@ -66,6 +66,58 @@
   flex: none;
 }
 
+/* Zoom box + presets dropdown */
+.pagenav-zoom {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.pagenav-zoom-btn {
+  padding: 0 3px;
+  min-width: 16px;
+}
+
+.pagenav-zoom-menu {
+  inset-inline-start: 0;
+  inset-inline-end: auto;
+  min-width: 156px;
+  max-height: min(380px, calc(100vh - 64px));
+  overflow-y: auto;
+}
+
+.pagenav-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+.pagenav-menu-item.active {
+  background: rgba(20, 163, 154, 0.22);
+  color: var(--accent-text, var(--text));
+  font-weight: 600;
+}
+
+/* Four-mode page layout strip */
+.pagenav-layouts {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-inline-start: 2px;
+}
+
+.pagenav-layout-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  padding: 0;
+}
+
+.pagenav-layout-btn svg {
+  display: block;
+}
+
 /* The ⌃ menu: the controls the strip has no room for. */
 .pagenav-more {
   position: relative;

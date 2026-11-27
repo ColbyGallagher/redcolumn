@@ -105,7 +105,7 @@ msgstr "Une nouvelle version de redcolumn est prête. Elle {when} quand vous aur
 msgid "A protected copy"
 msgstr "Une copie protégée"
 
-#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts
+#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/PageNav.tsx apps/web/src/components/PreferencesDialog.tsx
 msgid "Actual Size"
 msgstr "Taille réelle"
 
@@ -817,11 +817,11 @@ msgstr "Recherche de liens"
 msgid "Finding taught marks"
 msgstr "Recherche des marques apprises"
 
-#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts
+#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/PageNav.tsx apps/web/src/components/PreferencesDialog.tsx
 msgid "Fit Page"
 msgstr "Ajuster à la page"
 
-#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts
+#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/PageNav.tsx apps/web/src/components/PreferencesDialog.tsx
 msgid "Fit Width"
 msgstr "Ajuster à la largeur"
 
@@ -1974,7 +1974,7 @@ msgstr "Signé par {name}{value}. La version précédant la signature est conser
 msgid "Signing failed: {value}"
 msgstr "La signature a échoué : {value}"
 
-#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/PreferencesDialog.tsx
+#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/PageNav.tsx apps/web/src/components/PreferencesDialog.tsx
 msgid "Single Page"
 msgstr "Page unique"
 
@@ -3107,11 +3107,11 @@ msgstr "Comparer les documents…"
 msgid "Connect Shapes"
 msgstr "Connecter les formes"
 
-#: apps/web/src/commands/appCommands.ts
+#: apps/web/src/commands/appCommands.ts apps/web/src/components/PageNav.tsx
 msgid "Continuous Pages"
 msgstr "Pages en continu"
 
-#: apps/web/src/commands/appCommands.ts apps/web/src/components/Ribbon.tsx
+#: apps/web/src/commands/appCommands.ts apps/web/src/components/PageNav.tsx apps/web/src/components/Ribbon.tsx
 msgid "Continuous Side-by-Side"
 msgstr "Côte à côte en continu"
 
@@ -3604,7 +3604,7 @@ msgstr "Configurer la norme de dessin…"
 msgid "Share / Email…"
 msgstr "Partager / envoyer par e-mail…"
 
-#: apps/web/src/commands/appCommands.ts
+#: apps/web/src/commands/appCommands.ts apps/web/src/components/PageNav.tsx apps/web/src/components/PreferencesDialog.tsx
 msgid "Show Cover Page in Side-by-Side"
 msgstr "Afficher la page de couverture en côte à côte"
 
@@ -3620,7 +3620,7 @@ msgstr "Afficher les marquages masqués"
 msgid "Show Links"
 msgstr "Afficher les liens"
 
-#: apps/web/src/commands/appCommands.ts
+#: apps/web/src/commands/appCommands.ts apps/web/src/components/PageNav.tsx
 msgid "Side-by-Side"
 msgstr "Côte à côte"
 
@@ -11355,8 +11355,12 @@ msgid "redcolumn could not mark its storage as kept."
 msgstr "redcolumn n’a pas pu marquer son stockage comme conservé."
 
 #: apps/web/src/components/PageNav.tsx
-msgid "Continuous: scroll moves through pages (Ctrl+4 for single page)"
-msgstr "Continu : le défilement parcourt les pages (Ctrl+4 pour une seule page)"
+msgid "Continuous Pages (Ctrl+5)"
+msgstr "Pages en continu (Ctrl+5)"
+
+#: apps/web/src/components/PageNav.tsx
+msgid "Continuous Side-by-Side (Ctrl+7)"
+msgstr "Côte à côte en continu (Ctrl+7)"
 
 #: apps/web/src/components/PageNav.tsx
 msgid "First page"
@@ -11389,6 +11393,10 @@ msgstr "Page suivante (Page Down)"
 #: apps/web/src/components/PageNav.tsx
 msgid "Next view (Alt+→)"
 msgstr "Affichage suivant (Alt+→)"
+
+#: apps/web/src/components/PageNav.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/Ribbon.tsx
+msgid "Page Layout"
+msgstr "Mise en page"
 
 #: apps/web/src/components/PageNav.tsx
 msgid "Page size {long}"
@@ -11423,8 +11431,12 @@ msgid "Select text (Shift+T)"
 msgstr "Sélectionner du texte (Maj+T)"
 
 #: apps/web/src/components/PageNav.tsx
-msgid "Single page: scroll zooms (Ctrl+5 for continuous)"
-msgstr "Page unique : le défilement zoome (Ctrl+5 pour le mode continu)"
+msgid "Side-by-Side (Ctrl+6)"
+msgstr "Côte à côte (Ctrl+6)"
+
+#: apps/web/src/components/PageNav.tsx
+msgid "Single Page (Ctrl+4)"
+msgstr "Page unique (Ctrl+4)"
 
 #: apps/web/src/components/PageNav.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/Ribbon.tsx
 msgid "Zoom"
@@ -11437,6 +11449,10 @@ msgstr "Zoom avant (+)"
 #: apps/web/src/components/PageNav.tsx
 msgid "Zoom out (−)"
 msgstr "Zoom arrière (−)"
+
+#: apps/web/src/components/PageNav.tsx
+msgid "Zoom presets"
+msgstr "Préréglages de zoom"
 
 #: apps/web/src/components/PageNav.tsx
 msgid "Zoom: type a percentage and press Enter"
@@ -11465,22 +11481,6 @@ msgstr "↶  Affichage précédent"
 #: apps/web/src/components/PageNav.tsx
 msgid "↷  Next view"
 msgstr "↷  Affichage suivant"
-
-#: apps/web/src/components/PageNav.tsx
-msgid "▢  Single page"
-msgstr "▢  Page unique"
-
-#: apps/web/src/components/PageNav.tsx
-msgid "▢ Single"
-msgstr "▢ Unique"
-
-#: apps/web/src/components/PageNav.tsx
-msgid "▤  Continuous"
-msgstr "▤  Continu"
-
-#: apps/web/src/components/PageNav.tsx
-msgid "▤ Continuous"
-msgstr "▤ Continu"
 
 #: apps/web/src/components/PageNav.tsx
 msgid "⤢  Fit page"
@@ -11797,6 +11797,10 @@ msgid "Attach Photo"
 msgstr "Joindre une photo"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "Auto (Fit Page / Fit Width)"
+msgstr "Automatique (Page entière / Largeur de page)"
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "Auto-Detect"
 msgstr "Détection automatique"
 
@@ -11943,6 +11947,10 @@ msgstr "Encodage d’image par défaut"
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Default Template"
 msgstr "Modèle par défaut"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Default Zoom"
+msgstr "Zoom par défaut"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Degrees, Minutes, Seconds"
@@ -12363,10 +12371,6 @@ msgstr "PKCS #7 (adbe.pkcs7.detached, lecteurs plus anciens)"
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Page Colours"
 msgstr "Couleurs de page"
-
-#: apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/Ribbon.tsx
-msgid "Page Layout"
-msgstr "Mise en page"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Page Number"
