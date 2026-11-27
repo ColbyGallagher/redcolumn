@@ -189,6 +189,9 @@ export function AccessEditor({ policy, onChange, host }: { policy: AccessPolicy;
           {msg('Create group')}
         </button>
       </div>
+      <p className="hint">
+        {msg('Per-person access rights in unencrypted sessions, and own-markups-only restrictions, are enforced only by well-behaved client apps, not cryptographically or by a server.')}
+      </p>
     </div>
   );
 }

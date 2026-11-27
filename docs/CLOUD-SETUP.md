@@ -24,7 +24,9 @@ edits the policy under Attendees → Permissions….
 
 People are matched by their Microsoft email, or by the name they join with (Edit →
 Author). The app respects the policy, but what actually protects the files is the folder's sharing
-in OneDrive.
+in OneDrive. In unencrypted sessions, per-person access rights are enforced only by well-behaved
+client apps, not cryptographically or by a server; the same applies to own-markups-only
+restrictions ("Add comments, edit own") in all sessions.
 
 ## Security policy and hosting
 

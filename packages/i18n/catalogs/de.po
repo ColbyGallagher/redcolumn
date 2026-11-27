@@ -20027,6 +20027,10 @@ msgid "People"
 msgstr "Personen"
 
 #: apps/web/src/components/sessions/AccessEditor.tsx
+msgid "Per-person access rights in unencrypted sessions, and own-markups-only restrictions, are enforced only by well-behaved client apps, not cryptographically or by a server."
+msgstr ""
+
+#: apps/web/src/components/sessions/AccessEditor.tsx
 msgid "View documents"
 msgstr "Dokumente anzeigen"
 
