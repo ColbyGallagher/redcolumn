@@ -7,19 +7,8 @@
  * Everything here works on plain arrays so it runs (and is tested) outside the browser.
  */
 
-/** A mask: one byte per pixel, 1 where there is ink. */
-export interface Mask {
-  width: number;
-  height: number;
-  data: Uint8Array;
-}
-
-export interface Box {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+import { dilate, findOffset, inkMask, shrink, type Box, type Mask } from '@nb/align';
+export { dilate, findOffset, inkMask, shrink, type Box, type Mask } from '@nb/align';
 
 export type ChangeKind = 'added' | 'removed' | 'changed';
 
@@ -30,112 +19,6 @@ export interface Difference extends Box {
   removed: number;
   /** Words added and removed inside (text compare). */
   words?: { added: number; removed: number };
-}
-
-/** Ink where a pixel is darker than `threshold` (0–255 luminance) and not transparent. */
-export function inkMask(rgba: Uint8ClampedArray | Uint8Array, width: number, height: number, threshold = 200): Mask {
-  const data = new Uint8Array(width * height);
-  for (let i = 0, p = 0; p < data.length; p++, i += 4) {
-    const a = rgba[i + 3]!;
-    if (a < 32) continue;
-    // Composite over white, then luminance.
-    const k = a / 255;
-    const lum = (0.299 * rgba[i]! + 0.587 * rgba[i + 1]! + 0.114 * rgba[i + 2]!) * k + 255 * (1 - k);
-    if (lum < threshold) data[p] = 1;
-  }
-  return { width, height, data };
-}
-
-/** Grows ink by `r` pixels in every direction (a square), so near misses still count as a match. */
-export function dilate(mask: Mask, r: number): Mask {
-  if (r <= 0) return mask;
-  const { width: w, height: h, data } = mask;
-  // Separable: rows, then columns, each with a running count over the window.
-  const rows = new Uint8Array(w * h);
-  for (let y = 0; y < h; y++) {
-    const o = y * w;
-    let count = 0;
-    for (let x = 0; x < Math.min(r, w); x++) count += data[o + x]!;
-    for (let x = 0; x < w; x++) {
-      if (x + r < w) count += data[o + x + r]!;
-      if (x - r - 1 >= 0) count -= data[o + x - r - 1]!;
-      rows[o + x] = count > 0 ? 1 : 0;
-    }
-  }
-  const out = new Uint8Array(w * h);
-  for (let x = 0; x < w; x++) {
-    let count = 0;
-    for (let y = 0; y < Math.min(r, h); y++) count += rows[y * w + x]!;
-    for (let y = 0; y < h; y++) {
-      if (y + r < h) count += rows[(y + r) * w + x]!;
-      if (y - r - 1 >= 0) count -= rows[(y - r - 1) * w + x]!;
-      out[y * w + x] = count > 0 ? 1 : 0;
-    }
-  }
-  return { width: w, height: h, data: out };
-}
-
-/** Shrinks a mask by `f`: a cell has ink if any pixel in it does. */
-export function shrink(mask: Mask, f: number): Mask {
-  if (f <= 1) return mask;
-  const width = Math.ceil(mask.width / f);
-  const height = Math.ceil(mask.height / f);
-  const data = new Uint8Array(width * height);
-  for (let y = 0; y < mask.height; y++) {
-    const row = y * mask.width;
-    const out = Math.floor(y / f) * width;
-    for (let x = 0; x < mask.width; x++) if (mask.data[row + x]) data[out + Math.floor(x / f)] = 1;
-  }
-  return { width, height, data };
-}
-
-/** Ink pixels of `a` that land on ink of `b` when `a` is moved by (dx, dy). */
-function overlap(a: Mask, b: Mask, dx: number, dy: number): number {
-  let n = 0;
-  const y0 = Math.max(0, -dy);
-  const y1 = Math.min(a.height, b.height - dy);
-  const x0 = Math.max(0, -dx);
-  const x1 = Math.min(a.width, b.width - dx);
-  for (let y = y0; y < y1; y++) {
-    const ra = y * a.width;
-    const rb = (y + dy) * b.width + dx;
-    for (let x = x0; x < x1; x++) if (a.data[ra + x] && b.data[rb + x]) n++;
-  }
-  return n;
-}
-
-/**
- * The move (in pixels) that best lines the old page `a` up with the new page `b`, within
- * `maxShift` pixels either way. Searched coarse to fine so large shifts stay cheap.
- */
-export function findOffset(a: Mask, b: Mask, maxShift: number): [dx: number, dy: number] {
-  let best: [number, number] = [0, 0];
-  // Start at a size where the search window is about ±24 cells, then halve down to full size.
-  let f = 1;
-  while (maxShift / f > 24 && f < 64) f *= 2;
-  let range = Math.ceil(maxShift / f);
-  for (; f >= 1; f /= 2) {
-    const sa = shrink(a, f);
-    const sb = shrink(b, f);
-    const cx = Math.round(best[0] / f);
-    const cy = Math.round(best[1] / f);
-    // Ties go to the smallest move, so a blank or symmetric page stays where it is.
-    let top = -1;
-    let at: [number, number] = [cx, cy];
-    for (let dy = cy - range; dy <= cy + range; dy++)
-      for (let dx = cx - range; dx <= cx + range; dx++) {
-        const score = overlap(sa, sb, dx, dy);
-        const better = score > top || (score === top && Math.hypot(dx, dy) < Math.hypot(at[0], at[1]));
-        if (better) {
-          top = score;
-          at = [dx, dy];
-        }
-      }
-    best = [at[0] * f, at[1] * f];
-    // The next finer level only needs to look around this answer.
-    range = 2;
-  }
-  return best;
 }
 
 export interface DiffOptions {

@@ -100,7 +100,7 @@ import { attachmentBlob, fileToAttachment, imageToDataUrl, pickAttachment, pickI
 import { adjustPixels, polygonBox, polygonInPixels, recolourPixels, type PictureColours } from './markup/pictureColours';
 import { SoundDialog } from './components/SoundDialog';
 import { UndoHistoryDialog } from './components/UndoHistoryDialog';
-import { invertAffine, mapBox } from './compare/affine';
+import { invertAffine, mapBox } from '@nb/align';
 import { counterpart, type Paragraph, type SemanticChange } from './compare/semantic';
 import { semanticCompare } from './compare/semanticStore';
 import { SemanticComparePanel } from './components/SemanticComparePanel';

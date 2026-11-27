@@ -534,11 +534,14 @@ contents in `toc.js`. Its screenshots are taken by `scripts/help` from sample dr
 |---|---|
 | `apps/web` | The React app |
 | `apps/desktop` | The Electron desktop app, installer and update check |
+| `packages/align` | Revision alignment and comment placement suggestions |
 | `packages/pdf-core` | PDFium (WebAssembly) in a Web Worker: rendering, text, page operations |
 | `packages/markup` | Markup model, PDF annotation import and export, XFDF and FDF, summaries |
 | `packages/measure` | Scales, measurements, snapping, symbol search |
 | `packages/sheets` | Sheet number detection and sheet links |
 | `packages/stitch` | Stitching sheets along match lines |
+
+To measure revision alignment and placement suggestions against the deterministic generated revision pairs, run `pnpm bench:placement` (pass `--details`, `--baseline-global`, `--oracle-sheet-pairing`, `--tolerance <pt>`, or `--seed <n>` to inspect individual cases and modes).
 
 ### Releasing the desktop app
 

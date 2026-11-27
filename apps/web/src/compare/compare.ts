@@ -1,10 +1,10 @@
+import { alignRenderScale, applyOffset, isIdentityAffine, mapBox, preAlignTransform, type Affine, type Box } from '@nb/align';
 import type { PdfDocument } from '@nb/pdf-core';
-import type { Box, Difference } from './diff';
+import type { Difference } from './diff';
 import type { CompareWorkRequest, CompareWorkResult } from './compare.worker';
 import type { PagePair } from './pairing';
 export { pairPages, type PagePair } from './pairing';
-import { IDENTITY, mapBox, type Affine } from './affine';
-export * from './affine';
+export { IDENTITY, affineFromPoints, applyAffine, invertAffine, mapBox, type Affine } from '@nb/align';
 
 export interface CompareOptions {
   /** Rendering resolution. */
@@ -34,8 +34,6 @@ export interface CompareOptions {
    */
   transform?: Affine | null;
 }
-
-const isIdentity = (m: Affine) => m.every((v, i) => Math.abs(v - IDENTITY[i]!) < 1e-9);
 
 export const DEFAULT_COMPARE: CompareOptions = { dpi: 100, align: true, maxShift: 72, proximity: 1.5, sensitivity: 6, cluster: 12, graphics: true, text: true, region: null };
 
@@ -115,18 +113,12 @@ export async function comparePages(oldDoc: PdfDocument, newDoc: PdfDocument, pai
   const oldSize = oldDoc.pages[pair.oldPage]!;
   const newSize = newDoc.pages[pair.newPage]!;
   // Big sheets drop resolution so neither page goes over about 40 megapixels.
-  const longest = Math.max(oldSize.width, oldSize.height, newSize.width, newSize.height);
-  const scale = Math.min(options.dpi / 72, 7000 / longest);
+  const scale = alignRenderScale(oldSize, newSize, options.dpi);
   // The old page brought onto the new one before comparing: by hand, or scaled to fit.
-  let pre: Affine = options.transform ?? IDENTITY;
-  if (!options.transform && options.scaleToFit) {
-    const kx = newSize.width / oldSize.width;
-    const ky = newSize.height / oldSize.height;
-    if (Math.abs(kx - ky) / Math.max(kx, ky) < 0.03 && Math.abs(kx - 1) > 0.01) pre = [(kx + ky) / 2, 0, 0, (kx + ky) / 2, 0, 0];
-  }
+  const pre: Affine = preAlignTransform(oldSize, newSize, { transform: options.transform, scaleToFit: options.scaleToFit });
   let pixels: CompareWorkRequest['pixels'] = null;
   if (options.graphics || options.align) {
-    const [old, cur] = await Promise.all([renderPage(oldDoc, pair.oldPage, scale, isIdentity(pre) ? undefined : { width: newSize.width, height: newSize.height, map: pre }), renderPage(newDoc, pair.newPage, scale)]);
+    const [old, cur] = await Promise.all([renderPage(oldDoc, pair.oldPage, scale, isIdentityAffine(pre) ? undefined : { width: newSize.width, height: newSize.height, map: pre }), renderPage(newDoc, pair.newPage, scale)]);
     pixels = {
       old,
       cur,
@@ -146,7 +138,7 @@ export async function comparePages(oldDoc: PdfDocument, newDoc: PdfDocument, pai
   if (options.text) {
     const [rawOld, newWords] = await Promise.all([oldDoc.text(pair.oldPage), newDoc.text(pair.newPage)]);
     // Old words where they land on the new page before the offset.
-    const oldWords = isIdentity(pre)
+    const oldWords = isIdentityAffine(pre)
       ? rawOld
       : rawOld.map((w) => {
           const b = mapBox(pre, { x: w.x0, y: w.y0, w: w.x1 - w.x0, h: w.y1 - w.y0 });
@@ -166,6 +158,6 @@ export async function comparePages(oldDoc: PdfDocument, newDoc: PdfDocument, pai
     });
     ({ offset, differences, found } = result);
   }
-  const transform: Affine = [pre[0], pre[1], pre[2], pre[3], pre[4] + offset[0], pre[5] + offset[1]];
+  const transform: Affine = applyOffset(pre, offset);
   return { ...pair, offset, transform, differences, ...(found > differences.length ? { found } : {}) };
 }
