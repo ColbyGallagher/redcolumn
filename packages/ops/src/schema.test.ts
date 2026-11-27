@@ -86,6 +86,20 @@ test('a refusal says where', () => {
   assert.match(refused({ ...good.issue, payload: { ...good.issue.payload, title: 5 } }), /^payload\.title: /);
 });
 
+test('reserved keys anywhere in parsed input are refused, not silently dropped', () => {
+  const withProto = JSON.parse(
+    '{"opId":"op1","schemaVersion":1,"streamId":"s1","type":"markup.patch","entityId":"m1","basedOn":{"__proto__":0},"payload":{"set":{"text":"a"}}}',
+  );
+  assert.match(refused(withProto), /reserved/);
+  assert.match(refused({ ...good.create, payload: { ...good.create.payload, content: { style: { ...STYLE, constructor: 1 } } } }), /reserved/);
+  assert.match(refused({ ...good.create, payload: { ...good.create.payload, content: { style: { ...STYLE, ['a'.repeat(201)]: 1 } } } }), /style key/);
+});
+
+test('batchId and batchSize must be set together', () => {
+  assert.match(refused({ opId: 'op1', schemaVersion: 1, streamId: 's1', type: 'markup.delete', entityId: 'm1', batchId: 'b1', payload: {} }), /batchId and batchSize/);
+  assert.match(refused({ opId: 'op1', schemaVersion: 1, streamId: 's1', type: 'markup.delete', entityId: 'm1', batchSize: 1, payload: {} }), /batchId and batchSize/);
+});
+
 test('the package builds no code at run time and loads nothing Node- or DOM-only', () => {
   const dir = new URL('.', import.meta.url);
   const sources = ['apply', 'entities', 'fieldGroups', 'issue', 'markup', 'operations', 'placement', 'protocol', 'release', 'response', 'schema', 'state', 'status', 'index'];

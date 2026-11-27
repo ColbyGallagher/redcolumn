@@ -33,19 +33,25 @@ export function reduceMarkup(state: OpsState, op: MarkupOp, ctx: ApplyContext): 
   const set = op.payload.set ?? {};
   const fields = op.payload.fields ?? {};
   const groups = new Set<string>();
-  for (const key of Object.keys(set)) {
+  for (const [key, value] of Object.entries(set)) {
+    if (value === undefined) continue;
     if (!CONTENT.has(key) || key === 'fields') return invalid(`"${key}" cannot be set on a markup`);
     groups.add(contentGroupKey(key as Exclude<ContentKey, 'fields'>));
   }
-  if ('style' in set && !set.style) return invalid('A markup needs a style');
-  for (const column of Object.keys(fields)) groups.add(columnGroupKey(column));
+  if (set.style !== undefined && !set.style) return invalid('A markup needs a style');
+  let hasFields = false;
+  for (const [column, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    hasFields = true;
+    groups.add(columnGroupKey(column));
+  }
   if (!groups.size) return invalid('The patch changes nothing');
 
   const stale = staleGroups(current, groups, op.basedOn);
   if (stale.length) return reject({ code: 'conflict', conflicts: [{ kind: 'markup', id: current.id, groups: stale }] });
 
   let content: MarkupContent = patched(current.content, set);
-  if (Object.keys(fields).length) {
+  if (hasFields) {
     const columns = patched(current.content.fields ?? {}, fields);
     content = patched(content, { fields: Object.keys(columns).length ? columns : null });
   }

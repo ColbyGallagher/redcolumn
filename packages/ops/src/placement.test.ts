@@ -49,3 +49,10 @@ test("a placement's shape holds geometry only", () => {
   assert.equal(rejected(applyOp(state, op('placement.patch', 'p1', {}), ctx())).code, 'invalid');
   assert.equal(rejected(applyOp(state, place('p1'), ctx())).code, 'exists');
 });
+
+test('undefined geometry entries in placement.patch are ignored', () => {
+  const { state } = withMarkup();
+  assert.equal(rejected(applyOp(state, op('placement.patch', 'p1', { geometry: { rotation: undefined } }), ctx())).code, 'invalid');
+  const after = applyAll(state, [op('placement.patch', 'p1', { geometry: { points: undefined, rotation: 90 } }, { basedOn: { geometry: 0 } })]);
+  assert.equal(after.placements.p1!.geometry.rotation, 90);
+});

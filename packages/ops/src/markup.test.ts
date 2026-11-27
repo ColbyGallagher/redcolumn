@@ -99,6 +99,16 @@ test('null clears a field; style cannot be cleared', () => {
   assert.equal(r.code, 'invalid');
 });
 
+test('undefined entries in markup.patch are ignored', () => {
+  const { state } = withMarkup();
+  assert.equal(rejected(applyOp(state, op('markup.patch', 'm1', { set: { text: undefined } }), ctx())).code, 'invalid');
+  assert.equal(rejected(applyOp(state, op('markup.patch', 'm1', { fields: { cost: undefined } } as never), ctx())).code, 'invalid');
+  const after = applyAll(state, [op('markup.patch', 'm1', { set: { style: undefined, text: 'hi' }, fields: { cost: undefined } } as never, { basedOn: { text: 0 } })]);
+  assert.equal(after.markups.m1!.content.text, 'hi');
+  assert.equal(after.markups.m1!.versions.style, undefined);
+  assert.equal(after.markups.m1!.versions['fields.cost'], undefined);
+});
+
 test('fields outside content cannot be patched', () => {
   const { state } = withMarkup();
   for (const set of [{ points: [] }, { replies: [] }, { status: 'closed' }, { id: 'm9' }, { author: 'x' }, { fields: {} }, { pdfAnnot: {} }]) {

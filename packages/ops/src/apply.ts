@@ -65,10 +65,13 @@ export function applyBatch(state: OpsState, ops: readonly AnyOperation[], ctx: A
   if (ops.length > MAX_BATCH_SIZE) return fail(`A batch holds at most ${MAX_BATCH_SIZE} operations`);
   let next = state;
   const changes = new Map<string, Change>();
+  const seen = new Set<string>();
   for (const [index, op] of ops.entries()) {
     if (op.batchId === undefined || op.batchId !== first.batchId) return fail('Every operation in a batch has its batchId', index);
     if (op.batchSize !== ops.length) return fail('The batch size does not match', index);
     if (op.streamId !== first.streamId) return fail('A batch is in one stream', index);
+    if (seen.has(op.opId)) return fail('Duplicate opId in batch', index);
+    seen.add(op.opId);
   }
   for (const [index, op] of ops.entries()) {
     const result = applyOp(next, op, ctx);

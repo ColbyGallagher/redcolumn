@@ -43,11 +43,15 @@ export function reducePlacement(state: OpsState, op: PlacementOp, ctx: ApplyCont
 
   const { geometry, placed } = op.payload;
   const groups: string[] = [];
-  if (geometry && Object.keys(geometry).length) {
-    const bad = notGeometry(geometry);
-    if (bad) return invalid(`"${bad}" is not part of a placement's shape`);
-    if ('points' in geometry && !Array.isArray(geometry.points)) return invalid('A placement needs points');
-    groups.push('geometry');
+  if (geometry) {
+    let hasGeometry = false;
+    for (const [key, value] of Object.entries(geometry)) {
+      if (value === undefined) continue;
+      if (!GEOMETRY.has(key)) return invalid(`"${key}" is not part of a placement's shape`);
+      hasGeometry = true;
+    }
+    if (geometry.points !== undefined && !Array.isArray(geometry.points)) return invalid('A placement needs points');
+    if (hasGeometry) groups.push('geometry');
   }
   if (placed && Object.values(placed).some((v) => v !== undefined)) groups.push('state');
   if (!groups.length) return invalid('The patch changes nothing');

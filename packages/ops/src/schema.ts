@@ -51,7 +51,10 @@ const geometryEntries = (patch: boolean): v.ObjectEntries =>
     Object.entries(GEOMETRY_VALUES).map(([k, s]) => [k, k === 'points' ? (patch ? v.optional(s) : s) : v.optional(patch ? v.nullable(s) : s)]),
   );
 
-const Style = v.objectWithRest({ stroke: v.string(), fill: v.nullable(v.string()), width: Finite, opacity: Finite }, JsonSchema);
+const Style = v.pipe(
+  v.objectWithRest({ stroke: v.string(), fill: v.nullable(v.string()), width: Finite, opacity: Finite }, JsonSchema),
+  v.check((o) => Object.keys(o).every((k) => k.length >= 1 && k.length <= 200 && !RESERVED.has(k)), 'Invalid style key'),
+);
 const Columns = v.record(KeySchema, v.string());
 
 /**
@@ -84,7 +87,8 @@ const envelope = {
 const op = <T extends string, P extends v.GenericSchema>(type: T, payload: P) => v.strictObject({ ...envelope, type: v.literal(type), payload });
 
 /** Every operation a client may send. */
-export const OperationSchema = v.variant('type', [
+export const OperationSchema = v.pipe(
+  v.variant('type', [
   op('markup.create', v.strictObject({ scopeId: IdSchema, type: v.picklist(MARKUP_TYPE_IDS), content: v.strictObject(contentEntries(false)) })),
   op('markup.patch', v.strictObject({ set: v.optional(v.strictObject(contentEntries(true))), fields: v.optional(v.record(KeySchema, v.nullable(v.string()))) })),
   op('markup.delete', Empty),
@@ -162,7 +166,9 @@ export const OperationSchema = v.variant('type', [
       items: v.pipe(v.array(ItemRefSchema), v.minLength(1)),
     }),
   ),
-]);
+]),
+  v.check((o) => (o.batchId === undefined) === (o.batchSize === undefined), 'batchId and batchSize must be set together'),
+);
 
 /** Whether `value` nests no deeper than `max` arrays and objects. Iterative, so deep input cannot overflow the stack. */
 export function withinDepth(value: unknown, max: number): boolean {
@@ -176,11 +182,31 @@ export function withinDepth(value: unknown, max: number): boolean {
   return true;
 }
 
+/** Finds an own reserved property name anywhere in a parsed JSON value (iterative). */
+function findReservedKey(value: unknown): string | null {
+  const stack: unknown[] = [value];
+  while (stack.length) {
+    const item = stack.pop();
+    if (typeof item !== 'object' || item === null) continue;
+    if (Array.isArray(item)) {
+      for (const child of item) stack.push(child);
+      continue;
+    }
+    for (const key of Object.keys(item)) {
+      if (RESERVED.has(key)) return key;
+      stack.push((item as Record<string, unknown>)[key]);
+    }
+  }
+  return null;
+}
+
 export type ParseResult = { ok: true; op: Operation } | { ok: false; rejection: Extract<Rejection, { code: 'invalid' }> };
 
 /** Reads an operation a client sent (already parsed from JSON). Server-only operations are refused. */
 export function parseOperation(input: unknown): ParseResult {
   if (!withinDepth(input, MAX_DEPTH)) return { ok: false, rejection: { code: 'invalid', message: 'The operation is nested too deeply' } };
+  const reserved = findReservedKey(input);
+  if (reserved) return { ok: false, rejection: { code: 'invalid', message: `"${reserved}" is reserved` } };
   const result = v.safeParse(OperationSchema, input);
   if (result.success) return { ok: true, op: result.output as Operation };
   const issue = result.issues[0];

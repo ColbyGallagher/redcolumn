@@ -43,6 +43,13 @@ test('a batch is in one stream, with one batch id and its size', () => {
   assert.equal(applyBatch(emptyState(), [], ctx()).ok, false);
   const big = Array.from({ length: MAX_BATCH_SIZE + 1 }, (_, i) => op('markup.delete', `m${i}`, {}, batch(MAX_BATCH_SIZE + 1)));
   assert.equal(applyBatch(emptyState(), big, ctx()).ok, false);
+  const dup = [
+    { ...op('markup.create', 'm1', { scopeId: 's', type: 'rect', content: { style: STYLE } }, batch(2)), opId: 'same-op' },
+    { ...op('markup.patch', 'm1', { set: { text: 'a' } }, { ...batch(2), basedOn: { text: 0 } }), opId: 'same-op' },
+  ];
+  const dupRes = applyBatch(emptyState(), dup, ctx());
+  assert.equal(dupRes.ok, false);
+  assert.equal(dupRes.ok ? '' : dupRes.rejection.code, 'invalid');
 });
 
 test('an unknown operation type is invalid', () => {
