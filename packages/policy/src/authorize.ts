@@ -3,16 +3,26 @@ import {
   canDelegateGrant,
   canMemberCloseIssue,
   effectiveGrantsForMember,
+  expandRoleAssignment,
   findActiveMember,
   hasAtLeastOneActiveAdmin,
   matchesSubject,
   scopeCoversTarget,
   transitionMatches,
+  type DelegationScopes,
 } from './grants.ts';
 import { validateProcess, type ValidationIssue } from './validator.ts';
-import { canMemberAccessDocumentSet, memberLaneIds, metaOf, visibleVersionForMember } from './visibility.ts';
+import {
+  activeReleases,
+  canMemberAccessDocumentSet,
+  canMemberSeeVersion,
+  memberLaneIds,
+  metaOf,
+  visibleVersionForMember,
+} from './visibility.ts';
 import {
   own,
+  type DraftAccessRef,
   type GateConfig,
   type GateItemKind,
   type Grant,
@@ -62,6 +72,12 @@ export interface PolicyContext {
 /** Workflow and administrative actions beyond `@nb/ops` reducers. */
 export type PolicyAction =
   | { type: 'check.submit'; itemKind: ItemKind; itemId: string }
+  /** Approves the item's current revision so it may pass a gate that requires checking. */
+  | { type: 'check.approve'; itemKind: ItemKind; itemId: string }
+  /**
+   * Cross-lane checker actions. The gate is always worked out from the item's release records; a
+   * `gateId`, when given, must name that gate.
+   */
   | { type: 'check.return'; itemKind: ItemKind; itemId: string; gateId?: string }
   | { type: 'check.edit'; itemKind: ItemKind; itemId: string; gateId?: string }
   | { type: 'check.delete'; itemKind: ItemKind; itemId: string; gateId?: string }
@@ -70,8 +86,13 @@ export type PolicyAction =
   | { type: 'release.withdraw'; itemKind: ItemKind; itemId: string; laneIds: readonly string[] }
   | { type: 'issue.assign'; issueId: string; assigneeUserId: string | null }
   | { type: 'record.lock'; itemKind: ItemKind; itemId: string; locked: boolean }
-  | { type: 'process.update'; level: GrantLevel; nextProcess: ProcessConfig }
-  | { type: 'members.manage'; targetPartyId?: string | null; grantToDelegate?: Grant; nextProject?: ProjectConfig }
+  /** Replaces `ctx.process`. The level is the process's own kind; a `level`, when given, must match it. */
+  | { type: 'process.update'; level?: GrantLevel; nextProcess: ProcessConfig }
+  /**
+   * Changes one member's membership, grants or roles. `nextProject` is the whole resulting project
+   * and may differ from `ctx.project` only in `targetUserId`'s member entry, grants and roles.
+   */
+  | { type: 'members.manage'; targetUserId: string; nextProject: ProjectConfig; targetPartyId?: string | null; grantToDelegate?: Grant }
   | { type: 'revisions.manage' }
   | { type: 'register.issue'; audienceLaneIds?: readonly string[] }
   | { type: 'stage.accept_late' }
@@ -182,45 +203,95 @@ function hasScopedGrant(
   return grants.some((g) => g.action === action && scopeCoversTarget(g.scope, member, lanes, target));
 }
 
-/** Checks whether a member has an unreleased-check grant in the origin lane, or checker power across a gate. */
+const matchesDraftRef = (member: ProjectMember, ref: DraftAccessRef): boolean =>
+  ref.kind === 'user' ? member.userId === ref.id : member.groupIds.includes(ref.id);
+
+/**
+ * Whether `member` is an internal checker for `meta` in its originating lane: holds `check.review`
+ * covering the item, is one of its assigned checkers, or is a checker on `gate` (when given).
+ */
+function isInternalChecker(
+  member: ProjectMember,
+  lanes: readonly string[],
+  grants: readonly Grant[],
+  meta: ItemMeta,
+  gate?: GateConfig,
+): boolean {
+  if (!lanes.includes(meta.originLaneId)) return false;
+  if (grants.some((g) => g.action === 'check.review' && scopeCoversTarget(g.scope, member, lanes, meta))) return true;
+  if (meta.assignedCheckers.some((c) => matchesDraftRef(member, c))) return true;
+  return (gate?.checkers ?? []).some((c) => matchesDraftRef(member, c));
+}
+
+/**
+ * The gates `meta` actually came through into one of `lanes`: gates leaving the item's own origin
+ * lane, named by a release record to that lane that has not been withdrawn since.
+ */
+function arrivalGatesFromOrigin(meta: ItemMeta, process: ProcessConfig, lanes: readonly string[]): GateConfig[] {
+  return process.gates.filter(
+    (gate) =>
+      gate.fromLaneId === meta.originLaneId &&
+      gate.toLaneIds.some((l) => lanes.includes(l) && activeReleases(meta, l).some((r) => r.gateId === gate.id)),
+  );
+}
+
+type CheckerPower = 'editWording' | 'delete' | 'return' | 'addNotes';
+
+/**
+ * For a member outside the item's origin lane, the gate whose checker powers let them use `power`
+ * on it. The gate is worked out from the item's own release records, never from caller input, and
+ * the member needs `check.review` with a `lane` or `any` scope (covering the receiving lane).
+ */
+function crossLaneCheckerGate(
+  lanes: readonly string[],
+  grants: readonly Grant[],
+  meta: ItemMeta,
+  process: ProcessConfig,
+  power: CheckerPower,
+): GateConfig | undefined {
+  if (lanes.includes(meta.originLaneId)) return undefined;
+  const hasAuthority = grants.some((g) => g.action === 'check.review' && (g.scope === 'lane' || g.scope === 'any'));
+  if (!hasAuthority) return undefined;
+  return arrivalGatesFromOrigin(meta, process, lanes).find((g) => g.checkerPowers?.[power] === true);
+}
+
+/** Checks whether a member can check an unreleased item in its origin lane, or has checker power across a gate. */
 function canCheckItem(
   member: ProjectMember,
   lanes: readonly string[],
   grants: readonly Grant[],
   meta: ItemMeta,
   process: ProcessConfig,
-  power: 'editWording' | 'delete' | 'return' | 'addNotes',
-  explicitGateId?: string,
+  power: CheckerPower,
 ): boolean {
   // Case 1: internal check within the item's originating lane (unreleased across walls only).
-  if (lanes.includes(meta.originLaneId) && !isReleasedAcrossWall(meta)) {
-    const hasCheckGrant = grants.some(
-      (g) => g.action === 'check.review' && scopeCoversTarget(g.scope, member, lanes, meta),
-    );
-    const isAssignedChecker = meta.assignedCheckers.some((c) =>
-      c.kind === 'user' ? member.userId === c.id : member.groupIds.includes(c.id),
-    );
-    if (hasCheckGrant || isAssignedChecker) return true;
-  }
-
+  if (!isReleasedAcrossWall(meta) && isInternalChecker(member, lanes, grants, meta)) return true;
   // Case 2: cross-lane checker (e.g. independent certifier) acting on an item received through a gate.
-  const gateId = explicitGateId ?? meta.arrivedViaGateId ?? meta.checkedByGateId ?? null;
-  if (!gateId) return false;
-  const gate = process.gates.find((g) => g.id === gateId);
-  if (!gate || !gate.checkerPowers || !gate.checkerPowers[power]) return false;
-  // Actor must be in one of the gate's receiving lanes and have received this item in that lane.
-  const inReceivingLane = gate.toLaneIds.some(
-    (l) => lanes.includes(l) && (own(meta.releasesByLane, l)?.length ?? 0) > 0,
-  );
-  if (!inReceivingLane) return false;
-  // Require a check.review grant or review/coordinator/release role in that receiving lane.
-  return grants.some(
-    (g) =>
-      g.action === 'check.review' ||
-      g.action === 'release' ||
-      g.fromRole === 'lead_reviewer' ||
-      g.fromRole === 'review_coordinator',
-  );
+  return crossLaneCheckerGate(lanes, grants, meta, process, power) !== undefined;
+}
+
+/**
+ * The gate through which the acting member may use cross-lane checker `power` on an item, worked out
+ * from the item's release records. `undefined` when they have no such power.
+ */
+export function checkerGateFor(
+  ctx: PolicyContext,
+  itemKind: ItemKind,
+  itemId: string,
+  power: CheckerPower,
+): GateConfig | undefined {
+  const resolved = resolveActor(ctx);
+  if (!resolved.ok) return undefined;
+  const meta = metaOf(ctx.state, itemKind, itemId);
+  if (!meta) return undefined;
+  return crossLaneCheckerGate(resolved.lanes, resolved.grants, meta, ctx.process, power);
+}
+
+/** Whether the acting member is an internal checker for the item (see `check.approve`). */
+function canApprove(member: ProjectMember, lanes: readonly string[], grants: readonly Grant[], meta: ItemMeta, process: ProcessConfig): boolean {
+  const category = gateCategoryOf(meta.kind);
+  const gates = process.gates.filter((g) => g.fromLaneId === meta.originLaneId && g.itemKinds.includes(category));
+  return isInternalChecker(member, lanes, grants, meta) || gates.some((g) => isInternalChecker(member, lanes, grants, meta, g));
 }
 
 /**
@@ -427,27 +498,47 @@ function authorizeRelease(
     return deny({ code: 'invalid_state', detail: 'A release needs at least one target lane and one item' });
   }
 
-  // Every referenced item must exist and be visible to the actor (uniform not_found for hidden items).
-  const metas: ItemMeta[] = [];
+  // Every referenced item must exist and be visible to the actor, at the exact revision being
+  // released (uniform not_found for hidden items and hidden revisions).
+  const entries: { item: ItemRef; meta: ItemMeta }[] = [];
   for (const item of items) {
     const seen = requireVisibleMeta(member, item.kind, item.id, ctx);
     if (!seen.ok) return seen.decision;
+    if (!canMemberSeeVersion(member, seen.meta, item.rev, ctx.project, ctx.process)) return notFound(item.kind, item.id);
     if (seen.meta.checkingState === 'stopped') {
       return deny({ code: 'invalid_state', detail: `Item ${item.id} was stopped and cannot be released` });
     }
-    metas.push(seen.meta);
+    entries.push({ item, meta: seen.meta });
+  }
+  // Linked markups and placements that travel with a released issue get the same checks.
+  for (const item of linkedReleaseItems(member, activeLaneId, items, ctx)) {
+    entries.push({ item, meta: metaOf(ctx.state, item.kind, item.id)! });
   }
 
-  // Single-lane automatic/internal release: releasing to the actor's own lane needs no cross-lane gate.
+  // Sharing with the actor's own lane needs no gate, but only for items raised in that lane, within
+  // the actor's own editing or checking scope, and (unless the process shares everything on
+  // creation) only for someone who may release from that lane.
   const allSelfLane = toLaneIds.every((l) => l === activeLaneId);
   if (allSelfLane && gateId === null) {
+    for (const { item, meta } of entries) {
+      if (meta.originLaneId !== activeLaneId) {
+        return forbidden('release', `Item ${item.id} was not raised in lane "${activeLaneId}"`);
+      }
+      const inScope = (['comment.edit', 'comment.withdraw', 'check.review'] as const).some((a) =>
+        hasScopedGrant(grants, a, member, lanes, meta),
+      );
+      if (!inScope) return forbidden('release', `Item ${item.id} is outside the actor's editing scope`);
+    }
     if (ctx.process.autoReleaseOnCreate) return allow();
-    const canSelfRelease = grants.some((g) => g.action === 'release' || g.action === 'check.review');
+    const laneGateIds = new Set(ctx.process.gates.filter((g) => g.fromLaneId === activeLaneId).map((g) => g.id));
+    const canSelfRelease = grants.some(
+      (g) => g.action === 'release' && (g.gateIds === '*' || (g.gateIds ?? []).some((id) => laneGateIds.has(id))),
+    );
     return canSelfRelease ? allow() : forbidden('release');
   }
 
   // Cross-lane release: every item category must be allowed through the gate leaving the actor's lane.
-  for (const meta of metas) {
+  for (const { item, meta } of entries) {
     const category = gateCategoryOf(meta.kind);
     const gate = findMatchingGate(ctx.process, gateId, activeLaneId, toLaneIds, category);
     if (!gate) {
@@ -462,27 +553,81 @@ function authorizeRelease(
       return forbidden('release', `Actor may not release through gate "${gate.id}"`);
     }
 
-    // If the gate requires an internal check first, the item must not be an unchecked draft (unless the
-    // actor themselves is an authorized checker for this gate / lane).
-    if (gate.requiresCheck && meta.originLaneId === activeLaneId && meta.checkingState === 'draft') {
-      const isChecker = canCheckItem(member, lanes, grants, meta, ctx.process, 'editWording', gate.id) ||
-        (gate.checkers ?? []).some((c) => (c.kind === 'user' ? member.userId === c.id : member.groupIds.includes(c.id)));
-      if (!isChecker) {
+    // If the gate requires an internal check first, the exact revision must have been approved by a
+    // checker, unless the actor is an authorized checker for this item and gate.
+    if (gate.requiresCheck && meta.originLaneId === activeLaneId) {
+      const approved = meta.approvedRev != null && meta.approvedRev === item.rev;
+      if (!approved && !isInternalChecker(member, lanes, grants, meta, gate)) {
         return deny({ code: 'invalid_state', detail: `Gate "${gate.id}" requires checking before release` });
       }
     }
 
-    // If this item arrived in `activeLaneId` from another lane via a gate, check that the receiving
-    // gate grants `approve` (forwarding) power.
-    if (meta.originLaneId !== activeLaneId && meta.arrivedViaGateId) {
-      const arrivalGate = ctx.process.gates.find((g) => g.id === meta.arrivedViaGateId);
-      if (arrivalGate?.checkerPowers && !arrivalGate.checkerPowers.approve) {
-        return forbidden('release', `Gate "${arrivalGate.id}" does not permit forwarding items onward`);
+    // Forwarding an item raised in another lane: only a revision this lane received (or a checker
+    // edit made in this lane) may go on, and every gate it arrived through must allow forwarding.
+    if (meta.originLaneId !== activeLaneId) {
+      const received = activeReleases(meta, activeLaneId);
+      const edits = meta.checkerEditedRevs;
+      const ownCheckerEdit = edits !== undefined && Object.hasOwn(edits, item.rev) && edits[item.rev]?.laneId === activeLaneId;
+      if (!ownCheckerEdit && !received.some((r) => r.rev === item.rev)) {
+        return forbidden('release', `Revision ${item.rev} of ${item.id} was never released to lane "${activeLaneId}"`);
+      }
+      for (const rec of received) {
+        const arrivalGate = ctx.process.gates.find((g) => g.id === rec.gateId);
+        if (arrivalGate?.checkerPowers && !arrivalGate.checkerPowers.approve) {
+          return forbidden('release', `Gate "${arrivalGate.id}" does not permit forwarding items onward`);
+        }
       }
     }
   }
 
   return allow();
+}
+
+/**
+ * The markups and placements that travel with the issues in a release: those linked to a released
+ * issue that were raised in the releasing lane, at the revision the releaser can see. Markups from
+ * other lanes, and ones the releaser cannot see, stay out of the release.
+ */
+function linkedReleaseItems(
+  member: ProjectMember,
+  activeLaneId: string,
+  items: readonly ItemRef[],
+  ctx: PolicyContext,
+): ItemRef[] {
+  const listed = new Set(items.map((i) => `${i.kind}:${i.id}`));
+  const linked: ItemRef[] = [];
+  const add = (kind: 'markup' | 'placement', id: string): boolean => {
+    if (listed.has(`${kind}:${id}`)) return false;
+    const meta = metaOf(ctx.state, kind, id);
+    if (!meta || meta.originLaneId !== activeLaneId || meta.checkingState === 'stopped') return false;
+    const vis = visibleVersionForMember(member, meta, ctx.project, ctx.process);
+    if (!vis) return false;
+    listed.add(`${kind}:${id}`);
+    linked.push({ kind, id, rev: vis.rev });
+    return true;
+  };
+  for (const item of items) {
+    if (item.kind !== 'issue') continue;
+    const issue = own(ctx.state.ops.issues, item.id);
+    if (!issue) continue;
+    for (const markupId of issue.markupIds) {
+      if (!add('markup', markupId) && !listed.has(`markup:${markupId}`)) continue;
+      for (const placement of Object.values(ctx.state.ops.placements)) {
+        if (placement.markupId === markupId) add('placement', placement.id);
+      }
+    }
+  }
+  return linked;
+}
+
+/**
+ * The linked markups and placements (with revisions) that `authorizeOp` approved to travel with the
+ * issues in a `release.create`. The runner records releases for exactly these.
+ */
+export function releaseBundle(items: readonly ItemRef[], ctx: PolicyContext): ItemRef[] {
+  const resolved = resolveActor(ctx);
+  if (!resolved.ok) return [];
+  return linkedReleaseItems(resolved.member, resolved.activeLaneId, items, ctx);
 }
 
 /**
@@ -515,6 +660,22 @@ export function authorizeAction(action: PolicyAction, ctx: PolicyContext): Polic
         : forbidden('check.submit');
     }
 
+    case 'check.approve': {
+      const target = requireVisibleMeta(member, action.itemKind, action.itemId, ctx);
+      if (!target.ok) return target.decision;
+      const meta = target.meta;
+      if (meta.locked) return deny({ code: 'locked', reason: 'record_locked' });
+      if (!canApprove(member, lanes, grants, meta, ctx.process)) return forbidden('check.review');
+      if (meta.checkingState === 'stopped' || meta.checkingState === 'withdrawn') {
+        return deny({ code: 'invalid_state', detail: `Cannot approve an item in state "${meta.checkingState}"` });
+      }
+      // A checker approves only a revision they can actually see.
+      if (!canMemberSeeVersion(member, meta, meta.latestRev, ctx.project, ctx.process)) {
+        return forbidden('check.review', 'The current revision is not visible to the checker');
+      }
+      return allow();
+    }
+
     case 'check.return':
     case 'check.edit':
     case 'check.delete':
@@ -528,8 +689,16 @@ export function authorizeAction(action: PolicyAction, ctx: PolicyContext): Polic
         'check.delete': 'delete',
         'check.addNote': 'addNotes',
       } as const;
-      const ok = canCheckItem(member, lanes, grants, target.meta, ctx.process, powerMap[action.type], action.gateId);
-      return ok ? allow() : forbidden('check.review');
+      const power = powerMap[action.type];
+      if (!isReleasedAcrossWall(target.meta) && isInternalChecker(member, lanes, grants, target.meta)) {
+        return action.gateId === undefined ? allow() : forbidden('check.review', 'An internal check does not go through a gate');
+      }
+      const gate = crossLaneCheckerGate(lanes, grants, target.meta, ctx.process, power);
+      if (!gate) return forbidden('check.review');
+      if (action.gateId !== undefined && action.gateId !== gate.id) {
+        return forbidden('check.review', `Item did not arrive through gate "${action.gateId}"`);
+      }
+      return allow();
     }
 
     case 'check.override': {
@@ -558,6 +727,14 @@ export function authorizeAction(action: PolicyAction, ctx: PolicyContext): Polic
       if (target.meta.locked) return deny({ code: 'locked', reason: 'record_locked' });
       const hasWithdraw = hasScopedGrant(grants, 'comment.withdraw', member, lanes, target.meta);
       if (!hasWithdraw) return forbidden('comment.withdraw');
+      if (action.laneIds.length === 0) {
+        return deny({ code: 'invalid_state', detail: 'Must choose at least one lane to withdraw from' });
+      }
+      // Only a release still in force can be withdrawn: a withdrawal never shows a lane anything new.
+      const notReleased = action.laneIds.find((l) => activeReleases(target.meta, l).length === 0);
+      if (notReleased !== undefined) {
+        return deny({ code: 'invalid_state', detail: `Item is not currently released to lane "${notReleased}"` });
+      }
       // Actor must also be able to release to those lanes (withdrawing is a release).
       const canReleaseToAll = action.laneIds.every((toLaneId) => {
         if (toLaneId === target.meta.originLaneId) return true;
@@ -586,12 +763,31 @@ export function authorizeAction(action: PolicyAction, ctx: PolicyContext): Polic
     }
 
     case 'process.update': {
+      // The level is the kind of the process being changed, never the caller's claim.
+      const level: GrantLevel = ctx.process.kind;
+      if (action.level !== undefined && action.level !== level) {
+        return forbidden('process.change', `This is a ${level}, not a ${action.level}`);
+      }
       const canChange = grants.some(
-        (g) => g.action === 'process.change' && (g.processLevels ?? []).includes(action.level),
+        (g) => g.action === 'process.change' && (g.processLevels ?? []).includes(level),
       );
       if (!canChange) return forbidden('process.change');
-      const report = validateProcess(ctx.project, action.nextProcess, {
-        parentReview: action.level === 'session' ? ctx.parentReview ?? undefined : undefined,
+      const next = action.nextProcess;
+      if (next.id !== ctx.process.id || next.kind !== ctx.process.kind) {
+        return deny({ code: 'invalid_state', detail: 'A process update cannot change the process id or kind' });
+      }
+      const parentReviewId = ctx.process.parentReviewId ?? null;
+      if ((next.parentReviewId ?? null) !== parentReviewId) {
+        return deny({ code: 'invalid_state', detail: 'A process update cannot move a session to another review' });
+      }
+      if (parentReviewId !== null && ctx.parentReview?.id !== parentReviewId) {
+        return deny({
+          code: 'invalid_config',
+          issues: [{ severity: 'error', code: 'missing_parent_review', message: `Parent review "${parentReviewId}" is needed to check this session`, targetId: parentReviewId }],
+        });
+      }
+      const report = validateProcess(ctx.project, next, {
+        parentReview: parentReviewId !== null ? ctx.parentReview ?? undefined : undefined,
       });
       if (!report.valid) {
         return deny({ code: 'invalid_config', issues: report.errors });
@@ -599,26 +795,8 @@ export function authorizeAction(action: PolicyAction, ctx: PolicyContext): Polic
       return allow();
     }
 
-    case 'members.manage': {
-      const manageGrants = grants.filter((g) => g.action === 'members.manage');
-      if (manageGrants.length === 0) return forbidden('members.manage');
-      const hasAny = manageGrants.some((g) => g.memberScope === 'any');
-      const hasReview = manageGrants.some((g) => g.memberScope === 'review');
-      const hasOwnParty = manageGrants.some((g) => g.memberScope === 'party');
-      if (!hasAny) {
-        if (action.targetPartyId !== undefined && action.targetPartyId !== member.partyId && !hasReview) {
-          return forbidden('members.manage', 'Actor may only manage members of their own party');
-        }
-        if (!hasOwnParty && !hasReview) return forbidden('members.manage');
-      }
-      if (action.grantToDelegate && !canDelegateGrant(grants, action.grantToDelegate)) {
-        return forbidden('members.manage', 'Cannot delegate a grant wider than actor’s own authority');
-      }
-      if (action.nextProject && !hasAtLeastOneActiveAdmin(action.nextProject)) {
-        return deny({ code: 'invalid_state', detail: 'A project must always keep at least one active admin' });
-      }
-      return allow();
-    }
+    case 'members.manage':
+      return authorizeMembersManage(action, member, grants, ctx);
 
     case 'revisions.manage':
       return grants.some((g) => g.action === 'revisions.manage') ? allow() : forbidden('revisions.manage');
@@ -654,6 +832,86 @@ export function authorizeAction(action: PolicyAction, ctx: PolicyContext): Polic
       return allow();
     }
   }
+}
+
+const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+const isUserSubject = (subject: Grant['subject'], userId: string): boolean => subject.kind === 'user' && subject.id === userId;
+
+/**
+ * `members.manage`: the change is worked out from `nextProject` itself, so the manager's scope, the
+ * delegation limits and the last-admin rule always apply to what will actually be saved.
+ */
+function authorizeMembersManage(
+  action: Extract<PolicyAction, { type: 'members.manage' }>,
+  member: ProjectMember,
+  grants: readonly Grant[],
+  ctx: PolicyContext,
+): PolicyDecision {
+  const manageGrants = grants.filter((g) => g.action === 'members.manage');
+  if (manageGrants.length === 0) return forbidden('members.manage');
+  const { targetUserId, nextProject } = action;
+  const before = ctx.project;
+
+  // Only the target's member entry, grants and roles may change.
+  const { members: _bm, grants: _bg, roles: _br, ...beforeRest } = before;
+  const { members: _am, grants: _ag, roles: _ar, ...afterRest } = nextProject;
+  const othersOf = (p: ProjectConfig) => p.members.filter((m) => m.userId !== targetUserId);
+  const othersGrants = (p: ProjectConfig) => p.grants.filter((g) => !isUserSubject(g.subject, targetUserId));
+  const othersRoles = (p: ProjectConfig) => (p.roles ?? []).filter((r) => !isUserSubject(r.subject, targetUserId));
+  if (
+    !sameJson(beforeRest, afterRest) ||
+    !sameJson(othersOf(before), othersOf(nextProject)) ||
+    !sameJson(othersGrants(before), othersGrants(nextProject)) ||
+    !sameJson(othersRoles(before), othersRoles(nextProject))
+  ) {
+    return forbidden('members.manage', 'The change may only touch the target member');
+  }
+
+  const targetBefore = before.members.find((m) => m.userId === targetUserId);
+  const targetAfter = nextProject.members.find((m) => m.userId === targetUserId);
+  if (!targetBefore && !targetAfter) return deny({ code: 'invalid_state', detail: 'Unknown target member' });
+
+  // The target's party, before and after (and as named by the caller), must be inside the manager's scope.
+  const targetParties = new Set<string | null>();
+  if (targetBefore) targetParties.add(targetBefore.partyId);
+  if (targetAfter) targetParties.add(targetAfter.partyId);
+  if (action.targetPartyId !== undefined) targetParties.add(action.targetPartyId);
+
+  const hasAny = manageGrants.some((g) => g.memberScope === 'any');
+  if (!hasAny) {
+    const ownParty =
+      manageGrants.some((g) => g.memberScope === 'party') &&
+      member.partyId !== null &&
+      [...targetParties].every((p) => p === member.partyId);
+    // `review` scope: people taking part in this review (a member of one of its lanes, before or after).
+    const inReview =
+      manageGrants.some((g) => g.memberScope === 'review') &&
+      [targetBefore, targetAfter].some((m) => m !== undefined && memberLaneIds(m, ctx.process).length > 0);
+    if (!ownParty && !inReview) {
+      return forbidden('members.manage', 'Target member is outside the actor’s member scope');
+    }
+  }
+
+  // Every grant the target gains (directly or through a role) must be one the actor may delegate.
+  const scopes: DelegationScopes = {
+    parentReviewOf: (sessionId) =>
+      ctx.process.kind === 'session' && ctx.process.id === sessionId ? ctx.process.parentReviewId : undefined,
+  };
+  const targetGrants = (p: ProjectConfig): Grant[] => [
+    ...p.grants.filter((g) => isUserSubject(g.subject, targetUserId)),
+    ...(p.roles ?? []).filter((r) => isUserSubject(r.subject, targetUserId)).flatMap(expandRoleAssignment),
+  ];
+  const had = new Set(targetGrants(before).map((g) => JSON.stringify(g)));
+  const gained = targetGrants(nextProject).filter((g) => !had.has(JSON.stringify(g)));
+  if (action.grantToDelegate) gained.push(action.grantToDelegate);
+  if (gained.some((g) => !canDelegateGrant(grants, g, scopes))) {
+    return forbidden('members.manage', 'Cannot delegate a grant wider than actor’s own authority');
+  }
+  if (!hasAtLeastOneActiveAdmin(nextProject)) {
+    return deny({ code: 'invalid_state', detail: 'A project must always keep at least one active admin' });
+  }
+  return allow();
 }
 
 /** UI helper: summarizes which high-level actions an actor may perform on a visible item. */

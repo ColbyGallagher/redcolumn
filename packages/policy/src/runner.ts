@@ -12,7 +12,16 @@ import {
   type Operation,
   type Rejection,
 } from '@nb/ops';
-import { authorizeAction, authorizeOp, type PolicyContext, type PolicyDecision, type PolicyDenyReason } from './authorize.ts';
+import {
+  authorizeAction,
+  authorizeOp,
+  checkerGateFor,
+  gateCategoryOf,
+  releaseBundle,
+  type PolicyContext,
+  type PolicyDecision,
+  type PolicyDenyReason,
+} from './authorize.ts';
 import { findActiveMember } from './grants.ts';
 import {
   itemKey,
@@ -28,7 +37,7 @@ import {
   type ReleasedVersionRecord,
   type VersionSnapshots,
 } from './types.ts';
-import { memberLaneIds, metaOf } from './visibility.ts';
+import { activeReleases, memberLaneIds, metaOf, visibleVersionForMember } from './visibility.ts';
 import { scanViewForCanaries, viewAs, viewAsPerspective, type ProjectedView } from './viewAs.ts';
 
 // Pure stateful execution engine + scenario script runner.
@@ -88,6 +97,7 @@ export type ScenarioAction =
   | { type: 'deleteItem'; kind: ItemKind; id: string }
   | { type: 'restoreItem'; kind: ItemKind; id: string }
   | { type: 'submit'; kind: ItemKind; id: string }
+  | { type: 'approve'; kind: ItemKind; id: string }
   | { type: 'returnItem'; kind: ItemKind; id: string; note?: string; gateId?: string }
   | { type: 'overrideChecker'; kind: ItemKind; id: string; overrideKind: 'return' | 'edit' | 'delete'; label?: string }
   | {
@@ -165,6 +175,7 @@ export function executeAction(
   });
 
   const actor = actorOfMember(project, actorUserId);
+  const ownerGroupIds = [...(findActiveMember(project, actorUserId)?.groupIds ?? [])];
   const laneId = defaultLaneOf(project, process, actorUserId);
 
   const applyCtx = (): ApplyContext => ({
@@ -238,6 +249,7 @@ export function executeAction(
         scopeId: process.id,
         originLaneId: laneId!,
         owner: actor!,
+        ownerGroupIds,
         draftVisibility: draftVis,
         checkingState: process.autoReleaseOnCreate ? 'released' : 'draft',
         assignedCheckers: action.assignedCheckers ?? gateCheckers,
@@ -347,6 +359,7 @@ export function executeAction(
         scopeId: process.id,
         originLaneId: laneId!,
         owner: actor!,
+        ownerGroupIds,
         draftVisibility: draftVis,
         checkingState: process.autoReleaseOnCreate ? 'released' : 'draft',
         assignedCheckers: action.assignedCheckers ?? gateCheckers,
@@ -400,11 +413,13 @@ export function executeAction(
       const updated = own(applied.state.issues, action.id)!;
       let meta = metaOf(state, 'issue', action.id)!;
       const isCrossLaneChecker = laneId !== meta.originLaneId;
+      // The gate is the one the item actually arrived through (authorization required its powers).
+      const checkerGate = isCrossLaneChecker ? checkerGateFor(policyCtx(state), 'issue', action.id, 'editWording') : undefined;
+      const checkerGateId = checkerGate?.id ?? '';
+      const visibleToOriginator = checkerGate?.checkerPowers?.originatorSeesEdits ?? false;
 
       if (isCrossLaneChecker) {
-        const gateId = meta.arrivedViaGateId ?? meta.checkedByGateId ?? '';
-        const gate = process.gates.find((g) => g.id === gateId);
-        const visibleToOriginator = gate?.checkerPowers?.originatorSeesEdits ?? false;
+        const gateId = checkerGateId;
         const checkerEditedRevs = {
           ...(meta.checkerEditedRevs ?? {}),
           [updated.rev]: { laneId: laneId!, gateId, by: actor!, visibleToOriginator },
@@ -465,14 +480,7 @@ export function executeAction(
                 ? {
                     checkerEditedRevs: {
                       ...(mMeta.checkerEditedRevs ?? {}),
-                      [mUpdated.rev]: {
-                        laneId: laneId!,
-                        gateId: meta.arrivedViaGateId ?? meta.checkedByGateId ?? '',
-                        by: actor!,
-                        visibleToOriginator:
-                          process.gates.find((g) => g.id === (meta.arrivedViaGateId ?? meta.checkedByGateId))?.checkerPowers
-                            ?.originatorSeesEdits ?? false,
-                      },
+                      [mUpdated.rev]: { laneId: laneId!, gateId: checkerGateId, by: actor!, visibleToOriginator },
                     },
                   }
                 : {}),
@@ -570,10 +578,32 @@ export function executeAction(
       if (denied) return denied;
       let meta = metaOf(state, action.kind, action.id)!;
       meta = appendHistory(
-        { ...meta, checkingState: 'submitted' },
+        { ...meta, checkingState: 'submitted', approvedRev: null },
         { at: now, actor: actor!, laneId: laneId!, action: 'submit', rev: meta.latestRev, visibleToLaneIds: [laneId!] },
       );
       return { ok: true, state: withMeta(state, meta) };
+    }
+
+    case 'approve': {
+      const denied = checkDecision(
+        authorizeAction({ type: 'check.approve', itemKind: action.kind, itemId: action.id }, policyCtx(state)),
+        state,
+      );
+      if (denied) return denied;
+      const meta = metaOf(state, action.kind, action.id)!;
+      let next = withMeta(
+        state,
+        appendHistory(
+          { ...meta, checkingState: 'approved', approvedRev: meta.latestRev },
+          { at: now, actor: actor!, laneId: laneId!, action: 'approve', rev: meta.latestRev, visibleToLaneIds: [laneId!] },
+        ),
+      );
+      // The check covers the linked markups and placements that would travel with this item.
+      for (const linked of releaseBundle([{ kind: action.kind, id: action.id, rev: meta.latestRev }], policyCtx(state))) {
+        const lMeta = metaOf(next, linked.kind, linked.id)!;
+        next = withMeta(next, { ...lMeta, checkingState: 'approved', approvedRev: linked.rev });
+      }
+      return { ok: true, state: next };
     }
 
     case 'returnItem': {
@@ -586,12 +616,14 @@ export function executeAction(
       );
       if (denied) return denied;
       let meta = metaOf(state, action.kind, action.id)!;
-      const gateId = action.gateId ?? meta.arrivedViaGateId ?? meta.checkedByGateId ?? null;
+      // A cross-lane return records the gate the item actually came through; an internal one has none.
+      const gateId = checkerGateFor(policyCtx(state), action.kind, action.id, 'return')?.id ?? null;
       const visibleTo = [...new Set([meta.originLaneId, laneId!])];
       meta = appendHistory(
         {
           ...meta,
           checkingState: 'returned',
+          approvedRev: null,
           checkedByGateId: gateId,
           checkingLaneId: laneId!,
           returnNote: action.note ?? null,
@@ -625,6 +657,7 @@ export function executeAction(
         {
           ...meta,
           checkingState: 'submitted',
+          approvedRev: null,
           overridden: { kind: action.overrideKind, by: actor!, at: now, label },
         },
         {
@@ -671,90 +704,70 @@ export function executeAction(
         if (!applied.ok) return { ok: false, error: applied.rejection };
 
         let next: PolicyState = { ...s, ops: applied.state };
-        const effectiveGate =
+        // The linked markups and placements authorization approved to travel with the issues.
+        const bundle = releaseBundle(sortedRefs, policyCtx(s));
+        const gateFor = (kind: ItemKind) =>
           action.gateId !== null
             ? process.gates.find((g) => g.id === action.gateId)
             : process.gates.find(
-                (g) => g.fromLaneId === laneId! && action.toLaneIds.every((t) => g.toLaneIds.includes(t)),
+                (g) =>
+                  g.fromLaneId === laneId! &&
+                  g.itemKinds.includes(gateCategoryOf(kind)) &&
+                  action.toLaneIds.every((t) => g.toLaneIds.includes(t)),
               );
 
-        for (const item of sortedRefs) {
-          let meta = metaOf(next, item.kind, item.id)!;
+        const recordRelease = (st: PolicyState, ref: ItemRef): PolicyState => {
+          let meta = metaOf(st, ref.kind, ref.id)!;
+          const gate = gateFor(ref.kind);
           const releasesByLane: Record<string, ReleasedVersionRecord[]> = {};
           for (const [l, list] of Object.entries(meta.releasesByLane)) releasesByLane[l] = [...list];
-
-          let crossedWall = false;
           for (const targetLane of action.toLaneIds) {
-            if (targetLane !== meta.originLaneId) crossedWall = true;
             const list = releasesByLane[targetLane] ?? [];
-            list.push({
-              releaseId: relId,
-              rev: item.rev,
-              fromLaneId: laneId!,
-              gateId: effectiveGate?.id ?? action.gateId,
-              at: now,
-              by: actor!,
-            });
+            list.push({ releaseId: relId, rev: ref.rev, fromLaneId: laneId!, gateId: gate?.id ?? action.gateId, at: now, by: actor! });
             releasesByLane[targetLane] = list;
           }
-
-          const hasCheckerPowers = Boolean(effectiveGate?.checkerPowers);
+          // Checker powers come only from a gate leaving the item's own origin lane.
+          const checkerGate = gate?.checkerPowers && gate.fromLaneId === meta.originLaneId ? gate : undefined;
           meta = appendHistory(
             {
               ...meta,
               checkingState: 'released',
               releasesByLane,
-              arrivedViaGateId: hasCheckerPowers ? effectiveGate!.id : meta.arrivedViaGateId,
-              checkingLaneId: hasCheckerPowers ? action.toLaneIds[0] ?? meta.checkingLaneId : meta.checkingLaneId,
+              withdrawnInLanes: (meta.withdrawnInLanes ?? []).filter((l) => !action.toLaneIds.includes(l)),
+              arrivedViaGateId: checkerGate ? checkerGate.id : meta.arrivedViaGateId,
+              checkingLaneId: checkerGate ? action.toLaneIds[0] ?? meta.checkingLaneId : meta.checkingLaneId,
             },
-            {
-              at: now,
-              actor: actor!,
-              laneId: laneId!,
-              action: 'release',
-              rev: item.rev,
-              visibleToLaneIds: [laneId!],
-            },
+            { at: now, actor: actor!, laneId: laneId!, action: 'release', rev: ref.rev, visibleToLaneIds: [laneId!] },
           );
-          next = withMeta(next, meta);
+          return withMeta(st, meta);
+        };
 
-          // Automatically include linked markups & placements when releasing an issue.
+        for (const item of sortedRefs) {
+          next = recordRelease(next, item);
           if (item.kind === 'issue') {
-            const issueRec = own(next.ops.issues, item.id);
-            if (issueRec) {
-              for (const mid of issueRec.markupIds) {
-                const mMeta = metaOf(next, 'markup', mid);
-                const mRec = own(next.ops.markups, mid);
-                if (mMeta && mRec) {
-                  const mRels: Record<string, ReleasedVersionRecord[]> = {};
-                  for (const [l, list] of Object.entries(mMeta.releasesByLane)) mRels[l] = [...list];
-                  for (const targetLane of action.toLaneIds) {
-                    const list = mRels[targetLane] ?? [];
-                    list.push({ releaseId: relId, rev: mRec.rev, fromLaneId: laneId!, gateId: effectiveGate?.id ?? action.gateId, at: now, by: actor! });
-                    mRels[targetLane] = list;
-                  }
-                  next = withMeta(next, { ...mMeta, checkingState: 'released', releasesByLane: mRels });
-                }
-                for (const placement of Object.values(next.ops.placements)) {
-                  if (placement.markupId !== mid) continue;
-                  const pMeta = metaOf(next, 'placement', placement.id);
-                  if (!pMeta) continue;
-                  const pRels: Record<string, ReleasedVersionRecord[]> = {};
-                  for (const [l, list] of Object.entries(pMeta.releasesByLane)) pRels[l] = [...list];
-                  for (const targetLane of action.toLaneIds) {
-                    const list = pRels[targetLane] ?? [];
-                    list.push({ releaseId: relId, rev: placement.rev, fromLaneId: laneId!, gateId: effectiveGate?.id ?? action.gateId, at: now, by: actor! });
-                    pRels[targetLane] = list;
-                  }
-                  next = withMeta(next, { ...pMeta, checkingState: 'released', releasesByLane: pRels });
-                }
-              }
-            }
+            const crossedWall = action.toLaneIds.some((t) => t !== metaOf(next, 'issue', item.id)!.originLaneId);
             if (crossedWall && process.numberingMode === 'on_first_crossing') {
+              const before = own(next.ops.issues, item.id)!.rev;
               next = assignNumberIfNeeded(next, item.id);
+              const numberedRev = own(next.ops.issues, item.id)!.rev;
+              if (numberedRev !== before) {
+                // Numbering adds a revision with the released content plus its number: that revision
+                // is what this release shows, and an approval of the released revision carries over.
+                const nMeta = metaOf(next, 'issue', item.id)!;
+                const releasesByLane: Record<string, ReleasedVersionRecord[]> = {};
+                for (const [l, list] of Object.entries(nMeta.releasesByLane)) {
+                  releasesByLane[l] = list.map((r) => (r.releaseId === relId && r.rev === before ? { ...r, rev: numberedRev } : r));
+                }
+                next = withMeta(next, {
+                  ...nMeta,
+                  releasesByLane,
+                  approvedRev: nMeta.approvedRev === before ? numberedRev : nMeta.approvedRev,
+                });
+              }
             }
           }
         }
+        for (const linked of bundle) next = recordRelease(next, linked);
         return { ok: true, state: next };
       };
 
@@ -800,10 +813,13 @@ export function executeAction(
       const releasesByLane: Record<string, ReleasedVersionRecord[]> = {};
       for (const [l, list] of Object.entries(meta.releasesByLane)) releasesByLane[l] = [...list];
       for (const targetLane of action.laneIds) {
+        // The withdrawal names the revision the lane last received (authorization requires one), so it
+        // can never point a lane at a revision it was not given.
+        const lastReleased = activeReleases(meta, targetLane).at(-1)!.rev;
         const list = releasesByLane[targetLane] ?? [];
         list.push({
           releaseId: `withdraw_${nextOpId()}`,
-          rev: meta.latestRev,
+          rev: lastReleased,
           fromLaneId: laneId!,
           gateId: null,
           at: now,
@@ -812,17 +828,19 @@ export function executeAction(
         });
         releasesByLane[targetLane] = list;
       }
-      meta = appendHistory(
-        { ...meta, checkingState: 'withdrawn', withdrawnInLanes, releasesByLane },
-        {
+      // One history entry per lane, naming the revision that lane had, so no lane learns of another's.
+      const history: ItemHistoryEntry[] = [...meta.history];
+      for (const targetLane of new Set(action.laneIds)) {
+        history.push({
           at: now,
           actor: actor!,
           laneId: laneId!,
           action: 'withdraw',
-          rev: meta.latestRev,
-          visibleToLaneIds: [...new Set([laneId!, ...action.laneIds])],
-        },
-      );
+          rev: activeReleases(meta, targetLane).at(-1)!.rev,
+          visibleToLaneIds: [...new Set([laneId!, targetLane])],
+        });
+      }
+      meta = { ...meta, checkingState: 'withdrawn', withdrawnInLanes, releasesByLane, history };
       return { ok: true, state: withMeta(state, meta) };
     }
 
@@ -850,6 +868,7 @@ export function executeAction(
         scopeId: process.id,
         originLaneId: laneId!,
         owner: actor!,
+        ownerGroupIds,
         draftVisibility: draftVis,
         checkingState: process.autoReleaseOnCreate ? 'released' : 'draft',
         assignedCheckers: [],
@@ -912,6 +931,7 @@ export function executeAction(
         scopeId: process.id,
         originLaneId: laneId!,
         owner: actor!,
+        ownerGroupIds,
         draftVisibility: draftVis,
         checkingState: process.autoReleaseOnCreate ? 'released' : 'draft',
         assignedCheckers: [],
@@ -955,17 +975,27 @@ export function executeAction(
       const denied = checkDecision(authorizeAction({ type: 'revisions.manage' }, policyCtx(state)), state);
       if (denied) return denied;
 
+      const member = findActiveMember(project, actorUserId)!;
       let next = state;
       for (const issue of Object.values(state.ops.issues)) {
         if (issue.deleted) continue;
         const issueMeta = metaOf(next, 'issue', issue.id);
         if (!issueMeta || issueMeta.scopeId !== process.id) continue;
-        const laneStatus = own(own(next.ops.laneStatus, issue.id), laneId!)?.status ?? issueMeta.initialStatus;
+        // Only issues the actor can see are carried, judged by the status in the lane they see it through.
+        const issueVis = visibleVersionForMember(member, issueMeta, project, process);
+        if (!issueVis) continue;
+        const laneStatus = own(own(next.ops.laneStatus, issue.id), issueVis.viaLaneId)?.status ?? issueMeta.initialStatus;
         const def = laneStatus ? statusDef(project.statuses, laneStatus) : undefined;
         if (def && def.category !== 'open') continue;
 
         for (const markupId of issue.markupIds) {
-          const origPlacement = Object.values(next.ops.placements).find((p) => p.markupId === markupId);
+          const mMeta = metaOf(next, 'markup', markupId);
+          if (!mMeta || !visibleVersionForMember(member, mMeta, project, process)) continue;
+          const origPlacement = Object.values(next.ops.placements).find((p) => {
+            if (p.markupId !== markupId) return false;
+            const m = metaOf(next, 'placement', p.id);
+            return m !== undefined && visibleVersionForMember(member, m, project, process) !== null;
+          });
           if (!origPlacement) continue;
           const newPlacementId = `${markupId}_p_${action.revisionId}`;
           const pOp = makeOp('placement.create', newPlacementId, {
@@ -980,12 +1010,30 @@ export function executeAction(
           const pApplied = applyOp(next.ops, pOp, applyCtx());
           if (!pApplied.ok) continue;
           const pRec = own(pApplied.state.placements, newPlacementId)!;
-          const mMeta = metaOf(next, 'markup', markupId)!;
+          // Fresh metadata on the placement's own revisions: each lane the markup is currently released
+          // to gets the new placement's revision, and nothing else carries over.
+          const releasesByLane: Record<string, ReleasedVersionRecord[]> = {};
+          for (const l of Object.keys(mMeta.releasesByLane)) {
+            if (activeReleases(mMeta, l).length === 0) continue;
+            releasesByLane[l] = [
+              { releaseId: `carry_${newPlacementId}`, rev: pRec.rev, fromLaneId: laneId!, gateId: null, at: now, by: actor! },
+            ];
+          }
           const pMeta: ItemMeta = {
-            ...mMeta,
             kind: 'placement',
             id: newPlacementId,
+            scopeId: process.id,
+            originLaneId: mMeta.originLaneId,
+            owner: mMeta.owner,
+            ...(mMeta.ownerGroupIds ? { ownerGroupIds: mMeta.ownerGroupIds } : {}),
+            draftVisibility: mMeta.draftVisibility,
+            checkingState: mMeta.checkingState,
+            assignedCheckers: mMeta.assignedCheckers,
+            releasesByLane,
             latestRev: pRec.rev,
+            history: [
+              { at: now, actor: actor!, laneId: laneId!, action: 'create', rev: pRec.rev, visibleToLaneIds: [laneId!] },
+            ],
           };
           next = withMeta(
             { ...next, ops: pApplied.state, versions: withSnapshot(next.versions, 'placement', newPlacementId, pRec.rev, pRec) },

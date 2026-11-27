@@ -159,14 +159,22 @@ export function effectiveGrantsForMember(
     if (!matchesSubject(member, g.subject, memberLaneIds)) return false;
     if (g.level === 'project') return true;
     if (!process) return false;
-    if (g.level === 'review') {
-      return g.scopeId === process.id || (process.parentReviewId !== undefined && g.scopeId === process.parentReviewId);
-    }
-    if (g.level === 'session') {
-      return process.kind === 'session' && g.scopeId === process.id;
-    }
+    if (g.level === 'review') return appliesAtReviewLevel(g.scopeId, process);
+    if (g.level === 'session') return appliesAtSessionLevel(g.scopeId, process);
     return false;
   });
+}
+
+/** Whether a review-level grant or role with `scopeId` applies in `process`. A missing scope id applies nowhere. */
+function appliesAtReviewLevel(scopeId: string | undefined, process: ProcessConfig): boolean {
+  if (scopeId === undefined) return false;
+  if (scopeId === process.id) return true;
+  return process.parentReviewId != null && scopeId === process.parentReviewId;
+}
+
+/** Whether a session-level grant or role with `scopeId` applies in `process`. A missing scope id applies nowhere. */
+function appliesAtSessionLevel(scopeId: string | undefined, process: ProcessConfig): boolean {
+  return scopeId !== undefined && process.kind === 'session' && scopeId === process.id;
 }
 
 /** Returns the set of role preset ids held by `member` in `project` / `process`. */
@@ -182,9 +190,9 @@ export function effectiveRolesForMember(
     if (!matchesSubject(member, r.subject, memberLaneIds)) continue;
     if (r.level === 'project') {
       roles.add(r.role);
-    } else if (process && r.level === 'review' && (r.scopeId === process.id || r.scopeId === process.parentReviewId)) {
+    } else if (process && r.level === 'review' && appliesAtReviewLevel(r.scopeId, process)) {
       roles.add(r.role);
-    } else if (process && r.level === 'session' && process.kind === 'session' && r.scopeId === process.id) {
+    } else if (process && r.level === 'session' && appliesAtSessionLevel(r.scopeId, process)) {
       roles.add(r.role);
     }
   }
@@ -194,14 +202,18 @@ export function effectiveRolesForMember(
   return roles;
 }
 
-/** Whether `grantScope` covers a target with `owner` and `originLaneId` for `member`. */
+/**
+ * Whether `grantScope` covers a target with `owner` and `originLaneId` for `member`.
+ * Every scope covers the member's own items; `group` matches any of the owner's groups.
+ */
 export function scopeCoversTarget(
   grantScope: GrantScope | undefined,
   member: ProjectMember,
   memberLaneIds: readonly string[],
-  target: { owner: Actor; originLaneId: string },
+  target: { owner: Actor; originLaneId: string; ownerGroupIds?: readonly string[] },
 ): boolean {
   if (!grantScope) return false;
+  if (member.userId === target.owner.userId) return true;
   switch (grantScope) {
     case 'any':
       return true;
@@ -209,10 +221,12 @@ export function scopeCoversTarget(
       return memberLaneIds.includes(target.originLaneId);
     case 'party':
       return member.partyId !== null && target.owner.partyId !== null && member.partyId === target.owner.partyId;
-    case 'group':
-      return target.owner.groupId !== null && member.groupIds.includes(target.owner.groupId);
+    case 'group': {
+      const ownerGroups = target.ownerGroupIds ?? (target.owner.groupId !== null ? [target.owner.groupId] : []);
+      return ownerGroups.some((g) => member.groupIds.includes(g));
+    }
     case 'own':
-      return member.userId === target.owner.userId;
+      return false;
   }
 }
 
@@ -296,30 +310,73 @@ export function canMemberCloseIssue(
   return { allowed: true };
 }
 
-const SCOPE_RANK: Readonly<Record<GrantScope, number>> = {
-  own: 1,
-  group: 2,
-  party: 3,
-  lane: 4,
-  any: 5,
-};
+/**
+ * Whether item scope `held` includes every item `wanted` covers. Scopes other than `any` are not
+ * nested (a `party` grant can reach outside the holder's lane, a `lane` grant can reach other
+ * parties), so only `any`, the same scope, and `own` (covered by every scope) are included.
+ */
+function itemScopeIncludes(held: GrantScope | undefined, wanted: GrantScope): boolean {
+  if (held === undefined) return false;
+  return held === 'any' || held === wanted || wanted === 'own';
+}
+
+const MEMBER_SCOPE_RANK = { party: 1, review: 2, any: 3 } as const;
+
+/** Where a grant's level and scope id sit, for checking that a delegated grant stays inside its source. */
+export interface DelegationScopes {
+  /** The parent review of a session id, when known. */
+  parentReviewOf?: (sessionId: string) => string | null | undefined;
+}
+
+/** Whether a grant at (`held.level`, `held.scopeId`) covers everything at (`wanted.level`, `wanted.scopeId`). */
+function levelIncludes(held: Grant, wanted: Grant, scopes: DelegationScopes): boolean {
+  if (held.level === 'project') return true;
+  if (wanted.level === 'project') return false;
+  if (held.scopeId === undefined || wanted.scopeId === undefined) return false;
+  if (held.level === 'review') {
+    if (wanted.level === 'review') return wanted.scopeId === held.scopeId;
+    return scopes.parentReviewOf?.(wanted.scopeId) === held.scopeId;
+  }
+  return wanted.level === 'session' && wanted.scopeId === held.scopeId;
+}
+
+/** Whether `held` is at least as wide as `wanted` on every dimension a grant can widen. */
+function grantIncludes(held: Grant, wanted: Grant, scopes: DelegationScopes): boolean {
+  if (held.action !== wanted.action) return false;
+  if (!levelIncludes(held, wanted, scopes)) return false;
+  if (wanted.scope !== undefined && !itemScopeIncludes(held.scope, wanted.scope)) return false;
+  if (wanted.memberScope !== undefined) {
+    if (held.memberScope === undefined || MEMBER_SCOPE_RANK[held.memberScope] < MEMBER_SCOPE_RANK[wanted.memberScope]) {
+      return false;
+    }
+  }
+  if (wanted.processLevels !== undefined) {
+    const heldLevels = held.processLevels ?? [];
+    if (!wanted.processLevels.every((l) => heldLevels.includes(l))) return false;
+  }
+  return true;
+}
 
 /**
- * Checks whether an actor with `actorGrants` may delegate `targetGrant`:
- * nobody can grant more than they are allowed to delegate (project admins with `members.manage: any`
- * can delegate any grant; others can only delegate grants they themselves hold at equal or wider scope).
+ * Checks whether an actor with `actorGrants` may delegate `targetGrant`. Nobody can grant more than
+ * they hold: a `members.manage: any` holder may delegate any grant inside its own level and scope id;
+ * other managers may delegate only grants they hold themselves, with no wider item scope, member
+ * scope, process levels, gates, transitions, level or scope id.
  */
-export function canDelegateGrant(actorGrants: readonly Grant[], targetGrant: Grant): boolean {
-  const canManageAll = actorGrants.some((g) => g.action === 'members.manage' && g.memberScope === 'any');
-  if (canManageAll) return true;
+export function canDelegateGrant(
+  actorGrants: readonly Grant[],
+  targetGrant: Grant,
+  scopes: DelegationScopes = {},
+): boolean {
+  const manageAll = actorGrants.some(
+    (g) => g.action === 'members.manage' && g.memberScope === 'any' && levelIncludes(g, targetGrant, scopes),
+  );
+  if (manageAll) return true;
   const canManage = actorGrants.some((g) => g.action === 'members.manage');
   if (!canManage) return false;
 
   return actorGrants.some((g) => {
-    if (g.action !== targetGrant.action) return false;
-    if (targetGrant.scope !== undefined) {
-      if (!g.scope || SCOPE_RANK[g.scope] < SCOPE_RANK[targetGrant.scope]) return false;
-    }
+    if (!grantIncludes(g, targetGrant, scopes)) return false;
     if (targetGrant.gateIds !== undefined) {
       if (g.gateIds !== '*') {
         if (!g.gateIds || targetGrant.gateIds === '*') return false;
