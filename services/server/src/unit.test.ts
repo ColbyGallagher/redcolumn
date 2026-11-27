@@ -12,6 +12,57 @@ import {
 import { InProcessBroadcaster, type StreamEvent } from './broadcaster.ts';
 import { ConfigError, isOriginAllowed, loadConfig, normalizeOrigin } from './config.ts';
 import { canonicalizeJson, hashOperationPayload } from './pipeline.ts';
+import { runCli } from './cli.ts';
+import { createLogger } from './logger.ts';
+import { authorizeStream } from './ws.ts';
+
+describe('admin CLI', () => {
+  const io = (lines: { stdout: string[]; stderr: string[] }, stdin = '') => ({
+    stdout: (line: string) => lines.stdout.push(line),
+    stderr: (line: string) => lines.stderr.push(line),
+    readStdin: async () => stdin,
+    // Never connected to: the command is refused before any query runs.
+    env: { DATABASE_URL: 'postgres://nobody:fictional@127.0.0.1:1/none' } as NodeJS.ProcessEnv,
+  });
+
+  it('refuses a password passed on the command line', async () => {
+    const lines = { stdout: [] as string[], stderr: [] as string[] };
+    const code = await runCli(
+      ['create-admin', '--email', 'ada@example.test', '--name', 'Ada', '--password', 'fictional-argv-pass'],
+      io(lines),
+    );
+    assert.equal(code, 1);
+    assert.match(lines.stderr.join('\n'), /--password is not supported; use --password-stdin or REDCOLUMN_ADMIN_PASSWORD/);
+    assert.doesNotMatch(lines.stderr.join('\n'), /fictional-argv-pass/);
+  });
+
+  it('does not offer --password in its usage text', async () => {
+    const lines = { stdout: [] as string[], stderr: [] as string[] };
+    assert.equal(await runCli(['--help'], io(lines)), 0);
+    const usage = lines.stdout.join('\n');
+    assert.match(usage, /--password-stdin/);
+    assert.doesNotMatch(usage, /--password </);
+  });
+});
+
+describe('stream access', () => {
+  it('allows every signed-in user on every stream until stream permissions exist', () => {
+    const actor = { userId: 'user-1', partyId: null, groupId: null };
+    assert.equal(authorizeStream(actor, 'doc-1', 'read'), true);
+    assert.equal(authorizeStream(actor, 'doc-1', 'write'), true);
+  });
+});
+
+describe('logger', () => {
+  it('redacts secrets nested one level deep', () => {
+    const chunks: string[] = [];
+    const logger = createLogger('info', { write: (s: string) => chunks.push(s) });
+    logger.info({ body: { password: 'fictional-secret' }, user: { passwordHash: 'fictional-hash', token: 'fictional-token' } }, 'login');
+    const line = chunks.join('');
+    assert.doesNotMatch(line, /fictional-(secret|hash|token)/);
+    assert.match(line, /\[REDACTED\]/);
+  });
+});
 
 function sampleMarkupCreate(overrides: Partial<Operation> = {}): Operation {
   return {
@@ -69,6 +120,21 @@ describe('config', () => {
     assert.throws(() => loadConfig({ DATABASE_URL: 'postgres://localhost/db', LOG_LEVEL: 'verbose' }), ConfigError);
     assert.throws(() => loadConfig({ DATABASE_URL: 'postgres://localhost/db', ALLOWED_ORIGINS: 'https://a.test/path' }), ConfigError);
     assert.throws(() => loadConfig({ DATABASE_URL: 'postgres://localhost/db', COOKIE_SECURE: 'maybe' }), ConfigError);
+    assert.throws(() => loadConfig({ DATABASE_URL: 'postgres://localhost/db', LOGIN_RATE_LIMIT_MAX: '0' }), ConfigError);
+    assert.throws(() => loadConfig({ DATABASE_URL: 'postgres://localhost/db', LOGIN_RATE_LIMIT_WINDOW_MS: '10' }), ConfigError);
+  });
+
+  it('limits logins to 10 per minute by default and accepts overrides', () => {
+    const defaults = loadConfig({ DATABASE_URL: 'postgres://localhost/db' });
+    assert.equal(defaults.loginRateLimitMax, 10);
+    assert.equal(defaults.loginRateLimitWindowMs, 60_000);
+    const custom = loadConfig({
+      DATABASE_URL: 'postgres://localhost/db',
+      LOGIN_RATE_LIMIT_MAX: '3',
+      LOGIN_RATE_LIMIT_WINDOW_MS: '5000',
+    });
+    assert.equal(custom.loginRateLimitMax, 3);
+    assert.equal(custom.loginRateLimitWindowMs, 5000);
   });
 
   it('normalizes and validates origins', () => {

@@ -12,6 +12,9 @@ export interface ServerConfig {
   sessionTtlMs: number;
   maxOpBytes: number;
   wsHeartbeatMs: number;
+  /** Login attempts allowed per client IP within `loginRateLimitWindowMs`. */
+  loginRateLimitMax: number;
+  loginRateLimitWindowMs: number;
   autoMigrate: boolean;
 }
 
@@ -117,6 +120,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const sessionTtlHours = parseInteger('SESSION_TTL_HOURS', env.SESSION_TTL_HOURS, 24 * 7, { min: 1, max: 24 * 365 });
   const maxOpBytes = parseInteger('MAX_OP_BYTES', env.MAX_OP_BYTES, 256 * 1024, { min: 1024, max: 16 * 1024 * 1024 });
   const wsHeartbeatMs = parseInteger('WS_HEARTBEAT_MS', env.WS_HEARTBEAT_MS, 30_000, { min: 1000, max: 300_000 });
+  const loginRateLimitMax = parseInteger('LOGIN_RATE_LIMIT_MAX', env.LOGIN_RATE_LIMIT_MAX, 10, { min: 1, max: 10_000 });
+  const loginRateLimitWindowMs = parseInteger('LOGIN_RATE_LIMIT_WINDOW_MS', env.LOGIN_RATE_LIMIT_WINDOW_MS, 60_000, {
+    min: 1000,
+    max: 24 * 60 * 60 * 1000,
+  });
   const autoMigrate = parseBoolean('AUTO_MIGRATE', env.AUTO_MIGRATE, true);
 
   return {
@@ -130,6 +138,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     sessionTtlMs: sessionTtlHours * 60 * 60 * 1000,
     maxOpBytes,
     wsHeartbeatMs,
+    loginRateLimitMax,
+    loginRateLimitWindowMs,
     autoMigrate,
   };
 }

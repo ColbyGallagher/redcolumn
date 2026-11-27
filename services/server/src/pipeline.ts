@@ -85,6 +85,73 @@ function extractRawOpId(raw: unknown): string | null {
   return null;
 }
 
+const OP_ID_CONFLICT_MESSAGE = 'Operation id was already used for a different operation';
+
+/**
+ * Markup and placement ids are global, but each row belongs to one stream. A write that would
+ * land on a row owned by another stream is refused; this error is thrown when a concurrent
+ * transaction on another stream claimed the id after our pre-check, so the write is retried.
+ */
+class ForeignEntityError extends Error {
+  readonly kind: 'markup' | 'placement';
+  readonly id: string;
+  constructor(kind: 'markup' | 'placement', id: string) {
+    super(`${kind} "${id}" belongs to another stream`);
+    this.name = 'ForeignEntityError';
+    this.kind = kind;
+    this.id = id;
+  }
+}
+
+/** Unique indexes on op ids. Two streams racing on one opId fail on one of these. */
+const OP_ID_UNIQUE_CONSTRAINTS = new Set(['op_results_pkey', 'events_op_id_key']);
+
+function isRetryableTxError(err: unknown): boolean {
+  if (err instanceof ForeignEntityError) return true;
+  if (!err || typeof err !== 'object') return false;
+  const { code, constraint } = err as { code?: unknown; constraint?: unknown };
+  return code === '23505' && typeof constraint === 'string' && OP_ID_UNIQUE_CONSTRAINTS.has(constraint);
+}
+
+/**
+ * Finds the first create op whose entity id is already used by a row on another stream.
+ * Non-create ops need no check: state is loaded per stream, so a foreign id reads as not found.
+ */
+async function findForeignCreate(
+  trx: Transaction<Database>,
+  streamId: string,
+  ops: readonly Operation[],
+): Promise<{ index: number; kind: 'markup' | 'placement'; id: string } | null> {
+  const markupIds = ops.filter((op) => op.type === 'markup.create').map((op) => op.entityId);
+  const placementIds = ops.filter((op) => op.type === 'placement.create').map((op) => op.entityId);
+  const foreign = new Set<string>();
+  if (markupIds.length > 0) {
+    const rows = await trx
+      .selectFrom('markups')
+      .select('id')
+      .where('id', 'in', markupIds)
+      .where('stream_id', '<>', streamId)
+      .execute();
+    for (const row of rows) foreign.add(`markup:${row.id}`);
+  }
+  if (placementIds.length > 0) {
+    const rows = await trx
+      .selectFrom('placements')
+      .select('id')
+      .where('id', 'in', placementIds)
+      .where('stream_id', '<>', streamId)
+      .execute();
+    for (const row of rows) foreign.add(`placement:${row.id}`);
+  }
+  if (foreign.size === 0) return null;
+  for (let index = 0; index < ops.length; index++) {
+    const op = ops[index]!;
+    const kind = op.type === 'markup.create' ? 'markup' : op.type === 'placement.create' ? 'placement' : null;
+    if (kind && foreign.has(`${kind}:${op.entityId}`)) return { index, kind, id: op.entityId };
+  }
+  return null;
+}
+
 function measureBytes(raw: unknown, provided?: number): number {
   if (provided !== undefined) return provided;
   try {
@@ -178,7 +245,7 @@ async function persistChanges(
     if (change.kind === 'markup') {
       const record = state.markups[change.id];
       if (!record) continue;
-      await trx
+      const result = await trx
         .insertInto('markups')
         .values({
           id: record.id,
@@ -194,18 +261,22 @@ async function persistChanges(
           updated_at: nowDate,
         })
         .onConflict((oc) =>
-          oc.column('id').doUpdateSet({
-            rev: record.rev,
-            deleted: record.deleted,
-            record_json: sql`${JSON.stringify(record)}::jsonb`,
-            updated_at: nowDate,
-          }),
+          oc
+            .column('id')
+            .doUpdateSet({
+              rev: record.rev,
+              deleted: record.deleted,
+              record_json: sql`${JSON.stringify(record)}::jsonb`,
+              updated_at: nowDate,
+            })
+            .where('markups.stream_id', '=', streamId),
         )
-        .execute();
+        .executeTakeFirst();
+      if (!result.numInsertedOrUpdatedRows) throw new ForeignEntityError('markup', record.id);
     } else if (change.kind === 'placement') {
       const record = state.placements[change.id];
       if (!record) continue;
-      await trx
+      const result = await trx
         .insertInto('placements')
         .values({
           id: record.id,
@@ -219,14 +290,18 @@ async function persistChanges(
           updated_at: nowDate,
         })
         .onConflict((oc) =>
-          oc.column('id').doUpdateSet({
-            rev: record.rev,
-            deleted: record.deleted,
-            record_json: sql`${JSON.stringify(record)}::jsonb`,
-            updated_at: nowDate,
-          }),
+          oc
+            .column('id')
+            .doUpdateSet({
+              rev: record.rev,
+              deleted: record.deleted,
+              record_json: sql`${JSON.stringify(record)}::jsonb`,
+              updated_at: nowDate,
+            })
+            .where('placements.stream_id', '=', streamId),
         )
-        .execute();
+        .executeTakeFirst();
+      if (!result.numInsertedOrUpdatedRows) throw new ForeignEntityError('placement', record.id);
     }
   }
 }
@@ -246,6 +321,20 @@ export class OpPipeline {
     this.defaultLaneId = options.defaultLaneId ?? 'default';
     this.now = options.now ?? (() => Date.now());
     this.hooks = options.hooks ?? {};
+  }
+
+  /**
+   * Runs a write transaction, retrying once when it lost a race that the stream lock cannot
+   * prevent: the same opId submitted on two streams at once, or two streams creating the same
+   * entity id. The retry sees the winner's committed rows and answers from them.
+   */
+  private async runTransaction<T>(fn: (trx: Transaction<Database>) => Promise<T>): Promise<T> {
+    try {
+      return await this.db.transaction().execute(fn);
+    } catch (err) {
+      if (!isRetryableTxError(err)) throw err;
+      return this.db.transaction().execute(fn);
+    }
   }
 
   async submitOperation(rawInput: unknown, actor: Actor, rawByteLength?: number): Promise<OpAck> {
@@ -275,21 +364,22 @@ export class OpPipeline {
 
     const payloadHash = hashOperationPayload(op);
 
-    const txOutcome = await this.db.transaction().execute(async (trx) => {
+    const txOutcome = await this.runTransaction(async (trx) => {
       const seqByStream = await lockStreams(trx, [op.streamId]);
 
       const existing = await trx
         .selectFrom('op_results')
-        .select(['payload_hash', 'result_json'])
+        .select(['payload_hash', 'actor_id', 'result_json'])
         .where('op_id', '=', op.opId)
         .executeTakeFirst();
 
       if (existing) {
-        if (existing.payload_hash !== payloadHash) {
+        // A stored result is only replayed to the actor who submitted it, for the same content.
+        if (existing.payload_hash !== payloadHash || existing.actor_id !== actor.userId) {
           const conflictAck: OpAck = {
             ok: false,
             opId: op.opId,
-            rejection: { code: 'op_id_conflict', message: 'Operation id was already used with different content' },
+            rejection: { code: 'op_id_conflict', message: OP_ID_CONFLICT_MESSAGE },
           };
           return { ack: conflictAck, events: [] as StreamEvent[] };
         }
@@ -297,10 +387,16 @@ export class OpPipeline {
         return { ack: { ...stored, replayed: true }, events: [] as StreamEvent[] };
       }
 
-      const state = await loadStateForOps(trx, op.streamId, [op]);
+      const foreign = await findForeignCreate(trx, op.streamId, [op]);
       const nowMs = this.now();
-      const ctx: ApplyContext = { actor, laneId: this.defaultLaneId, now: nowMs };
-      const applied = applyOp(state, op, ctx);
+      let applied: ReturnType<typeof applyOp>;
+      if (foreign) {
+        applied = { ok: false, rejection: { code: 'exists', kind: foreign.kind, id: foreign.id } };
+      } else {
+        const state = await loadStateForOps(trx, op.streamId, [op]);
+        const ctx: ApplyContext = { actor, laneId: this.defaultLaneId, now: nowMs };
+        applied = applyOp(state, op, ctx);
+      }
 
       if (!applied.ok) {
         const rejectionAck: OpAck = { ok: false, opId: op.opId, rejection: applied.rejection };
@@ -455,12 +551,12 @@ export class OpPipeline {
       }
     }
 
-    const txOutcome = await this.db.transaction().execute(async (trx) => {
+    const txOutcome = await this.runTransaction(async (trx) => {
       const seqByStream = await lockStreams(trx, [streamId]);
 
       const existingRows = await trx
         .selectFrom('op_results')
-        .select(['op_id', 'payload_hash', 'result_json'])
+        .select(['op_id', 'payload_hash', 'actor_id', 'result_json'])
         .where('op_id', 'in', ops.map((o) => o.opId))
         .execute();
 
@@ -469,12 +565,12 @@ export class OpPipeline {
         for (let i = 0; i < ops.length; i++) {
           const op = ops[i]!;
           const existing = existingById.get(op.opId);
-          if (existing && existing.payload_hash !== hashes[i]) {
+          if (existing && (existing.payload_hash !== hashes[i] || existing.actor_id !== actor.userId)) {
             const ack: BatchAck = {
               ok: false,
               index: i,
               opId: op.opId,
-              rejection: { code: 'op_id_conflict', message: 'Operation id was already used with different content' },
+              rejection: { code: 'op_id_conflict', message: OP_ID_CONFLICT_MESSAGE },
             };
             return { ack, events: [] as StreamEvent[] };
           }
@@ -498,6 +594,17 @@ export class OpPipeline {
           index: conflictIndex,
           opId: ops[conflictIndex]!.opId,
           rejection: { code: 'op_id_conflict', message: 'Batch partially overlaps already processed operation ids' },
+        };
+        return { ack, events: [] as StreamEvent[] };
+      }
+
+      const foreign = await findForeignCreate(trx, streamId, ops);
+      if (foreign) {
+        const ack: BatchAck = {
+          ok: false,
+          index: foreign.index,
+          opId: ops[foreign.index]!.opId,
+          rejection: { code: 'exists', kind: foreign.kind, id: foreign.id },
         };
         return { ack, events: [] as StreamEvent[] };
       }

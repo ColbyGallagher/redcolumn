@@ -13,7 +13,34 @@ export interface UserProfile {
 
 export interface SessionInfo {
   sessionId: string;
+  expiresAt: Date;
   user: UserProfile;
+}
+
+/** How often a session's last_seen_at is refreshed while it is in use. */
+const LAST_SEEN_RESOLUTION_MS = 60_000;
+
+/**
+ * Each argon2id verify holds ~19 MiB, so verifies run at most this many at a time; the rest
+ * wait their turn instead of all allocating at once under a burst of logins.
+ */
+const MAX_CONCURRENT_VERIFIES = 4;
+let activeVerifies = 0;
+const verifyWaiters: (() => void)[] = [];
+
+async function withVerifySlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (activeVerifies >= MAX_CONCURRENT_VERIFIES) {
+    await new Promise<void>((resolve) => verifyWaiters.push(resolve));
+  } else {
+    activeVerifies += 1;
+  }
+  try {
+    return await fn();
+  } finally {
+    const next = verifyWaiters.shift();
+    if (next) next();
+    else activeVerifies -= 1;
+  }
 }
 
 // Algorithm.Argon2id = 2 (numeric literal avoids ambient const enum with verbatimModuleSyntax).
@@ -35,11 +62,13 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 export async function verifyPassword(passwordHash: string, password: string): Promise<boolean> {
-  try {
-    return await argon2Verify(passwordHash, password);
-  } catch {
-    return false;
-  }
+  return withVerifySlot(async () => {
+    try {
+      return await argon2Verify(passwordHash, password);
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function generateSessionToken(): string {
@@ -226,8 +255,16 @@ export async function lookupSession(db: Kysely<Database>, token: string): Promis
   if (row.disabled_at !== null) return null;
   if (row.expires_at.getTime() <= now.getTime()) return null;
 
+  await db
+    .updateTable('sessions')
+    .set({ last_seen_at: now })
+    .where('id', '=', row.session_id)
+    .where('last_seen_at', '<', new Date(now.getTime() - LAST_SEEN_RESOLUTION_MS))
+    .execute();
+
   return {
     sessionId: row.session_id,
+    expiresAt: row.expires_at,
     user: {
       id: row.user_id,
       email: row.email,
@@ -238,12 +275,15 @@ export async function lookupSession(db: Kysely<Database>, token: string): Promis
   };
 }
 
-export async function revokeSession(db: Kysely<Database>, token: string): Promise<void> {
+/** Revokes the session for `token`. Returns its id, or null if no active session matched. */
+export async function revokeSession(db: Kysely<Database>, token: string): Promise<string | null> {
   const tokenHash = hashSessionToken(token);
-  await db
+  const row = await db
     .updateTable('sessions')
     .set({ revoked_at: new Date() })
     .where('token_hash', '=', tokenHash)
     .where('revoked_at', 'is', null)
-    .execute();
+    .returning('id')
+    .executeTakeFirst();
+  return row?.id ?? null;
 }

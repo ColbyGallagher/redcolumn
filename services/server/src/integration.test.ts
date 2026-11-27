@@ -3,12 +3,100 @@ import { after, before, beforeEach, describe, it } from 'node:test';
 import { PROTOCOL_VERSION, type Operation } from '@nb/ops';
 import WebSocket from 'ws';
 import { buildServer, type ServerInstance } from './app.ts';
+import { createLocalUser } from './auth.ts';
 import type { StreamEvent } from './broadcaster.ts';
 import { runCli } from './cli.ts';
 import { loadConfig, type ServerConfig } from './config.ts';
 import { createDb, type DbHandle } from './db.ts';
 import { checkMigrations, runMigrations } from './migrate.ts';
-import type { OpAck } from './pipeline.ts';
+import type { BatchAck, OpAck } from './pipeline.ts';
+import { WS_CLOSE_SESSION_ENDED } from './ws.ts';
+
+function makeMarkupPatch(opId: string, entityId: string, text: string, basedOn: string, streamId = 'doc-alpha'): Operation {
+  return {
+    opId,
+    schemaVersion: PROTOCOL_VERSION,
+    streamId,
+    type: 'markup.patch',
+    entityId,
+    basedOn: { text: basedOn },
+    payload: { set: { text } },
+  } as Operation;
+}
+
+function makePlacementCreate(opId: string, entityId: string, markupId: string, streamId: string): Operation {
+  return {
+    opId,
+    schemaVersion: PROTOCOL_VERSION,
+    streamId,
+    type: 'placement.create',
+    entityId,
+    payload: {
+      markupId,
+      revisionId: 'rev-a',
+      pageId: 'page-1',
+      geometry: { points: [[0, 0], [10, 10]] },
+      method: 'original',
+      confidence: null,
+      state: 'confirmed',
+    },
+  } as Operation;
+}
+
+/** Marks ops as one batch, as a client does for a paste or group move. */
+function batched(batchId: string, ops: Operation[]): Operation[] {
+  return ops.map((op) => ({ ...op, batchId, batchSize: ops.length }));
+}
+
+function rejectionOf(ack: OpAck): { code: string } {
+  if (ack.ok) throw new Error(`expected a rejection, got ${JSON.stringify(ack)}`);
+  return ack.rejection;
+}
+
+/** A promise plus its resolver, used to hold a transaction open just before COMMIT. */
+function gate(): { wait: Promise<void>; open: () => void } {
+  let open!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { wait, open };
+}
+
+async function waitForLockWaiter(pool: DbHandle['pool']): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    const res = await pool.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`,
+    );
+    if ((res.rows[0]?.n ?? 0) > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error('No transaction ever waited on a lock');
+}
+
+function waitForClose(ws: WebSocket): Promise<number> {
+  return new Promise((resolve) => {
+    if (ws.readyState === WebSocket.CLOSED) resolve(-1);
+    ws.once('close', (code) => resolve(code));
+  });
+}
+
+async function login(baseUrl: string, email: string, password: string): Promise<string> {
+  const res = await fetch(`${baseUrl}/auth/login`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', origin: baseUrl },
+    body: JSON.stringify({ email, password }),
+  });
+  assert.equal(res.status, 200);
+  return (res.headers.get('set-cookie') ?? '').split(';')[0]!;
+}
+
+async function openHandshakenWs(wsUrl: string, baseUrl: string, cookie: string): Promise<WebSocket> {
+  const ws = await openWs(wsUrl, { cookie, origin: baseUrl });
+  ws.send(JSON.stringify({ type: 'hello', protocol: { min: 1, max: PROTOCOL_VERSION } }));
+  const welcome = await nextJsonMessage(ws);
+  assert.equal(welcome.type, 'welcome');
+  return ws;
+}
 
 const DATABASE_URL = process.env.DATABASE_URL?.trim();
 const REQUIRE_POSTGRES = process.env.REQUIRE_POSTGRES_TESTS === '1';
@@ -399,6 +487,303 @@ describe('server integration (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_U
     } finally {
       unsubPost();
       await serverPost.app.close();
+    }
+  });
+
+  it('rate limits /auth/login per client: the 11th attempt in a window gets 429', async () => {
+    await createLocalUser(dbHandle.db, { email: 'lin@example.test', name: 'Lin Checker', password: 'fictional-pass-456' });
+    const config = makeConfig();
+    assert.equal(config.loginRateLimitMax, 10);
+    const server = buildServer({ config, db: dbHandle.db, pool: dbHandle.pool });
+    const baseUrl = await server.app.listen({ host: config.host, port: 0 });
+    try {
+      const attempt = () =>
+        fetch(`${baseUrl}/auth/login`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: baseUrl },
+          body: JSON.stringify({ email: 'lin@example.test', password: 'wrong-guess-000' }),
+        });
+      for (let i = 0; i < 10; i++) {
+        const res = await attempt();
+        assert.equal(res.status, 401, `attempt ${i + 1}`);
+      }
+      const limited = await attempt();
+      assert.equal(limited.status, 429);
+      // The correct password is refused too while the client is limited.
+      const correct = await fetch(`${baseUrl}/auth/login`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: baseUrl },
+        body: JSON.stringify({ email: 'lin@example.test', password: 'fictional-pass-456' }),
+      });
+      assert.equal(correct.status, 429);
+      // Other routes are not limited.
+      assert.equal((await fetch(`${baseUrl}/healthz`)).status, 200);
+    } finally {
+      await server.app.close();
+    }
+  });
+
+  it('refuses a markup or placement create whose id belongs to another stream', async () => {
+    const server = buildServer({ config: makeConfig(), db: dbHandle.db, pool: dbHandle.pool });
+    const seenOnA: StreamEvent[] = [];
+    const unsubscribe = server.broadcaster.subscribe('stream-a', (e) => seenOnA.push(e));
+    const alice = { userId: 'user-alice', partyId: null, groupId: null };
+    const bob = { userId: 'user-bob', partyId: null, groupId: null };
+    try {
+      const aliceCreate = await server.pipeline.submitOperation(makeMarkupCreate('op-a1', 'm-shared', 'Alice note', 'stream-a'), alice);
+      assert.equal(aliceCreate.ok, true);
+      const alicePlace = await server.pipeline.submitOperation(makePlacementCreate('op-a2', 'p-shared', 'm-shared', 'stream-a'), alice);
+      assert.equal(alicePlace.ok, true);
+
+      // Same markup id on another stream.
+      const bobCreate = await server.pipeline.submitOperation(makeMarkupCreate('op-b1', 'm-shared', 'Bob note', 'stream-b'), bob);
+      assert.deepEqual(rejectionOf(bobCreate), { code: 'exists', kind: 'markup', id: 'm-shared' });
+
+      // Same placement id on another stream (on a markup that stream does own).
+      assert.equal((await server.pipeline.submitOperation(makeMarkupCreate('op-b2', 'm-bob', 'Bob own', 'stream-b'), bob)).ok, true);
+      const bobPlace = await server.pipeline.submitOperation(makePlacementCreate('op-b3', 'p-shared', 'm-bob', 'stream-b'), bob);
+      assert.deepEqual(rejectionOf(bobPlace), { code: 'exists', kind: 'placement', id: 'p-shared' });
+
+      // A placement on another stream's markup reads that markup as not found.
+      const crossPlace = await server.pipeline.submitOperation(makePlacementCreate('op-b4', 'p-cross', 'm-shared', 'stream-b'), bob);
+      assert.deepEqual(rejectionOf(crossPlace), { code: 'not_found', kind: 'markup', id: 'm-shared' });
+
+      // The batch path refuses too, at the offending index.
+      const batch = await server.pipeline.submitBatch(
+        batched('batch-b', [
+          makeMarkupCreate('op-b5', 'm-bob-2', 'Fine', 'stream-b'),
+          makeMarkupCreate('op-b6', 'm-shared', 'Bob again', 'stream-b'),
+        ]),
+        bob,
+      );
+      assert.deepEqual(batch, {
+        ok: false,
+        index: 1,
+        opId: 'op-b6',
+        rejection: { code: 'exists', kind: 'markup', id: 'm-shared' },
+      } satisfies BatchAck);
+
+      const markup = await dbHandle.db.selectFrom('markups').selectAll().where('id', '=', 'm-shared').executeTakeFirstOrThrow();
+      assert.equal(markup.stream_id, 'stream-a');
+      assert.equal(markup.owner_user_id, 'user-alice');
+      const record = markup.record_json as { content: { text: string }; owner: { userId: string } };
+      assert.equal(record.content.text, 'Alice note');
+      assert.equal(record.owner.userId, 'user-alice');
+      const placement = await dbHandle.db.selectFrom('placements').selectAll().where('id', '=', 'p-shared').executeTakeFirstOrThrow();
+      assert.equal(placement.stream_id, 'stream-a');
+      assert.equal(placement.markup_id, 'm-shared');
+      assert.equal(seenOnA.length, 2);
+      assert.equal(await dbHandle.db.selectFrom('markups').select('id').where('id', '=', 'm-bob-2').executeTakeFirst(), undefined);
+    } finally {
+      unsubscribe();
+      await server.app.close();
+    }
+  });
+
+  it('refuses the loser when two streams create the same markup id at the same time', async () => {
+    const hold = gate();
+    const server = buildServer({
+      config: makeConfig(),
+      db: dbHandle.db,
+      pool: dbHandle.pool,
+      pipelineHooks: {
+        onBeforeCommit: async ({ streamId }) => {
+          if (streamId === 'stream-race-a') await hold.wait;
+        },
+      },
+    });
+    const actor = { userId: 'user-race', partyId: null, groupId: null };
+    try {
+      const first = server.pipeline.submitOperation(makeMarkupCreate('op-ra', 'm-race', 'First', 'stream-race-a'), actor);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      // The second insert passes the ownership pre-check (the first is uncommitted) and then
+      // blocks on the primary key until the first commits.
+      const second = server.pipeline.submitOperation(makeMarkupCreate('op-rb', 'm-race', 'Second', 'stream-race-b'), actor);
+      await waitForLockWaiter(dbHandle.pool);
+      hold.open();
+      const [a, b] = await Promise.all([first, second]);
+      assert.equal(a.ok, true);
+      assert.deepEqual(rejectionOf(b), { code: 'exists', kind: 'markup', id: 'm-race' });
+      const row = await dbHandle.db.selectFrom('markups').selectAll().where('id', '=', 'm-race').executeTakeFirstOrThrow();
+      assert.equal(row.stream_id, 'stream-race-a');
+      assert.equal((row.record_json as { content: { text: string } }).content.text, 'First');
+      const eventsB = await dbHandle.db.selectFrom('events').select('seq').where('stream_id', '=', 'stream-race-b').execute();
+      assert.equal(eventsB.length, 0);
+    } finally {
+      hold.open();
+      await server.app.close();
+    }
+  });
+
+  it('answers op_id_conflict, not an internal error, when one opId races on two streams', async () => {
+    for (const mode of ['op', 'batch'] as const) {
+      await dbHandle.pool.query('TRUNCATE events, placements, markups, op_results, streams CASCADE');
+      const hold = gate();
+      const server = buildServer({
+        config: makeConfig(),
+        db: dbHandle.db,
+        pool: dbHandle.pool,
+        pipelineHooks: {
+          onBeforeCommit: async ({ streamId }) => {
+            if (streamId === 'stream-c') await hold.wait;
+          },
+        },
+      });
+      const actor = { userId: 'user-race', partyId: null, groupId: null };
+      try {
+        const opC = makeMarkupCreate('op-x', 'm-c', 'On C', 'stream-c');
+        const opD = makeMarkupCreate('op-x', 'm-d', 'On D', 'stream-d');
+        const submit = (op: Operation) =>
+          mode === 'op' ? server.pipeline.submitOperation(op, actor) : server.pipeline.submitBatch(batched(`batch-${op.streamId}`, [op]), actor);
+        const first = submit(opC);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const second = submit(opD);
+        await waitForLockWaiter(dbHandle.pool);
+        hold.open();
+        const [c, d] = await Promise.allSettled([first, second]);
+        assert.equal(c.status, 'fulfilled', mode);
+        assert.equal(d.status, 'fulfilled', `${mode}: ${d.status === 'rejected' ? String(d.reason) : ''}`);
+        if (c.status !== 'fulfilled' || d.status !== 'fulfilled') return;
+        assert.equal(c.value.ok, true, mode);
+        assert.equal(d.value.ok, false, mode);
+        if (!d.value.ok) assert.equal(d.value.rejection.code, 'op_id_conflict', mode);
+        const markupD = await dbHandle.db.selectFrom('markups').select('id').where('id', '=', 'm-d').executeTakeFirst();
+        assert.equal(markupD, undefined, mode);
+      } finally {
+        hold.open();
+        await server.app.close();
+      }
+    }
+  });
+
+  it("does not replay one actor's stored result to another actor", async () => {
+    const server = buildServer({ config: makeConfig(), db: dbHandle.db, pool: dbHandle.pool });
+    const alice = { userId: 'user-alice', partyId: null, groupId: null };
+    const bob = { userId: 'user-bob', partyId: null, groupId: null };
+    try {
+      const op = makeMarkupCreate('op-own-1', 'm-own-1', 'Alice only');
+      const first = await server.pipeline.submitOperation(op, alice);
+      assert.equal(first.ok, true);
+
+      const bobReplay = await server.pipeline.submitOperation(op, bob);
+      assert.equal(rejectionOf(bobReplay).code, 'op_id_conflict');
+      assert.equal(bobReplay.replayed, undefined);
+
+      const aliceReplay = await server.pipeline.submitOperation(op, alice);
+      assert.equal(aliceReplay.ok, true);
+      assert.equal(aliceReplay.replayed, true);
+
+      const batchOps = batched('batch-own', [makeMarkupCreate('op-own-2', 'm-own-2', 'Alice batch')]);
+      assert.equal((await server.pipeline.submitBatch(batchOps, alice)).ok, true);
+      const bobBatch = await server.pipeline.submitBatch(batchOps, bob);
+      assert.equal(bobBatch.ok, false);
+      if (!bobBatch.ok) assert.equal(bobBatch.rejection.code, 'op_id_conflict');
+      const aliceBatch = await server.pipeline.submitBatch(batchOps, alice);
+      assert.equal(aliceBatch.ok, true);
+      if (aliceBatch.ok) assert.equal(aliceBatch.results[0]!.replayed, true);
+    } finally {
+      await server.app.close();
+    }
+  });
+
+  it('handles frames on one WS connection in order: a patch sent right after its create applies', async () => {
+    await createLocalUser(dbHandle.db, { email: 'ord@example.test', name: 'Ord Tester', password: 'fictional-pass-789' });
+    const config = makeConfig();
+    const server = buildServer({ config, db: dbHandle.db, pool: dbHandle.pool });
+    const baseUrl = await server.app.listen({ host: config.host, port: 0 });
+    const wsUrl = `${baseUrl.replace(/^http/, 'ws')}/ws`;
+    try {
+      const cookie = await login(baseUrl, 'ord@example.test', 'fictional-pass-789');
+      const ws = await openHandshakenWs(wsUrl, baseUrl, cookie);
+      try {
+        const pairs = 20;
+        const acks: OpAck[] = [];
+        const done = new Promise<void>((resolve) => {
+          ws.on('message', (data) => {
+            const msg = JSON.parse(data.toString()) as { type: string; result: OpAck };
+            if (msg.type === 'ack') acks.push(msg.result);
+            if (acks.length === pairs * 2) resolve();
+          });
+        });
+        // Send every create and patch back to back without waiting for any ack.
+        for (let i = 0; i < pairs; i++) {
+          ws.send(JSON.stringify({ type: 'op', op: makeMarkupCreate(`op-c-${i}`, `m-ord-${i}`, 'Draft', 'doc-order') }));
+          ws.send(JSON.stringify({ type: 'op', op: makeMarkupPatch(`op-p-${i}`, `m-ord-${i}`, 'Final', `op-c-${i}`, 'doc-order') }));
+        }
+        await done;
+        assert.deepEqual(
+          acks.map((a) => a.opId),
+          Array.from({ length: pairs }, (_, i) => [`op-c-${i}`, `op-p-${i}`]).flat(),
+        );
+        for (const ack of acks) assert.equal(ack.ok, true, JSON.stringify(ack));
+        const rows = await dbHandle.db.selectFrom('markups').select(['id', 'record_json']).where('stream_id', '=', 'doc-order').execute();
+        assert.equal(rows.length, pairs);
+        for (const row of rows) assert.equal((row.record_json as { content: { text: string } }).content.text, 'Final');
+      } finally {
+        ws.close();
+      }
+    } finally {
+      await server.app.close();
+    }
+  });
+
+  it('closes open WS connections when their session is logged out, disabled, or expires', async () => {
+    const user = await createLocalUser(dbHandle.db, { email: 'ses@example.test', name: 'Ses Tester', password: 'fictional-pass-321' });
+    const config = makeConfig();
+    const server = buildServer({ config, db: dbHandle.db, pool: dbHandle.pool });
+    const baseUrl = await server.app.listen({ host: config.host, port: 0 });
+    const wsUrl = `${baseUrl.replace(/^http/, 'ws')}/ws`;
+    try {
+      // Logout closes every socket of that session at once, and only those.
+      const cookieA = await login(baseUrl, 'ses@example.test', 'fictional-pass-321');
+      const cookieB = await login(baseUrl, 'ses@example.test', 'fictional-pass-321');
+      const wsA1 = await openHandshakenWs(wsUrl, baseUrl, cookieA);
+      const wsA2 = await openHandshakenWs(wsUrl, baseUrl, cookieA);
+      const wsB = await openHandshakenWs(wsUrl, baseUrl, cookieB);
+      const closedA1 = waitForClose(wsA1);
+      const closedA2 = waitForClose(wsA2);
+      const logout = await fetch(`${baseUrl}/auth/logout`, { method: 'POST', headers: { cookie: cookieA, origin: baseUrl } });
+      assert.equal(logout.status, 200);
+      assert.equal(await closedA1, WS_CLOSE_SESSION_ENDED);
+      assert.equal(await closedA2, WS_CLOSE_SESSION_ENDED);
+      assert.equal(wsB.readyState, WebSocket.OPEN);
+
+      // Disabling the user is picked up by the periodic session re-check.
+      const closedB = waitForClose(wsB);
+      await dbHandle.db.updateTable('users').set({ disabled_at: new Date() }).where('id', '=', user.id).execute();
+      await server.ws.revalidateSessions();
+      assert.equal(await closedB, WS_CLOSE_SESSION_ENDED);
+
+      // A session that expires while connected is closed on its next frame.
+      await dbHandle.db.updateTable('users').set({ disabled_at: null }).where('id', '=', user.id).execute();
+      const cookieC = await login(baseUrl, 'ses@example.test', 'fictional-pass-321');
+      const wsC = await openHandshakenWs(wsUrl, baseUrl, cookieC);
+      const closedC = waitForClose(wsC);
+      await dbHandle.db.updateTable('sessions').set({ expires_at: new Date(Date.now() - 1000) }).where('user_id', '=', user.id).execute();
+      await server.ws.revalidateSessions();
+      assert.equal(await closedC, WS_CLOSE_SESSION_ENDED);
+    } finally {
+      await server.app.close();
+    }
+  });
+
+  it('refuses to migrate, and reports, a database migrated by a newer build', async () => {
+    await dbHandle.pool.query(`INSERT INTO schema_migrations (version, name, checksum) VALUES ('9999', 'from_the_future', 'x')`);
+    try {
+      const status = await checkMigrations(dbHandle.pool);
+      assert.deepEqual(status.unknown, ['9999']);
+      await assert.rejects(() => runMigrations(dbHandle.pool), /newer version/);
+      const stderr: string[] = [];
+      const code = await runCli(['migrate', '--check'], {
+        stdout: () => {},
+        stderr: (line) => stderr.push(line),
+        readStdin: async () => '',
+        env: { DATABASE_URL: DATABASE_URL! },
+      });
+      assert.equal(code, 1);
+      assert.match(stderr.join('\n'), /Unknown migrations in database.*9999/);
+    } finally {
+      await dbHandle.pool.query(`DELETE FROM schema_migrations WHERE version = '9999'`);
     }
   });
 });

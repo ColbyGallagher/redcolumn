@@ -21,6 +21,13 @@ export interface MigrationCheckResult {
   applied: string[];
   pending: string[];
   mismatched: string[];
+  /** Versions recorded in schema_migrations with no file here: the database is newer than this build. */
+  unknown: string[];
+}
+
+function unknownVersions(applied: ReadonlyMap<string, string>, files: readonly MigrationFile[]): string[] {
+  const known = new Set(files.map((file) => file.version));
+  return [...applied.keys()].filter((version) => !known.has(version)).sort();
 }
 
 export interface MigrationRunResult {
@@ -108,7 +115,7 @@ export async function checkMigrations(
         applied.push(file.filename);
       }
     }
-    return { applied, pending, mismatched };
+    return { applied, pending, mismatched, unknown: unknownVersions(appliedMap, files) };
   });
 }
 
@@ -125,6 +132,13 @@ export async function runMigrations(
     const appliedMap = new Map<string, string>();
     for (const row of existingRes.rows) {
       appliedMap.set(row.version, row.checksum);
+    }
+
+    const unknown = unknownVersions(appliedMap, files);
+    if (unknown.length > 0) {
+      throw new Error(
+        `Database has migrations this build does not know (${unknown.join(', ')}); it was migrated by a newer version`,
+      );
     }
 
     const alreadyApplied: string[] = [];
