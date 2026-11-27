@@ -2547,23 +2547,46 @@
   }
 }
 
-/* File → Combine: the ordered list of documents. */
+/* File → Combine and Bulk Insert PDFs: a dialog around an ordered list of files. */
 .modal.combine-dialog {
+  display: flex;
+  flex-direction: column;
   width: min(460px, calc(100vw - 32px));
+  min-width: min(360px, calc(100vw - 32px));
+  min-height: min(300px, calc(100vh - 32px));
+  max-width: calc(100vw - 32px);
+  max-height: calc(100vh - 32px);
+  /* Drag the corner to make room for long file names; resize needs overflow other than visible. */
+  overflow: auto;
+  resize: both;
 }
 
-.combine-list {
-  max-height: 240px;
-  margin: 8px 0;
+.combine-dialog > * {
+  flex: none;
+}
+
+/* The list takes whatever height the dialog is given. */
+.combine-dialog > .reorder-list {
+  flex: 1 1 240px;
+  min-height: 64px;
+}
+
+.reorder-list {
+  margin: 0 0 8px;
   padding: 0;
-  overflow-y: auto;
+  overflow: auto;
+  user-select: none;
   list-style: none;
   border: 1px solid var(--border);
   border-radius: 4px;
   counter-reset: combine;
 }
 
-.combine-list li {
+/* A row is as wide as its file name needs, and the list scrolls sideways to show the rest. */
+.reorder-list li {
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
   display: flex;
   gap: 8px;
   align-items: baseline;
@@ -2572,21 +2595,76 @@
   counter-increment: combine;
 }
 
-.combine-list li::before {
-  content: counter(combine) '.';
+/* Rows drag as a whole with a mouse, and by the handle with a finger. */
+.reorder-list li[data-row] {
+  cursor: grab;
+}
+
+.reorder-list .grip,
+.reorder-ghost .grip {
+  order: -2;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
   color: var(--muted);
-  min-width: 1.5em;
+  opacity: 0.45;
+  touch-action: none;
 }
 
-.combine-list li.empty::before {
-  content: none;
+.reorder-list .grip::before,
+.reorder-ghost .grip::before {
+  content: '\283F';
 }
 
-.combine-list li.picked {
-  background: rgba(20, 163, 154, 0.25);
+.reorder-list li:hover .grip {
+  opacity: 1;
 }
 
-.combine-list .name {
+.reorder-list li[data-row]:not(.picked):hover {
+  background: rgba(127, 127, 127, 0.12);
+}
+
+/* Where the dragged rows will land: their names move there as the pointer does. */
+.reorder-list li[data-row].dragging {
+  background: rgba(20, 163, 154, 0.12);
+  outline: 1px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.reorder-list li.dragging > * {
+  opacity: 0.5;
+}
+
+/* The row lifted off the list, following the pointer. */
+.reorder-ghost {
+  position: fixed;
+  /* Above the dialog's backdrop. */
+  z-index: 120;
+  top: 0;
+  /* logical-css-ignore: placed by translate from the window's left edge, in either text direction */
+  left: 0;
+  box-sizing: border-box;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+}
+
+/* A second card peeking out underneath: several files are being carried. */
+.reorder-ghost.stacked {
+  box-shadow:
+    4px 4px 0 -1px var(--panel),
+    4px 4px 0 0 var(--accent),
+    0 10px 24px rgba(0, 0, 0, 0.45);
+}
+
+.reorder-ghost .name {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -2594,7 +2672,45 @@
   white-space: nowrap;
 }
 
-.combine-list .where {
+.reorder-ghost .count {
+  min-width: 1.5em;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+}
+
+html.list-dragging,
+html.list-dragging * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+
+.reorder-list li::before {
+  /* The number sits between the handle and the name. */
+  order: -1;
+  content: counter(combine) '.';
+  color: var(--muted);
+  min-width: 1.5em;
+}
+
+.reorder-list li.empty::before {
+  content: none;
+}
+
+.reorder-list li.picked {
+  background: rgba(20, 163, 154, 0.25);
+}
+
+.reorder-list .name {
+  flex: 1 0 auto;
+  white-space: nowrap;
+}
+
+.reorder-list .where {
   color: var(--muted);
   font-size: 11px;
 }

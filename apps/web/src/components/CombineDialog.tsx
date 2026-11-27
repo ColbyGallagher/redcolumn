@@ -1,6 +1,7 @@
 import { msg } from '@nb/i18n';
 import { CAD_ACCEPT } from '../cad/files';
 import { useRef, useState } from 'react';
+import { ReorderButtons, ReorderList, useReorderList } from './ReorderList';
 
 /** A document to combine: an open tab (by file id) or a file chosen from disk. */
 export type CombineSource = { kind: 'open'; id: string; name: string } | { kind: 'disk'; file: File; name: string };
@@ -14,20 +15,10 @@ interface Props {
 
 /** File → Combine: joins PDFs (and pictures) into one new PDF, in the order listed. */
 export function CombineDialog({ open, onCombine, onCancel }: Props) {
-  const [items, setItems] = useState<CombineSource[]>(() => open.map((o) => ({ kind: 'open', id: o.id, name: o.name })));
   const [name, setName] = useState('Combined.pdf');
-  const [picked, setPicked] = useState(0);
   const input = useRef<HTMLInputElement>(null);
-
-  const move = (i: number, by: number) => {
-    const j = i + by;
-    if (j < 0 || j >= items.length) return;
-    const next = [...items];
-    [next[i], next[j]] = [next[j]!, next[i]!];
-    setItems(next);
-    setPicked(j);
-  };
-  const valid = items.length >= 1 && name.trim() !== '';
+  const files = useReorderList<CombineSource>(() => open.map((o) => ({ kind: 'open', id: o.id, name: o.name })));
+  const valid = files.items.length >= 1 && name.trim() !== '';
 
   return (
     <div className="modal-backdrop" onMouseDown={onCancel}>
@@ -36,7 +27,7 @@ export function CombineDialog({ open, onCombine, onCancel }: Props) {
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
-          if (valid) onCombine(items, /\.pdf$/i.test(name.trim()) ? name.trim() : `${name.trim()}.pdf`);
+          if (valid) onCombine(files.items, /\.pdf$/i.test(name.trim()) ? name.trim() : `${name.trim()}.pdf`);
         }}
         onKeyDown={(e) => {
           e.stopPropagation();
@@ -45,36 +36,18 @@ export function CombineDialog({ open, onCombine, onCancel }: Props) {
       >
         <h3>{msg('Combine')}</h3>
         <p>{msg('Pages are joined in this order into a new PDF. The originals are not changed.')}</p>
-        <ol className="combine-list" role="listbox" aria-label={msg('Documents to combine')}>
-          {items.map((it, i) => (
-            <li key={`${it.kind}-${it.name}-${i}`} role="option" aria-selected={i === picked} className={i === picked ? 'picked' : ''} onClick={() => setPicked(i)}>
-              <span className="name">{it.name}</span>
-              <span className="where">{it.kind === 'open' ? msg('open') : msg('from disk')}</span>
-            </li>
-          ))}
-          {!items.length && <li className="empty">{msg('Add PDFs or pictures to combine.')}</li>}
-        </ol>
+        <ReorderList
+          state={files}
+          label={msg('Documents to combine')}
+          empty={msg('Add PDFs or pictures to combine.')}
+          nameOf={(source) => source.name}
+          noteOf={(source) => (source.kind === 'open' ? msg('open') : msg('from disk'))}
+        />
         <div className="row">
           <button type="button" className="btn" onClick={() => input.current?.click()}>
             {msg('Add Files…')}
           </button>
-          <button type="button" className="btn" disabled={!items.length} onClick={() => move(picked, -1)} title={msg('Move up')}>
-            ↑
-          </button>
-          <button type="button" className="btn" disabled={!items.length} onClick={() => move(picked, 1)} title={msg('Move down')}>
-            ↓
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={!items.length}
-            onClick={() => {
-              setItems(items.filter((_, i) => i !== picked));
-              setPicked(Math.max(0, picked - 1));
-            }}
-          >
-            {msg('Remove')}
-          </button>
+          <ReorderButtons state={files} />
         </div>
         <input
           ref={input}
@@ -83,9 +56,9 @@ export function CombineDialog({ open, onCombine, onCancel }: Props) {
           hidden
           accept={`application/pdf,.pdf,image/png,image/jpeg,image/gif,image/bmp,image/webp,${CAD_ACCEPT}`}
           onChange={(e) => {
-            const files = [...(e.target.files ?? [])];
+            const chosen = [...(e.target.files ?? [])];
             e.target.value = '';
-            if (files.length) setItems([...items, ...files.map((file) => ({ kind: 'disk' as const, file, name: file.name }))]);
+            if (chosen.length) files.add(chosen.map((file) => ({ kind: 'disk', file, name: file.name })));
           }}
         />
         <div className="form-grid">
