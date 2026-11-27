@@ -538,6 +538,7 @@ contents in `toc.js`. Its screenshots are taken by `scripts/help` from sample dr
 | `packages/markup` | Markup model, PDF annotation import and export, XFDF and FDF, summaries |
 | `packages/measure` | Scales, measurements, snapping, symbol search |
 | `packages/ops` | Sync operations: their format and validation, field groups, and the reducers that apply them |
+| `packages/policy` | Review permissions, audience-based visibility, settings validator, presets and scenario runner |
 | `packages/sheets` | Sheet number detection and sheet links |
 | `packages/stitch` | Stitching sheets along match lines |
 
