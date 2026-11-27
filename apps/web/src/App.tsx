@@ -195,6 +195,8 @@ import { modelLinework } from './model3d/onDrawing';
 import { modelLayers, type ModelLayer } from './geospatial/modelOnSheet';
 import type { GeoModel } from './geospatial/model';
 import { Model3dPanel, Model3dPropertiesPanel } from './model3d/Model3dPanel';
+import { gridAtPage, ringAround, type SheetHit } from './model3d/links';
+import type { SheetSource } from './model3d/sheetOverlays';
 import { convertAsJob, convertFile } from './cad/open';
 import { cadSession, useCadConversion } from './cad/session';
 import { CadConvertDialog } from './components/CadConvertDialog';
@@ -7983,6 +7985,9 @@ export function App() {
     const shared = !!studioDocOf(o.file.id);
     const pageOps = shared || busyPages;
     const geo = geoAt(o.store.allGeoRegions(), page, pt);
+    // Where the point lies on the map, for finding what is there in an open 3D model.
+    const models = [...tabsA, ...tabsB];
+    const grid = models.some((t) => t.kind === 'model') ? gridAtPage(o.store.allGeoRegions(), page, pt) : null;
     // While a polylength or area is being drawn, its next segment can be made a 3-point arc.
     const arcOn = c.tools.getState().arc !== 'off';
     const arcEntry: MenuEntry[] = !ro && c.tools.getState().measuring && (arcOn || c.tools.canArc()) ? [{ label: msg('Arc (3-point)'), shortcut: shortcutLabel('draw.arc'), checked: arcOn, onClick: () => c.tools.toggleArc() }, SEP] : [];
@@ -7995,6 +8000,7 @@ export function App() {
       { label: msg('Paste'), shortcut: 'Ctrl+V', disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, page, pt) },
       { label: msg('Select All Markups'), shortcut: 'Ctrl+A', onClick: () => c.tools.select(o.store.all().map((m) => m.id)) },
       ...(geo ? [{ label: msg('Copy Coordinates'), onClick: () => void navigator.clipboard.writeText(formatLatLon(geo.lat, geo.lon, settings.get().geoFormat)).catch(() => {}) }] : []),
+      ...(grid && models.some((t) => t.kind === 'model') ? [{ label: msg('Find in 3D'), disabled: !mapModel(), onClick: () => findIn3d(grid) }] : []),
       SEP,
       { label: msg('Previous View'), shortcut: 'Alt+←', disabled: !canGoBack, onClick: goBack },
       { label: msg('Previous Page'), shortcut: 'PgUp', disabled: page <= 0, onClick: () => v.prevPage() },
@@ -8969,6 +8975,56 @@ export function App() {
     useCallback((l: () => void) => activeModel?.view.subscribe(l) ?? (() => {}), [activeModel]),
     () => activeModel?.view.controls()?.state() ?? null,
   );
+
+  /** Open sheets registered to the map, which models on the same map can be shown on and linked to. */
+  const mapSheets = (): SheetSource[] =>
+    pdfTabs([...tabsA, ...tabsB])
+      .filter((t, i, all) => all.findIndex((x) => x.file.id === t.file.id) === i)
+      .flatMap((t) =>
+        t.store
+          .allGeoRegions()
+          .filter((region) => regionCrs(region))
+          .map((region) => ({
+            key: `${t.file.id}:${region.pageIndex}:${region.id}`,
+            label: `${t.file.name.replace(/\.pdf$/i, '')} — ${pageLabelFor(t, region.pageIndex)}${region.name ? ` (${region.name})` : ''}`,
+            region,
+            doc: t.doc,
+            store: t.store,
+          })),
+      );
+
+  /** Brings a sheet to the front where a model element lies on it, with a ring around the place. */
+  const openSheetAt = (hit: SheetHit) => {
+    const fileId = hit.source.key.split(':')[0];
+    const inA = tabsARef.current.find((t) => t.file.id === fileId);
+    const pane: Pane = inA ? 'a' : 'b';
+    const tab = inA ?? tabsBRef.current.find((t) => t.file.id === fileId);
+    if (!tab) return;
+    activateTab(pane, tab);
+    activePaneRef.current = pane;
+    // The sheet's viewer is shown and sized on the next frame, then moves to the place.
+    requestAnimationFrame(() => requestAnimationFrame(() => navigate(hit.source.region.pageIndex, ringAround(hit.point))));
+  };
+
+  /** A georeferenced model open in a tab, and its pane: where Find in 3D looks. */
+  const mapModel = (): { pane: Pane; tab: OpenModel } | null => {
+    for (const [pane, tabs] of [['a', tabsA], ['b', tabsB]] as const) {
+      const tab = tabs.find((t): t is OpenModel => t.kind === 'model' && !!t.view.controls()?.state().georeferenced);
+      if (tab) return { pane, tab };
+    }
+    return null;
+  };
+
+  /** Shows the model element at a sheet's map position: brings the model to the front and selects what is there. */
+  const findIn3d = (grid: [number, number]) => {
+    const found = mapModel();
+    const controls = found?.tab.view.controls();
+    if (!found || !controls) return;
+    activateTab(found.pane, found.tab);
+    void controls.findAt(grid[0], grid[1]).then((hit) => {
+      if (!hit) setNotice(msg('Nothing in the model at that place on the map.'));
+    });
+  };
 
   const commandActions: CommandActions = {
     open: () => openFromDisk(),
@@ -10315,25 +10371,12 @@ export function App() {
           <Model3dPanel
             view={activeModel?.view ?? null}
             fileHash={activeModel?.file.hash ?? null}
-            sheets={pdfTabs([...tabsA, ...tabsB])
-              .filter((t, i, all) => all.findIndex((x) => x.file.id === t.file.id) === i)
-              .flatMap((t) =>
-                t.store
-                  .allGeoRegions()
-                  .filter((region) => regionCrs(region))
-                  .map((region) => ({
-                    key: `${t.file.id}:${region.pageIndex}:${region.id}`,
-                    label: `${t.file.name.replace(/\.pdf$/i, '')} — ${pageLabelFor(t, region.pageIndex)}${region.name ? ` (${region.name})` : ''}`,
-                    region,
-                    doc: t.doc,
-                    store: t.store,
-                  })),
-              )}
+            sheets={mapSheets()}
             onDownload={(name, text) => download(name, new Blob([text], { type: 'application/json' }))}
             onNotice={setNotice}
           />
         ) : tab === 'model3dProps' ? (
-          <Model3dPropertiesPanel view={activeModel?.view ?? null} />
+          <Model3dPropertiesPanel view={activeModel?.view ?? null} sheets={mapSheets()} onOpenSheet={openSheetAt} />
         ) : tab === 'flags' ? (
           <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flagLabel') : null} />
         ) : (tab === 'projects' || tab === 'sessions') && !desktop() ? (

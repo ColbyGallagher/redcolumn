@@ -5,6 +5,7 @@ import { itemCount, paletteColour, parseSearchSets, searchable } from '@nb/model
 import type { ModelView } from '../documents/openTabs';
 import { lazy } from '../i18n/lazy';
 import { exportSearchSets, updateModelLibrary, useModelLibrary } from './library';
+import { sheetsAt, type SheetHit } from './links';
 import { sheetOverlay, type SheetSetting, type SheetSource } from './sheetOverlays';
 
 /** The profile made by Colour by Class (not kept in the library). */
@@ -459,9 +460,11 @@ function SetsAndColours(props: {
 }
 
 /** The 3D Properties panel: the selected element's attributes and property and quantity sets. */
-export function Model3dPropertiesPanel({ view }: { view: ModelView | null }) {
+export function Model3dPropertiesPanel({ view, sheets, onOpenSheet }: { view: ModelView | null; sheets: readonly SheetSource[]; onOpenSheet: (hit: SheetHit) => void }) {
   const { state, controls } = useModel(view);
   const info = useAsk<SelectionInfo>(controls, (c) => c.selection(), state?.selectionVersion);
+  // Where the selection lies on the map, asked again when it changes or the model is placed on the map.
+  const place = useAsk(controls, (c) => c.selectionPlace(), state ? state.selectionVersion * 2 + (state.georeferenced ? 1 : 0) : undefined);
   const [filter, setFilter] = useState('');
   if (!view) return <p className="empty m3d-empty">{msg('Select an element in a 3D model to see its properties.')}</p>;
   if (!info?.first) return <p className="empty m3d-empty">{info?.count ? msg('Reading the element…') : msg('Click an element in the model to see its properties.')}</p>;
@@ -495,7 +498,30 @@ export function Model3dPropertiesPanel({ view }: { view: ModelView | null }) {
         </details>
       ))}
       {!groups.length && <p className="empty">{msg('No property matches “{filter}”.', { filter })}</p>}
+      {place && <OnDrawings hits={sheetsAt(sheets, place[0], place[1])} onOpen={onOpenSheet} />}
     </div>
+  );
+}
+
+/** The open sheets showing where the selected element lies on the map, each opening the sheet there. */
+function OnDrawings({ hits, onOpen }: { hits: SheetHit[]; onOpen: (hit: SheetHit) => void }) {
+  return (
+    <details className="m3d-section" open>
+      <summary>{msg('On drawings')}</summary>
+      {hits.length ? (
+        <ul className="m3d-list" aria-label={msg('On drawings')}>
+          {hits.map((h) => (
+            <li key={h.source.key} className="m3d-row">
+              <button type="button" className="btn small m3d-name" title={msg('Open {label} where this element is', { label: h.source.label })} onClick={() => onOpen(h)}>
+                {h.source.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="empty">{msg('No open sheet registered to the map shows this element.')}</p>
+      )}
+    </details>
   );
 }
 

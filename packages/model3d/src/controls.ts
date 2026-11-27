@@ -271,6 +271,13 @@ export interface ModelBrowser {
   find(set: SearchSet): Promise<ItemMap>;
   /** The view as it is now, to save. */
   capture(name: string, profileId: string | null): Promise<SavedView>;
+  /** Where the selection lies on the map: its bounds' centre as grid easting, northing and height; null when nothing is selected or the model is not on the map. */
+  selectionPlace(): Promise<[number, number, number] | null>;
+  /**
+   * Selects and frames the topmost element at a map position (grid easting and northing), looking
+   * straight down; returns false when nothing is there or the model is not on the map.
+   */
+  findAt(easting: number, northing: number): Promise<boolean>;
 }
 
 /** Sidebar actions, run like the ribbon's. */

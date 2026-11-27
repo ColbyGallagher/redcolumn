@@ -353,36 +353,43 @@ export class ModelSession implements ModelControls {
   private async drapeOf(o: SheetOverlay, run: number): Promise<THREE.Object3D | null> {
     const group = new THREE.Group();
     group.name = `sheet:${o.id}`;
-    const dom = this.world.renderer?.three.domElement;
-    if (!dom) return null;
-    const top = this.scenePoint(0, 0, 0).y + 10_000;
-    const camera = new THREE.OrthographicCamera(-0.01, 0.01, 0.01, -0.01, 0.01, 100_000);
-    camera.up.set(0, 0, -1);
-    const rect = dom.getBoundingClientRect();
-    const mouse = new THREE.Vector2(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    if (!this.world.renderer?.three.domElement) return null;
     const lift = 0.05;
     for (const line of o.lines) {
       const segments: THREE.Vector3[][] = [[]];
       for (const [e, n] of densify(line.points, 1, 600)) {
         if (run !== this.sheetRun || this.disposed) return null;
         const at = this.scenePoint(e, n, 0);
-        camera.position.set(at.x, top, at.z);
-        camera.lookAt(at.x, top - 1, at.z);
-        camera.updateMatrixWorld();
-        camera.updateProjectionMatrix();
-        let hit: THREE.Vector3 | null = null;
-        for (const model of this.fragments.list.values()) {
-          if (!model.object.visible) continue;
-          const r = await model.raycast({ camera, mouse, dom }).catch(() => null);
-          if (r && (!hit || r.point.y > hit.y)) hit = r.point.clone();
-        }
-        if (hit) segments[segments.length - 1]!.push(new THREE.Vector3(at.x, hit.y + lift, at.z));
+        const hit = await this.topHit(at.x, at.z);
+        if (hit) segments[segments.length - 1]!.push(new THREE.Vector3(at.x, hit.point.y + lift, at.z));
         else if (segments[segments.length - 1]!.length) segments.push([]);
       }
       const material = new THREE.LineBasicMaterial({ color: new THREE.Color(line.colour), transparent: o.opacity < 1, opacity: o.opacity, depthTest: true });
       for (const pts of segments) if (pts.length > 1) group.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), material));
     }
     return group;
+  }
+
+  /** The highest element of the shown models straight below a scene point (x, z), looking down from well above them. */
+  private async topHit(x: number, z: number): Promise<{ point: THREE.Vector3; modelId: string; localId: number } | null> {
+    const dom = this.world.renderer?.three.domElement;
+    if (!dom || !this.gridToScene) return null;
+    const top = this.scenePoint(0, 0, 0).y + 10_000;
+    const camera = new THREE.OrthographicCamera(-0.01, 0.01, 0.01, -0.01, 0.01, 100_000);
+    camera.up.set(0, 0, -1);
+    camera.position.set(x, top, z);
+    camera.lookAt(x, top - 1, z);
+    camera.updateMatrixWorld();
+    camera.updateProjectionMatrix();
+    const rect = dom.getBoundingClientRect();
+    const mouse = new THREE.Vector2(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    let best: { point: THREE.Vector3; modelId: string; localId: number } | null = null;
+    for (const [modelId, model] of this.fragments.list) {
+      if (!model.object.visible) continue;
+      const r = await model.raycast({ camera, mouse, dom }).catch(() => null);
+      if (r && (!best || r.point.y > best.point.y)) best = { point: r.point.clone(), modelId, localId: r.localId };
+    }
+    return best;
   }
 
   /** Shows every element again, at full strength and in its own colours (a colour profile goes too). */
@@ -525,6 +532,24 @@ export class ModelSession implements ModelControls {
       ghost: this.current.ghost,
       profileId,
     };
+  }
+
+  async selectionPlace(): Promise<[number, number, number] | null> {
+    const sel = this.selected();
+    if (!sel || !this.gridToScene) return null;
+    const box = await this.boxOf(sel);
+    if (!box) return null;
+    const c = box.getCenter(new THREE.Vector3()).applyMatrix4(this.gridToScene.clone().invert());
+    return [c.x, c.y, c.z];
+  }
+
+  async findAt(easting: number, northing: number): Promise<boolean> {
+    if (!this.gridToScene || this.disposed) return false;
+    const at = this.scenePoint(easting, northing, 0);
+    const hit = await this.topHit(at.x, at.z);
+    if (!hit) return false;
+    await this.apply({ type: 'selectItems', items: { [hit.modelId]: [hit.localId] }, fit: true });
+    return true;
   }
 
   /** Goes back to a saved view: its camera, section box, hidden elements and colour profile. */

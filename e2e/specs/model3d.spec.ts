@@ -204,6 +204,63 @@ test.describe('3D models', () => {
     await expect.poll(frame).toBeGreaterThan(before + 2);
   });
 
+  test('a selected element opens the sheet showing it, and Find in 3D on that sheet selects it in the model', async ({ app }) => {
+    const page = app.page;
+    await app.open('plan.pdf');
+    await page.evaluate((region) => (window.__nb.tools.store as unknown as { setPageGeo(p: number, r: unknown[]): void }).setPageGeo(0, [region]), PLAN_REGION);
+    await openModel(app);
+    await expect(view(app)).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
+    type Session = {
+      state(): { georeferenced: boolean; selected: number };
+      classes(): Promise<{ category: string; items: Record<string, number[]> }[]>;
+      run(a: unknown): void;
+    };
+    // Kept from the first call: the view leaves the page while a PDF is in front.
+    const session = <T,>(fn: (s: Session) => T) =>
+      page.evaluate((src) => {
+        const w = window as unknown as { __m3d?: Session };
+        w.__m3d ??= (document.querySelector('.model-view') as unknown as { session: Session }).session;
+        return new Function('s', `return (${src})(s)`)(w.__m3d);
+      }, fn.toString()) as Promise<T>;
+    await expect.poll(() => session((s) => s.state().georeferenced)).toBe(true);
+
+    // Model to drawing: a pavement segment in the middle of the road lies on the plan.
+    await session(async (s) => {
+      const pavement = (await s.classes()).find((c) => c.category === 'IFCPAVEMENT')!;
+      const [modelId, ids] = Object.entries(pavement.items)[0]!;
+      s.run({ type: 'selectItems', items: { [modelId]: [ids[Math.floor(ids.length / 2)]] } });
+    });
+    await expect.poll(() => session((s) => s.state().selected)).toBe(1);
+    await app.cmd('window.model3dProps');
+    const onDrawings = page.getByRole('list', { name: 'On drawings' });
+    await onDrawings.getByRole('button', { name: /plan/ }).click();
+    await expect(page.locator('.doc-tab.active')).toContainText('plan');
+    // The sheet opens where the element is, with a ring around it.
+    const ring = () => page.evaluate(() => (window.__nb.tools as unknown as { flashing: { pageIndex: number; rect: { x: number; y: number; w: number; h: number } } | null }).flashing);
+    await expect.poll(async () => (await ring())?.pageIndex).toBe(0);
+    const { rect } = (await ring())!;
+
+    // Drawing to model: right-click there, Find in 3D brings the model forward with the element selected.
+    await session((s) => s.run({ type: 'clearSelection' }));
+    await expect.poll(() => session((s) => s.state().selected)).toBe(0);
+    // Where the ring is on screen once the viewer has finished moving there.
+    const centre: [number, number] = [rect.x + rect.w / 2, rect.y + rect.h / 2];
+    let at = await app.at(centre, 0);
+    await expect
+      .poll(async () => {
+        await page.waitForTimeout(150);
+        const next = await app.at(centre, 0);
+        const still = Math.abs(next.x - at.x) < 0.5 && Math.abs(next.y - at.y) < 0.5;
+        at = next;
+        return still;
+      })
+      .toBe(true);
+    await page.mouse.click(at.x, at.y, { button: 'right' });
+    await page.getByRole('menuitem', { name: 'Find in 3D' }).click();
+    await expect(page.locator('.doc-tab.active')).toContainText('kestrel-road-revA.ifc');
+    await expect.poll(() => session((s) => s.state().selected), { timeout: 30_000 }).toBe(1);
+  });
+
   test('working with PDFs never loads the 3D viewer', async ({ app }) => {
     const seen = watch3d(app);
     await app.open('plan.pdf');
