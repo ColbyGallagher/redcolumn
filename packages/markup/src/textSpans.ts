@@ -3,8 +3,8 @@
 // and round trips read it unchanged); `Markup.spans` rides beside it and only overrides the markup's
 // own style where a run differs. Offsets are UTF-16 code units into `text`.
 
-import { parseListItem } from './textLists';
-import { textColor } from './style';
+import { parseListItem } from './textLists.ts';
+import { textColor } from './style.ts';
 import type { MarkupStyle } from './model';
 
 /** What a span changes about the markup's own text style. A flag left out means "as the markup". */

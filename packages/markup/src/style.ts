@@ -1,5 +1,5 @@
 import type { Markup, MarkupStyle, MarkupType } from './model';
-import { TYPE_INFO } from './types';
+import { TYPE_INFO } from './types.ts';
 
 /**
  * Line endings, chosen from the Start/End dropdowns. Hollow shapes are outlined in the line color;
@@ -62,13 +62,13 @@ export function dashPattern(dash: LineDash | undefined, width: number): number[]
   return (DASH_UNITS[dash ?? 'solid'] ?? []).map((u) => u * w);
 }
 
-export { customHatchId, HATCH_PATTERNS, hatchDraw, hatchScaleOf, paintHatchCell, resolveHatch } from './hatches';
-export type { CustomHatchId, HatchDraw, HatchElement, HatchPattern, HatchSpec, LegacyHatch, StoredHatch } from './hatches';
+export { customHatchId, HATCH_PATTERNS, hatchDraw, hatchScaleOf, paintHatchCell, resolveHatch } from './hatches.ts';
+export type { CustomHatchId, HatchDraw, HatchElement, HatchPattern, HatchSpec, LegacyHatch, StoredHatch } from './hatches.ts';
 
 // Keyword families map to the PDF standard fonts; a named family is an installed font (see fonts.ts).
-export { canEmbedFont, cleanFontName, cssFontFamily, daFontName, familyFromPdfName, FONT_FAMILIES, FONT_KEYWORDS, fontKeyword, fontPermissions, isFontKeyword, isNamedFont, isTrueTypeOutline } from './fonts';
-export type { FontEmbedding, FontFamily, FontKeyword, FontPermissions } from './fonts';
-import { cssFontFamily } from './fonts';
+export { canEmbedFont, cleanFontName, cssFontFamily, daFontName, familyFromPdfName, FONT_FAMILIES, FONT_KEYWORDS, fontKeyword, fontPermissions, isFontKeyword, isNamedFont, isTrueTypeOutline } from './fonts.ts';
+export type { FontEmbedding, FontFamily, FontKeyword, FontPermissions } from './fonts.ts';
+import { cssFontFamily } from './fonts.ts';
 
 export type TextAlign = 'left' | 'center' | 'right' | 'justify';
 export type VerticalAlign = 'top' | 'middle' | 'bottom';
