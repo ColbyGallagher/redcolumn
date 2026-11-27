@@ -95,3 +95,8 @@ test('pages with no scale use the default units', () => {
   assert.equal(DEFAULT_SCALE.unit, 'mm');
   assert.equal(DEFAULT_SCALE.areaUnit, 'm');
 });
+
+test('zoomToSearchResults defaults to true and parses from exported preferences', () => {
+  assert.equal(DEFAULT_SETTINGS.zoomToSearchResults, true);
+  assert.deepEqual(settings.parse(JSON.stringify({ settings: { zoomToSearchResults: false } })), { zoomToSearchResults: false });
+});

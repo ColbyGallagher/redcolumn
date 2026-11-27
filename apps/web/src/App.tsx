@@ -2175,19 +2175,28 @@ export function App() {
   /** Bookmarks and Places: a zoomed view, a point (scrolled to), or the whole page. */
   const goToTarget = (t: ViewTarget) => navigate(t.pageIndex, t.rect && t.rect.w > 0 ? t.rect : null);
 
-  /** Shows one search match: its page, zoomed in, highlighted as the current match. */
+  /** Shows one search match: its page, zoomed in (when enabled), highlighted as the current match. */
   const openSearchHit = useCallback(
     (hit: SearchHit) => {
       const useB = activePaneRef.current === 'b' && ctlB;
       const viewer = useB ? ctlB.viewer : ctl?.viewer;
       const tools = useB ? ctlB.tools : ctl?.tools;
       if (!viewer || !tools) return;
-      const xs = hit.rects.flatMap((r) => [r.x, r.x + r.w]);
-      const ys = hit.rects.flatMap((r) => [r.y, r.y + r.h]);
-      const rect = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
-      viewer.goToPage(hit.pageIndex);
-      // Enough context to read the match in its surroundings.
-      viewer.zoomToRect({ x: rect.x - 150, y: rect.y - 100, w: rect.w + 300, h: rect.h + 200 }, 1, hit.pageIndex);
+      const zoomToHit = settings.get().zoomToSearchResults;
+      if (!hit.rects.length) {
+        viewer.goToPage(hit.pageIndex, !zoomToHit);
+      } else {
+        const xs = hit.rects.flatMap((r) => [r.x, r.x + r.w]);
+        const ys = hit.rects.flatMap((r) => [r.y, r.y + r.h]);
+        const rect = { x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
+        if (zoomToHit) {
+          viewer.goToPage(hit.pageIndex);
+          // Enough context to read the match in its surroundings.
+          viewer.zoomToRect({ x: rect.x - 150, y: rect.y - 100, w: rect.w + 300, h: rect.h + 200 }, 1, hit.pageIndex);
+        } else {
+          viewer.panToRect(rect, hit.pageIndex);
+        }
+      }
       tools.setHighlights(searchHits.current, searchHits.current.indexOf(hit));
     },
     [ctl, ctlB],
@@ -12112,9 +12121,13 @@ export function App() {
               }}
               onGo={(hit, i, all) => {
                 highlight(all, i);
-                c.viewer.goToPage(hit.pageIndex);
                 const r = hit.match.rect;
-                c.viewer.zoomToRect({ x: r.x - r.w * 3, y: r.y - r.h * 3, w: r.w * 7, h: r.h * 7 }, 1, hit.pageIndex);
+                if (settings.get().zoomToSearchResults) {
+                  c.viewer.goToPage(hit.pageIndex);
+                  c.viewer.zoomToRect({ x: r.x - r.w * 3, y: r.y - r.h * 3, w: r.w * 7, h: r.h * 7 }, 1, hit.pageIndex);
+                } else {
+                  c.viewer.panToRect(r, hit.pageIndex);
+                }
               }}
               onApply={(action: VisualSearchAction, hits) => {
                 const now = Date.now();

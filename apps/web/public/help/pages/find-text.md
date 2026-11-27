@@ -32,6 +32,7 @@ Choose where to look from the list under the search box:
 - **Search Markups** — your markups' text, comments and replies.
 - **Case Sensitive** — finds *Wall* but not *WALL*.
 - **Whole Words Only** — finds *A-201* but not *A-2011*.
+- **Zoom to Search Results** — zooms in on each match when you click it; turn it off to keep your current zoom (also in {{File > Preferences… > General > Navigation}}).
 
 ## Redact what you found
 
