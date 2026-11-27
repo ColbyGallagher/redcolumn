@@ -1,4 +1,3 @@
-import { shiftSpans } from './textSpans';
 import * as Y from 'yjs';
 import { IndexeddbPersistence } from 'y-indexeddb';
 import { DEFAULT_SCALE, type GeoRegion, type Scale } from '@nb/measure';
@@ -7,7 +6,8 @@ import { DEFAULT_STATUSES, type ColumnSet, type CustomColumn, type MarkupStatusD
 import { mergeAssemblies, sanitizeAssemblies, type Assembly } from './assemblies';
 import { EMPTY_ESTIMATING, mergeEstimating, resolveAssemblies, sanitizeItems, sanitizeProductLists, sanitizeTemplates, type Estimating } from './estimating';
 import { mapGeometry, type Markup, type Point } from './model';
-import { openPatch, type EditRule } from './ownership';
+import type { EditRule } from './ownership';
+import { planAdd, planRemove, planUpdate, type AddPlan } from './editing';
 import { rotatePagePoint, type PagePlan } from './pages';
 import { remapBookmarks, type Bookmark, type Place } from './bookmarks';
 import { scaleOfMarkup, viewportAt, type Viewport } from './viewports';
@@ -18,7 +18,7 @@ import { orphanedLinks, planPortalSync, relinkPlan, remapPortals, sanitizePortal
 
 /** Bumped when the importer reads other tools' markups differently: older documents refresh the ones not edited since. */
 export const IMPORT_VERSION = 2;
-import { gluedTo, relinkCopies, routeConnector } from './flowchart';
+import { relinkCopies } from './flowchart';
 import type { AiReviewFacet, EditorContext, FileStepFacet, GeoFacet, ImportFacet, LinkFacet, MarkupDocument, PortalFacet, StitchFacet, TakeoffFacet, UndoResult, YjsFacet } from './document';
 
 /**
@@ -1404,84 +1404,42 @@ export class MarkupStore implements MarkupDocument, TakeoffFacet, AiReviewFacet,
    */
   add(markup: Markup) {
     if (this.locked) return;
-    const clean: Record<string, unknown> = { ...markup };
-    for (const k of Object.keys(clean)) if (clean[k] === undefined) delete clean[k];
-    let added = false;
+    let plan!: AddPlan;
     this.doc.transact(() => {
-      const existing = this.map.get(markup.id);
-      if (existing) {
-        if (existing.seq) clean.seq = existing.seq;
-      } else {
-        added = true;
-        const seq = this.lastSeq() + 1;
-        clean.seq = seq;
-        this.meta.set('seq', seq);
-        // A copy starts without the status it was copied from, so without its history too.
-        if (clean.status === 'none') delete clean.statusHistory;
-      }
-      this.map.set(markup.id, clean as unknown as Markup);
-      // A new connector is routed to its shapes; a markup put back in place takes its connectors along.
+      plan = planAdd(this.map, markup, {
+        lastSeq: (this.meta.get('seq') as number | undefined) ?? 0,
+        mayEdit: (m) => this.mayEdit(m),
+        hasConnectors: this.hasConnectors,
+      });
+      if (plan.nextSeq !== undefined) this.meta.set('seq', plan.nextSeq);
+      for (const m of plan.put) this.map.set(m.id, m);
       if (markup.type === 'connector') this.hasConnectors = true;
-      this.followConnectors(new Set([markup.id]));
     }, LOCAL);
-    if (added) this.context.onAdded?.(this, clean as unknown as Markup);
+    if (plan.added) this.context.onAdded?.(this, plan.added);
   }
 
   /** Merges `patch` into a markup; a field patched to undefined is removed. */
   update(id: string, patch: Partial<Omit<Markup, 'id'>>) {
     if (this.locked) return;
-    const current = this.map.get(id);
-    if (!current) return;
-    if (!this.mayEdit(current)) {
-      // Someone else's markup: only its status and replies change here.
-      const open = openPatch(patch);
-      if (!open) return;
-      patch = open;
-    }
-    // A new status goes into the markup's status history: who set it, and when.
-    if (patch.status !== undefined && patch.status !== current.status && !('statusHistory' in patch)) {
-      const def = this.columnSet().statuses.find((s) => s.id === patch.status);
-      const state = def?.name ?? (patch.status === 'none' ? 'None' : patch.status);
-      patch = { ...patch, statusHistory: [...(current.statusHistory ?? []), { state, model: def?.model ?? 'Review', author: this.context.actor.name, at: Date.now() }] };
-    }
-    // Another assembly: quantities set by hand and an AI approval were for the old one.
-    if ('assemblyId' in patch && patch.assemblyId !== current.assemblyId && !('assemblyOverrides' in patch)) patch = { ...patch, assemblyOverrides: undefined, takeoffApproval: undefined };
-    // Another assembly's inputs are not this one's.
-    if ('assemblyId' in patch && patch.assemblyId !== current.assemblyId && !('assemblyInputs' in patch)) patch = { ...patch, assemblyInputs: undefined };
-    // New text without its own styled parts keeps the old ones on the characters that stayed.
-    if ('text' in patch && !('spans' in patch) && current.spans?.length) {
-      const spans = shiftSpans(current.spans, current.text ?? '', patch.text ?? '');
-      patch = { ...patch, spans: spans.length ? spans : undefined };
-    }
-    const next: Record<string, unknown> = { ...current, ...patch, modifiedAt: Date.now() };
-    for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+    const plan = planUpdate(this.map, id, patch, {
+      actor: this.context.actor.name,
+      now: Date.now(),
+      statuses: this.columnSet().statuses,
+      mayEdit: (m) => this.mayEdit(m),
+      hasConnectors: this.hasConnectors,
+    });
+    if (!plan.put.length) return;
     this.doc.transact(() => {
-      this.map.set(id, next as unknown as Markup);
-      if ('points' in patch || 'rotation' in patch || 'connect' in patch || 'pageIndex' in patch) this.followConnectors(new Set([id]));
+      for (const m of plan.put) this.map.set(m.id, m);
     }, LOCAL);
-  }
-
-  /**
-   * Re-routes the connectors glued to `ids` (and any of them that are connectors) after they
-   * changed, in the same transaction: a moved shape takes its connectors along in one undo step.
-   */
-  private followConnectors(ids: ReadonlySet<string>) {
-    if (!this.hasConnectors) return;
-    const get = (id: string) => this.map.get(id);
-    for (const c of this.map.values()) {
-      if (c.type !== 'connector' || !(ids.has(c.id) || gluedTo(c, ids)) || !this.mayEdit(c)) continue;
-      const points = routeConnector(c, get);
-      if (points !== c.points && JSON.stringify(points) !== JSON.stringify(c.points)) this.map.set(c.id, { ...c, points });
-    }
   }
 
   remove(ids: Iterable<string>) {
     if (this.locked) return;
+    const plan = planRemove(this.map, ids, { mayEdit: (m) => this.mayEdit(m) });
+    if (!plan.remove.length) return;
     this.doc.transact(() => {
-      for (const id of ids) {
-        const m = this.map.get(id);
-        if (m && this.mayEdit(m)) this.map.delete(id);
-      }
+      for (const id of plan.remove) this.map.delete(id);
     }, LOCAL);
   }
 
