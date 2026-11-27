@@ -19,6 +19,7 @@ import {
   type ModelInfo,
   type ModelState,
   type ModelTool,
+  type PlaceCamera,
   type ResolvedProfile,
   type SheetOverlay,
   type SavedView,
@@ -257,6 +258,8 @@ export class ModelSession implements ModelControls {
         return this.georeference(a.modelId, a.matrix);
       case 'sheetOverlays':
         return this.showSheets(a.overlays);
+      case 'lookAtPlace':
+        return this.lookAtPlace(a.camera);
     }
   }
 
@@ -550,6 +553,45 @@ export class ModelSession implements ModelControls {
     if (!hit) return false;
     await this.apply({ type: 'selectItems', items: { [hit.modelId]: [hit.localId] }, fit: true });
     return true;
+  }
+
+  cameraPlace(): PlaceCamera | null {
+    if (!this.gridToScene) return null;
+    const controls = this.world.camera.controls;
+    const toGrid = this.gridToScene.clone().invert();
+    const p = controls.getPosition(new THREE.Vector3()).applyMatrix4(toGrid);
+    const t = controls.getTarget(new THREE.Vector3()).applyMatrix4(toGrid);
+    const three = this.world.camera.three;
+    return { position: p.toArray(), target: t.toArray(), projection: this.world.camera.projection.current, fov: three instanceof THREE.PerspectiveCamera ? three.fov : 60 };
+  }
+
+  private async lookAtPlace(c: PlaceCamera): Promise<void> {
+    if (!this.gridToScene) return;
+    const camera = this.world.camera;
+    if (this.current.nav !== 'Orbit') camera.set('Orbit');
+    await camera.projection.set(c.projection);
+    this.update({ nav: 'Orbit', projection: c.projection });
+    const p = this.scenePoint(...c.position);
+    const t = this.scenePoint(...c.target);
+    await camera.controls.setLookAt(p.x, p.y, p.z, t.x, t.y, t.z, true);
+  }
+
+  snapshot(maxWidth: number): string | null {
+    const renderer = this.world.renderer?.three;
+    if (!renderer || this.disposed) return null;
+    // Drawn now, so the picture is read before the browser clears the canvas.
+    renderer.render(this.world.scene.three, this.world.camera.three);
+    const src = renderer.domElement;
+    if (!src.width || !src.height) return null;
+    const k = Math.min(1, maxWidth / src.width);
+    const out = document.createElement('canvas');
+    out.width = Math.max(1, Math.round(src.width * k));
+    out.height = Math.max(1, Math.round(src.height * k));
+    const ctx = out.getContext('2d')!;
+    ctx.fillStyle = '#1e1e1e';
+    ctx.fillRect(0, 0, out.width, out.height);
+    ctx.drawImage(src, 0, 0, out.width, out.height);
+    return out.toDataURL('image/jpeg', 0.8);
   }
 
   /** Goes back to a saved view: its camera, section box, hidden elements and colour profile. */

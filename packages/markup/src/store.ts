@@ -1489,6 +1489,15 @@ export class MarkupStore {
   }
 
   /**
+   * Runs edits that follow another source (a 3D model's issues kept in step with their markups):
+   * saved and shared like any edit, but not undoable, so Undo takes back only what the user did.
+   */
+  follow(fn: () => void) {
+    if (this.locked) return;
+    this.doc.transact(fn, DETECTION);
+  }
+
+  /**
    * Records a change to the document's file (its contents went from `before` to `after`, both
    * still readable by hash) as one undo step, together with `remap`: the markups, scales, links...
    * following the change. Undoing it brings the markups back as they were and calls

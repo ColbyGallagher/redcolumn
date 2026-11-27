@@ -261,6 +261,48 @@ test.describe('3D models', () => {
     await expect.poll(() => session((s) => s.state().selected), { timeout: 30_000 }).toBe(1);
   });
 
+  test('an issue raised in the model shows as a cloud and callout on the plan, and its status set there comes back', async ({ app }) => {
+    const page = app.page;
+    await app.open('plan.pdf');
+    await page.evaluate((region) => (window.__nb.tools.store as unknown as { setPageGeo(p: number, r: unknown[]): void }).setPageGeo(0, [region]), PLAN_REGION);
+    await openModel(app);
+    await expect(view(app)).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
+    type Session = {
+      state(): { georeferenced: boolean; selected: number };
+      classes(): Promise<{ category: string; items: Record<string, number[]> }[]>;
+      run(a: unknown): void;
+    };
+    const session = <T,>(fn: (s: Session) => T) => page.evaluate((src) => new Function('s', `return (${src})(s)`)((document.querySelector('.model-view') as unknown as { session: Session }).session), fn.toString()) as Promise<T>;
+    await expect.poll(() => session((s) => s.state().georeferenced)).toBe(true);
+    await session(async (s) => {
+      const pavement = (await s.classes()).find((c) => c.category === 'IFCPAVEMENT')!;
+      const [modelId, ids] = Object.entries(pavement.items)[0]!;
+      s.run({ type: 'selectItems', items: { [modelId]: [ids[Math.floor(ids.length / 2)]] } });
+    });
+    await expect.poll(() => session((s) => s.state().selected)).toBe(1);
+
+    await app.cmd('window.model3d');
+    await page.getByRole('textbox', { name: 'Issue title' }).fill('Pit lid too high');
+    await page.getByRole('button', { name: 'New issue' }).click();
+    const issues = page.getByRole('list', { name: 'Issues' });
+    await expect(issues.getByRole('button', { name: 'Pit lid too high', exact: true })).toBeVisible();
+    await expect(issues.getByRole('img', { name: /Snapshot/ })).toBeVisible();
+
+    // On the plan: a cloud and a callout with the issue's title, subject BCF.
+    await page.locator('.doc-tab', { hasText: 'plan' }).click();
+    type Mk = { id: string; type: string; subject?: string; text?: string; status: string; bcf?: { role: string } };
+    const bcfMarkups = () => page.evaluate(() => (window.__nb.tools.store as unknown as { all(): Mk[] }).all().filter((m) => m.bcf));
+    await expect.poll(async () => (await bcfMarkups()).map((m) => m.type).sort().join()).toBe('callout,cloud');
+    const callout = (await bcfMarkups()).find((m) => m.type === 'callout')!;
+    expect(callout.subject).toBe('BCF');
+    expect(callout.text).toBe('Pit lid too high');
+
+    // Completed on the sheet: the issue is Resolved.
+    await page.evaluate((id) => (window.__nb.tools.store as unknown as { update(id: string, p: unknown): void }).update(id, { status: 'completed' }), callout.id);
+    await page.locator('.doc-tab', { hasText: 'kestrel-road-revA.ifc' }).click();
+    await expect(page.getByRole('list', { name: 'Issues' }).locator('.m3d-class', { hasText: 'Resolved' })).toBeVisible();
+  });
+
   test('working with PDFs never loads the 3D viewer', async ({ app }) => {
     const seen = watch3d(app);
     await app.open('plan.pdf');

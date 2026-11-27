@@ -6766,3 +6766,39 @@ input.m3d-name:focus {
 .m3d-sheet-options input[type='range'] {
   width: 80px;
 }
+.m3d-issue-filters {
+  display: flex;
+  gap: 4px;
+  margin: 6px 0;
+}
+.m3d-issue-filters > * {
+  min-width: 0;
+  flex: 1;
+}
+.m3d-issue-detail {
+  display: grid;
+  gap: 4px;
+  padding: 4px 0 8px 8px;
+}
+.m3d-issue-detail label {
+  display: grid;
+  grid-template-columns: 84px 1fr;
+  align-items: center;
+  gap: 6px;
+}
+.m3d-issue-detail textarea {
+  resize: vertical;
+}
+.m3d-snapshot {
+  width: 100%;
+  border-radius: 4px;
+}
+.m3d-comments {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.m3d-comments p {
+  margin: 0 0 4px;
+  white-space: pre-wrap;
+}

@@ -196,6 +196,7 @@ import { modelLayers, type ModelLayer } from './geospatial/modelOnSheet';
 import type { GeoModel } from './geospatial/model';
 import { Model3dPanel, Model3dPropertiesPanel } from './model3d/Model3dPanel';
 import { gridAtPage, ringAround, type SheetHit } from './model3d/links';
+import { useIssueSync } from './model3d/useIssueSync';
 import type { SheetSource } from './model3d/sheetOverlays';
 import { convertAsJob, convertFile } from './cad/open';
 import { cadSession, useCadConversion } from './cad/session';
@@ -8993,6 +8994,12 @@ export function App() {
           })),
       );
 
+  // Issues raised in open models and their markups on open sheets kept in step.
+  useIssueSync(
+    [...tabsA, ...tabsB].flatMap((t) => (t.kind === 'model' ? [t.file.hash] : [])),
+    mapSheets(),
+  );
+
   /** Brings a sheet to the front where a model element lies on it, with a ring around the place. */
   const openSheetAt = (hit: SheetHit) => {
     const fileId = hit.source.key.split(':')[0];
@@ -10373,6 +10380,7 @@ export function App() {
             fileHash={activeModel?.file.hash ?? null}
             sheets={mapSheets()}
             onDownload={(name, text) => download(name, new Blob([text], { type: 'application/json' }))}
+            onSaveFile={(name, data) => download(name, data)}
             onNotice={setNotice}
           />
         ) : tab === 'model3dProps' ? (
