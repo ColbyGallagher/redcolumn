@@ -92,6 +92,53 @@ jobs:
         continue-on-error: true
         run: pnpm audit --audit-level high
 
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: redcolumn
+          POSTGRES_PASSWORD: redcolumn_ci_password
+          POSTGRES_DB: redcolumn_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Typecheck @nb/server
+        run: pnpm --filter @nb/server typecheck
+
+      - name: Run and verify migrations
+        env:
+          DATABASE_URL: postgres://redcolumn:redcolumn_ci_password@127.0.0.1:5432/redcolumn_test
+        run: |
+          pnpm --filter @nb/server migrate
+          pnpm --filter @nb/server admin migrate --check
+
+      - name: Test @nb/server (unit + Postgres integration)
+        env:
+          DATABASE_URL: postgres://redcolumn:redcolumn_ci_password@127.0.0.1:5432/redcolumn_test
+          REQUIRE_POSTGRES_TESTS: '1'
+        run: pnpm --filter @nb/server test
+
   # The Mac and Linux installers are otherwise only built when a release tag is pushed, so a break
   # in either would show up at release time. These build them on every push and pull request (free
   # on a public repo) and run the tests on a second OS. The e2e suite stays a local gate (pnpm verify).
