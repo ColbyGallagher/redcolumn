@@ -19,12 +19,11 @@ interface Props {
 }
 
 /**
- * In-place editor over one cell of a table. Commits on blur; Esc cancels. Tab and Shift+Tab move
+ * In-place editor over one cell of a table. Commits on blur or Esc. Tab and Shift+Tab move
  * along the cells, Enter moves down, and Shift+Enter starts a new line in the cell.
  */
 export function TableCellEditor({ markup, row, col, typed, store, viewer, onDone }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const cancelled = useRef(false);
   const next = useRef<{ row: number; col: number } | undefined>(undefined);
   const { spellCheck } = useSettings();
 
@@ -50,8 +49,8 @@ export function TableCellEditor({ markup, row, col, typed, store, viewer, onDone
   const finish = () => {
     const text = ref.current?.value ?? '';
     const live = store.get(markup.id);
-    if (!cancelled.current && live && text !== (tableOf(live).cells[row]?.[col] ?? '')) store.update(markup.id, { table: setTableCell(live, row, col, text) });
-    onDone(cancelled.current ? undefined : next.current);
+    if (live && text !== (tableOf(live).cells[row]?.[col] ?? '')) store.update(markup.id, { table: setTableCell(live, row, col, text) });
+    onDone(next.current);
   };
 
   const move = (e: ReactKeyboardEvent<HTMLTextAreaElement>, to: { row: number; col: number } | undefined) => {
@@ -75,7 +74,7 @@ export function TableCellEditor({ markup, row, col, typed, store, viewer, onDone
       return undefined;
     };
     if (e.key === 'Escape') {
-      cancelled.current = true;
+      next.current = undefined;
       e.currentTarget.blur();
     } else if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.altKey) {
       move(e, along(e.shiftKey ? -1 : 1));

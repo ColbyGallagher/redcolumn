@@ -2142,7 +2142,7 @@ export class MarkupTools implements ViewerOverlay {
     }
   }
 
-  /** Escape: abandon the gesture, else leave the tool, else clear the selection. */
+  /** Escape: finish a markup in progress and leave the tool, else abandon the gesture, else leave the tool, else clear the selection. */
   cancel() {
     if (this.pickedText) {
       this.clearTextSelection();
@@ -2158,6 +2158,23 @@ export class MarkupTools implements ViewerOverlay {
     // A 3-point arc not yet placed is dropped; the measurement carries on.
     if (this.state.arc !== 'off' && (!g || g.kind === 'multi')) {
       this.setArc('off');
+      return;
+    }
+    // A markup being drawn is kept as it is, and the command ends.
+    if (g?.kind === 'multi' && !g.calibrate && (g.resume || isMarkupTool(this.state.tool))) {
+      if (g.dragRect?.length) {
+        g.markup.points = g.dragRect;
+        g.dragRect = undefined;
+      }
+      this.finish();
+      if (this.state.tool !== 'select') this.setTool('select');
+      return;
+    }
+    if (g?.kind === 'draw' && (isMarkupTool(this.state.tool) || this.state.tool === 'cloudPlus')) {
+      this.setGesture(null);
+      this.store?.checkpoint();
+      this.commitDraft(g.markup);
+      this.setTool('select');
       return;
     }
     // A dragged line end goes back, and a dragged sheet back to where the store has it.

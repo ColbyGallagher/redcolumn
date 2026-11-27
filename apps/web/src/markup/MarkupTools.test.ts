@@ -191,14 +191,33 @@ test('a tiny drag or stray click does not leave an empty shape', async () => {
   await h.store.destroy();
 });
 
-test('Escape (cancel) drops a shape still being drawn', async () => {
+test('Escape (cancel) keeps a shape still being drawn as it is and ends the command', async () => {
   const h = await setup();
   h.tools.setTool('polyline');
   click(h.tools, [100, 100]);
   click(h.tools, [200, 100]);
   h.tools.cancel();
-  h.tools.finish();
-  assert.equal(h.store.all().length, 0);
+  assert.equal(h.store.all().length, 1);
+  assert.deepEqual(h.store.all()[0]!.points, [[100, 100], [200, 100]]);
+  assert.equal(h.tools.getState().tool, 'select');
+  assert.equal(h.tools.getState().measuring, false);
+
+  // Too few points to form a valid shape: drops the incomplete gesture and still ends the command.
+  h.tools.setTool('polygon');
+  click(h.tools, [100, 200]);
+  click(h.tools, [200, 200]);
+  h.tools.cancel();
+  assert.equal(h.store.all().length, 1);
+  assert.equal(h.tools.getState().tool, 'select');
+
+  // Drag-drawn markup interrupted by Escape is kept as it is and ends the command.
+  h.tools.setTool('rect');
+  press(h.tools, [300, 300]);
+  move(h.tools, [420, 380]);
+  h.tools.cancel();
+  assert.equal(h.store.all().length, 2);
+  assert.equal(h.store.all()[1]!.type, 'rect');
+  assert.equal(h.tools.getState().tool, 'select');
   await h.store.destroy();
 });
 
@@ -1847,9 +1866,11 @@ test('Escape drops a pending 3-point arc and drawing carries on', async () => {
   assert.equal(h.tools.getState().measuring, true, 'still drawing');
   click(h.tools, [200, 300]);
   h.tools.cancel();
-  assert.equal(h.tools.getState().measuring, false, 'a second Escape drops the drawing as before');
-  assert.equal(h.store.all().length, 0);
+  assert.equal(h.tools.getState().measuring, false, 'a second Escape finishes the drawing and ends the command');
+  assert.equal(h.tools.getState().tool, 'select');
+  assert.equal(h.store.all().length, 1);
   // Escape with the arc armed before any vertex disarms it, keeping the tool.
+  h.tools.setTool('polylength');
   h.tools.toggleArc();
   h.tools.cancel();
   assert.equal(h.tools.getState().arc, 'off');

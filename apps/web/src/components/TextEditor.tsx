@@ -90,10 +90,9 @@ function editorBackground(m: Markup): string | undefined {
   return m.style.fill ?? m.style.stroke;
 }
 
-/** In-place editor positioned over a text box markup. Commits on blur; Esc cancels. */
+/** In-place editor positioned over a text box markup. Commits on blur, Esc or Ctrl+Enter. */
 export function TextEditor({ markup, store, viewer, onDone }: Props) {
   const ref = useRef<HTMLDivElement>(null);
-  const cancelled = useRef(false);
   const { spellCheck } = useSettings();
   /** The markup's own style as it is while editing (Ctrl+B with nothing selected changes it for the whole markup). */
   const [style, setStyle] = useState(markup.style);
@@ -275,12 +274,12 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
     const text = now.text;
     const spans = now.spans;
     const was = JSON.stringify(normalizeSpans(markup.spans, (markup.text ?? '').length));
-    if (!cancelled.current && (text !== (markup.text ?? '') || JSON.stringify(spans) !== was)) {
+    if (text !== (markup.text ?? '') || JSON.stringify(spans) !== was) {
       const kept = spans.length ? spans : undefined;
       store.update(markup.id, typewriter ? { text, spans: kept, points: typewriterBox({ ...markup, style }, text, spans) } : { text, spans: kept, ...fittedBox({ ...markup, style }, text, spans) });
     }
     // A text box that never received text is removed rather than left empty (a flowchart shape is a shape without it).
-    if (markup.type !== 'flowShape' && (cancelled.current ? markup.text ?? '' : text).trim() === '') store.remove([markup.id]);
+    if (markup.type !== 'flowShape' && text.trim() === '') store.remove([markup.id]);
     onDone();
   };
 
@@ -288,10 +287,7 @@ export function TextEditor({ markup, store, viewer, onDone }: Props) {
     e.stopPropagation();
     const mod = e.ctrlKey || e.metaKey;
     const key = e.key.toLowerCase();
-    if (e.key === 'Escape') {
-      cancelled.current = true;
-      e.currentTarget.blur();
-    } else if (e.key === 'Enter' && mod) {
+    if (e.key === 'Escape' || (e.key === 'Enter' && mod)) {
       e.currentTarget.blur();
     } else if (mod && !e.altKey && key === 'z') {
       e.preventDefault();
