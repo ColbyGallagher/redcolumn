@@ -90,7 +90,8 @@ export function kindOf(op: AnyOperation): RecordKind {
  * The records an operation reads: what a server loads into the state it passes to `applyOp`. The
  * first is the record the operation makes or changes (to see whether it exists). Lane statuses are
  * keyed by issue id. Records found through these need a second look: a placement edit reads its
- * placement's markup, and a released status change its issue's lane statuses.
+ * placement's markup, `placement.create` and `placement.restore` also read the markup's other
+ * placements on that revision, and a released status change reads its issue's lane statuses.
  */
 export function dependencies(op: AnyOperation): { kind: RecordKind | 'laneStatus'; id: string }[] {
   const self = { kind: kindOf(op), id: op.entityId };

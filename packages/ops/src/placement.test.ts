@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { applyOp } from './apply.ts';
+import { applyBatch, applyOp } from './apply.ts';
 import { applyAll, ctx, op, rejected, withMarkup } from './fixtures.ts';
 
 const place = (id: string, markupId = 'm1') =>
@@ -48,4 +48,28 @@ test("a placement's shape holds geometry only", () => {
   assert.equal(rejected(applyOp(state, op('placement.patch', 'p1', { geometry: { style: {} } } as never, { basedOn: { geometry: 0 } }), ctx())).code, 'invalid');
   assert.equal(rejected(applyOp(state, op('placement.patch', 'p1', {}), ctx())).code, 'invalid');
   assert.equal(rejected(applyOp(state, place('p1'), ctx())).code, 'exists');
+});
+
+test('a markup sits once on each revision: two concurrent moves cannot both land', () => {
+  const { state } = withMarkup();
+  const moveTo = (newId: string, pageId: string) => [
+    op('placement.delete', 'p1', {}, { batchId: `move-${newId}`, batchSize: 2 }),
+    op('placement.create', newId, { markupId: 'm1', revisionId: 'revA', pageId, geometry: { points: [[0, 0], [10, 10]] }, method: 'original', confidence: null, state: 'confirmed' }, { batchId: `move-${newId}`, batchSize: 2 }),
+  ];
+  // Bob moves m1 to page 2 first; Ann's move from the same starting point now conflicts.
+  const moved = applyAll(state, moveTo('p2', 'page2'), ctx('bob'));
+  const second = applyBatch(moved, moveTo('p3', 'page3'), ctx('ann'));
+  assert.equal(second.ok, false);
+  assert.deepEqual(!second.ok && second.rejection, { code: 'conflict', conflicts: [{ kind: 'placement', id: 'p2', groups: ['deleted'] }] });
+
+  // Restoring the old placement while the markup sits elsewhere on that revision conflicts too.
+  assert.deepEqual(rejected(applyOp(moved, op('placement.restore', 'p1', {}), ctx('ann'))), {
+    code: 'conflict',
+    conflicts: [{ kind: 'placement', id: 'p2', groups: ['deleted'] }],
+  });
+  // Moving back (delete the new one, restore the old) is fine, and so is a placement on another revision.
+  const back = applyAll(moved, [op('placement.delete', 'p2', {}), op('placement.restore', 'p1', {})]);
+  assert.equal(back.placements.p1!.deleted, false);
+  const other = applyAll(back, [place('p4')]);
+  assert.equal(other.placements.p4!.revisionId, 'revB');
 });

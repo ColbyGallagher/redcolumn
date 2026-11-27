@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Markup, MarkupDocument, MarkupType, Point } from '@nb/markup';
-import { PROTOCOL_VERSION, type Actor as OpsActor, type Operation } from '@nb/ops';
+import { applyOp, emptyState, PROTOCOL_VERSION, type Actor as OpsActor, type Operation } from '@nb/ops';
 import { SyncDocument, type SyncDocumentOptions } from './document.ts';
 import { FakeSyncServer } from './inProcess.ts';
 import { MemorySyncPersistence } from './persistence.ts';
+import { rebasePending } from './rebase.ts';
 import type { SyncFacet } from './types.ts';
 
 const STYLE = { stroke: '#d92d20', fill: null, width: 2, opacity: 1 };
@@ -324,6 +325,19 @@ test('reusing an opId with altered payload is refused by the server', async () =
   const last = messages[messages.length - 1] as { type: string; reason?: { code: string } };
   assert.equal(last.type, 'reject');
   assert.equal(last.reason?.code, 'op_id_reused');
+
+  // A batch that only partly repeats an earlier unit is refused too, not answered with the old ack.
+  const op2: Operation = { ...op1, opId: 'fixed-op-2', entityId: 'm-other' };
+  ta.send([op1, op2]);
+  const partial = messages[messages.length - 1] as { type: string; reason?: { code: string } };
+  assert.equal(partial.type, 'reject');
+  assert.equal(partial.reason?.code, 'op_id_reused');
+  assert.equal(server.state.markups['m-other'], undefined);
+
+  // The exact unit sent again gets the original answer.
+  ta.send([op1]);
+  assert.equal((messages[messages.length - 1] as { type: string }).type, 'ack');
+  assert.equal(server.seq, 1);
 
   await a.destroy();
 });
@@ -683,3 +697,27 @@ test('snapshot catch-up, sync.subscribe, editCount, onAdded and undoSteps behave
   await Promise.all([a.destroy(), b.destroy()]);
 });
 
+
+test('rebase keeps an operation already sent when it no longer applies locally; only the server can refuse it', () => {
+  const ctx = { actor: ANN, laneId: 'lane-1', now: 1 };
+  const env = { schemaVersion: PROTOCOL_VERSION, streamId: 'doc-1' };
+  const create: Operation = { ...env, opId: 'c1', type: 'markup.create', entityId: 'm1', payload: { scopeId: 'review-1', type: 'rect', content: { style: STYLE, text: 'Start' } } };
+  const remove: Operation = { ...env, opId: 'd1', type: 'markup.delete', entityId: 'm1', payload: {} };
+  let confirmed = applyOp(emptyState(), create, ctx);
+  assert.ok(confirmed.ok);
+  confirmed = applyOp(confirmed.state, remove, ctx);
+  assert.ok(confirmed.ok);
+  // Queued against the live markup; a peer's delete arrived since.
+  const patch: Operation = { ...env, opId: 'p1', type: 'markup.patch', entityId: 'm1', basedOn: { text: 'c1' }, payload: { set: { text: 'Mine' } } };
+  const later: Operation = { ...env, opId: 'p2', type: 'markup.patch', entityId: 'm1', basedOn: { text: 'p1' }, payload: { set: { text: 'Mine again' } } };
+  const input = { confirmed: confirmed.state, pending: [patch, later], ctx, now: 1, labelOf: () => 'Edit' };
+
+  const local = rebasePending(input);
+  assert.deepEqual(local.kept, []);
+  assert.deepEqual([...local.rejectedOpIds], ['p1', 'p2'], 'not yet sent: refused here, with what is based on it');
+
+  const sent = rebasePending({ ...input, awaitingServer: new Set(['p1']) });
+  assert.deepEqual(sent.kept.map((o) => o.opId), ['p1', 'p2'], 'sent: kept until the server answers');
+  assert.equal(sent.rejected.length, 0);
+  assert.equal(sent.viewState.markups.m1!.deleted, true, 'but left out of the view');
+});

@@ -92,6 +92,13 @@ export interface RebaseInput {
   labelOf: (ops: readonly Operation[]) => string;
   /** OpIds already known to have been rejected before this rebase pass (cascades dependents). */
   previouslyRejected?: ReadonlySet<string>;
+  /**
+   * OpIds sent on the current connection and not yet answered. A unit holding one is never
+   * rejected locally for failing to apply: it stays in `kept` (left out of the view) until the
+   * server's answer arrives, and so does a later unit that fails only because it is based on such
+   * a held unit. A unit depending on a rejected operation is still rejected.
+   */
+  awaitingServer?: ReadonlySet<string>;
 }
 
 export interface RebaseOutput {
@@ -110,6 +117,7 @@ export interface RebaseOutput {
  *   was deleted/removed, is moved to the rejected inbox rather than silently overwritten.
  * - Any subsequent pending operation that depends on a rejected operation (via `basedOn` opId)
  *   is moved to the inbox alongside it with `dependency_rejected`.
+ * - An operation awaiting the server's answer (see `awaitingServer`) is kept, not rejected.
  */
 export function rebasePending(input: RebaseInput): RebaseOutput {
   const { confirmed, pending, ctx, now, labelOf } = input;
@@ -118,6 +126,9 @@ export function rebasePending(input: RebaseInput): RebaseOutput {
   const rejected: InboxEntry[] = [];
   const rejectedOpIds = new Set<string>(input.previouslyRejected);
   const rejectedCreatedMarkups = new Set<string>();
+  // Kept although they do not apply here, waiting on the server (see `awaitingServer`).
+  const heldOpIds = new Set<string>();
+  const heldCreatedMarkups = new Set<string>();
 
   for (const unit of groupPendingUnits(pending)) {
     const dep = findRejectedDependency(unit, rejectedOpIds, rejectedCreatedMarkups, state);
@@ -136,42 +147,39 @@ export function rebasePending(input: RebaseInput): RebaseOutput {
       continue;
     }
 
-    if (unit.length === 1 && unit[0]!.batchId === undefined) {
-      const op = unit[0]!;
-      const res = applyOp(state, op, ctx);
-      if (res.ok) {
-        state = res.state;
-        kept.push(op);
-      } else {
-        rejectedOpIds.add(op.opId);
-        if (op.type === 'markup.create') rejectedCreatedMarkups.add(op.entityId);
-        rejected.push({
-          id: op.opId,
-          ops: [op],
-          reason: res.rejection,
-          rejectedAt: now,
-          label: labelOf(unit),
-        });
-      }
-    } else {
-      const res = applyBatch(state, unit, ctx);
-      if (res.ok) {
-        state = res.state;
-        kept.push(...unit);
-      } else {
-        for (const op of unit) {
-          rejectedOpIds.add(op.opId);
-          if (op.type === 'markup.create') rejectedCreatedMarkups.add(op.entityId);
-        }
-        rejected.push({
-          id: unit[0]!.batchId ?? unit[0]!.opId,
-          ops: unit,
-          reason: res.rejection,
-          rejectedAt: now,
-          label: labelOf(unit),
-        });
-      }
+    const res = unit.length === 1 && unit[0]!.batchId === undefined ? applyOp(state, unit[0]!, ctx) : applyBatch(state, unit, ctx);
+    if (res.ok) {
+      state = res.state;
+      kept.push(...unit);
+      continue;
     }
+    const awaiting = input.awaitingServer;
+    if (
+      (awaiting && unit.some((op) => awaiting.has(op.opId))) ||
+      findRejectedDependency(unit, heldOpIds, heldCreatedMarkups, state) !== null
+    ) {
+      // Already sent: only the server can say whether it applies. It no longer applies here (say a
+      // peer deleted its target), but by the time it reaches the server that may have changed
+      // again (the target restored). Keep it queued, out of the view, until the server answers;
+      // likewise the edits based on it, which stand or fall with it.
+      for (const op of unit) {
+        heldOpIds.add(op.opId);
+        if (op.type === 'markup.create') heldCreatedMarkups.add(op.entityId);
+      }
+      kept.push(...unit);
+      continue;
+    }
+    for (const op of unit) {
+      rejectedOpIds.add(op.opId);
+      if (op.type === 'markup.create') rejectedCreatedMarkups.add(op.entityId);
+    }
+    rejected.push({
+      id: unit[0]!.batchId ?? unit[0]!.opId,
+      ops: unit,
+      reason: res.rejection,
+      rejectedAt: now,
+      label: labelOf(unit),
+    });
   }
 
   return { viewState: state, kept, rejected, rejectedOpIds };
