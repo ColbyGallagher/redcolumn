@@ -3,9 +3,11 @@
  * loaded with a dynamic import() the first time a model opens, so opening and working with PDFs
  * never downloads or runs any of them (scripts/check-bundle.mjs checks this on every build).
  */
+import { msg } from '@nb/i18n';
 import { modelGeoreference } from './onDrawing';
 import type { ModelView } from '../documents/openTabs';
 import type { StoredFile } from '../storage/fileStore';
+import { model3dDisplayPrefs, model3dNavPrefs, settings } from '../settings/settings';
 import { readFragments, writeFragments } from './fragCache';
 
 /** Where the viewer's worker and web-ifc's wasm are served (copied there by vite.config.ts). */
@@ -46,15 +48,23 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
   let disposed = false;
   let wanted = false;
   let ready = false;
+  let federateSeq = 0;
   const listeners = new Set<() => void>();
   const emit = () => listeners.forEach((l) => l());
   const apply = () => session?.setVisible(wanted && document.visibilityState === 'visible');
+  const applyPrefs = () => {
+    const s = settings.get();
+    session?.setNavigationPrefs(model3dNavPrefs(s));
+    session?.setDisplayPrefs(model3dDisplayPrefs(s));
+  };
+  const offSettings = settings.subscribe(applyPrefs);
   document.addEventListener('visibilitychange', apply);
 
   void (async () => {
     const [{ ModelSession }, cached] = await Promise.all([import('@nb/model3d'), readFragments(file.hash)]);
     if (disposed) return;
     session = ModelSession.create(canvasHost, modelAssets());
+    applyPrefs();
     // The renderer makes a container it finds unpositioned 'relative', which it is while its tab is
     // not on screen (not yet in the page), and that collapses it: it is placed by the stylesheet.
     canvasHost.style.removeProperty('position');
@@ -89,6 +99,27 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
       listeners.add(listener);
       return () => listeners.delete(listener);
     },
+    async addModel(extra, extraBytes, onProgress) {
+      if (disposed || !session || !ready) throw new Error(msg('The 3D view is not ready yet.'));
+      onProgress?.(statusText('start'));
+      const cached = await readFragments(extra.hash);
+      if (disposed || !session) return;
+      const existing = new Set(session.models().map((m) => m.id));
+      const modelId = existing.has(extra.id) ? `${extra.id}#${++federateSeq}` : extra.id;
+      const fragments = await session.loadIfc(new Uint8Array(extraBytes), modelId, {
+        fragments: cached,
+        name: extra.name,
+        fit: false,
+        signal: abort.signal,
+        onProgress: (p) => onProgress?.(statusText(p.stage, p.fraction)),
+      });
+      if (!cached) void writeFragments(extra.hash, fragments);
+      const geo = await modelGeoreference(extra).catch(() => null);
+      if (geo?.georeferenced && !disposed && session) {
+        session.run({ type: 'georeference', modelId, matrix: geo.matrix });
+      }
+      emit();
+    },
     setVisible(visible) {
       wanted = visible;
       apply();
@@ -98,6 +129,7 @@ export function openModelView(file: StoredFile, bytes: ArrayBuffer): ModelView {
       disposed = true;
       listeners.clear();
       abort.abort();
+      offSettings();
       document.removeEventListener('visibilitychange', apply);
       session?.dispose();
       session = null;

@@ -1,12 +1,15 @@
 import * as THREE from 'three';
 import * as OBC from '@thatopen/components';
 import * as OBF from '@thatopen/components-front';
-import type { FragmentsModel } from '@thatopen/fragments';
+import { SnappingClass, type FragmentsModel } from '@thatopen/fragments';
 import type { ConvertReply, ConvertRequest } from './convert.worker.ts';
 import {
-  boxPlanes,
+  clampViewDistance,
+  DEFAULT_DISPLAY_PREFS,
   directionOffset,
+  framedRadius,
   INITIAL_STATE,
+  nearFor,
   matchesCategory,
   orientationOf,
   padBox,
@@ -24,7 +27,9 @@ import {
   type ItemMap,
   type ModelAction,
   type ModelControls,
+  type ModelDisplayPrefs,
   type ModelInfo,
+  type ModelNavPrefs,
   type ModelState,
   type ModelTool,
   type PlaceCamera,
@@ -38,9 +43,14 @@ import {
   type ViewDirection,
 } from './controls.ts';
 import { attrText, flatProperties, groupKey, matchesProperty, propertyGroups, quantitiesOf, type RawItem } from './items.ts';
+import { NavigationController } from './navigation.ts';
+import { MeasureController, type MeasureKind, type SnapHit } from './measure.ts';
+import { SectionBoxController } from './sectionBox.ts';
 
-type Measurer = OBF.LengthMeasurement | OBF.AreaMeasurement | OBF.AngleMeasurement | OBF.VolumeMeasurement;
-type MeasureTool = 'length' | 'area' | 'angle' | 'volume';
+const isMeasureTool = (t: ModelTool): t is MeasureKind => t === 'length' || t === 'area' || t === 'angle' || t === 'volume';
+/** How close (CSS px) the pointer has to be to an element's corner, or edge, to snap to it. */
+const SNAP_VERTEX_PX = 12;
+const SNAP_EDGE_PX = 8;
 type Vec3 = [number, number, number];
 const GHOST_OPACITY = 0.12;
 /** Comparing revisions: what only this model has, what changed, and what only the other has. */
@@ -78,6 +88,8 @@ export interface LoadOptions {
   signal?: AbortSignal;
   /** The name the 3D panel shows for the model (its file name). */
   name?: string;
+  /** Frame all models after loading (defaults to true for the first model, false when federating). */
+  fit?: boolean;
 }
 
 /**
@@ -97,23 +109,30 @@ export class ModelSession implements ModelControls {
   private readonly listeners = new Set<() => void>();
   private highlighter: OBF.Highlighter | null = null;
   private grid: OBC.SimpleGrid | null = null;
-  private boxPlaneIds: string[] = [];
-  /** The section box's corners while there is one. */
-  private boxCorners: [Vec3, Vec3] | null = null;
+  /** The section box: six clipping planes whose walls can be dragged. */
+  private readonly sectionBox: SectionBoxController;
+  /** Length, area, angle and volume measuring. */
+  private readonly measure: MeasureController;
+  /** Whether the view is on screen (see setVisible). */
+  private visible = true;
   /** Elements a colour profile hides, kept apart from those hidden with Hide and Isolate. */
   private profileHidden: OBC.ModelIdMap = {};
   private readonly names = new Map<string, string>();
   private readonly elementCounts = new Map<string, number>();
   /** Grid (easting, northing, height) to scene, from the first georeferenced model. */
   private gridToScene: THREE.Matrix4 | null = null;
+  /** IFC world origin of the first loaded model (for aligning non-georeferenced federated models). */
+  private baseCoords: Vec3 | null = null;
   /** Sheets shown in the view, by overlay id. */
   private readonly sheets = new Map<string, { version: string; object: THREE.Object3D }>();
   private readonly sheetGroup = new THREE.Group();
   /** Goes up with each change of the sheets, so a slow drape left behind by a newer one stops. */
   private sheetRun = 0;
   private hidden: OBC.ModelIdMap | null = null;
-  private readonly measurers = new Map<MeasureTool, Measurer>();
   private readonly offs: (() => void)[] = [];
+  private readonly navigation: NavigationController;
+  private displayPrefs: ModelDisplayPrefs = { ...DEFAULT_DISPLAY_PREFS };
+  private skyTexture: THREE.CanvasTexture | null = null;
   /** The other revision loaded to compare with, while there is one. */
   private compareId: string | null = null;
   /** The comparison shown, to colour again what a selection's highlight took the colours off. */
@@ -146,19 +165,51 @@ export class ModelSession implements ModelControls {
     this.fragments.list.onItemSet.add(({ value: model }) => {
       model.useCamera(this.world.camera.three);
       this.world.scene.three.add(model.object);
+      if (this.displayPrefs.wireframe) this.applyWireframe(model.object, true);
       void this.fragments.core.update(true);
     });
     this.world.camera.controls.addEventListener('rest', () => void this.fragments.core.update(true));
     this.world.camera.projection.onChanged.add(() => {
       for (const model of this.fragments.list.values()) model.useCamera(this.world.camera.three);
+      this.navigation.syncCameraMode(this.current.nav, this.world.camera.projection.current);
     });
+    // Resizing the canvas clears it until something draws again: each resize draws a frame at once,
+    // so dragging a sidebar's edge never shows the view blank (the renderer's own observer resizes too).
+    this.world.renderer!.onResize.add(() => this.redrawNow());
     this.resize = new ResizeObserver(() => this.world.renderer?.resize());
     this.resize.observe(container);
     this.container = container;
+    this.navigation = new NavigationController({
+      container,
+      world: this.world,
+      raycastAt: (clientX, clientY) => this.hitAtScreen(clientX, clientY),
+      modelBounds: () => this.allBox(),
+      isBlocked: (e) => !!this.onMiniMap(e),
+      onRest: () => void this.fragments.core.update(true),
+      onDoubleMiddle: () => void this.fitAll(),
+    });
+    const canvas = this.world.renderer!.three.domElement;
+    this.measure = new MeasureController({
+      container,
+      canvas,
+      camera: () => this.world.camera.three,
+      snapAt: (x, y) => this.snapAt(x, y),
+      volumeOf: (modelId, localId) => this.volumeOf(modelId, localId),
+      isBlocked: (e) => !!this.onMiniMap(e),
+      onChange: (measurements) => this.update({ measurements }),
+    });
+    this.sectionBox = new SectionBoxController({
+      container,
+      camera: () => this.world.camera.three,
+      setPlane: (active, plane) => this.world.renderer?.setPlane(active, plane),
+      onChange: () => this.emit(),
+    });
+    // The near and far clipping distances follow the camera, so close-ups are not cut and far models still show.
+    this.world.camera.controls.addEventListener('update', () => this.updateClipRange());
     // Every camera move redraws the view cube.
     this.world.camera.controls.addEventListener('update', () => this.emit());
     this.components.get(OBC.Clipper).enabled = false;
-    this.listen(container, 'dblclick', () => void this.place());
+    this.listen(container, 'dblclick', () => void this.placeClipPlane());
     this.listen(window, 'keydown', (e) => this.key(e as KeyboardEvent));
     // Walking keys go to the view before the app's shortcuts see them.
     this.listen(window, 'keydown', (e) => this.walkKey(e as KeyboardEvent, true), true);
@@ -176,7 +227,40 @@ export class ModelSession implements ModelControls {
         },
         true,
       );
-    this.world.renderer!.onAfterUpdate.add(() => this.drawMiniMap());
+    this.world.renderer!.onAfterUpdate.add(() => {
+      this.drawMiniMap();
+      this.measure.draw();
+      this.sectionBox.draw();
+    });
+    this.updateClipRange();
+  }
+
+  /** Draws a frame now (after a resize), instead of waiting for the next one. */
+  private redrawNow(): void {
+    if (this.disposed || !this.visible) return;
+    const renderer = this.world.renderer;
+    if (!renderer || !renderer.three.domElement.width || !renderer.three.domElement.height) return;
+    this.world.camera.updateAspect();
+    renderer.update();
+  }
+
+  /** The camera's near plane, set by how far it is from what it looks at, and its far plane, the view distance. */
+  private updateClipRange(): void {
+    if (this.disposed) return;
+    const far = clampViewDistance(this.displayPrefs.viewDistance);
+    const persp = this.world.camera.threePersp;
+    const near = nearFor(this.world.camera.controls.distance);
+    // Small changes are left alone, so the projection is not rebuilt on every frame of a move.
+    if (persp.far !== far || Math.abs(persp.near - near) > near * 0.25) {
+      persp.near = near;
+      persp.far = far;
+      persp.updateProjectionMatrix();
+    }
+    const ortho = this.world.camera.threeOrtho;
+    if (ortho.far !== far) {
+      ortho.far = far;
+      ortho.updateProjectionMatrix();
+    }
   }
 
   // --- what the ribbon reads and runs (ModelControls) ---
@@ -194,6 +278,73 @@ export class ModelSession implements ModelControls {
   orientation() {
     const dir = this.world.camera.three.getWorldDirection(new THREE.Vector3());
     return orientationOf([dir.x, dir.y, dir.z]);
+  }
+
+  setNavigationPrefs(prefs: Partial<ModelNavPrefs>): void {
+    if (this.disposed) return;
+    this.navigation.setPrefs(prefs);
+  }
+
+  setDisplayPrefs(patch: Partial<ModelDisplayPrefs>): void {
+    if (this.disposed) return;
+    const prev = this.displayPrefs;
+    const next: ModelDisplayPrefs = { ...prev, ...patch };
+    this.displayPrefs = next;
+
+    // Background
+    const scene = this.world.scene.three;
+    if (next.background === 'theme') {
+      scene.background = null;
+    } else if (next.background === 'dark') {
+      scene.background = new THREE.Color('#1c2026');
+    } else if (next.background === 'light') {
+      scene.background = new THREE.Color('#eef1f5');
+    } else if (next.background === 'sky') {
+      if (!this.skyTexture) this.skyTexture = makeSkyTexture();
+      scene.background = this.skyTexture;
+    } else {
+      scene.background = new THREE.Color(next.backgroundColour || '#1c2026');
+    }
+
+    // Lighting
+    const cfg = this.world.scene.config;
+    cfg.ambientLight.intensity = Math.max(0, Math.min(4, next.ambientIntensity));
+    cfg.directionalLight.intensity = Math.max(0, Math.min(5, next.sunIntensity));
+    const az = THREE.MathUtils.degToRad(next.sunAzimuth);
+    const el = THREE.MathUtils.degToRad(Math.max(5, Math.min(89, next.sunElevation)));
+    const r = 100;
+    cfg.directionalLight.position = new THREE.Vector3(r * Math.cos(el) * Math.sin(az), r * Math.sin(el), r * Math.cos(el) * Math.cos(az));
+
+    // Camera FOV
+    const fov = Math.max(25, Math.min(95, next.fov));
+    const persp = this.world.camera.threePersp;
+    if (persp.fov !== fov) {
+      persp.fov = fov;
+      persp.updateProjectionMatrix();
+    }
+
+    // View distance (the far clipping plane)
+    if (next.viewDistance !== prev.viewDistance) this.updateClipRange();
+
+    // Wireframe
+    if (next.wireframe !== prev.wireframe) {
+      for (const model of this.fragments.list.values()) this.applyWireframe(model.object, next.wireframe);
+    }
+
+    // Ghost opacity
+    if (next.ghostOpacity !== prev.ghostOpacity && this.current.ghost && this.hidden) {
+      void this.showHidden();
+    }
+  }
+
+  private applyWireframe(root: THREE.Object3D, wireframe: boolean): void {
+    root.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      const mats = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+      for (const m of mats) {
+        if ('wireframe' in m) (m as THREE.MeshStandardMaterial).wireframe = wireframe;
+      }
+    });
   }
 
   run(action: ModelAction): void {
@@ -214,6 +365,7 @@ export class ModelSession implements ModelControls {
         if (a.mode === 'Plan') await camera.projection.set('Orthographic');
         if (a.mode === 'FirstPerson') await camera.projection.set('Perspective');
         camera.set(a.mode);
+        this.navigation.syncCameraMode(a.mode, camera.projection.current);
         if (a.mode === 'Plan') {
           await this.look('top');
           await this.fitAll();
@@ -222,12 +374,13 @@ export class ModelSession implements ModelControls {
       case 'projection':
         if (this.current.nav !== 'Orbit') camera.set('Orbit');
         await camera.projection.set(a.projection);
+        this.navigation.syncCameraMode('Orbit', a.projection);
         return this.update({ projection: a.projection, nav: 'Orbit' });
       case 'fitAll':
         return this.fitAll();
       case 'fitSelection': {
         const box = await this.boxOf(this.selected());
-        if (box) await camera.controls.fitToSphere(box.getBoundingSphere(new THREE.Sphere()), true);
+        if (box) await this.frame(box);
         return;
       }
       case 'direction':
@@ -245,8 +398,7 @@ export class ModelSession implements ModelControls {
         return this.toggleSectionBox();
       case 'clearClips':
         this.components.get(OBC.Clipper).deleteAll();
-        this.boxPlaneIds = [];
-        this.boxCorners = null;
+        this.sectionBox.clear();
         return this.update({ clipPlanes: 0, sectionBox: false });
       case 'isolate':
       case 'hide': {
@@ -271,7 +423,7 @@ export class ModelSession implements ModelControls {
         return this.update({ openView: a.id });
       }
       case 'clearMeasurements':
-        for (const m of this.measurers.values()) m.list.clear();
+        this.measure.clear();
         return this.update({ measurements: 0 });
       case 'modelVisible': {
         const model = this.fragments.list.get(a.modelId);
@@ -280,6 +432,15 @@ export class ModelSession implements ModelControls {
         await this.fragments.core.update(true);
         return this.update({ modelsVersion: this.current.modelsVersion + 1 });
       }
+      case 'fitModel': {
+        const model = this.fragments.list.get(a.modelId);
+        if (!model) return;
+        const box = this.modelBox(model);
+        if (!box.isEmpty()) await this.frame(box);
+        return;
+      }
+      case 'removeModel':
+        return this.removeModel(a.modelId);
       case 'selectItems': {
         const h = this.highlighter;
         if (!h) return;
@@ -314,6 +475,12 @@ export class ModelSession implements ModelControls {
         return this.update({ miniMap: !this.current.miniMap });
       case 'endCompare':
         return this.endCompare();
+      case 'navPrefs':
+        this.navigation.setPrefs(a.prefs);
+        return;
+      case 'displayPrefs':
+        this.setDisplayPrefs(a.prefs);
+        return;
     }
   }
 
@@ -321,24 +488,73 @@ export class ModelSession implements ModelControls {
 
   /**
    * Places a model on the map: `matrix` takes its IFC coordinates (Z up) to grid easting, northing
-   * and height (column-major 4x4, from its IfcMapConversion). The fragments are drawn Y up (north
-   * -Z) and moved by the model's coordinates, so grid to scene is that move, the axis swap, and the
-   * inverse of `matrix`.
+   * and height (column-major 4x4, from its IfcMapConversion). The first georeferenced model defines
+   * `gridToScene`; subsequent georeferenced federated models are transformed into that shared frame.
    */
   private async georeference(modelId: string, matrix: number[]): Promise<void> {
     const model = this.fragments.list.get(modelId);
-    if (!model || this.gridToScene) return;
+    if (!model) return;
     const [cx = 0, cy = 0, cz = 0] = await model.getCoordinates();
     const toGrid = new THREE.Matrix4().fromArray(matrix);
     if (Math.abs(toGrid.determinant()) < 1e-12) return;
     // Scene (x, y, z) = (X, Z, -Y) + the model's coordinates, from IFC (X, Y, Z).
     const swap = new THREE.Matrix4().set(1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 0, 0, 1);
-    this.gridToScene = new THREE.Matrix4().makeTranslation(cx, cy, cz).multiply(swap).multiply(toGrid.invert());
+    const localFromIfc = new THREE.Matrix4().makeTranslation(cx, cy, cz).multiply(swap);
+    if (!this.gridToScene) {
+      model.object.updateMatrixWorld(true);
+      this.gridToScene = model.object.matrixWorld.clone().multiply(localFromIfc).multiply(toGrid.clone().invert());
+    } else {
+      const align = this.gridToScene.clone().multiply(toGrid).multiply(localFromIfc.clone().invert());
+      align.decompose(model.object.position, model.object.quaternion, model.object.scale);
+      model.object.updateMatrixWorld(true);
+      await this.fragments.core.update(true);
+    }
+    this.update({ georeferenced: true, heights: this.computeHeights() });
+  }
+
+  private computeHeights(): [number, number] | null {
+    if (!this.gridToScene) return null;
     const sceneToGrid = this.gridToScene.clone().invert();
-    const box = model.box;
-    const lo = new THREE.Vector3(box.min.x, box.min.y, box.min.z).applyMatrix4(sceneToGrid).z;
-    const hi = new THREE.Vector3(box.max.x, box.max.y, box.max.z).applyMatrix4(sceneToGrid).z;
-    this.update({ georeferenced: true, heights: [Math.min(lo, hi), Math.max(lo, hi)] });
+    let lo = Infinity;
+    let hi = -Infinity;
+    for (const [, model] of this.own()) {
+      const box = this.modelBox(model);
+      if (box.isEmpty()) continue;
+      const z0 = new THREE.Vector3(box.min.x, box.min.y, box.min.z).applyMatrix4(sceneToGrid).z;
+      const z1 = new THREE.Vector3(box.max.x, box.max.y, box.max.z).applyMatrix4(sceneToGrid).z;
+      lo = Math.min(lo, z0, z1);
+      hi = Math.max(hi, z0, z1);
+    }
+    return lo <= hi ? [lo, hi] : null;
+  }
+
+  /** World-space bounding box of a model (accounting for any federation alignment transform). */
+  private modelBox(model: FragmentsModel): THREE.Box3 {
+    model.object.updateMatrixWorld(true);
+    return model.box.clone().applyMatrix4(model.object.matrixWorld);
+  }
+
+  /** Removes a federated model from the view and disposes its GPU/worker resources. */
+  private async removeModel(modelId: string): Promise<void> {
+    if (modelId === this.compareId) return;
+    const model = this.fragments.list.get(modelId);
+    if (!model) return;
+    if (this.compared?.mine === model) await this.endCompare();
+    if (this.highlighter?.selection.select?.[modelId]?.size) await this.highlighter.clear('select');
+    if (this.hidden) delete this.hidden[modelId];
+    delete this.profileHidden[modelId];
+    this.names.delete(modelId);
+    this.elementCounts.delete(modelId);
+    model.object.removeFromParent();
+    await this.fragments.core.disposeModel(modelId);
+    await this.fragments.core.update(true);
+    if (!this.own().length) this.baseCoords = null;
+    this.update({
+      modelsVersion: this.current.modelsVersion + 1,
+      heights: this.gridToScene ? this.computeHeights() : null,
+      hidden: !!this.hidden && Object.values(this.hidden).some((s) => s.size),
+    });
+    void this.makeViews().catch(() => {});
   }
 
   private scenePoint(e: number, n: number, h: number): THREE.Vector3 {
@@ -463,6 +679,15 @@ export class ModelSession implements ModelControls {
       if (distance <= far && (!best || distance < best.distance)) best = { point: r.point.clone(), modelId, localId: r.localId, distance };
     }
     return best;
+  }
+
+  /** Nearest visible surface point under screen coordinates (clientX, clientY), or null. */
+  private async hitAtScreen(clientX: number, clientY: number): Promise<THREE.Vector3 | null> {
+    const dom = this.world.renderer?.three.domElement;
+    if (!dom || this.disposed) return null;
+    const from = this.world.camera.controls.getPosition(new THREE.Vector3(), false);
+    const hit = await this.nearestHit(this.world.camera.three, new THREE.Vector2(clientX, clientY), dom, from);
+    return hit ? hit.point : null;
   }
 
   /** Shows every element again, at full strength and in its own colours (a colour profile goes too). */
@@ -605,10 +830,11 @@ export class ModelSession implements ModelControls {
         target: controls.getTarget(new THREE.Vector3()).toArray(),
         projection: this.world.camera.projection.current,
       },
-      sectionBox: this.boxCorners,
+      sectionBox: this.sectionBox.corners(),
       hidden,
       ghost: this.current.ghost,
       profileId,
+      thumbnail: this.snapshot(220),
     };
   }
 
@@ -670,6 +896,7 @@ export class ModelSession implements ModelControls {
       this.stopWalk();
       await camera.projection.set('Orthographic');
       camera.set('Plan');
+      this.navigation.syncCameraMode('Plan', 'Orthographic');
       this.update({ nav: 'Plan', projection: 'Orthographic' });
     }
     const cam = camera.three;
@@ -694,6 +921,7 @@ export class ModelSession implements ModelControls {
     const camera = this.world.camera;
     if (this.current.nav !== 'Orbit') camera.set('Orbit');
     await camera.projection.set(c.projection);
+    this.navigation.syncCameraMode('Orbit', c.projection);
     this.update({ nav: 'Orbit', projection: c.projection });
     const p = this.scenePoint(...c.position);
     const t = this.scenePoint(...c.target);
@@ -861,7 +1089,7 @@ export class ModelSession implements ModelControls {
   /** The bounds of every model in the view. */
   private allBox(): THREE.Box3 {
     const box = new THREE.Box3();
-    for (const model of this.fragments.list.values()) if (model.object.visible) box.union(model.box);
+    for (const model of this.fragments.list.values()) if (model.object.visible) box.union(this.modelBox(model));
     return box;
   }
 
@@ -971,6 +1199,7 @@ export class ModelSession implements ModelControls {
     if (flat.lengthSq() < 1e-8) flat.set(0, 0, -1);
     flat.normalize();
     camera.set('FirstPerson');
+    this.navigation.syncCameraMode('Walk', 'Perspective');
     const eye = ground ? ground.clone().setY(ground.y + WALK.eye) : from;
     await controls.setLookAt(eye.x, eye.y, eye.z, eye.x + flat.x, eye.y, eye.z + flat.z, false);
     this.update({ nav: 'Walk', projection: 'Perspective' });
@@ -1036,15 +1265,15 @@ export class ModelSession implements ModelControls {
     const camera = this.world.camera;
     if (this.current.nav !== 'Orbit') camera.set('Orbit');
     await camera.projection.set(view.camera.projection);
+    this.navigation.syncCameraMode('Orbit', view.camera.projection);
     this.update({ nav: 'Orbit', projection: view.camera.projection });
     const [p, t] = [view.camera.position, view.camera.target];
     await camera.controls.setLookAt(p[0], p[1], p[2], t[0], t[1], t[2], true);
     const clipper = this.components.get(OBC.Clipper);
     clipper.deleteAll();
-    this.boxPlaneIds = [];
-    this.boxCorners = null;
+    this.sectionBox.clear();
     if (view.sectionBox) this.makeSectionBox(...view.sectionBox);
-    else this.update({ sectionBox: false, clipPlanes: clipper.list.size });
+    else this.update({ sectionBox: false, clipPlanes: this.clipCount() });
     await this.showAll();
     const hide: OBC.ModelIdMap = {};
     for (const [id, guids] of Object.entries(view.hidden)) {
@@ -1144,7 +1373,7 @@ export class ModelSession implements ModelControls {
       if (!ids.length) continue;
       if (this.current.ghost) {
         await model.setVisible(ids, true);
-        await model.setOpacity(ids, GHOST_OPACITY);
+        await model.setOpacity(ids, this.displayPrefs.ghostOpacity || GHOST_OPACITY);
       } else {
         await model.resetOpacity(ids);
         await model.setVisible(ids, false);
@@ -1156,84 +1385,150 @@ export class ModelSession implements ModelControls {
 
   /** Six clipping planes around the selection (or everything), each one draggable; again to remove them. */
   private async toggleSectionBox(): Promise<void> {
-    const clipper = this.components.get(OBC.Clipper);
-    if (this.boxPlaneIds.length) {
-      for (const id of this.boxPlaneIds) await clipper.delete(this.world, id);
-      this.boxPlaneIds = [];
-      this.boxCorners = null;
-      return this.update({ sectionBox: false, clipPlanes: clipper.list.size });
+    if (this.sectionBox.active) {
+      this.sectionBox.clear();
+      return this.update({ sectionBox: false, clipPlanes: this.clipCount() });
     }
     const box = await this.boxOf(this.selected());
     if (!box) return;
     this.makeSectionBox(...padBox(box.min.toArray(), box.max.toArray()));
   }
 
+  /**
+   * A section box around [min, max]: its walls are the section box controller's own planes (not
+   * the clipper's), each with a handle that drags it along its axis with any tool.
+   */
   private makeSectionBox(min: Vec3, max: Vec3): void {
-    const clipper = this.components.get(OBC.Clipper);
-    this.boxCorners = [min, max];
-    clipper.enabled = true;
-    this.boxPlaneIds = boxPlanes(min, max).map(({ normal, point }) =>
-      clipper.createFromNormalAndCoplanarPoint(this.world, new THREE.Vector3(...normal), new THREE.Vector3(...point)),
-    );
-    clipper.enabled = this.current.tool === 'clip';
-    this.update({ sectionBox: true, clipPlanes: clipper.list.size });
+    this.sectionBox.set(min, max);
+    this.update({ sectionBox: true, clipPlanes: this.clipCount() });
+  }
+
+  /** Clipping planes in the view: the clipper's and the section box's six. */
+  private clipCount(): number {
+    return this.components.get(OBC.Clipper).list.size + (this.sectionBox.active ? 6 : 0);
   }
 
   private setTool(tool: ModelTool): void {
     this.components.get(OBC.Clipper).enabled = tool === 'clip';
-    for (const [t, m] of this.measurers) if (t !== tool) m.enabled = false;
-    if (tool === 'length' || tool === 'area' || tool === 'angle' || tool === 'volume') this.measurer(tool).enabled = true;
+    this.measure.setTool(isMeasureTool(tool) ? tool : null);
     if (this.highlighter) this.highlighter.enabled = tool === 'select';
     this.update({ tool });
   }
 
-  private measurer(tool: MeasureTool): Measurer {
-    let m = this.measurers.get(tool);
-    if (!m) {
-      const c = this.components;
-      m = tool === 'length' ? c.get(OBF.LengthMeasurement) : tool === 'area' ? c.get(OBF.AreaMeasurement) : tool === 'angle' ? c.get(OBF.AngleMeasurement) : c.get(OBF.VolumeMeasurement);
-      m.world = this.world;
-      m.color = new THREE.Color('#e03131');
-      const count = () => this.update({ measurements: this.measurementCount() });
-      m.list.onItemAdded.add(count);
-      m.list.onItemDeleted.add(count);
-      this.measurers.set(tool, m);
-    }
-    return m;
-  }
-
-  private measurementCount(): number {
-    let n = 0;
-    for (const m of this.measurers.values()) n += m.list.size;
-    return n;
-  }
-
-  /** A double-click places what the tool makes: a clipping plane, or the next measurement point. */
-  private async place(): Promise<void> {
-    const tool = this.current.tool;
-    if (tool === 'clip') {
-      const clipper = this.components.get(OBC.Clipper);
-      await clipper.create(this.world);
-      return this.update({ clipPlanes: clipper.list.size });
-    }
-    if (tool !== 'select') this.measurer(tool).create();
+  /** A double-click with the Clipping Plane tool places a plane on the surface under the pointer. */
+  private async placeClipPlane(): Promise<void> {
+    if (this.current.tool !== 'clip') return;
+    const clipper = this.components.get(OBC.Clipper);
+    await clipper.create(this.world);
+    this.update({ clipPlanes: this.clipCount() });
   }
 
   private key(e: KeyboardEvent): void {
+    if (e.key === 'Escape') return this.escape(e);
     // Only while the pointer is over this view: other panes and dialogs keep their keys.
-    if (!this.container.matches(':hover')) return;
+    if (!this.container.matches(':hover') || isTyping(e.target)) return;
     const tool = this.current.tool;
     if (tool === 'select') return;
     if (tool === 'clip') {
       if (e.key !== 'Delete') return;
       const clipper = this.components.get(OBC.Clipper);
-      void clipper.delete(this.world).then(() => this.update({ clipPlanes: clipper.list.size }));
+      void clipper.delete(this.world).then(() => this.update({ clipPlanes: this.clipCount() }));
       return;
     }
-    const m = this.measurer(tool);
-    if (e.key === 'Enter') m.endCreation();
-    else if (e.key === 'Escape') m.cancelCreation();
-    else if (e.key === 'Delete') m.delete();
+    if (e.key === 'Enter') this.measure.commit();
+    else if (e.key === 'Delete') this.measure.deleteLast();
+  }
+
+  /**
+   * Escape, while this view is the one on screen (wherever the pointer is): a measurement half made
+   * is dropped and the tool goes back to Select Elements. Not while typing in a box or with a
+   * dialog open, which keep Escape for themselves.
+   */
+  private escape(e: KeyboardEvent): void {
+    if (this.disposed || !this.visible || isTyping(e.target)) return;
+    if (!this.container.isConnected || !this.container.getClientRects().length) return;
+    if (document.querySelector('.modal-backdrop, dialog[open], [role="dialog"][aria-modal="true"]')) return;
+    const busy = this.measure.cancel();
+    if (this.current.tool === 'select') return;
+    this.setTool('select');
+    if (busy) e.preventDefault();
+  }
+
+  /**
+   * What the pointer is on, snapped: an element's corner when one is within a few pixels, else a
+   * point on one of its edges, else the surface. Corners and edges hidden behind a nearer surface
+   * are not snapped to.
+   */
+  private async snapAt(clientX: number, clientY: number): Promise<SnapHit | null> {
+    const dom = this.world.renderer?.three.domElement;
+    if (!dom || this.disposed) return null;
+    const camera = this.world.camera.three;
+    const mouse = new THREE.Vector2(clientX, clientY);
+    const rect = dom.getBoundingClientRect();
+    const px = (p: THREE.Vector3) => {
+      const v = p.clone().project(camera);
+      return Math.hypot(rect.left + ((v.x + 1) / 2) * rect.width - clientX, rect.top + ((1 - v.y) / 2) * rect.height - clientY);
+    };
+    const eye = this.world.camera.controls.getPosition(new THREE.Vector3(), false);
+    const depth = (p: THREE.Vector3) => p.distanceTo(eye);
+    type Found = SnapHit & { px: number; depth: number };
+    let face: Found | null = null;
+    const vertices: Found[] = [];
+    const edges: Found[] = [];
+    for (const [modelId, model] of this.fragments.list) {
+      if (!model.object.visible) continue;
+      const results = await model
+        .raycastWithSnapping({ camera: camera as THREE.PerspectiveCamera, mouse, dom, snappingClasses: [SnappingClass.POINT, SnappingClass.LINE, SnappingClass.FACE] })
+        .catch(() => null);
+      if (!results?.length) {
+        // No snapping data: the plain surface hit.
+        const r = await model.raycast({ camera: camera as THREE.PerspectiveCamera, mouse, dom }).catch(() => null);
+        if (r && (!face || depth(r.point) < face.depth)) face = { point: r.point.clone(), kind: 'face', modelId, localId: r.localId, px: 0, depth: depth(r.point) };
+        continue;
+      }
+      model.object.updateMatrixWorld();
+      for (const r of results) {
+        const point = r.point.clone();
+        const found: Found = { point, kind: 'face', modelId, localId: r.localId, px: px(point), depth: depth(point) };
+        if (r.snappingClass === SnappingClass.POINT) vertices.push({ ...found, kind: 'vertex' });
+        else if (r.snappingClass === SnappingClass.LINE) {
+          edges.push({ ...found, kind: 'edge' });
+          // An edge's ends are corners too.
+          for (const end of [r.snappedEdgeP1, r.snappedEdgeP2]) if (end) vertices.push({ ...found, point: end.clone(), kind: 'vertex', px: px(end), depth: depth(end) });
+        } else {
+          if (!face || found.depth < face.depth) face = found;
+          // The corners of the face hit are corners to snap to as well.
+          const fp = r.facePoints;
+          if (fp) {
+            for (let i = 0; i + 2 < fp.length; i += 3) {
+              const v = new THREE.Vector3(fp[i], fp[i + 1], fp[i + 2]).applyMatrix4(model.object.matrixWorld);
+              vertices.push({ ...found, point: v, kind: 'vertex', px: px(v), depth: depth(v) });
+            }
+          }
+        }
+      }
+    }
+    // Behind the nearest surface (with a little room for the edges of that surface itself) is hidden.
+    const limit = face ? face.depth * 1.01 + 0.05 : Infinity;
+    const best = (list: Found[], within: number) =>
+      list.filter((f) => f.px <= within && f.depth <= limit).sort((a, b) => a.px - b.px || a.depth - b.depth)[0] ?? null;
+    const pick = best(vertices, SNAP_VERTEX_PX) ?? best(edges, SNAP_EDGE_PX) ?? face;
+    return pick ? { point: pick.point, kind: pick.kind, modelId: pick.modelId, localId: pick.localId } : null;
+  }
+
+  /** An element's volume: its quantity set's when it has one, else measured from its shape; and its bounds. */
+  private async volumeOf(modelId: string, localId: number): Promise<{ volume: number; box: THREE.Box3 | null } | null> {
+    const model = this.fragments.list.get(modelId);
+    if (!model) return null;
+    const data = (await model.getItemsData([localId], WITH_PSETS).catch(() => [])) as RawItem[];
+    const item = data[0];
+    let volume = item ? quantitiesOf(propertyGroups(item)).volume : 0;
+    if (!(volume > 0)) volume = await model.getItemsVolume([localId]).catch(() => 0);
+    const boxes = await model.getBoxes([localId]).catch(() => [] as THREE.Box3[]);
+    const raw = boxes[0];
+    model.object.updateMatrixWorld(true);
+    const box = raw && !raw.isEmpty() ? raw.clone().applyMatrix4(model.object.matrixWorld) : null;
+    return { volume: volume > 0 ? volume : NaN, box };
   }
 
   /** Clicking an element selects it (with the Select tool). */
@@ -1269,12 +1564,19 @@ export class ModelSession implements ModelControls {
     } catch {
       // No bounds to make elevations from.
     }
-    this.update({
-      views: [
-        ...storeys.map((v) => ({ id: v.id, label: v.id, kind: 'storey' as const })),
-        ...elevations.map((v) => ({ id: v.id, label: v.id, kind: 'elevation' as const })),
-      ],
-    });
+    const seen = new Set<string>();
+    const list: { id: string; label: string; kind: 'storey' | 'elevation' }[] = [];
+    for (const v of storeys) {
+      if (seen.has(v.id)) continue;
+      seen.add(v.id);
+      list.push({ id: v.id, label: v.id, kind: 'storey' });
+    }
+    for (const v of elevations) {
+      if (seen.has(v.id)) continue;
+      seen.add(v.id);
+      list.push({ id: v.id, label: v.id, kind: 'elevation' });
+    }
+    this.update({ views: list });
   }
 
   /** A new, empty 3D view in the container. */
@@ -1287,16 +1589,27 @@ export class ModelSession implements ModelControls {
    * the fragments are returned so they can be kept and the next opening skips the conversion.
    */
   async loadIfc(ifc: Uint8Array, modelId: string, options: LoadOptions = {}): Promise<Uint8Array> {
+    const wasEmpty = this.own().length === 0;
     const frags = options.fragments ?? (await this.convert(ifc, options));
     if (this.disposed) throw new DOMException('The view was closed.', 'AbortError');
     options.onProgress?.({ stage: 'load', fraction: 0 });
     // The worker takes the buffer it is given, so keep our own copy to return.
     const model = await this.fragments.core.load(frags.slice(), { modelId, camera: this.world.camera.three });
+    if (this.disposed) throw new DOMException('The view was closed.', 'AbortError');
+    const [cx = 0, cy = 0, cz = 0] = await model.getCoordinates();
+    if (this.baseCoords === null) {
+      this.baseCoords = [cx, cy, cz];
+    } else {
+      // Align shared IFC world coordinates against the first model's origin (overridden if georeferenced).
+      model.object.position.set(this.baseCoords[0] - cx, this.baseCoords[1] - cy, this.baseCoords[2] - cz);
+      model.object.updateMatrixWorld(true);
+      await this.fragments.core.update(true);
+    }
     options.onProgress?.({ stage: 'load', fraction: 1 });
     this.names.set(modelId, options.name ?? modelId);
     this.elementCounts.set(modelId, Object.values(await this.itemsByCategory(model)).reduce((n, ids) => n + ids.length, 0));
     this.update({ modelsVersion: this.current.modelsVersion + 1 });
-    await this.fitAll();
+    if (options.fit ?? wasEmpty) await this.fitAll();
     this.setupSelection();
     // Storey plans and elevations follow; the model is usable while they are made.
     void this.makeViews().catch((err: unknown) => console.warn('3D view: no storey plans or elevations:', err));
@@ -1332,11 +1645,29 @@ export class ModelSession implements ModelControls {
 
   /** Frames every loaded model. */
   async fitAll(): Promise<void> {
-    const box = new THREE.Box3();
-    for (const model of this.fragments.list.values()) box.union(model.box);
+    if (this.disposed) return;
+    const box = this.allBox();
     if (box.isEmpty()) return;
+    await this.frame(box, 1.1);
+  }
+
+  /**
+   * Moves the camera to frame a box, with room around it (`pad` times its bounding sphere, at
+   * least half a metre), and sets the near plane for the distance it ends at so nothing is cut.
+   */
+  private async frame(box: THREE.Box3, pad = 1.4): Promise<void> {
     const sphere = box.getBoundingSphere(new THREE.Sphere());
-    await this.world.camera.controls.fitToSphere(sphere, true);
+    sphere.radius = framedRadius(sphere.radius, pad);
+    const controls = this.world.camera.controls;
+    // Set for the end of the move first, so the frames on the way there are not cut either.
+    const persp = this.world.camera.threePersp;
+    const near = nearFor(controls.getDistanceToFitSphere(sphere.radius));
+    if (near < persp.near) {
+      persp.near = near;
+      persp.updateProjectionMatrix();
+    }
+    await controls.fitToSphere(sphere, true);
+    this.updateClipRange();
   }
 
   /** Stops drawing while the view is not on screen (another tab in front, or the window hidden), and starts again. */
@@ -1344,6 +1675,7 @@ export class ModelSession implements ModelControls {
     if (this.disposed) return;
     // Only the drawing pauses: switching the components off ends their animation loop for good
     // (it stops scheduling itself and nothing starts it again).
+    this.visible = visible;
     this.components.get(OBC.Worlds).enabled = visible;
     if (visible) {
       this.world.renderer?.resize();
@@ -1355,6 +1687,11 @@ export class ModelSession implements ModelControls {
     if (this.disposed) return;
     this.disposed = true;
     this.stopWalk();
+    this.navigation.dispose();
+    this.measure.dispose();
+    this.sectionBox.dispose();
+    this.skyTexture?.dispose();
+    this.skyTexture = null;
     this.resize.disconnect();
     for (const off of this.offs) off();
     this.listeners.clear();
@@ -1368,15 +1705,35 @@ export class ModelSession implements ModelControls {
     camera.controls.removeAllEventListeners();
     camera.projection.onChanged.reset();
     this.world.renderer?.onAfterUpdate.reset();
+    this.world.renderer?.onResize.reset();
     this.fragments.list.onItemSet.reset();
-    for (const m of this.measurers.values()) {
-      m.list.onItemAdded.reset();
-      m.list.onItemDeleted.reset();
-    }
     this.highlighter?.events.select?.onHighlight.reset();
     this.highlighter?.events.select?.onClear.reset();
     this.components.dispose();
   }
+}
+
+/** Whether a key went to a text box (which keeps its keys). */
+function isTyping(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName));
+}
+
+/** Vertical sky gradient texture for the 'sky' background preset. */
+function makeSkyTexture(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 2;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d')!;
+  const grad = ctx.createLinearGradient(0, 0, 0, 256);
+  grad.addColorStop(0, '#6e9fd1');
+  grad.addColorStop(0.52, '#c8dff2');
+  grad.addColorStop(0.56, '#dfe2e5');
+  grad.addColorStop(1, '#c5c2bc');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, 2, 256);
+  const tex = new THREE.CanvasTexture(canvas);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 /** Frees what a sheet overlay drew with: geometry, materials and their pictures. */

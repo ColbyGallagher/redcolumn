@@ -1,6 +1,16 @@
 import { useSyncExternalStore } from 'react';
 import type { ThemeChoice } from '../theme/themes';
 import { DEFAULT_SCALE, SCALE_PRESETS, UNIT_PRECISION, type LengthUnit, type Scale } from '@nb/measure';
+import {
+  clampViewDistance,
+  DEFAULT_DISPLAY_PREFS,
+  DEFAULT_NAV_PREFS,
+  type ModelBackground,
+  type ModelDisplayPrefs,
+  type ModelLighting,
+  type ModelNavPrefs,
+  type MouseBinding,
+} from '@nb/model3d/controls';
 
 /**
  * App preferences (File → Preferences…), kept per browser. Unlike profiles they are not about the
@@ -442,6 +452,42 @@ export interface Settings {
   tiffCompression: 'ccittG4' | 'lzw' | 'none';
   multiPageTiff: boolean;
   imagePageNumber: string;
+  // 3D › Navigation
+  /** Mouse button + modifier to pan the 3D view. */
+  model3dPan: MouseBinding;
+  /** Mouse button + modifier to orbit the 3D view. */
+  model3dOrbit: MouseBinding;
+  /** Zoom toward the point under the pointer, scaling speed by distance to the surface. */
+  model3dZoomToCursor: boolean;
+  /** Orbit around the surface point under the pointer when starting an orbit. */
+  model3dOrbitAtCursor: boolean;
+  /** Show a subtle 3D marker at the orbit pivot point while orbiting. */
+  model3dShowPivot: boolean;
+  /** 3D wheel zoom speed (1–10). */
+  model3dZoomSpeed: number;
+  /** Reverse scroll-wheel zoom direction in 3D views. */
+  model3dInvertZoom: boolean;
+  /** 3D orbit drag sensitivity (1–10). */
+  model3dOrbitSpeed: number;
+  /** Invert vertical (up/down) orbit drag in 3D views. */
+  model3dInvertOrbitY: boolean;
+  /** 3D pan drag sensitivity (1–10; 5 tracks 1:1 with the surface under the cursor). */
+  model3dPanSpeed: number;
+  /** 3D camera smoothing / damping (0 = instant, 1–10 = progressively smoother). */
+  model3dSmoothing: number;
+  // 3D › Display & Scene
+  model3dBackground: ModelBackground;
+  model3dBackgroundColour: string;
+  model3dLighting: ModelLighting;
+  model3dAmbientIntensity: number;
+  model3dSunIntensity: number;
+  model3dSunAzimuth: number;
+  model3dSunElevation: number;
+  model3dFov: number;
+  model3dGhostOpacity: number;
+  model3dWireframe: boolean;
+  /** How far the 3D camera sees, in metres (its far clipping distance). */
+  model3dViewDistance: number;
 }
 
 /** Grid spacing in PDF points. */
@@ -617,7 +663,63 @@ export const DEFAULT_SETTINGS: Settings = {
   tiffCompression: 'ccittG4',
   multiPageTiff: true,
   imagePageNumber: 'Page 001',
+  model3dPan: DEFAULT_NAV_PREFS.pan,
+  model3dOrbit: DEFAULT_NAV_PREFS.orbit,
+  model3dZoomToCursor: DEFAULT_NAV_PREFS.zoomToCursor,
+  model3dOrbitAtCursor: DEFAULT_NAV_PREFS.orbitAtCursor,
+  model3dShowPivot: DEFAULT_NAV_PREFS.showPivot,
+  model3dZoomSpeed: DEFAULT_NAV_PREFS.zoomSpeed,
+  model3dInvertZoom: DEFAULT_NAV_PREFS.invertZoom,
+  model3dOrbitSpeed: DEFAULT_NAV_PREFS.orbitSpeed,
+  model3dInvertOrbitY: DEFAULT_NAV_PREFS.invertOrbitY,
+  model3dPanSpeed: DEFAULT_NAV_PREFS.panSpeed,
+  model3dSmoothing: DEFAULT_NAV_PREFS.smoothing,
+  model3dBackground: DEFAULT_DISPLAY_PREFS.background,
+  model3dBackgroundColour: DEFAULT_DISPLAY_PREFS.backgroundColour,
+  model3dLighting: DEFAULT_DISPLAY_PREFS.lighting,
+  model3dAmbientIntensity: DEFAULT_DISPLAY_PREFS.ambientIntensity,
+  model3dSunIntensity: DEFAULT_DISPLAY_PREFS.sunIntensity,
+  model3dSunAzimuth: DEFAULT_DISPLAY_PREFS.sunAzimuth,
+  model3dSunElevation: DEFAULT_DISPLAY_PREFS.sunElevation,
+  model3dFov: DEFAULT_DISPLAY_PREFS.fov,
+  model3dGhostOpacity: DEFAULT_DISPLAY_PREFS.ghostOpacity,
+  model3dWireframe: DEFAULT_DISPLAY_PREFS.wireframe,
+  model3dViewDistance: DEFAULT_DISPLAY_PREFS.viewDistance,
 };
+
+/** Extracts the 3D navigation preferences from the app settings. */
+export function model3dNavPrefs(s: Settings): ModelNavPrefs {
+  return {
+    pan: s.model3dPan,
+    orbit: s.model3dOrbit,
+    zoomToCursor: s.model3dZoomToCursor,
+    orbitAtCursor: s.model3dOrbitAtCursor,
+    showPivot: s.model3dShowPivot,
+    zoomSpeed: s.model3dZoomSpeed,
+    invertZoom: s.model3dInvertZoom,
+    orbitSpeed: s.model3dOrbitSpeed,
+    invertOrbitY: s.model3dInvertOrbitY,
+    panSpeed: s.model3dPanSpeed,
+    smoothing: s.model3dSmoothing,
+  };
+}
+
+/** Extracts the 3D scene display preferences from the app settings. */
+export function model3dDisplayPrefs(s: Settings): ModelDisplayPrefs {
+  return {
+    background: s.model3dBackground,
+    backgroundColour: s.model3dBackgroundColour,
+    lighting: s.model3dLighting,
+    ambientIntensity: s.model3dAmbientIntensity,
+    sunIntensity: s.model3dSunIntensity,
+    sunAzimuth: s.model3dSunAzimuth,
+    sunElevation: s.model3dSunElevation,
+    fov: s.model3dFov,
+    ghostOpacity: s.model3dGhostOpacity,
+    wireframe: s.model3dWireframe,
+    viewDistance: clampViewDistance(s.model3dViewDistance),
+  };
+}
 
 const KEY = 'nb.settings';
 

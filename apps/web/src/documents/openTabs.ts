@@ -24,6 +24,8 @@ export interface ModelView {
   controls: () => ModelControls | null;
   /** Called when the view's state or camera changes (and when it finishes loading). */
   subscribe: (listener: () => void) => () => void;
+  /** Federates another IFC model into this 3D view. */
+  addModel: (file: StoredFile, bytes: ArrayBuffer, onProgress?: (text: string) => void) => Promise<void>;
 }
 
 /** A 3D model open in a tab (issue #191). Its viewer is loaded only when a model opens, so PDFs never pay for it. */

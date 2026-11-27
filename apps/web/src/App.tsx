@@ -196,7 +196,16 @@ import { planForSheet, samePlan, sheetForPlan } from './model3d/viewSync';
 import { modelLinework } from './model3d/onDrawing';
 import { modelLayers, type ModelLayer } from './geospatial/modelOnSheet';
 import type { GeoModel } from './geospatial/model';
-import { Model3dPanel, Model3dPropertiesPanel } from './model3d/Model3dPanel';
+import {
+  Model3dIssuesPanel,
+  Model3dPropertiesPanel,
+  Model3dReviewPanel,
+  Model3dSetsPanel,
+  Model3dSheetsPanel,
+  Model3dTreePanel,
+  Model3dViewsPanel,
+} from './model3d/Model3dPanel';
+import { Model3dDisplayPanel } from './model3d/DisplayPanel';
 import { gridAtPage, ringAround, type SheetHit } from './model3d/links';
 import { useIssueSync } from './model3d/useIssueSync';
 import type { SheetSource } from './model3d/sheetOverlays';
@@ -225,7 +234,7 @@ import { PagesPanel, resetThumbnails } from './components/PagesPanel';
 import { SearchPanel, type DocHit, type SearchMemory } from './components/SearchPanel';
 import { librarySource, openSource } from './search/sources';
 import { countsFromHits, type CountTool } from './search/countFromHits';
-import { MenuBar, LEFT_TABS, leftTitles, type BottomTab, type LeftTab } from './components/MenuBar';
+import { MenuBar, leftTitles, type BottomTab, type LeftTab } from './components/MenuBar';
 import { PageNav } from './components/PageNav';
 import { PropertiesPanel } from './components/PropertiesPanel';
 import { SessionsPanel } from './components/SessionsPanel';
@@ -768,11 +777,13 @@ const PANEL_DRAG_TYPE = 'application/x-rc-panel';
 /** The side of the window a panel is docked on (the profile's choice). Narrow screens keep every panel in the left drawer. */
 const panelSide = (id: LeftTab): DockSide => (!narrowScreen() && profiles.active().state.rightPanels.includes(id) ? 'right' : 'left');
 
+/** Whether a rail panel belongs to a mode: PDF panels show with a drawing in front, 3D panels with a model, shared ones with both. */
+const inMode = (scope: 'pdf' | '3d' | 'shared' | undefined, forModel: boolean) => scope === 'shared' || (scope === '3d') === forModel;
+
 /** The first panel the profile docks on a side, which that side panel starts on. */
-const firstPanelOn = (side: DockSide): LeftTab | undefined => {
+const firstPanelOn = (side: DockSide, forModel = false): LeftTab | undefined => {
   const ws = profiles.active().state;
-  // 3D panels come and go with models, so a side never starts on one.
-  return RAIL().find(({ id, needsModel }) => !needsModel && panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked))?.id;
+  return RAIL().find(({ id, scope }) => inMode(scope, forModel) && panelSide(id) === side && !ws.hiddenPanels.includes(id) && (id !== 'markups' || ws.markupsDocked))?.id;
 };
 
 /** Progress within one of `count` steps of a job, as part of the whole. */
@@ -1078,11 +1089,13 @@ export function App() {
   const [measureDefaults, setMeasureDefaults] = useState<MeasureDefaults>({ subject: '', label: '' });
   const measureDefaultsRef = useRef(measureDefaults);
   measureDefaultsRef.current = measureDefaults;
-  // The side panels' open state and tab are remembered between sessions.
-  const readSavedPanel = (side: DockSide) => {
+  // The side panels' open state and tab are remembered between sessions, separately for PDF and 3D modes.
+  const readSavedPanel = (side: DockSide, keyPrefix = 'nb.panel') => {
     try {
-      const saved = JSON.parse(localStorage.getItem(`nb.panel.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
-      const tab = saved?.tab && (LEFT_TABS as readonly string[]).includes(saved.tab) && panelSide(saved.tab as LeftTab) === side ? (saved.tab as LeftTab) : null;
+      const saved = JSON.parse(localStorage.getItem(`${keyPrefix}.${side}`) ?? 'null') as { tab?: string; open?: boolean } | null;
+      // A tab of the other mode is not taken: a layout saved before the modes were split can hold a 3D panel.
+      const entry = RAIL().find((r) => r.id === saved?.tab && inMode(r.scope, keyPrefix === 'nb.panel3d'));
+      const tab = entry && panelSide(entry.id) === side ? entry.id : null;
       return { tab, open: typeof saved?.open === 'boolean' ? saved.open : null };
     } catch {
       return { tab: null, open: null };
@@ -1098,14 +1111,23 @@ export function App() {
   // Panels docked on the right (the profile's rightPanels) open in a second side panel there.
   const [rightTab, setRightTab] = useState<LeftTab>(() => saved.right.tab ?? firstPanelOn('right') ?? 'properties');
   const [rightOpen, setRightOpen] = useState(() => saved.right.open ?? !!firstPanelOn('right'));
-  useEffect(() => {
-    try {
-      localStorage.setItem('nb.panel.left', JSON.stringify({ tab: leftTab, open: leftOpen }));
-      localStorage.setItem('nb.panel.right', JSON.stringify({ tab: rightTab, open: rightOpen }));
-    } catch {
-      /* storage off limits: the layout lasts for this session */
-    }
-  }, [leftTab, leftOpen, rightTab, rightOpen]);
+  const modePanelsRef = useRef<{
+    pdf: { leftTab: LeftTab; leftOpen: boolean; rightTab: LeftTab; rightOpen: boolean };
+    model3d: { leftTab: LeftTab; leftOpen: boolean; rightTab: LeftTab; rightOpen: boolean };
+  } | null>(null);
+  if (!modePanelsRef.current) {
+    const saved3dL = readSavedPanel('left', 'nb.panel3d');
+    const saved3dR = readSavedPanel('right', 'nb.panel3d');
+    modePanelsRef.current = {
+      pdf: { leftTab, leftOpen, rightTab, rightOpen },
+      model3d: {
+        leftTab: saved3dL.tab ?? firstPanelOn('left', true) ?? 'model3d',
+        leftOpen: narrowScreen() ? false : (saved3dL.open ?? true),
+        rightTab: saved3dR.tab ?? firstPanelOn('right', true) ?? 'model3dProps',
+        rightOpen: narrowScreen() ? false : (saved3dR.open ?? !!firstPanelOn('right', true)),
+      },
+    };
+  }
   const [rightWidth, setRightWidth] = useState(() => savedLayout?.rightWidth ?? DEFAULT_LAYOUT.rightWidth);
   // Each side's rail names its panels (Thumbnails, File Access...) until the user collapses it to icons.
   const railLabelsKey = (side: DockSide) => (side === 'left' ? 'nb.railLabels' : 'nb.rightRailLabels');
@@ -1261,7 +1283,7 @@ export function App() {
   const resetLayout = () => {
     clearLayout();
     layoutRef.current = DEFAULT_LAYOUT;
-    for (const k of ['nb.panel.left', 'nb.panel.right', 'nb.railLabels', 'nb.rightRailLabels', ...SECTION_KEYS]) {
+    for (const k of ['nb.panel.left', 'nb.panel.right', 'nb.panel3d.left', 'nb.panel3d.right', 'nb.railLabels', 'nb.rightRailLabels', ...SECTION_KEYS]) {
       try {
         localStorage.removeItem(k);
       } catch {
@@ -1278,11 +1300,28 @@ export function App() {
     setBottomTab(DEFAULT_LAYOUT.bottomTab);
     setShowBottom(!narrow && !docked);
     setDockOpen(true);
-    setLeftTab(panelSide('files') === 'left' ? 'files' : (firstPanelOn('left') ?? 'files'));
-    setRightTab(firstPanelOn('right') ?? 'properties');
-    // On a phone the panels are drawers over the drawing, so they stay shut.
-    setLeftOpen(!narrow);
-    setRightOpen(!narrow && !!firstPanelOn('right'));
+    // Both modes start again, and the one in front shows its own. On a phone the panels are drawers
+    // over the drawing, so they stay shut.
+    const defaults = {
+      pdf: {
+        leftTab: panelSide('files') === 'left' ? ('files' as const) : (firstPanelOn('left') ?? 'files'),
+        leftOpen: !narrow,
+        rightTab: firstPanelOn('right') ?? 'properties',
+        rightOpen: !narrow && !!firstPanelOn('right'),
+      },
+      model3d: {
+        leftTab: firstPanelOn('left', true) ?? 'model3d',
+        leftOpen: !narrow,
+        rightTab: firstPanelOn('right', true) ?? 'model3dProps',
+        rightOpen: !narrow && !!firstPanelOn('right', true),
+      },
+    };
+    modePanelsRef.current = defaults;
+    const front = defaults[prevModelActive.current ? 'model3d' : 'pdf'];
+    setLeftTab(front.leftTab);
+    setRightTab(front.rightTab);
+    setLeftOpen(front.leftOpen);
+    setRightOpen(front.rightOpen);
     setRailLabels({ left: true, right: true });
     setSplitRatio(0.5);
     setSplitHorizontal(false);
@@ -8361,6 +8400,7 @@ export function App() {
   /** The panel rail's panels in the profile's order (unlisted ones keep their default place at the end). */
   // The Markups list is a rail panel only while docked in a side panel (it starts in the bottom dock).
   const anyModelOpen = tabsA.some((t) => t.kind === 'model') || tabsB.some((t) => t.kind === 'model');
+  const isModelActive = !!(paneB && (openB || modelB) ? modelB : modelA);
 
   // Open models drawn on sheets registered to a map (issue #191): their plan linework, read from the
   // IFC without the 3D viewer, placed through each sheet's own registration.
@@ -8403,18 +8443,39 @@ export function App() {
       });
     }
   }, [ctl, ctlB, sheetModels, geoRegionsA, geoRegionsB]);
-  // The first model opened brings its properties up, where that side has nothing else open.
-  const hadModel = useRef(anyModelOpen);
+  // Swap side panels cleanly between PDF mode and 3D mode, remembering each mode's open tabs.
+  const prevModelActive = useRef(isModelActive);
   useEffect(() => {
-    if (anyModelOpen && !hadModel.current && !ws.hiddenPanels.includes('model3dProps')) {
-      const side = panelSide('model3dProps');
-      if (!(side === 'left' ? leftOpen : rightOpen)) showPanel('model3dProps');
+    const store = modePanelsRef.current!;
+    if (prevModelActive.current !== isModelActive) {
+      const fromKey = prevModelActive.current ? 'model3d' : 'pdf';
+      const toKey = isModelActive ? 'model3d' : 'pdf';
+      store[fromKey] = { leftTab, leftOpen, rightTab, rightOpen };
+      const target = store[toKey];
+      const pick = (side: DockSide, tab: LeftTab) => {
+        const entry = RAIL().find((r) => r.id === tab);
+        if (entry && inMode(entry.scope, isModelActive) && panelSide(tab) === side && !ws.hiddenPanels.includes(tab)) return tab;
+        return firstPanelOn(side, isModelActive) ?? tab;
+      };
+      setLeftTab(pick('left', target.leftTab));
+      setLeftOpen(narrowScreen() ? false : target.leftOpen);
+      setRightTab(pick('right', target.rightTab));
+      setRightOpen(narrowScreen() ? false : target.rightOpen);
+      prevModelActive.current = isModelActive;
+      return;
     }
-    hadModel.current = anyModelOpen;
-    // Only the coming and going of models matters here.
+    const modeKey = isModelActive ? 'model3d' : 'pdf';
+    store[modeKey] = { leftTab, leftOpen, rightTab, rightOpen };
+    const prefix = isModelActive ? 'nb.panel3d' : 'nb.panel';
+    try {
+      localStorage.setItem(`${prefix}.left`, JSON.stringify({ tab: leftTab, open: leftOpen }));
+      localStorage.setItem(`${prefix}.right`, JSON.stringify({ tab: rightTab, open: rightOpen }));
+    } catch {
+      /* storage off limits: the layout lasts for this session */
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [anyModelOpen]);
-  const orderedRail = RAIL().filter(({ id, needsModel }) => (id !== 'markups' || ws.markupsDocked) && (!needsModel || anyModelOpen)).sort((a, b) => {
+  }, [isModelActive, leftTab, leftOpen, rightTab, rightOpen]);
+  const orderedRail = RAIL().filter(({ id, scope }) => (id !== 'markups' || ws.markupsDocked) && inMode(scope, isModelActive)).sort((a, b) => {
     const ia = ws.panelOrder.indexOf(a.id);
     const ib = ws.panelOrder.indexOf(b.id);
     return (ia < 0 ? RAIL().length + RAIL().indexOf(a) : ia) - (ib < 0 ? RAIL().length + RAIL().indexOf(b) : ib);
@@ -10023,8 +10084,8 @@ export function App() {
   const sidePanel = (side: DockSide) => {
     const tab = side === 'left' ? leftTab : rightTab;
     if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side) return null;
-    // A 3D panel left open when the last model closed gives the space back to the drawing.
-    if (!anyModelOpen && RAIL().find((r) => r.id === tab)?.needsModel) return null;
+    // Only panels belonging to the active mode (PDF vs 3D) render in the sidebar.
+    if (!(side === 'left' ? leftRail : rightRail).some((r) => r.id === tab)) return null;
     const width = side === 'left' ? shownWidths.left : shownWidths.right;
     const close = () => (side === 'left' ? setLeftOpen(false) : setRightOpen(false));
     return (
@@ -10429,16 +10490,60 @@ export function App() {
             }
           />
         ) : tab === 'model3d' ? (
-          <Model3dPanel
+          <Model3dTreePanel
+            view={activeModel?.view ?? null}
+            libraryModels={library.filter(isModelFile)}
+            onAddModelFiles={async (files, onProgress) => {
+              if (!activeModel) return;
+              for (const f of files) {
+                const bytes = await f.arrayBuffer();
+                const stored = await saveFile(f.name, bytes);
+                await activeModel.view.addModel(stored, bytes, onProgress);
+              }
+              void refreshLibrary();
+            }}
+            onAddLibraryModel={async (file, onProgress) => {
+              if (!activeModel) return;
+              const bytes = await readFile(file.hash);
+              if (!bytes) throw new Error(msg('That model file is no longer in local storage.'));
+              await activeModel.view.addModel(file, bytes, onProgress);
+            }}
+            onNotice={setNotice}
+          />
+        ) : tab === 'model3dViews' ? (
+          <Model3dViewsPanel view={activeModel?.view ?? null} fileHash={activeModel?.file.hash ?? null} />
+        ) : tab === 'model3dSets' ? (
+          <Model3dSetsPanel
+            view={activeModel?.view ?? null}
+            onDownload={(name, text) => download(name, new Blob([text], { type: 'application/json' }))}
+            onNotice={setNotice}
+          />
+        ) : tab === 'model3dIssues' ? (
+          <Model3dIssuesPanel
             view={activeModel?.view ?? null}
             fileHash={activeModel?.file.hash ?? null}
             sheets={mapSheets()}
-            onDownload={(name, text) => download(name, new Blob([text], { type: 'application/json' }))}
+            onSaveFile={(name, data) => download(name, data)}
+            onNotice={setNotice}
+          />
+        ) : tab === 'model3dSheets' ? (
+          <Model3dSheetsPanel view={activeModel?.view ?? null} fileHash={activeModel?.file.hash ?? null} sheets={mapSheets()} />
+        ) : tab === 'model3dReview' ? (
+          <Model3dReviewPanel
+            view={activeModel?.view ?? null}
             onSaveFile={(name, data) => download(name, data)}
             onNotice={setNotice}
           />
         ) : tab === 'model3dProps' ? (
           <Model3dPropertiesPanel view={activeModel?.view ?? null} sheets={mapSheets()} onOpenSheet={openSheetAt} />
+        ) : tab === 'model3dDisplay' ? (
+          <Model3dDisplayPanel
+            view={activeModel?.view ?? null}
+            onOpenNavPrefs={() => {
+              setPrefsCategory({ category: 'model3d', tab: 'model3dNavigation' });
+              setPrefsOpen(true);
+            }}
+          />
         ) : tab === 'flags' ? (
           <FlagsPanel markups={markups} statuses={columnSet.statuses} selected={toolsState.selected} onSelect={selectFromList} onAdd={activeOpen && !activeReadOnly ? () => activeTools?.setTool('flagLabel') : null} />
         ) : (tab === 'projects' || tab === 'sessions') && !desktop() ? (
@@ -11272,7 +11377,7 @@ export function App() {
               }}
             />
           )}
-          {showBottom && !dockFull && bottomDock}
+          {showBottom && !isModelActive && !dockFull && bottomDock}
         </div>
         {rightRail.length > 0 && !rightShown && (
           <button type="button" className="panel-edge right" aria-label={msg('Open the right side panel')} title={msg('Open the right side panel')} onClick={() => commandActions.toggleRight()} />
@@ -11280,7 +11385,7 @@ export function App() {
         {sidePanel('right')}
         {(rightRail.length > 0 || (railDrag && !narrowScreen())) && panelRail('right', rightRail)}
       </div>
-      {showBottom && dockFull && bottomDock}
+      {showBottom && !isModelActive && dockFull && bottomDock}
       <StatusBar
         viewer={v ?? null}
         rotation={(paneB ? statsB : stats)?.rotation ?? 0}
@@ -12792,12 +12897,11 @@ export function App() {
   );
 }
 
-const RAIL = lazy((): { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean; needsModel?: boolean }[] => [
+const RAIL = lazy((): { id: LeftTab; title: string; icon: ReactNode; experimental?: boolean; scope?: 'pdf' | '3d' | 'shared' }[] => [
   {
     id: 'model3d',
-    title: msg('3D Model'),
-    experimental: true,
-    needsModel: true,
+    title: msg('Model Tree'),
+    scope: '3d',
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M2.5 4.5 8 1.8l5.5 2.7v7L8 14.2l-5.5-2.7zM2.5 4.5 8 7.2l5.5-2.7M8 7.2v7" />
@@ -12805,13 +12909,75 @@ const RAIL = lazy((): { id: LeftTab; title: string; icon: ReactNode; experimenta
     ),
   },
   {
+    id: 'model3dViews',
+    title: msg('Views'),
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M2 5h2.5l1-1.5h5L11.5 5H14v8H2z" />
+        <circle cx="8" cy="9" r="2.2" fill="none" stroke="currentColor" strokeWidth="1.3" />
+      </svg>
+    ),
+  },
+  {
+    id: 'model3dSets',
+    title: msg('Sets & Appearance'),
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M2.5 3h11l-4.2 5v4.5l-2.6 1V8z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'model3dIssues',
+    title: msg('Issues'),
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M2.5 3h11v8H6.5l-3 2.5V11h-1z" />
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" d="M8 5.2v2.3M8 9.2h.01" />
+      </svg>
+    ),
+  },
+  {
+    id: 'model3dSheets',
+    title: msg('Sheets'),
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" d="M2 10.5 8 13.5l6-3M2 7.5 8 10.5l6-3M2 4.5 8 1.8l6 2.7-6 3z" />
+      </svg>
+    ),
+  },
+  {
+    id: 'model3dReview',
+    title: msg('Takeoff & Compare'),
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M2.5 2.5h11v11h-11zM2.5 6h11M6.5 6v7.5M10.5 6v7.5" />
+      </svg>
+    ),
+  },
+  {
     id: 'model3dProps',
-    title: msg('3D Properties'),
-    experimental: true,
-    needsModel: true,
+    title: msg('Properties'),
+    scope: '3d',
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="none" stroke="currentColor" strokeWidth="1.3" d="M2 2.5h12v11H2zM2 6h12M2 9.5h12M6.5 2.5v11" />
+      </svg>
+    ),
+  },
+  {
+    id: 'model3dDisplay',
+    title: msg('Display & Scene'),
+    scope: '3d',
+    icon: (
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+        <circle cx="8" cy="8" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.3" />
+        <path fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" d="M8 1.8v1.8M8 12.4v1.8M1.8 8h1.8M12.4 8h1.8M3.6 3.6l1.3 1.3M11.1 11.1l1.3 1.3M3.6 12.4l1.3-1.3M11.1 4.9l1.3-1.3" />
       </svg>
     ),
   },
@@ -12827,6 +12993,7 @@ const RAIL = lazy((): { id: LeftTab; title: string; icon: ReactNode; experimenta
   {
     id: 'files',
     title: msg('File Access'),
+    scope: 'shared',
     icon: (
       <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
         <path fill="currentColor" d="M3 2h6l2 2v10H3V2zm6 0v2h2" />

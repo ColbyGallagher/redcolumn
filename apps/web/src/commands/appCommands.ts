@@ -413,7 +413,13 @@ export type PanelId =
   | 'markups'
   | 'links'
   | 'model3d'
-  | 'model3dProps';
+  | 'model3dViews'
+  | 'model3dSets'
+  | 'model3dIssues'
+  | 'model3dSheets'
+  | 'model3dReview'
+  | 'model3dProps'
+  | 'model3dDisplay';
 
 /** Every command, in menu order within each category. */
 export function buildCommands(a: CommandActions, s: CommandState): Command[] {
@@ -712,8 +718,14 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('window.forms', 'Window', msg('Forms'), () => a.focusPanel('forms'), true, sidePanelOpen('forms')),
     cmd('window.sets', 'Window', msg('Sets'), () => a.focusPanel('sets'), true, sidePanelOpen('sets')),
     cmd('window.sessions', 'Window', msg('Sessions'), () => a.focusPanel('sessions'), true, sidePanelOpen('sessions')),
-    cmd('window.model3d', 'Window', msg('3D Model'), () => a.focusPanel('model3d'), !!s.modelOpen, sidePanelOpen('model3d')),
+    cmd('window.model3d', 'Window', msg('3D Model Tree'), () => a.focusPanel('model3d'), !!s.modelOpen, sidePanelOpen('model3d')),
+    cmd('window.model3dViews', 'Window', msg('3D Views'), () => a.focusPanel('model3dViews'), !!s.modelOpen, sidePanelOpen('model3dViews')),
+    cmd('window.model3dSets', 'Window', msg('3D Sets & Appearance'), () => a.focusPanel('model3dSets'), !!s.modelOpen, sidePanelOpen('model3dSets')),
+    cmd('window.model3dIssues', 'Window', msg('3D Issues'), () => a.focusPanel('model3dIssues'), !!s.modelOpen, sidePanelOpen('model3dIssues')),
+    cmd('window.model3dSheets', 'Window', msg('3D Sheets'), () => a.focusPanel('model3dSheets'), !!s.modelOpen, sidePanelOpen('model3dSheets')),
+    cmd('window.model3dReview', 'Window', msg('3D Takeoff & Compare'), () => a.focusPanel('model3dReview'), !!s.modelOpen, sidePanelOpen('model3dReview')),
     cmd('window.model3dProps', 'Window', msg('3D Properties'), () => a.focusPanel('model3dProps'), !!s.modelOpen, sidePanelOpen('model3dProps')),
+    cmd('window.model3dDisplay', 'Window', msg('3D Display & Scene'), () => a.focusPanel('model3dDisplay'), !!s.modelOpen, sidePanelOpen('model3dDisplay')),
     cmd('window.markups', 'Window', msg('Markups List'), () => a.focusPanel('markups'), true, s.showBottom && s.bottomTab === 'markups'),
     cmd('window.links', 'Window', msg('Hyperlinks'), () => a.focusPanel('links'), true, s.showBottom && s.bottomTab === 'links'),
 

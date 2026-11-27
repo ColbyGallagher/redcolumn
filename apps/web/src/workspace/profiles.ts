@@ -163,8 +163,8 @@ const RECENT_LIMIT = 12;
 /** The toolbar a new profile starts with; the rest are added from the toolbar's right-click menu. */
 export const DEFAULT_TOOLBAR_TOOLS: Tool[] = ['line', 'polyline', 'rect', 'ellipse', 'cloud', 'cloudPlus', 'pen', 'highlighter', 'text', 'callout', 'stamp'];
 
-/** Panels that start docked on the right: the 3D model's properties sit opposite its tree. */
-export const RIGHT_BY_DEFAULT: readonly string[] = ['model3dProps'];
+/** Panels that start docked on the right: the 3D model's properties and display controls sit opposite its tree. */
+export const RIGHT_BY_DEFAULT: readonly string[] = ['model3dProps', 'model3dDisplay'];
 
 export function defaultWorkspace(): WorkspaceState {
   return {

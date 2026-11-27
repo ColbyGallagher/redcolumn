@@ -33,14 +33,6 @@ msgstr "({updated} an Ort und Stelle aktualisiert)"
 msgid ", and {count} markup(s) over them"
 msgstr ", und {count} Markierung(en) darüber"
 
-#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/MenuBar.tsx
-msgid "3D Model"
-msgstr ""
-
-#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/MenuBar.tsx
-msgid "3D Properties"
-msgstr ""
-
 #: apps/web/src/App.tsx
 msgid ": it needs its password to open"
 msgstr ": zum Öffnen wird das Kennwort benötigt"
@@ -637,6 +629,10 @@ msgstr "Bemaßungstext"
 msgid "Dismiss"
 msgstr "Verwerfen"
 
+#: apps/web/src/App.tsx apps/web/src/components/MenuBar.tsx
+msgid "Display & Scene"
+msgstr "Anzeige & Szene"
+
 #: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts
 msgid "Distribute Horizontally"
 msgstr "Horizontal verteilen"
@@ -973,6 +969,10 @@ msgstr "Zeile oberhalb einfügen"
 msgid "Insert Row Below"
 msgstr "Zeile unterhalb einfügen"
 
+#: apps/web/src/App.tsx apps/web/src/components/MenuBar.tsx apps/web/src/model3d/Issues.tsx
+msgid "Issues"
+msgstr "Issues"
+
 #: apps/web/src/App.tsx
 msgid "It becomes"
 msgstr "Daraus wird"
@@ -1109,6 +1109,10 @@ msgstr "Messungen und Mengen hängen vom eingestellten Maßstab ab: Prüfen Sie 
 #: apps/web/src/App.tsx
 msgid "Merge Cells"
 msgstr "Zellen verbinden"
+
+#: apps/web/src/App.tsx apps/web/src/components/MenuBar.tsx
+msgid "Model Tree"
+msgstr "Modellbaum"
 
 #: apps/web/src/App.tsx
 msgid "Move to Left Pane"
@@ -1894,6 +1898,10 @@ msgstr "Zeichnungsstandard einrichten"
 msgid "Sets"
 msgstr "Sätze"
 
+#: apps/web/src/App.tsx apps/web/src/components/MenuBar.tsx
+msgid "Sets & Appearance"
+msgstr "Sätze & Darstellung"
+
 #: apps/web/src/App.tsx
 msgid "Sets: {parts}."
 msgstr "Sätze: {parts}."
@@ -1905,6 +1913,10 @@ msgstr "Sitzung mit {emails} geteilt."
 #: apps/web/src/App.tsx
 msgid "Sharing failed: {value}"
 msgstr "Teilen fehlgeschlagen: {value}"
+
+#: apps/web/src/App.tsx apps/web/src/components/MenuBar.tsx apps/web/src/components/standardsWizard/ThumbStrip.tsx
+msgid "Sheets"
+msgstr "Blätter"
 
 #: apps/web/src/App.tsx apps/web/src/components/CloseOutDialog.tsx apps/web/src/components/LayersPanel.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/RevuMigrationDialog.tsx apps/web/src/components/Ribbon.tsx apps/web/src/components/SemanticComparePanel.tsx apps/web/src/components/SheetScaleReview.tsx apps/web/src/components/TakeoffReview.tsx apps/web/src/model3d/Model3dPanel.tsx
 msgid "Show"
@@ -2074,6 +2086,10 @@ msgstr "Wechseln Sie zu {value}, um die zusammengefügten Blätter zu sehen."
 msgid "Sync View follows the sheet where it is registered to the map: move the sheet to a registered area and the model follows."
 msgstr ""
 
+#: apps/web/src/App.tsx apps/web/src/components/MenuBar.tsx
+msgid "Takeoff & Compare"
+msgstr "Mengenermittlung & Vergleich"
+
 #: apps/web/src/App.tsx
 msgid "Template “{name}” armed: each {value} you draw gets its {value2}settings."
 msgstr "Vorlage „{name}“ aktiv: Jede {value}, die Sie zeichnen, erhält ihre {value2}Einstellungen."
@@ -2101,6 +2117,10 @@ msgstr "Diese Datei ist nicht mehr in der Bibliothek."
 #: apps/web/src/App.tsx
 msgid "That file is not in a folder on this computer. It may have been moved, renamed or deleted."
 msgstr "Diese Datei befindet sich in keinem Ordner auf diesem Computer. Sie wurde möglicherweise verschoben, umbenannt oder gelöscht."
+
+#: apps/web/src/App.tsx
+msgid "That model file is no longer in local storage."
+msgstr "Diese Modelldatei befindet sich nicht mehr im lokalen Speicher."
 
 #: apps/web/src/App.tsx
 msgid "That revision is the same as the current version."
@@ -2306,6 +2326,10 @@ msgstr "{name} verwenden"
 #: apps/web/src/App.tsx
 msgid "View Capture"
 msgstr "Erfassung anzeigen"
+
+#: apps/web/src/App.tsx apps/web/src/components/MenuBar.tsx apps/web/src/components/Ribbon.tsx apps/web/src/components/SheetScaleReview.tsx
+msgid "Views"
+msgstr "Ansichten"
 
 #: apps/web/src/App.tsx
 msgid "Wrong password"
@@ -2940,8 +2964,40 @@ msgid "Without its sign"
 msgstr "Ohne Vorzeichen"
 
 #: apps/web/src/commands/appCommands.ts
+msgid "3D Display & Scene"
+msgstr "3D-Anzeige & Szene"
+
+#: apps/web/src/commands/appCommands.ts
+msgid "3D Issues"
+msgstr "3D-Issues"
+
+#: apps/web/src/commands/appCommands.ts
+msgid "3D Model Tree"
+msgstr "3D-Modellbaum"
+
+#: apps/web/src/commands/appCommands.ts
 msgid "3D Models on Sheets"
 msgstr ""
+
+#: apps/web/src/commands/appCommands.ts
+msgid "3D Properties"
+msgstr "3D-Eigenschaften"
+
+#: apps/web/src/commands/appCommands.ts
+msgid "3D Sets & Appearance"
+msgstr "3D-Sätze & Darstellung"
+
+#: apps/web/src/commands/appCommands.ts
+msgid "3D Sheets"
+msgstr "3D-Blätter"
+
+#: apps/web/src/commands/appCommands.ts
+msgid "3D Takeoff & Compare"
+msgstr "3D-Mengenermittlung & Vergleich"
+
+#: apps/web/src/commands/appCommands.ts
+msgid "3D Views"
+msgstr "3D-Ansichten"
 
 #: apps/web/src/commands/appCommands.ts
 msgid "AI Compare Documents…"
@@ -4404,7 +4460,7 @@ msgstr "Entfernen"
 msgid "Remove variable {name}"
 msgstr "Variable {name} entfernen"
 
-#: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/sessions/AccessEditor.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx
+#: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/sessions/AccessEditor.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx apps/web/src/model3d/Model3dPanel.tsx
 msgid "Remove {name}"
 msgstr "{name} entfernen"
 
@@ -5502,7 +5558,7 @@ msgstr "Wie geplottet"
 msgid "Black"
 msgstr "Schwarz"
 
-#: apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/CompareDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/PublishDialog.tsx apps/web/src/components/Ribbon.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/model3d/Model3dPanel.tsx
+#: apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/CompareDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/PublishDialog.tsx apps/web/src/components/Ribbon.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/model3d/DisplayPanel.tsx apps/web/src/model3d/Model3dPanel.tsx
 msgid "Colour"
 msgstr "Farbe"
 
@@ -7062,7 +7118,7 @@ msgstr "Darstellung"
 msgid "Ask the certificate authority whether this certificate was revoked (OCSP, else its revocation list)"
 msgstr "Bei der Zertifizierungsstelle nachfragen, ob dieses Zertifikat widerrufen wurde (OCSP, sonst ihre Sperrliste)"
 
-#: apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/LinkPreview.tsx apps/web/src/components/MenuBar.tsx apps/web/src/components/Ribbon.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/components/standardsWizard/CalloutStep.tsx apps/web/src/components/standardsWizard/ChainageStep.tsx apps/web/src/components/standardsWizard/MatchLineStep.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx
+#: apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/LinkPreview.tsx apps/web/src/components/MenuBar.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/components/standardsWizard/CalloutStep.tsx apps/web/src/components/standardsWizard/ChainageStep.tsx apps/web/src/components/standardsWizard/MatchLineStep.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx
 msgid "Back"
 msgstr "Zurück"
 
@@ -10518,7 +10574,7 @@ msgstr "Genauigkeit"
 msgid "Precision:"
 msgstr "Genauigkeit:"
 
-#: apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/SetScaleDialog.tsx
+#: apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/SetScaleDialog.tsx apps/web/src/model3d/DisplayPanel.tsx
 msgid "Preset"
 msgstr "Vorgabe"
 
@@ -11607,6 +11663,10 @@ msgid "{input}See-through"
 msgstr "{input}Durchsichtig"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "(0: instant)"
+msgstr "(0: sofort)"
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "(Not in the Library)"
 msgstr "(Nicht in der Bibliothek)"
 
@@ -11617,6 +11677,20 @@ msgstr "(noch nicht verwendet)"
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "*_Rev#  (* the sheet, # its revision)"
 msgstr "*_Rev#  (* das Blatt, # seine Revision)"
+
+#: apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/Ribbon.tsx
+msgid "3D"
+msgstr "3D"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgctxt "3D mouse control"
+msgid "Orbit"
+msgstr "Orbit"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgctxt "3D mouse control"
+msgid "Pan"
+msgstr "Schwenken"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "A rectangular Snapshot keeps the drawing as lines, so it stays sharp when zoomed in and can be snapped to"
@@ -11681,6 +11755,18 @@ msgstr "Alphanumerisch aufsteigend"
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Alphanumeric Descending"
 msgstr "Alphanumerisch absteigend"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Alt + Left Mouse"
+msgstr "Alt + Linke Maustaste"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Alt + Middle Mouse"
+msgstr "Alt + Mittlere Maustaste"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Alt + Right Mouse"
+msgstr "Alt + Rechte Maustaste"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Always Prompt for Template Selection"
@@ -11819,6 +11905,18 @@ msgid "Cross Out"
 msgstr "Durchstreichen"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "Ctrl + Left Mouse"
+msgstr "Ctrl + Linke Maustaste"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Ctrl + Middle Mouse"
+msgstr "Ctrl + Mittlere Maustaste"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Ctrl + Right Mouse"
+msgstr "Ctrl + Rechte Maustaste"
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "Ctrl + Wheel"
 msgstr "Ctrl + Mausrad"
 
@@ -11869,6 +11967,10 @@ msgstr "Abdunkeln"
 #: apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/Ribbon.tsx
 msgid "Display"
 msgstr "Anzeige"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Displays a subtle marker at the orbit centre while orbiting"
+msgstr "Zeigt beim Kreisen eine dezente Markierung am Orbit-Mittelpunkt an"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Dragging a tool onto the page always places a copy. Right-click a tool to choose Place Copy or Draw with Style for that tool; it keeps the choice."
@@ -12043,6 +12145,10 @@ msgid "Interface"
 msgstr "Oberfläche"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "Invert Vertical Orbit"
+msgstr "Vertikalen Orbit umkehren"
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "Isolate"
 msgstr "Isolieren"
 
@@ -12073,6 +12179,10 @@ msgstr "LZW"
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Language"
 msgstr "Sprache"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Left Mouse"
+msgstr "Linke Maustaste"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Let an Embedding Application Set Document IDs and Turn Off Commands"
@@ -12119,12 +12229,20 @@ msgid "Middle"
 msgstr "Mitte"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "Middle Mouse"
+msgstr "Mittlere Maustaste"
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "Minutes"
 msgstr "Minuten"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Monochrome"
 msgstr "Monochrom"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Mouse Controls"
+msgstr "Maussteuerung"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Navigation"
@@ -12223,6 +12341,14 @@ msgid "Options"
 msgstr "Optionen"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "Orbit Around Cursor"
+msgstr "Um Cursor kreisen"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Orbit Sensitivity"
+msgstr "Orbit-Empfindlichkeit"
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "Original"
 msgstr "Original"
 
@@ -12245,6 +12371,14 @@ msgstr "Seitenlayout"
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Page Number"
 msgstr "Seitenzahl"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Pan Sensitivity"
+msgstr "Schwenk-Empfindlichkeit"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Pan and Orbit are set to the same button; Orbit will take priority until one is changed."
+msgstr "Schwenken und Orbit sind derselben Taste zugewiesen; Orbit hat Vorrang, bis eine Zuweisung geändert wird."
 
 #: apps/web/src/components/PreferencesDialog.tsx apps/web/src/markup/MarkupTools.ts
 msgid "Parallel"
@@ -12375,8 +12509,16 @@ msgid "Reverse Mouse Wheel when Zooming"
 msgstr "Mausrad beim Zoomen umkehren"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "Reverse Zoom Direction"
+msgstr "Zoomrichtung umkehren"
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "Revision Filter"
 msgstr "Revisionsfilter"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Right Mouse"
+msgstr "Rechte Maustaste"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Right-click Finishes Markup"
@@ -12451,6 +12593,18 @@ msgid "Sheet Number, Revision Number"
 msgstr "Blattnummer, Revisionsnummer"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "Shift + Left Mouse"
+msgstr "Shift + Linke Maustaste"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Shift + Middle Mouse"
+msgstr "Shift + Mittlere Maustaste"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Shift + Right Mouse"
+msgstr "Shift + Rechte Maustaste"
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "Show Author and Date in Pop-Ups"
 msgstr "Autor und Datum in Pop-ups anzeigen"
 
@@ -12465,6 +12619,10 @@ msgstr "Hyperlink-Bereiche anzeigen"
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Show Menu Bar"
 msgstr ""
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Show Orbit Pivot Marker"
+msgstr "Orbit-Drehpunktmarkierung anzeigen"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Show Rulers"
@@ -12501,6 +12659,10 @@ msgstr "Einzelseitenmodus"
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Sketch"
 msgstr "Skizze"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Smooth Damping"
+msgstr "Sanfte Dämpfung"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Snap Colour"
@@ -12565,6 +12727,10 @@ msgstr "Getaggte Seiten nach Blattnummer sortieren"
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "Sorting"
 msgstr "Sortierung"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Speed & Feel"
+msgstr "Geschwindigkeit & Verhalten"
 
 #: apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/Ribbon.tsx
 msgid "Spelling"
@@ -12715,6 +12881,10 @@ msgid "User"
 msgstr "Benutzer"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "Uses the surface point under the pointer as the centre of rotation when starting an orbit"
+msgstr "Verwendet beim Starten eines Orbits den Oberflächenpunkt unter dem Zeiger als Drehpunkt"
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "Video Resolution"
 msgstr "Videoauflösung"
 
@@ -12775,8 +12945,20 @@ msgid "Zoom In / Out"
 msgstr "Vergrößern / Verkleinern"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "Zoom Speed"
+msgstr "Zoomgeschwindigkeit"
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "Zoom Steps"
 msgstr "Zoomstufen"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Zoom to Cursor"
+msgstr "Auf Cursor zoomen"
+
+#: apps/web/src/components/PreferencesDialog.tsx
+msgid "Zooms toward the surface under the pointer, scaling speed by distance so you slow down as you get closer and never pass through objects"
+msgstr "Zoomt auf die Oberfläche unter dem Zeiger und passt die Geschwindigkeit an den Abstand an, sodass Sie bei Annäherung langsamer werden und nie durch Objekte hindurchfahren"
 
 #: apps/web/src/components/PreferencesDialog.tsx
 msgid "days (0: any time)"
@@ -12898,7 +13080,7 @@ msgstr "Liste aus Bibliothek hinzufügen"
 msgid "Cost column"
 msgstr "Kostenspalte"
 
-#: apps/web/src/components/ProductListsDialog.tsx
+#: apps/web/src/components/ProductListsDialog.tsx apps/web/src/model3d/Model3dPanel.tsx
 msgid "From library…"
 msgstr "Aus Bibliothek…"
 
@@ -13946,7 +14128,7 @@ msgstr "Bögen"
 msgid "Arrange"
 msgstr "Anordnen"
 
-#: apps/web/src/components/PropertiesPanel.tsx
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/model3d/DisplayPanel.tsx
 msgid "Background"
 msgstr "Hintergrund"
 
@@ -14322,7 +14504,7 @@ msgstr "Startwinkel"
 msgid "Strikethrough"
 msgstr "Durchgestrichen"
 
-#: apps/web/src/components/PropertiesPanel.tsx
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/model3d/DisplayPanel.tsx
 msgid "Style"
 msgstr "Stil"
 
@@ -15219,10 +15401,6 @@ msgid "{value} ({count} items)"
 msgstr "{value} ({count} Elemente)"
 
 #: apps/web/src/components/Ribbon.tsx
-msgid "3D"
-msgstr ""
-
-#: apps/web/src/components/Ribbon.tsx
 msgid "3D on Sheets"
 msgstr ""
 
@@ -15259,8 +15437,32 @@ msgid "Auto-size Text"
 msgstr "Textgröße automatisch"
 
 #: apps/web/src/components/Ribbon.tsx
+msgid "Back View"
+msgstr "Rückansicht"
+
+#: apps/web/src/components/Ribbon.tsx
 msgid "Below"
 msgstr "Unterhalb"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Bottom North-East"
+msgstr "Unten Nordost"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Bottom North-West"
+msgstr "Unten Nordwest"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Bottom South-East"
+msgstr "Unten Südost"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Bottom South-West"
+msgstr "Unten Südwest"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Bottom View"
+msgstr "Unteransicht"
 
 #: apps/web/src/components/Ribbon.tsx
 msgid "Bulk Insert"
@@ -15387,8 +15589,8 @@ msgid "Extract"
 msgstr "Extrahieren"
 
 #: apps/web/src/components/Ribbon.tsx
-msgid "Front"
-msgstr ""
+msgid "Front View"
+msgstr "Vorderansicht"
 
 #: apps/web/src/components/Ribbon.tsx
 msgid "Headers & Stamps"
@@ -15419,8 +15621,12 @@ msgid "Insert Pages"
 msgstr "Seiten einfügen"
 
 #: apps/web/src/components/Ribbon.tsx
-msgid "Isometric"
-msgstr ""
+msgid "Isometric Corners"
+msgstr "Isometrische Ecken"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Isometric View"
+msgstr "Isometrische Ansicht"
 
 #: apps/web/src/components/Ribbon.tsx
 msgid "Keep the Ribbon Open"
@@ -15435,12 +15641,20 @@ msgid "Labels"
 msgstr "Beschriftungen"
 
 #: apps/web/src/components/Ribbon.tsx
+msgid "Left View"
+msgstr "Ansicht von links"
+
+#: apps/web/src/components/Ribbon.tsx
 msgid "Length unit"
 msgstr "Längeneinheit"
 
 #: apps/web/src/components/Ribbon.tsx
 msgid "Library"
 msgstr "Bibliothek"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Look from a side, from above or below, or from a corner"
+msgstr "Von einer Seite, von oben oder unten oder aus einer Ecke betrachten"
 
 #: apps/web/src/components/Ribbon.tsx
 msgid "Manage Templates…"
@@ -15537,6 +15751,10 @@ msgstr "Maßstäbe prüfen"
 #: apps/web/src/components/Ribbon.tsx
 msgid "Revisions"
 msgstr "Revisionen"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Right View"
+msgstr "Ansicht von rechts"
 
 #: apps/web/src/components/Ribbon.tsx
 msgid "Rotate Clockwise"
@@ -15642,9 +15860,25 @@ msgstr "Anzeigeoptionen der Symbolleiste"
 msgid "Tools and style in one row"
 msgstr "Werkzeuge und Stil in einer Zeile"
 
-#: apps/web/src/components/Ribbon.tsx apps/web/src/model3d/ViewCube.tsx
-msgid "Top"
-msgstr ""
+#: apps/web/src/components/Ribbon.tsx
+msgid "Top North-East"
+msgstr "Oben Nordost"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Top North-West"
+msgstr "Oben Nordwest"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Top South-East"
+msgstr "Oben Südost"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Top South-West"
+msgstr "Oben Südwest"
+
+#: apps/web/src/components/Ribbon.tsx
+msgid "Top View"
+msgstr "Draufsicht"
 
 #: apps/web/src/components/Ribbon.tsx
 msgid "Transform"
@@ -15654,9 +15888,9 @@ msgstr "Transformieren"
 msgid "Units & Scale"
 msgstr "Einheiten und Maßstab"
 
-#: apps/web/src/components/Ribbon.tsx apps/web/src/components/SheetScaleReview.tsx
-msgid "Views"
-msgstr "Ansichten"
+#: apps/web/src/components/Ribbon.tsx
+msgid "Views ▾"
+msgstr "Ansichten ▾"
 
 #: apps/web/src/components/Ribbon.tsx
 msgid "{name} (library)"
@@ -20964,10 +21198,6 @@ msgstr "— zu wenige; versuchen Sie einen Rahmen, der das ganze Feld umfasst."
 msgid "Sheet {number}{value2}"
 msgstr "Blatt {number}{value2}"
 
-#: apps/web/src/components/standardsWizard/ThumbStrip.tsx
-msgid "Sheets"
-msgstr "Blätter"
-
 #: apps/web/src/components/standardsWizard/stepParts.tsx
 msgid ", at least {pct} going by your {checked} checks"
 msgstr ", mindestens {pct} nach Ihren {checked} Prüfungen"
@@ -22802,6 +23032,167 @@ msgstr "{name} konnte nicht als Bild gelesen werden."
 msgid "{name} is {value} MB; attachments can be up to 25 MB."
 msgstr "{name} ist {value} MB groß; Anhänge dürfen bis zu 25 MB groß sein."
 
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Ambient light"
+msgstr "Umgebungslicht"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Ambient {value}"
+msgstr "Umgebungslicht {value}"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Appearance & Overlays"
+msgstr "Darstellung & Überlagerungen"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Background colour"
+msgstr "Hintergrundfarbe"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Background style"
+msgstr "Hintergrundstil"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Camera"
+msgstr "Kamera"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Custom Colour"
+msgstr "Benutzerdefinierte Farbe"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Dark Studio"
+msgstr "Dunkles Studio"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Daylight"
+msgstr "Tageslicht"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Field of view"
+msgstr "Sichtfeld"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Field of view {value}"
+msgstr "Sichtfeld {value}"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Follow App Theme"
+msgstr "App-Design folgen"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Ghost hidden elements"
+msgstr "Ausgeblendete Elemente blass anzeigen"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Ghost opacity"
+msgstr "Deckkraft ausgeblendeter Elemente"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Ghost opacity {value}"
+msgstr "Deckkraft ausgeblendeter Elemente {value}"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "High Contrast"
+msgstr "Hoher Kontrast"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "How far the camera sees: raise it to find a model a long way off"
+msgstr "Wie weit die Kamera sieht: Erhöhen Sie diesen Wert, um ein weit entferntes Modell zu finden"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Light Paper"
+msgstr "Helles Papier"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Lighting"
+msgstr "Beleuchtung"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Lighting preset"
+msgstr "Beleuchtungsvorgabe"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Mini-map"
+msgstr "Minikarte"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Navigation settings…"
+msgstr "Navigationseinstellungen…"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Orthographic"
+msgstr "Orthografisch"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Overcast"
+msgstr "Bewölkt"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Perspective"
+msgstr "Perspektivisch"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Reference grid"
+msgstr "Referenzraster"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Reset display"
+msgstr "Anzeige zurücksetzen"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Sky Gradient"
+msgstr "Himmelsverlauf"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Sun brightness"
+msgstr "Sonnenhelligkeit"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Sun brightness {value}"
+msgstr "Sonnenhelligkeit {value}"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Sun direction"
+msgstr "Sonnenrichtung"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Sun direction {value}"
+msgstr "Sonnenrichtung {value}"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Sun height"
+msgstr "Sonnenhöhe"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Sun height {value}"
+msgstr "Sonnenhöhe {value}"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "View distance"
+msgstr "Sichtweite"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "View distance (m)"
+msgstr "Sichtweite (m)"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "View distance in metres"
+msgstr "Sichtweite in Metern"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "View distance {value}"
+msgstr "Sichtweite {value}"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgid "Wireframe"
+msgstr "Drahtgitter"
+
+#: apps/web/src/model3d/DisplayPanel.tsx
+msgctxt "lighting preset"
+msgid "Custom"
+msgstr "Benutzerdefiniert"
+
 #: apps/web/src/model3d/Issues.tsx
 msgid "Add a comment"
 msgstr ""
@@ -22848,10 +23239,6 @@ msgstr ""
 
 #: apps/web/src/model3d/Issues.tsx
 msgid "Issue title"
-msgstr ""
-
-#: apps/web/src/model3d/Issues.tsx
-msgid "Issues"
 msgstr ""
 
 #: apps/web/src/model3d/Issues.tsx
@@ -22912,12 +23299,20 @@ msgid "{count, plural, one {# issue} other {# issues}} imported."
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
+msgid "+ Add model…"
+msgstr "+ Modell hinzufügen…"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
 msgid "1 of {count} selected"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Add a search set first"
 msgstr ""
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Add an IFC model already in your Library"
+msgstr "Ein IFC-Modell hinzufügen, das sich bereits in Ihrer Bibliothek befindet"
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Add rule"
@@ -22928,8 +23323,20 @@ msgid "Add set"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Add {name} to this 3D view"
+msgstr "{name} zu dieser 3D-Ansicht hinzufügen"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Added {count, plural, one {# search set} other {# search sets}}."
 msgstr ""
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Adding {name}…"
+msgstr "{name} wird hinzugefügt…"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Back to 3D"
+msgstr "Zurück zu 3D"
 
 #: apps/web/src/model3d/Model3dPanel.tsx apps/web/src/model3d/Review.tsx
 msgid "Class"
@@ -22944,8 +23351,16 @@ msgid "Classes"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Classes ({count})"
+msgstr "Klassen ({count})"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Click an element in the model to see its properties."
 msgstr ""
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Clipping plane"
+msgstr "Schnittebene"
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Colour by class"
@@ -22960,24 +23375,76 @@ msgid "Colour, ghost or hide elements set by set"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Could not add model: {error}"
+msgstr "Modell konnte nicht hinzugefügt werden: {error}"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Could not add {name}: {error}"
+msgstr "{name} konnte nicht hinzugefügt werden: {error}"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Double-click a surface in the model to place a clipping plane. Press Delete to remove the hovered plane."
+msgstr "Doppelklicken Sie auf eine Oberfläche im Modell, um eine Schnittebene zu platzieren. Drücken Sie Entf, um die hervorgehobene Ebene zu entfernen."
+
+#: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Draped on the model"
 msgstr ""
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Federate one or more IFC files into this 3D view"
+msgstr "Eine oder mehrere IFC-Dateien in diese 3D-Ansicht zusammenführen"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Filter classes"
+msgstr "Klassen filtern"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Filter classes…"
+msgstr "Klassen filtern…"
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Filter properties"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Filter spatial tree"
+msgstr "Raumstruktur filtern"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Filter tree…"
+msgstr "Struktur filtern…"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Find elements by class, property or both"
 msgstr ""
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Fit all"
+msgstr "Alles einpassen"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Frame all models"
+msgstr "Alle Modelle einrahmen"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Ghost"
+msgstr "Blass darstellen"
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Go to this view"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Go to {name}"
+msgstr "Zu {name} wechseln"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Hide {label}"
 msgstr ""
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Hierarchy view"
+msgstr "Hierarchieansicht"
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "How {label} shows"
@@ -23000,12 +23467,24 @@ msgid "Laying markups over the model…"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Library models to federate"
+msgstr "Bibliotheksmodelle zum Zusammenführen"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Models"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "New profile"
 msgstr ""
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "No class matches “{filter}”."
+msgstr "Keine Klasse entspricht „{filter}“."
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "No element matches “{filter}”."
+msgstr "Kein Element entspricht „{filter}“."
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "No new search sets in that file."
@@ -23018,6 +23497,10 @@ msgstr ""
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "No property matches “{filter}”."
 msgstr ""
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "No storey plans or elevations were found in this model."
+msgstr "In diesem Modell wurden keine Geschosspläne oder Ansichten gefunden."
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Nothing in the model matches “{name}”."
@@ -23036,8 +23519,28 @@ msgid "Open a sheet registered to the map (a geospatial PDF, or one registered i
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
-msgid "Open an IFC model to see its structure, classes and saved views here."
-msgstr ""
+msgid "Open an IFC model to build search sets and appearance profiles."
+msgstr "Öffnen Sie ein IFC-Modell, um Suchsätze und Darstellungsprofile zu erstellen."
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Open an IFC model to explore its structure and classes."
+msgstr "Öffnen Sie ein IFC-Modell, um seine Struktur und Klassen zu erkunden."
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Open an IFC model to inspect quantities or compare revisions."
+msgstr "Öffnen Sie ein IFC-Modell, um Mengen zu prüfen oder Revisionen zu vergleichen."
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Open an IFC model to overlay registered PDF sheets."
+msgstr "Öffnen Sie ein IFC-Modell, um registrierte PDF-Blätter zu überlagern."
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Open an IFC model to save viewpoints, switch storeys, or section the model."
+msgstr "Öffnen Sie ein IFC-Modell, um Ansichten zu speichern, Geschosse zu wechseln oder das Modell zu schneiden."
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Open an IFC model to track BCF issues."
+msgstr "Öffnen Sie ein IFC-Modell, um BCF-Issues zu verfolgen."
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Open {label} where this element is"
@@ -23060,8 +23563,16 @@ msgid "Reading the model…"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Remove all"
+msgstr "Alle entfernen"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Remove rule"
 msgstr ""
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Remove {name} from view"
+msgstr "{name} aus der Ansicht entfernen"
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Save view"
@@ -23080,6 +23591,14 @@ msgid "Search sets"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Section box"
+msgstr "Schnittbereich"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Sectioning"
+msgstr "Schnitte"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Select an element in a 3D model to see its properties."
 msgstr ""
 
@@ -23092,6 +23611,10 @@ msgid "Sheets in the model"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Show hidden elements faintly"
+msgstr "Ausgeblendete Elemente blass anzeigen"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Show {label}"
 msgstr ""
 
@@ -23102,6 +23625,14 @@ msgstr ""
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "Spatial tree"
 msgstr ""
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Storeys & elevations"
+msgstr "Geschosse & Ansichten"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Storeys and elevations"
+msgstr "Geschosse und Ansichten"
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "That file is not a search set export."
@@ -23128,6 +23659,10 @@ msgid "View name"
 msgstr ""
 
 #: apps/web/src/model3d/Model3dPanel.tsx
+msgid "Zoom to {name}"
+msgstr "Auf {name} zoomen"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
 msgctxt "colour rule action"
 msgid "Colour"
 msgstr ""
@@ -23145,6 +23680,16 @@ msgstr ""
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgid "has {property}"
 msgstr ""
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgctxt "model view kind"
+msgid "elevation"
+msgstr "Ansicht"
+
+#: apps/web/src/model3d/Model3dPanel.tsx
+msgctxt "model view kind"
+msgid "storey"
+msgstr "Geschoss"
 
 #: apps/web/src/model3d/Model3dPanel.tsx
 msgctxt "saved view with a section box"
@@ -23311,6 +23856,22 @@ msgid "Bottom"
 msgstr ""
 
 #: apps/web/src/model3d/ViewCube.tsx
+msgid "Bottom north-east isometric view"
+msgstr "Isometrische Ansicht unten Nordost"
+
+#: apps/web/src/model3d/ViewCube.tsx
+msgid "Bottom north-west isometric view"
+msgstr "Isometrische Ansicht unten Nordwest"
+
+#: apps/web/src/model3d/ViewCube.tsx
+msgid "Bottom south-east isometric view"
+msgstr "Isometrische Ansicht unten Südost"
+
+#: apps/web/src/model3d/ViewCube.tsx
+msgid "Bottom south-west isometric view"
+msgstr "Isometrische Ansicht unten Südwest"
+
+#: apps/web/src/model3d/ViewCube.tsx
 msgid "Bottom view"
 msgstr ""
 
@@ -23331,12 +23892,36 @@ msgid "Right view"
 msgstr ""
 
 #: apps/web/src/model3d/ViewCube.tsx
+msgid "Top"
+msgstr "Oben"
+
+#: apps/web/src/model3d/ViewCube.tsx
+msgid "Top north-east isometric view"
+msgstr "Isometrische Ansicht oben Nordost"
+
+#: apps/web/src/model3d/ViewCube.tsx
+msgid "Top north-west isometric view"
+msgstr "Isometrische Ansicht oben Nordwest"
+
+#: apps/web/src/model3d/ViewCube.tsx
+msgid "Top south-east isometric view"
+msgstr "Isometrische Ansicht oben Südost"
+
+#: apps/web/src/model3d/ViewCube.tsx
+msgid "Top south-west isometric view"
+msgstr "Isometrische Ansicht oben Südwest"
+
+#: apps/web/src/model3d/ViewCube.tsx
 msgid "Top view"
 msgstr ""
 
 #: apps/web/src/model3d/ViewCube.tsx
 msgid "View cube"
 msgstr ""
+
+#: apps/web/src/model3d/host.ts
+msgid "The 3D view is not ready yet."
+msgstr "Die 3D-Ansicht ist noch nicht bereit."
 
 #: apps/web/src/sheets/standardsWizard.ts
 msgid "Drag a box around the current revision (the letter or number in the revision box, not the revision table)."

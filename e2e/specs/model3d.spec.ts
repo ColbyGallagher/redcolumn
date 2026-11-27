@@ -108,6 +108,7 @@ test.describe('3D models', () => {
     const panel = page.locator('.m3d-panel');
     await expect(panel.getByRole('checkbox', { name: /kestrel-road-revA\.ifc/ })).toBeChecked();
     await expect(panel.locator('.m3d-tree')).toContainText('Kestrel Road site');
+    await panel.getByRole('tab', { name: /^Classes/ }).click();
     const classes = panel.getByRole('list', { name: 'Classes' });
     await expect(classes.locator('.m3d-row', { hasText: 'IfcCourse' })).toContainText('30');
 
@@ -122,7 +123,7 @@ test.describe('3D models', () => {
     await expect(props.locator('tbody tr')).toContainText(/MC0[01]/);
 
     // A search set finds the side road's elements by a property value, and isolates them.
-    await app.cmd('window.model3d');
+    await app.cmd('window.model3dSets');
     await panel.getByRole('textbox', { name: 'Property' }).fill('Alignment');
     await panel.getByRole('textbox', { name: 'Value contains' }).fill('MC01');
     await panel.getByRole('button', { name: 'Add set' }).click();
@@ -132,14 +133,18 @@ test.describe('3D models', () => {
     await expect.poll(() => page.evaluate(() => (document.querySelector('.model-view') as unknown as { session: { state(): { hidden: boolean } } }).session.state().hidden)).toBe(true);
 
     // The view is saved with what is hidden, and comes back after Show all.
+    await app.cmd('window.model3dViews');
     await panel.getByRole('textbox', { name: 'View name' }).fill('Side road');
     await panel.getByRole('button', { name: 'Save view' }).click();
     const views = panel.getByRole('list', { name: 'Saved views' });
-    await expect(views.getByRole('button', { name: 'Side road', exact: true })).toBeVisible();
+    const saved = views.locator('button.m3d-name', { hasText: 'Side road' });
+    await expect(saved).toBeVisible();
+    await app.cmd('window.model3dSets');
     await panel.getByRole('button', { name: 'Show all' }).click();
     const hidden = () => page.evaluate(() => (document.querySelector('.model-view') as unknown as { session: { state(): { hidden: boolean } } }).session.state().hidden);
     await expect.poll(hidden).toBe(false);
-    await views.getByRole('button', { name: 'Side road', exact: true }).click();
+    await app.cmd('window.model3dViews');
+    await saved.click();
     await expect.poll(hidden).toBe(true);
   });
 
@@ -188,7 +193,7 @@ test.describe('3D models', () => {
     expect(lo).toBeGreaterThan(9);
     expect(hi).toBeLessThan(17);
 
-    await app.cmd('window.model3d');
+    await app.cmd('window.model3dSheets');
     const sheets = page.getByRole('list', { name: 'Sheets in the model' });
     await sheets.getByRole('checkbox').check();
     await expect.poll(() => session((s) => s.sheetGroup.children.map((c) => c.type).join())).toBe('Mesh');
@@ -334,7 +339,7 @@ test.describe('3D models', () => {
     });
     await expect.poll(() => session((s) => s.state().selected)).toBe(1);
 
-    await app.cmd('window.model3d');
+    await app.cmd('window.model3dIssues');
     await page.getByRole('textbox', { name: 'Issue title' }).fill('Pit lid too high');
     await page.getByRole('button', { name: 'New issue' }).click();
     const issues = page.getByRole('list', { name: 'Issues' });
@@ -361,7 +366,7 @@ test.describe('3D models', () => {
     await app.open('plan.pdf');
     await page.locator('input[type=file][accept*="ifc"]').first().setInputFiles(app.fixture('../../docs/demo-sets/kestrel-road-revB.ifc'));
     await expect(view(app)).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
-    await app.cmd('window.model3d');
+    await app.cmd('window.model3dReview');
     const panel = page.locator('.m3d-panel');
 
     // Quantities by class, from the model's quantity sets.
@@ -391,8 +396,11 @@ test.describe('3D models', () => {
     await expect(changed.nth(0).locator('.m3d-class')).toHaveText('shape, properties');
     await expect(changed.nth(1).locator('.m3d-class')).toHaveText('properties');
     await expect(changed.nth(1).locator('.m3d-name')).toHaveAttribute('title', /KerbType: Barrier → Semi-mountable/);
-    // The other revision stays out of the panel's lists of models and classes.
+    // The other revision stays out of the list of models; the comparison is still there on the way back.
+    await app.cmd('window.model3d');
     await expect(panel.getByRole('checkbox')).toHaveCount(1);
+    await app.cmd('window.model3dReview');
+    await expect(names('Removed')).toHaveCount(2);
     // A removed element is selected where it was.
     await names('Removed').first().click();
     await expect.poll(() => page.evaluate(() => (document.querySelector('.model-view') as unknown as { session: { state(): { selected: number } } }).session.state().selected)).toBe(1);

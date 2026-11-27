@@ -37,27 +37,36 @@ test('a file that is not a backup is refused', () => {
 
 test('the panels docked on the right are saved with the profile, and older profiles dock everything left', () => {
   const p = profiles.create('Docked', 'default');
-  // 3D Properties starts on the right; everything else on the left.
-  assert.deepEqual(p.state.rightPanels, ['model3dProps']);
+  // 3D Properties and Display & Scene start on the right; everything else on the left.
+  assert.deepEqual(p.state.rightPanels, ['model3dProps', 'model3dDisplay']);
   profiles.update((s) => ({ ...s, rightPanels: ['files', 'properties'] }));
   const copy = profiles.importJson(profiles.exportJson(p.id));
   assert.deepEqual(copy.state.rightPanels, ['files', 'properties']);
   const { rightPanels: _, placedPanels: __, ...old } = copy.state;
   const upgraded = profiles.importJson(JSON.stringify({ format: 'nb-profile', version: 1, name: 'Old', state: old }));
-  assert.deepEqual(upgraded.state.rightPanels, ['model3dProps']);
+  assert.deepEqual(upgraded.state.rightPanels, ['model3dProps', 'model3dDisplay']);
 });
 
 test('a panel added on the right joins older profiles there once, and stays where it is moved', () => {
   const p = profiles.create('Placed', 'default');
   const { placedPanels: _, ...old } = { ...p.state, rightPanels: ['files'] };
   const upgraded = profiles.importJson(JSON.stringify({ format: 'nb-profile', version: 1, name: 'Old', state: old }));
-  assert.deepEqual(upgraded.state.rightPanels, ['files', 'model3dProps']);
-  assert.deepEqual(upgraded.state.placedPanels, ['model3dProps']);
+  assert.deepEqual(upgraded.state.rightPanels, ['files', 'model3dProps', 'model3dDisplay']);
+  assert.deepEqual(upgraded.state.placedPanels, ['model3dProps', 'model3dDisplay']);
   // Moved to the left, it stays there when the profile is read again.
   const file = JSON.parse(profiles.exportJson(upgraded.id));
   file.state.rightPanels = ['files'];
   const moved = profiles.importJson(JSON.stringify(file));
   assert.deepEqual(moved.state.rightPanels, ['files']);
+});
+
+test('a panel added later joins a profile that already placed the others, without moving those back', () => {
+  const p = profiles.create('Earlier', 'default');
+  // Saved before Display & Scene: 3D Properties already placed once, then moved to the left by the user.
+  const state = { ...p.state, rightPanels: ['files', 'layers'], placedPanels: ['model3dProps'] };
+  const upgraded = profiles.importJson(JSON.stringify({ format: 'nb-profile', version: 1, name: 'Old', state }));
+  assert.deepEqual(upgraded.state.rightPanels, ['files', 'layers', 'model3dDisplay']);
+  assert.deepEqual(upgraded.state.placedPanels, ['model3dProps', 'model3dDisplay']);
 });
 
 test('a full-width Markups list is saved with the profile, and older profiles keep it beside the side panels', () => {

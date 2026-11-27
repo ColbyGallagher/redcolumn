@@ -8,7 +8,214 @@ export type ModelNav = 'Orbit' | 'FirstPerson' | 'Plan' | 'Walk';
 export type ModelProjection = 'Perspective' | 'Orthographic';
 /** What a click in the view does: pick an element, place a clipping plane, or measure. */
 export type ModelTool = 'select' | 'clip' | 'length' | 'area' | 'angle' | 'volume';
-export type ViewDirection = 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right' | 'iso';
+/** A corner of the view cube: above or below, and which way across the map (north is -Z, east +X). */
+export type CornerDirection = `${'top' | 'bottom'}-${'ne' | 'nw' | 'se' | 'sw'}`;
+/** 'iso' is the top south-east corner. */
+export type ViewDirection = 'top' | 'bottom' | 'front' | 'back' | 'left' | 'right' | 'iso' | CornerDirection;
+
+/** The eight cube corners, with their names, in the order menus list them. */
+export const CORNER_DIRECTIONS: readonly (readonly [CornerDirection, string])[] = [
+  ['top-ne', 'Top North-East'],
+  ['top-nw', 'Top North-West'],
+  ['top-se', 'Top South-East'],
+  ['top-sw', 'Top South-West'],
+  ['bottom-ne', 'Bottom North-East'],
+  ['bottom-nw', 'Bottom North-West'],
+  ['bottom-se', 'Bottom South-East'],
+  ['bottom-sw', 'Bottom South-West'],
+];
+
+/** A mouse button with an optional modifier key, for 3D pan and orbit. */
+export type MouseBinding =
+  | 'left'
+  | 'middle'
+  | 'right'
+  | 'shift+left'
+  | 'shift+middle'
+  | 'shift+right'
+  | 'alt+left'
+  | 'alt+middle'
+  | 'alt+right'
+  | 'ctrl+left'
+  | 'ctrl+middle'
+  | 'ctrl+right';
+
+/** Choices offered in Preferences › 3D › Navigation for Pan and Orbit mouse bindings. */
+export const MOUSE_BINDINGS: readonly (readonly [MouseBinding, string])[] = [
+  ['middle', 'Middle Mouse'],
+  ['shift+middle', 'Shift + Middle Mouse'],
+  ['right', 'Right Mouse'],
+  ['shift+right', 'Shift + Right Mouse'],
+  ['left', 'Left Mouse'],
+  ['shift+left', 'Shift + Left Mouse'],
+  ['alt+left', 'Alt + Left Mouse'],
+  ['alt+middle', 'Alt + Middle Mouse'],
+  ['alt+right', 'Alt + Right Mouse'],
+  ['ctrl+left', 'Ctrl + Left Mouse'],
+  ['ctrl+middle', 'Ctrl + Middle Mouse'],
+  ['ctrl+right', 'Ctrl + Right Mouse'],
+];
+
+/** User-configurable 3D navigation behaviour (Preferences › 3D › Navigation). */
+export interface ModelNavPrefs {
+  /** Mouse button + modifier to pan the view. */
+  pan: MouseBinding;
+  /** Mouse button + modifier to orbit the view. */
+  orbit: MouseBinding;
+  /** Zoom toward the point under the cursor, scaling speed by distance to the surface. */
+  zoomToCursor: boolean;
+  /** Orbit around the surface point under the cursor when starting an orbit. */
+  orbitAtCursor: boolean;
+  /** Show a subtle 3D marker at the orbit pivot point while orbiting. */
+  showPivot: boolean;
+  /** Wheel zoom speed (1–10; 5 moves ~20% of the distance to the surface per notch). */
+  zoomSpeed: number;
+  /** Reverse scroll-wheel zoom direction. */
+  invertZoom: boolean;
+  /** Orbit drag sensitivity (1–10; 5 is default). */
+  orbitSpeed: number;
+  /** Invert vertical (up/down) orbit drag. */
+  invertOrbitY: boolean;
+  /** Pan drag sensitivity (1–10; 5 tracks 1:1 with the surface under the cursor). */
+  panSpeed: number;
+  /** Camera inertia / damping (0 = instant, 1–10 = progressively smoother). */
+  smoothing: number;
+}
+
+export const DEFAULT_NAV_PREFS: ModelNavPrefs = {
+  pan: 'middle',
+  orbit: 'shift+middle',
+  zoomToCursor: true,
+  orbitAtCursor: true,
+  showPivot: true,
+  zoomSpeed: 5,
+  invertZoom: false,
+  orbitSpeed: 5,
+  invertOrbitY: false,
+  panSpeed: 5,
+  smoothing: 0,
+};
+
+export type ModelBackground = 'theme' | 'dark' | 'light' | 'sky' | 'custom';
+export type ModelLighting = 'daylight' | 'overcast' | 'contrast' | 'custom';
+
+/** Look-and-feel settings for the 3D scene (Display & Scene panel). */
+export interface ModelDisplayPrefs {
+  background: ModelBackground;
+  backgroundColour: string;
+  lighting: ModelLighting;
+  /** 0..4 */
+  ambientIntensity: number;
+  /** 0..5 */
+  sunIntensity: number;
+  /** Horizontal sun angle in degrees (0..360). */
+  sunAzimuth: number;
+  /** Vertical sun elevation in degrees (10..85). */
+  sunElevation: number;
+  /** Perspective vertical field of view in degrees (25..95). */
+  fov: number;
+  /** Opacity of ghosted/hidden elements (0.05..0.6). */
+  ghostOpacity: number;
+  /** Draw model meshes in wireframe mode. */
+  wireframe: boolean;
+  /** How far the camera sees, in metres (its far clipping distance, VIEW_DISTANCE_RANGE). */
+  viewDistance: number;
+}
+
+/** The view distance's range in metres: far enough to find a model a long way from the origin. */
+export const VIEW_DISTANCE_RANGE = { min: 100, max: 100_000 } as const;
+
+export const LIGHTING_PRESETS: Record<Exclude<ModelLighting, 'custom'>, Pick<ModelDisplayPrefs, 'ambientIntensity' | 'sunIntensity' | 'sunAzimuth' | 'sunElevation'>> = {
+  daylight: { ambientIntensity: 1.6, sunIntensity: 2.2, sunAzimuth: 45, sunElevation: 55 },
+  overcast: { ambientIntensity: 2.6, sunIntensity: 0.9, sunAzimuth: 30, sunElevation: 70 },
+  contrast: { ambientIntensity: 0.9, sunIntensity: 3.2, sunAzimuth: 60, sunElevation: 38 },
+};
+
+export const DEFAULT_DISPLAY_PREFS: ModelDisplayPrefs = {
+  background: 'theme',
+  backgroundColour: '#1c2026',
+  lighting: 'daylight',
+  ...LIGHTING_PRESETS.daylight,
+  fov: 60,
+  ghostOpacity: 0.12,
+  wireframe: false,
+  viewDistance: 10_000,
+};
+
+/** A view distance clamped into VIEW_DISTANCE_RANGE (a bad saved value falls back to the default). */
+export function clampViewDistance(metres: number): number {
+  if (!Number.isFinite(metres)) return DEFAULT_DISPLAY_PREFS.viewDistance;
+  return Math.max(VIEW_DISTANCE_RANGE.min, Math.min(VIEW_DISTANCE_RANGE.max, metres));
+}
+
+/**
+ * The radius to frame for a bounding sphere: grown by `pad` so what is framed has room around it,
+ * and never under `min` metres so a tiny element is not zoomed in on until it fills the view.
+ */
+export function framedRadius(radius: number, pad = 1.4, min = 0.5): number {
+  return Math.max(min, (Number.isFinite(radius) ? radius : 0) * pad);
+}
+
+/**
+ * The camera's near clipping distance for how far it is from what it looks at: close enough that
+ * a small element framed up close is not cut, far enough that distant surfaces do not fight.
+ */
+export function nearFor(distance: number): number {
+  return Math.max(0.02, Math.min(0.5, (Number.isFinite(distance) ? distance : 0) * 0.002));
+}
+
+const BUTTON_CODE = { left: 0, middle: 1, right: 2 } as const;
+
+/** Parses a mouse binding string into its DOM button code and required modifiers. */
+export function parseBinding(binding: MouseBinding): { button: 0 | 1 | 2; shift: boolean; ctrl: boolean; alt: boolean } {
+  const parts = binding.split('+');
+  const btn = parts[parts.length - 1] as 'left' | 'middle' | 'right';
+  return {
+    button: BUTTON_CODE[btn] ?? 1,
+    shift: parts.includes('shift'),
+    ctrl: parts.includes('ctrl'),
+    alt: parts.includes('alt'),
+  };
+}
+
+/** Whether a pointer/mouse event matches a configured mouse binding (exact modifiers). */
+export function matchesBinding(
+  binding: MouseBinding,
+  e: { button: number; shiftKey: boolean; ctrlKey: boolean; metaKey?: boolean; altKey: boolean },
+): boolean {
+  const b = parseBinding(binding);
+  const ctrl = e.ctrlKey || !!e.metaKey;
+  return e.button === b.button && e.shiftKey === b.shift && ctrl === b.ctrl && e.altKey === b.alt;
+}
+
+/** Normalises a WheelEvent's deltaY into wheel notches (positive = zoom in, negative = zoom out). */
+export function normalizeWheelNotches(deltaY: number, deltaMode: number): number {
+  let raw: number;
+  if (deltaMode === 1) raw = -deltaY / 3;
+  else if (deltaMode === 2) raw = -deltaY * 3;
+  else raw = -deltaY / 100;
+  return Math.max(-4, Math.min(4, raw));
+}
+
+/**
+ * Distance to travel along the ray toward a surface point at `distance` for `notches` wheel steps
+ * (positive = zoom in, negative = zoom out). Exponentially approaches `minGap` so distant objects
+ * zoom fast, close objects slow down, and the camera never passes through the surface.
+ */
+export function zoomDistanceStep(
+  distance: number,
+  notches: number,
+  speed: number,
+  minGap = 0.02,
+  maxDistance = 50_000,
+): number {
+  if (!notches || !(distance > 0)) return 0;
+  const clampedSpeed = Math.max(1, Math.min(10, speed));
+  const fraction = clampedSpeed * 0.04; // 0.04 .. 0.40 per notch (default 5 -> 0.20)
+  const k = 1 - fraction;
+  const target = Math.max(minGap, Math.min(maxDistance, distance * Math.pow(k, notches)));
+  return distance - target;
+}
 
 export interface ModelViewEntry {
   id: string;
@@ -100,7 +307,11 @@ export type ModelAction =
   /** Looks straight down on a place at a scale and heading (Plan navigation), as a synced sheet shows it. */
   | { type: 'planView'; view: PlanView }
   /** Takes the other revision away, and the colours the comparison gave. */
-  | { type: 'endCompare' };
+  | { type: 'endCompare' }
+  /** Updates 3D navigation preferences (pan/orbit bindings, zoom-to-cursor, speeds, smoothing). */
+  | { type: 'navPrefs'; prefs: Partial<ModelNavPrefs> }
+  /** Updates 3D scene display preferences (background, lighting, FOV, ghost opacity, wireframe). */
+  | { type: 'displayPrefs'; prefs: Partial<ModelDisplayPrefs> };
 
 /** A plan on the map: its centre (grid easting, northing), its scale and which way is up on screen (a unit grid direction). */
 export interface PlanView {
@@ -169,9 +380,13 @@ export function directionOffset(direction: ViewDirection, distance: number): Vec
       return [-d, 0, 0];
     case 'right':
       return [d, 0, 0];
-    case 'iso': {
+    case 'iso':
+      return directionOffset('top-se', d);
+    default: {
+      // A corner: equal parts up or down, east or west, north (-Z) or south (+Z).
+      const [v, h] = direction.split('-') as ['top' | 'bottom', string];
       const k = d / Math.sqrt(3);
-      return [k, k, k];
+      return [h.includes('e') ? k : -k, v === 'top' ? k : -k, h.includes('s') ? k : -k];
     }
   }
 }
@@ -291,6 +506,8 @@ export interface SavedView {
   ghost: boolean;
   /** The colour profile shown (its id), or null. */
   profileId: string | null;
+  /** Optional JPEG data URL preview captured when the view was saved. */
+  thumbnail?: string | null;
 }
 
 /** What the 3D sidebar asks the view (beyond the ribbon's ModelControls). */
@@ -328,6 +545,8 @@ export interface ModelBrowser {
 /** Sidebar actions, run like the ribbon's. */
 export type BrowseAction =
   | { type: 'modelVisible'; modelId: string; visible: boolean }
+  | { type: 'fitModel'; modelId: string }
+  | { type: 'removeModel'; modelId: string }
   | { type: 'selectItems'; items: ItemMap; fit?: boolean }
   | { type: 'isolateItems'; items: ItemMap }
   | { type: 'itemsVisible'; items: ItemMap; visible: boolean }
