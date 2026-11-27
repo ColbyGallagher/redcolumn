@@ -21,10 +21,18 @@
 -- visible only when the user may see exactly that version (its `rev`). Older versions that were
 -- released to a lane are read from item_versions, which is filtered per version.
 --
+-- Inside a 'separated' or 'custom' lane, a member who acts for no party sees only internal rows
+-- whose owner_party_id is NULL; the party matrix never lets a party-less viewer see a party's
+-- internal items. In an 'open' lane a party-less member sees them like everyone else.
+--
 -- Roles: the role that runs migrations and the server's write path must be a superuser or have
 -- BYPASSRLS. Queries made on behalf of a user run as a role without BYPASSRLS, inside a
 -- transaction that does SET LOCAL ROLE <reader role> and SET LOCAL app.user_id = '<user id>'.
--- Only SELECT policies are defined, so such a role cannot write content tables.
+-- That role's privileges are part of this schema: set them with SELECT app_grant_reader('<role>')
+-- (and again after later migrations). It gets USAGE on the schema and SELECT on the row-level
+-- security tables listed by app_reader_tables(), and nothing else: no access to credentials,
+-- membership or audience tables, document metadata, or any table without row-level security, and
+-- no write privilege anywhere. The server reads those tables through its own role.
 
 -- ---------------------------------------------------------------------------------------------
 -- Tenancy and people
@@ -443,7 +451,9 @@ CREATE TABLE status_events (
   actor_user_id TEXT NOT NULL,
   actor_party_id TEXT,
   note TEXT,
-  revision_seen_id TEXT REFERENCES revisions(id) ON DELETE SET NULL,
+  -- The revision the actor was looking at. An audit pointer with no foreign key: status events
+  -- are immutable, so deleting the document must not rewrite them.
+  revision_seen_id TEXT,
   rev INTEGER NOT NULL DEFAULT 1 CHECK (rev >= 1),
   client_time TIMESTAMPTZ,
   received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -477,8 +487,9 @@ CREATE TABLE item_versions (
   project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
   scope_id TEXT REFERENCES scopes(id) ON DELETE CASCADE,
   origin_lane_id TEXT NOT NULL REFERENCES lanes(id) ON DELETE CASCADE,
-  -- Set when a checker in another lane produced this version (e.g. a wording edit).
-  edited_in_lane_id TEXT REFERENCES lanes(id) ON DELETE SET NULL,
+  -- Set when a checker in another lane produced this version (e.g. a wording edit). An audit
+  -- pointer with no foreign key: versions are immutable, so deleting that lane must not rewrite them.
+  edited_in_lane_id TEXT,
   author_user_id TEXT NOT NULL,
   author_party_id TEXT,
   record_json JSONB NOT NULL,
@@ -516,7 +527,9 @@ CREATE TABLE item_access (
   lane_id TEXT NOT NULL REFERENCES lanes(id) ON DELETE CASCADE,
   kind TEXT NOT NULL CHECK (kind IN ('internal', 'released')),
   -- For 'internal' rows: the owning party, checked against party_visibility. NULL means the
-  -- lane's party matrix does not apply (for example a checker's edit, or an owner outside the lane).
+  -- lane's party matrix does not apply (for example a checker's edit). A non-NULL owner is shown to
+  -- a viewer of another party only through a party_visibility row for this lane, so an owner party
+  -- the compiled matrix does not list stays hidden from other parties.
   owner_party_id TEXT,
   PRIMARY KEY (item_kind, item_id, version_rev, lane_id, kind)
 );
@@ -671,24 +684,56 @@ CREATE INDEX takeoff_templates_lane_id_idx ON takeoff_templates (lane_id);
 -- Immutable records
 -- ---------------------------------------------------------------------------------------------
 
--- Updates are always refused. A direct DELETE is refused too; a delete cascading from a parent
--- row (a project or document being removed) runs inside a foreign-key trigger and is allowed.
-CREATE FUNCTION reject_record_change() RETURNS trigger
-LANGUAGE plpgsql AS $$
+-- UPDATE and direct DELETE are always refused. A DELETE is allowed only once a parent row the
+-- record belongs to is already gone, which is what a foreign-key cascade looks like from here
+-- (the cascade runs after the parent row is deleted). A DELETE issued from any other trigger is
+-- refused like a direct one. SECURITY DEFINER so row-level security on a parent table (issues)
+-- cannot hide a parent that still exists.
+CREATE FUNCTION reject_revision_change() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
 BEGIN
-  IF TG_OP = 'DELETE' AND pg_trigger_depth() > 1 THEN
+  IF TG_OP = 'DELETE' AND NOT EXISTS (SELECT 1 FROM documents WHERE id = OLD.document_id) THEN
     RETURN OLD;
   END IF;
   RAISE EXCEPTION '% rows are immutable', TG_TABLE_NAME USING ERRCODE = 'restrict_violation';
 END;
 $$;
 
-CREATE TRIGGER revisions_immutable BEFORE UPDATE ON revisions
-  FOR EACH ROW EXECUTE FUNCTION reject_record_change();
+CREATE FUNCTION reject_item_version_change() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  IF TG_OP = 'DELETE' AND (
+       NOT EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+    OR NOT EXISTS (SELECT 1 FROM lanes WHERE id = OLD.origin_lane_id)
+    OR (OLD.scope_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM scopes WHERE id = OLD.scope_id))
+  ) THEN
+    RETURN OLD;
+  END IF;
+  RAISE EXCEPTION '% rows are immutable', TG_TABLE_NAME USING ERRCODE = 'restrict_violation';
+END;
+$$;
+
+CREATE FUNCTION reject_status_event_change() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp AS $$
+BEGIN
+  IF TG_OP = 'DELETE' AND (
+       NOT EXISTS (SELECT 1 FROM projects WHERE id = OLD.project_id)
+    OR NOT EXISTS (SELECT 1 FROM scopes WHERE id = OLD.scope_id)
+    OR NOT EXISTS (SELECT 1 FROM lanes WHERE id = OLD.origin_lane_id)
+    OR NOT EXISTS (SELECT 1 FROM issues WHERE id = OLD.issue_id)
+  ) THEN
+    RETURN OLD;
+  END IF;
+  RAISE EXCEPTION '% rows are immutable', TG_TABLE_NAME USING ERRCODE = 'restrict_violation';
+END;
+$$;
+
+CREATE TRIGGER revisions_immutable BEFORE UPDATE OR DELETE ON revisions
+  FOR EACH ROW EXECUTE FUNCTION reject_revision_change();
 CREATE TRIGGER item_versions_immutable BEFORE UPDATE OR DELETE ON item_versions
-  FOR EACH ROW EXECUTE FUNCTION reject_record_change();
+  FOR EACH ROW EXECUTE FUNCTION reject_item_version_change();
 CREATE TRIGGER status_events_immutable BEFORE UPDATE OR DELETE ON status_events
-  FOR EACH ROW EXECUTE FUNCTION reject_record_change();
+  FOR EACH ROW EXECUTE FUNCTION reject_status_event_change();
 
 -- ---------------------------------------------------------------------------------------------
 -- Visibility helpers used by the row-level security policies
@@ -749,7 +794,7 @@ $$;
 
 -- Whether the current user may see version p_rev of an item (any version when p_rev is NULL):
 --   * an item_access row for one of the user's lanes ('released', or 'internal' and allowed by
---     the lane's party matrix), or
+--     the lane's party matrix; a party-less user passes the matrix only in an 'open' lane), or
 --   * an item_draft_access row naming the user or one of their groups, while the user is in the
 --     item's origin lane.
 CREATE FUNCTION app_can_see(p_kind TEXT, p_id TEXT, p_rev INTEGER, p_origin_lane_id TEXT)
@@ -765,7 +810,8 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = public, pg_temp AS $$
       AND (p_rev IS NULL OR a.version_rev = p_rev)
       AND (a.kind = 'released'
         OR a.owner_party_id IS NULL
-        OR my.party_id IS NULL
+        OR (my.party_id IS NULL AND EXISTS (
+          SELECT 1 FROM lanes l WHERE l.id = a.lane_id AND l.party_visibility_mode = 'open'))
         OR my.party_id = a.owner_party_id
         OR EXISTS (
           SELECT 1 FROM party_visibility pv
@@ -825,8 +871,12 @@ CREATE POLICY status_events_read ON status_events FOR SELECT
 
 ALTER TABLE issue_lane_state ENABLE ROW LEVEL SECURITY;
 ALTER TABLE issue_lane_state FORCE ROW LEVEL SECURITY;
+-- Only for a lane the user is in, and only while the user may see the issue itself.
 CREATE POLICY issue_lane_state_read ON issue_lane_state FOR SELECT
-  USING (app_in_lane(lane_id));
+  USING (
+    app_in_lane(lane_id)
+    AND app_can_see('issue', issue_id, NULL, (SELECT i.origin_lane_id FROM issues i WHERE i.id = issue_id))
+  );
 
 ALTER TABLE item_versions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE item_versions FORCE ROW LEVEL SECURITY;
@@ -849,8 +899,13 @@ CREATE POLICY releases_read ON releases FOR SELECT
 
 ALTER TABLE asset_refs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE asset_refs FORCE ROW LEVEL SECURITY;
+-- Same rule as item_versions, so the owning lane reads the assets of its takeoff versions.
 CREATE POLICY asset_refs_read ON asset_refs FOR SELECT
-  USING (app_can_see(item_kind, item_id, version_rev, origin_lane_id));
+  USING (
+    app_can_see(item_kind, item_id, version_rev, origin_lane_id)
+    OR (item_kind IN ('scale', 'viewport', 'assembly', 'catalogItem', 'productList', 'takeoffTemplate')
+        AND app_in_lane(origin_lane_id))
+  );
 
 ALTER TABLE assets ENABLE ROW LEVEL SECURITY;
 ALTER TABLE assets FORCE ROW LEVEL SECURITY;
@@ -861,13 +916,16 @@ CREATE POLICY assets_read ON assets FOR SELECT
   ));
 
 -- The event log carries operation payloads. An event is visible only for the item version it
--- produced; events without that information are hidden from readers.
+-- produced; events without that information are hidden from readers. Takeoff events follow the
+-- item_versions rule and are also visible to the owning lane (lane_id).
 ALTER TABLE events ENABLE ROW LEVEL SECURITY;
 ALTER TABLE events FORCE ROW LEVEL SECURITY;
 CREATE POLICY events_read ON events FOR SELECT
   USING (
     item_kind IS NOT NULL AND version_rev IS NOT NULL
-    AND app_can_see(item_kind, entity_id, version_rev, lane_id)
+    AND (app_can_see(item_kind, entity_id, version_rev, lane_id)
+      OR (item_kind IN ('scale', 'viewport', 'assembly', 'catalogItem', 'productList', 'takeoffTemplate')
+          AND app_in_lane(lane_id)))
   );
 
 -- Operation results are private to the actor who sent the operation.
@@ -906,3 +964,45 @@ ALTER TABLE takeoff_templates ENABLE ROW LEVEL SECURITY;
 ALTER TABLE takeoff_templates FORCE ROW LEVEL SECURITY;
 CREATE POLICY takeoff_templates_read ON takeoff_templates FOR SELECT
   USING (app_in_lane(lane_id) OR app_can_see('takeoffTemplate', id, rev, lane_id));
+
+-- ---------------------------------------------------------------------------------------------
+-- Reader role privileges
+-- ---------------------------------------------------------------------------------------------
+
+-- The only tables a reader role may query: exactly the tables with row-level security above.
+CREATE FUNCTION app_reader_tables() RETURNS TEXT[]
+LANGUAGE sql IMMUTABLE AS $$
+  SELECT ARRAY[
+    'markups', 'placements', 'issues', 'issue_links', 'responses', 'status_events',
+    'issue_lane_state', 'item_versions', 'releases', 'assets', 'asset_refs', 'events',
+    'op_results', 'scales', 'viewports', 'assemblies', 'catalog_items', 'product_lists',
+    'takeoff_templates'
+  ]::TEXT[]
+$$;
+
+-- Resets p_role to least privilege: every table and sequence privilege in this schema is revoked,
+-- then USAGE on the schema and SELECT on app_reader_tables() are granted. Refuses a superuser or
+-- BYPASSRLS role, which row-level security would not filter. Run by the migration role.
+CREATE FUNCTION app_grant_reader(p_role TEXT) RETURNS VOID
+LANGUAGE plpgsql SET search_path = public, pg_temp AS $$
+DECLARE
+  r RECORD;
+  t TEXT;
+BEGIN
+  SELECT rolsuper, rolbypassrls INTO r FROM pg_roles WHERE rolname = p_role;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'role % does not exist', p_role;
+  END IF;
+  IF r.rolsuper OR r.rolbypassrls THEN
+    RAISE EXCEPTION 'reader role % must not be a superuser or have BYPASSRLS', p_role;
+  END IF;
+  EXECUTE format('REVOKE ALL ON ALL TABLES IN SCHEMA public FROM %I', p_role);
+  EXECUTE format('REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM %I', p_role);
+  EXECUTE format('GRANT USAGE ON SCHEMA public TO %I', p_role);
+  FOREACH t IN ARRAY app_reader_tables() LOOP
+    EXECUTE format('GRANT SELECT ON TABLE public.%I TO %I', t, p_role);
+  END LOOP;
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION app_grant_reader(TEXT) FROM PUBLIC;

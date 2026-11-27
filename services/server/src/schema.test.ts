@@ -23,12 +23,21 @@ const DB_NAME = `rc_schema_${suffix}`;
 const READER_ROLE = `rc_reader_${suffix}`;
 
 /** Every user in the fixture, so each visibility check covers people who must not see a row. */
-const USERS = ['u-ann', 'u-ben', 'u-cal', 'u-dee', 'u-eve', 'u-fay', 'u-gus', 'u-out', 'u-rem'] as const;
+const USERS = ['u-ann', 'u-ben', 'u-cal', 'u-dee', 'u-eve', 'u-fay', 'u-gus', 'u-inv', 'u-nop', 'u-out', 'u-rem'] as const;
 type UserId = (typeof USERS)[number];
 
 const HASH_A = 'a'.repeat(64);
 const HASH_B = 'b'.repeat(64);
+const HASH_C = 'd'.repeat(64);
 const FILE_HASH = 'c'.repeat(64);
+
+/** Tables the reader role must not be able to query at all. */
+const READER_DENIED_TABLES = [
+  'users', 'sessions', 'identities', 'identity_providers', 'workspace_members', 'project_members',
+  'groups', 'group_members', 'lane_members', 'party_visibility', 'item_access', 'item_draft_access',
+  'documents', 'revisions', 'sheets', 'pages', 'document_sets', 'document_set_members', 'document_set_documents',
+  'projects', 'lanes', 'scopes', 'gates', 'gate_checkers',
+] as const;
 
 describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not set' : false }, () => {
   let admin: pg.Pool;
@@ -49,21 +58,33 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
     }
   }
 
-  /** Runs `sql` as the reader role with app.user_id set (or unset when `userId` is null). */
-  async function asUser<T extends pg.QueryResultRow>(userId: string | null, sql: string): Promise<T[]> {
+  /**
+   * Runs `fn` inside a transaction that is always rolled back. `setup` runs as the owner first;
+   * then the transaction switches to the reader role with app.user_id set (unset when null).
+   */
+  async function withReader<T>(
+    userId: string | null,
+    fn: (client: pg.PoolClient) => Promise<T>,
+    setup?: (client: pg.PoolClient) => Promise<void>,
+  ): Promise<T> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      if (setup) await setup(client);
       await client.query(`SET LOCAL ROLE ${READER_ROLE}`);
       if (userId !== null) {
         await client.query(`SELECT set_config('app.user_id', $1, true)`, [userId]);
       }
-      const res = await client.query<T>(sql);
-      return res.rows;
+      return await fn(client);
     } finally {
       await client.query('ROLLBACK');
       client.release();
     }
+  }
+
+  /** Runs `sql` as the reader role with app.user_id set (or unset when `userId` is null). */
+  async function asUser<T extends pg.QueryResultRow>(userId: string | null, sql: string): Promise<T[]> {
+    return withReader(userId, async (client) => (await client.query<T>(sql)).rows);
   }
 
   /** Sorted keys of the rows `userId` can see in `table`. */
@@ -155,40 +176,164 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
     assert.deepEqual(role.rows[0], { rolbypassrls: false, rolsuper: false });
   });
 
-  it('keeps versions and status events immutable', async () => {
-    // Uses its own throwaway rows inside a transaction.
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(`INSERT INTO workspaces (id, name) VALUES ('ws-tmp', 'Tmp')`);
-      await client.query(`INSERT INTO projects (id, workspace_id, name) VALUES ('prj-tmp', 'ws-tmp', 'Tmp')`);
-      await client.query(`INSERT INTO scopes (id, project_id, kind, name) VALUES ('sc-tmp', 'prj-tmp', 'review', 'Tmp')`);
-      await client.query(`INSERT INTO lanes (id, project_id, scope_id, name) VALUES ('ln-tmp', 'prj-tmp', 'sc-tmp', 'Tmp')`);
-      await client.query(`
-        INSERT INTO item_versions (item_kind, item_id, version_rev, project_id, origin_lane_id, author_user_id, record_json)
-        VALUES ('markup', 'mk-tmp', 1, 'prj-tmp', 'ln-tmp', 'u-tmp', '{}')`);
-      await client.query('SAVEPOINT s');
-      await assert.rejects(
-        client.query(`UPDATE item_versions SET record_json = '{"x":1}' WHERE item_id = 'mk-tmp'`),
-        /immutable/,
-      );
-      await client.query('ROLLBACK TO SAVEPOINT s');
-      await assert.rejects(client.query(`DELETE FROM item_versions WHERE item_id = 'mk-tmp'`), /immutable/);
-      await client.query('ROLLBACK TO SAVEPOINT s');
-      // Removing the project still cascades through the immutable rows.
-      await client.query(`DELETE FROM projects WHERE id = 'prj-tmp'`);
-      const left = await client.query(`SELECT 1 FROM item_versions WHERE item_id = 'mk-tmp'`);
-      assert.equal(left.rowCount, 0);
-    } finally {
-      await client.query('ROLLBACK');
-      client.release();
+  describe('immutable records', () => {
+    /** Runs `fn` against throwaway rows inside a transaction that is always rolled back. */
+    async function withTmpProject(fn: (client: pg.PoolClient) => Promise<void>): Promise<void> {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query(`INSERT INTO workspaces (id, name) VALUES ('ws-tmp', 'Tmp')`);
+        await client.query(`INSERT INTO projects (id, workspace_id, name) VALUES ('prj-tmp', 'ws-tmp', 'Tmp')`);
+        await client.query(`INSERT INTO scopes (id, project_id, kind, name) VALUES ('sc-tmp', 'prj-tmp', 'review', 'Tmp')`);
+        await client.query(`
+          INSERT INTO lanes (id, project_id, scope_id, name)
+          VALUES ('ln-tmp', 'prj-tmp', 'sc-tmp', 'Tmp'), ('ln-chk', 'prj-tmp', 'sc-tmp', 'Checker')`);
+        await client.query(`INSERT INTO documents (id, project_id, number) VALUES ('doc-tmp', 'prj-tmp', 'T-1')`);
+        await client.query(`
+          INSERT INTO revisions (id, document_id, label, file_sha256, file_size, page_count)
+          VALUES ('rev-tmp', 'doc-tmp', 'A', '${FILE_HASH}', 1, 1)`);
+        await client.query(`
+          INSERT INTO issues (id, project_id, scope_id, origin_lane_id, owner_user_id, rev, record_json)
+          VALUES ('iss-tmp', 'prj-tmp', 'sc-tmp', 'ln-tmp', 'u-tmp', 1, '{}')`);
+        await client.query(`
+          INSERT INTO status_events (id, project_id, scope_id, origin_lane_id, issue_id, to_status, actor_user_id, revision_seen_id)
+          VALUES ('se-tmp', 'prj-tmp', 'sc-tmp', 'ln-tmp', 'iss-tmp', 'open', 'u-tmp', 'rev-tmp')`);
+        await client.query(`
+          INSERT INTO item_versions (item_kind, item_id, version_rev, project_id, scope_id, origin_lane_id,
+            edited_in_lane_id, author_user_id, record_json)
+          VALUES ('markup', 'mk-tmp', 1, 'prj-tmp', 'sc-tmp', 'ln-tmp', NULL, 'u-tmp', '{}'),
+                 ('markup', 'mk-tmp', 2, 'prj-tmp', 'sc-tmp', 'ln-tmp', 'ln-chk', 'u-chk', '{}')`);
+        await fn(client);
+      } finally {
+        await client.query('ROLLBACK');
+        client.release();
+      }
     }
+
+    async function count(client: pg.PoolClient, sql: string): Promise<number> {
+      return (await client.query(sql)).rowCount ?? 0;
+    }
+
+    it('refuses updates and direct deletes', async () => {
+      await withTmpProject(async (client) => {
+        const refused = [
+          `UPDATE item_versions SET record_json = '{"x":1}' WHERE item_id = 'mk-tmp'`,
+          `DELETE FROM item_versions WHERE item_id = 'mk-tmp'`,
+          `UPDATE status_events SET to_status = 'closed' WHERE id = 'se-tmp'`,
+          `UPDATE status_events SET revision_seen_id = NULL WHERE id = 'se-tmp'`,
+          `DELETE FROM status_events WHERE id = 'se-tmp'`,
+          `UPDATE revisions SET label = 'B' WHERE id = 'rev-tmp'`,
+          `DELETE FROM revisions WHERE id = 'rev-tmp'`,
+        ];
+        for (const sql of refused) {
+          await client.query('SAVEPOINT s');
+          await assert.rejects(client.query(sql), /rows are immutable/, sql);
+          await client.query('ROLLBACK TO SAVEPOINT s');
+        }
+      });
+    });
+
+    it('refuses a delete issued from an unrelated trigger', async () => {
+      await withTmpProject(async (client) => {
+        await client.query(`CREATE TABLE tmp_trigger_source (id INTEGER)`);
+        await client.query(`
+          CREATE FUNCTION tmp_delete_versions() RETURNS trigger LANGUAGE plpgsql AS $$
+          BEGIN DELETE FROM item_versions; DELETE FROM status_events; RETURN NEW; END; $$`);
+        await client.query(`
+          CREATE TRIGGER tmp_delete_versions AFTER INSERT ON tmp_trigger_source
+          FOR EACH ROW EXECUTE FUNCTION tmp_delete_versions()`);
+        await assert.rejects(client.query(`INSERT INTO tmp_trigger_source VALUES (1)`), /rows are immutable/);
+      });
+    });
+
+    it('lets a document delete through, keeping status events that saw its revision', async () => {
+      await withTmpProject(async (client) => {
+        await client.query(`DELETE FROM documents WHERE id = 'doc-tmp'`);
+        assert.equal(await count(client, `SELECT 1 FROM revisions WHERE id = 'rev-tmp'`), 0);
+        const se = await client.query(`SELECT revision_seen_id FROM status_events WHERE id = 'se-tmp'`);
+        assert.deepEqual(se.rows, [{ revision_seen_id: 'rev-tmp' }]);
+      });
+    });
+
+    it('lets a lane delete through, keeping versions edited in it and cascading the ones it owns', async () => {
+      await withTmpProject(async (client) => {
+        await client.query(`DELETE FROM lanes WHERE id = 'ln-chk'`);
+        const kept = await client.query(`SELECT version_rev, edited_in_lane_id FROM item_versions ORDER BY version_rev`);
+        assert.deepEqual(kept.rows, [
+          { version_rev: 1, edited_in_lane_id: null },
+          { version_rev: 2, edited_in_lane_id: 'ln-chk' },
+        ]);
+        await client.query(`DELETE FROM lanes WHERE id = 'ln-tmp'`);
+        assert.equal(await count(client, `SELECT 1 FROM item_versions WHERE item_id = 'mk-tmp'`), 0);
+        assert.equal(await count(client, `SELECT 1 FROM status_events WHERE id = 'se-tmp'`), 0);
+        assert.equal(await count(client, `SELECT 1 FROM issues WHERE id = 'iss-tmp'`), 0);
+      });
+    });
+
+    it('lets an issue delete cascade to its status events', async () => {
+      await withTmpProject(async (client) => {
+        await client.query(`DELETE FROM issues WHERE id = 'iss-tmp'`);
+        assert.equal(await count(client, `SELECT 1 FROM status_events WHERE id = 'se-tmp'`), 0);
+      });
+    });
+
+    it('lets a project delete cascade through every immutable table', async () => {
+      await withTmpProject(async (client) => {
+        await client.query(`DELETE FROM projects WHERE id = 'prj-tmp'`);
+        assert.equal(await count(client, `SELECT 1 FROM item_versions WHERE item_id = 'mk-tmp'`), 0);
+        assert.equal(await count(client, `SELECT 1 FROM status_events WHERE id = 'se-tmp'`), 0);
+        assert.equal(await count(client, `SELECT 1 FROM revisions WHERE id = 'rev-tmp'`), 0);
+      });
+    });
+  });
+
+  describe('reader role privileges', () => {
+    const BYPASS_ROLE = `rc_bypass_${suffix}`;
+    before(async () => {
+      await pool.query(`SELECT app_grant_reader($1)`, [READER_ROLE]);
+      await admin.query(`CREATE ROLE ${BYPASS_ROLE} NOLOGIN BYPASSRLS`);
+    });
+    after(async () => {
+      await admin.query(`DROP ROLE IF EXISTS ${BYPASS_ROLE}`);
+    });
+
+    it('lists exactly the row-level security tables', async () => {
+      const res = await pool.query<{ t: string[] }>(`SELECT app_reader_tables() AS t`);
+      assert.deepEqual([...res.rows[0]!.t].sort(), [...RLS_TABLES].sort());
+    });
+
+    it('grants SELECT on the row-level security tables only, and no writes', async () => {
+      const res = await pool.query<{ relname: string; sel: boolean; ins: boolean; upd: boolean; del: boolean; trn: boolean }>(`
+        SELECT c.relname,
+          has_table_privilege($1, c.oid, 'SELECT') AS sel, has_table_privilege($1, c.oid, 'INSERT') AS ins,
+          has_table_privilege($1, c.oid, 'UPDATE') AS upd, has_table_privilege($1, c.oid, 'DELETE') AS del,
+          has_table_privilege($1, c.oid, 'TRUNCATE') AS trn
+        FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm')`, [READER_ROLE]);
+      assert.ok(res.rows.length > RLS_TABLES.length);
+      const readable = res.rows.filter((r) => r.sel).map((r) => r.relname).sort();
+      assert.deepEqual(readable, [...RLS_TABLES].sort());
+      const writable = res.rows.filter((r) => r.ins || r.upd || r.del || r.trn).map((r) => r.relname);
+      assert.deepEqual(writable, []);
+    });
+
+    it('denies credential, membership, audience and document tables', async () => {
+      for (const table of READER_DENIED_TABLES) {
+        await assert.rejects(asUser('u-ann', `SELECT * FROM ${table}`), /permission denied/, table);
+        await assert.rejects(asUser(null, `SELECT * FROM ${table}`), /permission denied/, table);
+      }
+    });
+
+    it('refuses to set up a role that bypasses row-level security', async () => {
+      await assert.rejects(pool.query(`SELECT app_grant_reader($1)`, [BYPASS_ROLE]), /BYPASSRLS/);
+      await assert.rejects(pool.query(`SELECT app_grant_reader('rc_no_such_role')`), /does not exist/);
+    });
   });
 
   describe('row-level security for a three-lane certified review', () => {
     before(async () => {
-      await pool.query(`GRANT USAGE ON SCHEMA public TO ${READER_ROLE}`);
-      await pool.query(`GRANT SELECT ON ALL TABLES IN SCHEMA public TO ${READER_ROLE}`);
+      // The same least-privilege grant a deployment applies.
+      await pool.query(`SELECT app_grant_reader($1)`, [READER_ROLE]);
       await seedStructureAndContent();
     });
 
@@ -209,10 +354,12 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
       ]);
       const memberParty: Record<UserId, string | null> = {
         'u-ann': 'pty-owner', 'u-ben': 'pty-owner', 'u-cal': 'pty-owner', 'u-dee': 'pty-cert',
-        'u-eve': 'pty-builder', 'u-fay': 'pty-sub-a', 'u-gus': 'pty-sub-b', 'u-out': null, 'u-rem': 'pty-owner',
+        'u-eve': 'pty-builder', 'u-fay': 'pty-sub-a', 'u-gus': 'pty-sub-b', 'u-inv': 'pty-builder', 'u-nop': null,
+        'u-out': null, 'u-rem': 'pty-owner',
       };
+      const memberState = (u: UserId) => (u === 'u-rem' ? 'removed' : u === 'u-inv' ? 'invited' : 'active');
       await insert('project_members', USERS.map((u) => ({
-        project_id: 'prj-bridge', user_id: u, party_id: memberParty[u], state: u === 'u-rem' ? 'removed' : 'active',
+        project_id: 'prj-bridge', user_id: u, party_id: memberParty[u], state: memberState(u),
       })));
       await insert('groups', [{ id: 'grp-checkers', project_id: 'prj-bridge', party_id: 'pty-owner', name: 'Owner checkers' }]);
       await insert('group_members', [{ group_id: 'grp-checkers', user_id: 'u-ben' }]);
@@ -285,10 +432,20 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
         release('rel-3', 'g-client-cert', 'ln-client', 'ln-cert', 'mk-checked', 1),
       ]);
 
-      await insert('issues', [{
-        id: 'iss-1', project_id: 'prj-bridge', scope_id: 'rv-1', origin_lane_id: 'ln-client', number: 1,
-        title: 'Handrail height', owner_user_id: 'u-ann', owner_party_id: 'pty-owner', rev: 1, record_json: {},
-      }]);
+      await insert('issues', [
+        {
+          id: 'iss-1', project_id: 'prj-bridge', scope_id: 'rv-1', origin_lane_id: 'ln-client', number: 1,
+          title: 'Handrail height', owner_user_id: 'u-ann', owner_party_id: 'pty-owner', rev: 1, record_json: {},
+        },
+        { // raised by sub A inside the separated builder lane
+          id: 'iss-sub-a', project_id: 'prj-bridge', scope_id: 'rv-1', origin_lane_id: 'ln-dp', number: 2,
+          title: 'Bearing detail', owner_user_id: 'u-fay', owner_party_id: 'pty-sub-a', rev: 1, record_json: {},
+        },
+        { // a private draft of u-ann's in the owner lane
+          id: 'iss-draft', project_id: 'prj-bridge', scope_id: 'rv-1', origin_lane_id: 'ln-client', number: 3,
+          title: 'Drainage falls', owner_user_id: 'u-ann', owner_party_id: 'pty-owner', rev: 1, record_json: {},
+        },
+      ]);
       await insert('issue_links', [{ issue_id: 'iss-1', markup_id: 'mk-released' }]);
       const response = (id: string, owner: string, party: string) => ({
         id, project_id: 'prj-bridge', scope_id: 'rv-1', origin_lane_id: 'ln-dp', issue_id: 'iss-1',
@@ -313,15 +470,20 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
         { issue_id: 'iss-1', lane_id: 'ln-client', status: 'open', status_event_id: 'se-open' },
         { issue_id: 'iss-1', lane_id: 'ln-cert', status: 'closed', status_event_id: 'se-cert-close' },
         { issue_id: 'iss-1', lane_id: 'ln-dp', status: 'open', status_event_id: 'se-open' },
+        { issue_id: 'iss-sub-a', lane_id: 'ln-dp', status: 'open', status_event_id: null },
+        { issue_id: 'iss-draft', lane_id: 'ln-client', status: 'open', status_event_id: null },
       ]);
 
       await insert('assets', [
         { project_id: 'prj-bridge', sha256: HASH_A, size_bytes: 10, media_type: 'image/png', storage_key: 'a' },
         { project_id: 'prj-bridge', sha256: HASH_B, size_bytes: 10, media_type: 'image/png', storage_key: 'b' },
+        { project_id: 'prj-bridge', sha256: HASH_C, size_bytes: 10, media_type: 'image/png', storage_key: 'c' },
       ]);
       await insert('asset_refs', [
         { project_id: 'prj-bridge', sha256: HASH_A, item_kind: 'markup', item_id: 'mk-released', version_rev: 2, origin_lane_id: 'ln-client' },
         { project_id: 'prj-bridge', sha256: HASH_B, item_kind: 'markup', item_id: 'mk-released', version_rev: 1, origin_lane_id: 'ln-client' },
+        // asm-1 v2 is never shared: only the builder lane that owns it may read its asset.
+        { project_id: 'prj-bridge', sha256: HASH_C, item_kind: 'assembly', item_id: 'asm-1', version_rev: 2, origin_lane_id: 'ln-dp' },
       ]);
 
       const event = (seq: number, rev: number | null) => ({
@@ -329,7 +491,13 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
         entity_id: 'mk-released', payload_json: {}, item_kind: rev === null ? null : 'markup', version_rev: rev,
         lane_id: rev === null ? null : 'ln-client',
       });
-      await insert('events', [event(1, 1), event(2, 2), event(3, null)]);
+      await insert('events', [
+        event(1, 1), event(2, 2), event(3, null),
+        {
+          stream_id: 'st-doc-1', seq: 4, op_id: 'op-4', actor_id: 'u-eve', op_type: 'assembly.patch',
+          entity_id: 'asm-1', payload_json: {}, item_kind: 'assembly', version_rev: 2, lane_id: 'ln-dp',
+        },
+      ]);
 
       const takeoff = (table: string, id: string, rev: number, extra: Row) =>
         insert(table, [{ id, project_id: 'prj-bridge', lane_id: 'ln-dp', rev, record_json: {}, created_by: 'u-eve', ...extra }]);
@@ -349,8 +517,12 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
         { lane_id: 'ln-dp', subject_kind: 'party', subject_id: 'pty-builder' },
         { lane_id: 'ln-dp', subject_kind: 'party', subject_id: 'pty-sub-a' },
         { lane_id: 'ln-dp', subject_kind: 'party', subject_id: 'pty-sub-b' },
+        { lane_id: 'ln-dp', subject_kind: 'user', subject_id: 'u-nop' },
+        { lane_id: 'ln-dp', subject_kind: 'user', subject_id: 'u-inv' },
       ]);
-      // u-out is an active project member with no party and no lane; u-rem was removed.
+      // u-out is an active project member with no party and no lane; u-rem was removed; u-inv is
+      // still invited (a builder-party member, also named directly); u-nop acts for no party but
+      // was added to the separated builder lane directly.
       // Separated matrix for the builder lane, as compiled by @nb/policy (lead sees all; each
       // subconsultant sees itself and the lead).
       const pv = (viewer: string, owner: string) => ({ lane_id: 'ln-dp', viewer_party_id: viewer, owner_party_id: owner });
@@ -378,6 +550,7 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
         access('issue', 'iss-1', 1, 'ln-client', 'internal', 'pty-owner'),
         access('issue', 'iss-1', 1, 'ln-cert', 'released', 'pty-owner'),
         access('issue', 'iss-1', 1, 'ln-dp', 'released', 'pty-owner'),
+        access('issue', 'iss-sub-a', 1, 'ln-dp', 'internal', 'pty-sub-a'),
         access('response', 'rsp-lead', 1, 'ln-dp', 'internal', 'pty-builder'),
         access('response', 'rsp-sub-a', 1, 'ln-dp', 'internal', 'pty-sub-a'),
         access('response', 'rsp-sub-b', 1, 'ln-dp', 'internal', 'pty-sub-b'),
@@ -399,6 +572,7 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
         draft('mk-released', 2, 'user', 'u-ann'),
         draft('mk-released', 2, 'group', 'grp-checkers'),
         draft('mk-checked', 1, 'user', 'u-ann'),
+        { item_kind: 'issue', item_id: 'iss-draft', version_rev: 1, subject_kind: 'user', subject_id: 'u-ann' },
       ]);
 
       await insert('op_results', [{
@@ -420,6 +594,9 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
     describe('with lane membership and access rows', () => {
       before(seedAccessRows);
 
+      /** Builder-lane members: the lead, both subconsultants and the party-less member u-nop. */
+      const dp = (ids: string[]) => ({ 'u-eve': ids, 'u-fay': ids, 'u-gus': ids, 'u-nop': ids });
+
       it('shows current markups only to those who may see that exact version', async () => {
         await expectVisibility('markups', 'id', {
           'u-ann': ['mk-checked', 'mk-draft', 'mk-released'],
@@ -436,9 +613,7 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
           'u-ben': ['markup:mk-checked:2', 'markup:mk-draft:1', 'markup:mk-released:1', 'markup:mk-released:2'],
           'u-cal': ['markup:mk-checked:2', 'markup:mk-released:1'],
           'u-dee': ['assembly:asm-1:1', 'markup:mk-checked:1', 'markup:mk-checked:2', 'markup:mk-released:1'],
-          'u-eve': ['assembly:asm-1:1', 'assembly:asm-1:2', 'markup:mk-released:1'],
-          'u-fay': ['assembly:asm-1:1', 'assembly:asm-1:2', 'markup:mk-released:1'],
-          'u-gus': ['assembly:asm-1:1', 'assembly:asm-1:2', 'markup:mk-released:1'],
+          ...dp(['assembly:asm-1:1', 'assembly:asm-1:2', 'markup:mk-released:1']),
         });
       });
 
@@ -448,27 +623,48 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
           'u-ben': ['rel-1'],
           'u-cal': ['rel-1'],
           'u-dee': ['rel-1', 'rel-2', 'rel-3'],
-          'u-eve': ['rel-2'],
-          'u-fay': ['rel-2'],
-          'u-gus': ['rel-2'],
+          ...dp(['rel-2']),
         });
       });
 
-      it('applies the party matrix inside a separated lane', async () => {
+      it('gives invited, removed and lane-less members nothing', async () => {
+        for (const table of RLS_TABLES) {
+          for (const user of ['u-inv', 'u-rem', 'u-out']) {
+            assert.deepEqual(await asUser(user, `SELECT 1 FROM ${table}`), [], `${table} as ${user}`);
+          }
+        }
+      });
+
+      it('applies the party matrix inside a separated lane, failing closed for a member with no party', async () => {
         await expectVisibility('responses', 'id', {
           'u-eve': ['rsp-lead', 'rsp-sub-a', 'rsp-sub-b'],
           'u-fay': ['rsp-lead', 'rsp-sub-a'],
           'u-gus': ['rsp-lead', 'rsp-sub-b'],
         });
+        // In an open lane the same party-less member sees every party's internal items.
+        await pool.query(`UPDATE lanes SET party_visibility_mode = 'open' WHERE id = 'ln-dp'`);
+        try {
+          assert.deepEqual(await visible('u-nop', 'responses', 'id'), ['rsp-lead', 'rsp-sub-a', 'rsp-sub-b']);
+        } finally {
+          await pool.query(`UPDATE lanes SET party_visibility_mode = 'separated' WHERE id = 'ln-dp'`);
+        }
       });
 
-      it('keeps issue status per lane', async () => {
-        const all = ['u-ann', 'u-ben', 'u-cal', 'u-dee', 'u-eve', 'u-fay', 'u-gus'] as const;
-        await expectVisibility('issues', 'id', Object.fromEntries(all.map((u) => [u, ['iss-1']])));
-        await expectVisibility('issue_lane_state', `lane_id || ':' || status`, {
-          'u-ann': ['ln-client:open'], 'u-ben': ['ln-client:open'], 'u-cal': ['ln-client:open'],
-          'u-dee': ['ln-cert:closed'],
-          'u-eve': ['ln-dp:open'], 'u-fay': ['ln-dp:open'], 'u-gus': ['ln-dp:open'],
+      it('keeps issue status per lane, and only for issues the user can see', async () => {
+        const all = ['u-ann', 'u-ben', 'u-cal', 'u-dee', 'u-eve', 'u-fay', 'u-gus', 'u-nop'] as const;
+        await expectVisibility('issues', 'id', {
+          ...Object.fromEntries(all.map((u) => [u, ['iss-1']])),
+          'u-ann': ['iss-1', 'iss-draft'], // the author of the private draft
+          'u-eve': ['iss-1', 'iss-sub-a'], // the lead sees sub A's issue; sub B and u-nop do not
+          'u-fay': ['iss-1', 'iss-sub-a'],
+        });
+        await expectVisibility('issue_lane_state', `issue_id || ':' || lane_id || ':' || status`, {
+          'u-ann': ['iss-1:ln-client:open', 'iss-draft:ln-client:open'],
+          'u-ben': ['iss-1:ln-client:open'], 'u-cal': ['iss-1:ln-client:open'],
+          'u-dee': ['iss-1:ln-cert:closed'],
+          'u-eve': ['iss-1:ln-dp:open', 'iss-sub-a:ln-dp:open'],
+          'u-fay': ['iss-1:ln-dp:open', 'iss-sub-a:ln-dp:open'],
+          'u-gus': ['iss-1:ln-dp:open'], 'u-nop': ['iss-1:ln-dp:open'],
         });
         await expectVisibility('status_events', 'id', {
           'u-ann': ['se-open'], 'u-ben': ['se-open'], 'u-cal': ['se-open'],
@@ -483,16 +679,15 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
         });
         const both = [HASH_A, HASH_B];
         await expectVisibility('assets', 'sha256', {
-          'u-ann': both, 'u-ben': both, 'u-cal': [HASH_B], 'u-dee': [HASH_B], 'u-eve': [HASH_B], 'u-fay': [HASH_B], 'u-gus': [HASH_B],
+          'u-ann': both, 'u-ben': both, 'u-cal': [HASH_B], 'u-dee': [HASH_B], ...dp([HASH_B, HASH_C]),
         });
         await expectVisibility('events', 'seq', {
-          'u-ann': ['1', '2'], 'u-ben': ['1', '2'], 'u-cal': ['1'], 'u-dee': ['1'], 'u-eve': ['1'], 'u-fay': ['1'], 'u-gus': ['1'],
+          'u-ann': ['1', '2'], 'u-ben': ['1', '2'], 'u-cal': ['1'], 'u-dee': ['1'], ...dp(['1', '4']),
         });
         await expectVisibility('op_results', 'op_id', { 'u-ann': ['op-ann-1'] });
       });
 
       it('keeps takeoff private to its lane except for shared versions', async () => {
-        const dp = (ids: string[]) => ({ 'u-eve': ids, 'u-fay': ids, 'u-gus': ids });
         await expectVisibility('scales', 'id', dp(['sc-1']));
         await expectVisibility('viewports', 'id', dp(['vp-1']));
         await expectVisibility('catalog_items', 'id', dp(['cat-1']));
@@ -500,19 +695,77 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
         await expectVisibility('takeoff_templates', 'id', dp(['tpl-1']));
         // asm-1's current version (2) was never shared; asm-2's current version (1) was.
         await expectVisibility('assemblies', 'id', { ...dp(['asm-1', 'asm-2']), 'u-dee': ['asm-2'] });
+        // The owning lane reads an unshared version's asset refs the same way as the version itself.
+        await expectVisibility('asset_refs', `item_id || ':' || version_rev`, {
+          'u-ann': ['mk-released:1', 'mk-released:2'], 'u-ben': ['mk-released:1', 'mk-released:2'],
+          'u-cal': ['mk-released:1'], 'u-dee': ['mk-released:1'], ...dp(['asm-1:2', 'mk-released:1']),
+        });
+      });
+
+      it('lets the reader write nothing, even with write grants on a content table', async () => {
+        const insertSql = `INSERT INTO markups (id, stream_id, scope_id, type, rev, owner_user_id, record_json)
+          VALUES ('mk-new', 'st-doc-1', 'rv-1', 'cloud', 1, 'u-ann', '{}')`;
+        for (const sql of [insertSql, `UPDATE markups SET deleted = TRUE`, `DELETE FROM markups`]) {
+          await assert.rejects(asUser('u-ann', sql), /permission denied/, sql);
+        }
+        const grantWrites = async (client: pg.PoolClient) => {
+          await client.query(`GRANT INSERT, UPDATE, DELETE ON markups TO ${READER_ROLE}`);
+        };
+        await withReader('u-ann', async (client) => {
+          await client.query('SAVEPOINT s');
+          await assert.rejects(client.query(insertSql), /row-level security/);
+          await client.query('ROLLBACK TO SAVEPOINT s');
+          const updated = await client.query(`UPDATE markups SET deleted = TRUE WHERE id = 'mk-draft'`);
+          assert.equal(updated.rowCount, 0);
+          const deleted = await client.query(`DELETE FROM markups`);
+          assert.equal(deleted.rowCount, 0);
+          const left = await client.query(`SELECT id FROM markups ORDER BY id`);
+          assert.deepEqual(left.rows.map((r) => r.id), ['mk-checked', 'mk-draft', 'mk-released']);
+        }, grantWrites);
+        const total = await pool.query(`SELECT 1 FROM markups WHERE NOT deleted`);
+        assert.equal(total.rowCount, 3);
       });
 
       it('removes everything when the scope document set excludes the user', async () => {
         await pool.query(`INSERT INTO document_sets (id, project_id, name, members_restricted)
-          VALUES ('ds-owner', 'prj-bridge', 'Owner only', TRUE)`);
-        await insert('document_set_members', [{ document_set_id: 'ds-owner', subject_kind: 'lane', subject_id: 'ln-client' }]);
-        await pool.query(`UPDATE scopes SET document_set_id = 'ds-owner' WHERE id = 'rv-1'`);
+          VALUES ('ds-limited', 'prj-bridge', 'Limited', TRUE)`);
+        await pool.query(`UPDATE scopes SET document_set_id = 'ds-limited' WHERE id = 'rv-1'`);
+        const cases: { member: [string, string]; markups: Partial<Record<UserId, string[]>>; dpVersions: Partial<Record<UserId, number>> }[] = [
+          {
+            member: ['lane', 'ln-client'],
+            markups: { 'u-ann': ['mk-checked', 'mk-draft', 'mk-released'], 'u-cal': ['mk-checked'], 'u-dee': [] },
+            dpVersions: { 'u-eve': 0 },
+          },
+          {
+            member: ['party', 'pty-cert'],
+            markups: { 'u-ann': [], 'u-cal': [], 'u-dee': ['mk-checked'] },
+            dpVersions: { 'u-eve': 0, 'u-fay': 0 },
+          },
+          {
+            member: ['group', 'grp-checkers'],
+            markups: { 'u-ann': [], 'u-ben': ['mk-checked', 'mk-draft', 'mk-released'], 'u-cal': [], 'u-dee': [] },
+            dpVersions: { 'u-eve': 0 },
+          },
+          {
+            member: ['user', 'u-fay'],
+            markups: { 'u-ann': [], 'u-dee': [] },
+            dpVersions: { 'u-eve': 0, 'u-fay': 3, 'u-gus': 0 },
+          },
+        ];
         try {
-          assert.deepEqual(await visible('u-dee', 'markups', 'id'), []);
-          assert.deepEqual(await visible('u-eve', 'item_versions', 'item_id'), []);
-          assert.deepEqual(await visible('u-cal', 'markups', 'id'), ['mk-checked']);
+          for (const { member: [kind, id], markups, dpVersions } of cases) {
+            await pool.query(`DELETE FROM document_set_members WHERE document_set_id = 'ds-limited'`);
+            await insert('document_set_members', [{ document_set_id: 'ds-limited', subject_kind: kind, subject_id: id }]);
+            for (const [user, want] of Object.entries(markups)) {
+              assert.deepEqual(await visible(user, 'markups', 'id'), want, `markups as ${user} with ${kind} ${id}`);
+            }
+            for (const [user, n] of Object.entries(dpVersions)) {
+              assert.equal((await visible(user, 'item_versions', 'item_id')).length, n, `item_versions as ${user} with ${kind} ${id}`);
+            }
+          }
         } finally {
           await pool.query(`UPDATE scopes SET document_set_id = NULL WHERE id = 'rv-1'`);
+          await pool.query(`DELETE FROM document_sets WHERE id = 'ds-limited'`);
         }
       });
     });
