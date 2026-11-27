@@ -25,6 +25,9 @@
   },
   "exports": {
     ".": "./src/index.ts",
+    "./editing": "./src/editing.ts",
+    "./viewports": "./src/viewports.ts",
+    "./columns": "./src/columns.ts",
     "./export": "./src/export.ts",
     "./pdfExtras": "./src/pdfExtras.ts",
     "./xfdf": "./src/xfdf.ts",
