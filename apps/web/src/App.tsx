@@ -3991,7 +3991,7 @@ export function App() {
                 case 'print': {
                   const { printablePdf } = await import('./documents/printPdf');
                   const source = command.content === 'document' ? await readFile(cur.file.hash) : await annotatedBytes(cur);
-                  printed.push(await printablePdf(source, command.content, cur.doc.pages.map((_, i) => i)));
+                  printed.push(await printablePdf(source, command.content, cur.doc.pages.map((_, i) => i), { thinLines: settings.get().thinLines }));
                   message = `${cur.doc.pages.length} page${cur.doc.pages.length === 1 ? '' : 's'}`;
                   break;
                 }
@@ -12049,7 +12049,7 @@ export function App() {
             // Markups the list's filter leaves out print faint, if asked.
             const markups = options.dimFiltered && listKept ? activeOpen.store.all().map((m) => (listKept.has(m.id) ? m : { ...m, style: { ...m.style, opacity: m.style.opacity * 0.25 } })) : undefined;
             const source = content === 'document' ? await readFile(activeOpen.file.hash) : await annotatedBytes(activeOpen, markups ? { markups } : {});
-            printPdfBytes(await printablePdf(source, content, pages, options));
+            printPdfBytes(await printablePdf(source, content, pages, { ...options, thinLines: settings.get().thinLines }));
             setPrintOpen(false);
           }}
         />

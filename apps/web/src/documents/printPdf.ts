@@ -40,6 +40,8 @@ export const PAPER_SIZES: Record<string, [number, number]> = {
 export interface PrintOptions {
   /** Last page first. */
   reverse?: boolean;
+  /** Disable Line Weights: the drawing's lines print thin and solid; markups keep theirs. */
+  thinLines?: boolean;
   /**
    * Tile Large Pages: pages bigger than this paper are split across several sheets, overlapping
    * by `overlap` points, each labelled with its place in the grid.
@@ -104,6 +106,11 @@ export async function printablePdf(bytes: ArrayBuffer | Uint8Array, content: Pri
       // Blank the drawing; annotation appearances carry their own resources.
       page.node.set(PDFName.of('Contents'), doc.context.register(doc.context.flateStream('')));
     }
+  }
+  // Before tiling, which flattens markups into the content: theirs keep their weights.
+  if (options.thinLines && content !== 'markups') {
+    const { hairlinePages } = await import('./hairlines');
+    await hairlinePages(doc, pages.flatMap((i) => all[i] ?? []));
   }
   const keep = new Set(pages);
   for (let i = all.length - 1; i >= 0; i--) if (!keep.has(i)) doc.removePage(i);

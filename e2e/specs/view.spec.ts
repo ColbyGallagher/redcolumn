@@ -526,6 +526,37 @@ test.describe('view', () => {
     await app.cmd('view.unsplit');
   });
 
+  test('disable line weights thins the drawing, and turning it off restores it (#502)', async ({ app }) => {
+    // How much darkness is on the drawing (grey pixels count in part), once the render has settled.
+    const ink = async () => {
+      let last = -1;
+      for (let i = 0; i < 40; i++) {
+        await app.page.waitForTimeout(500);
+        const n = await app.page.evaluate(() => {
+          const c = document.querySelector('canvas')!;
+          const d = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+          let dark = 0;
+          // The page is white; what surrounds it is left out.
+          for (let k = 0; k < d.length; k += 4) if (d[k + 3] === 255 && d[k] === d[k + 1] && d[k] === d[k + 2]) dark += 255 - d[k]!;
+          return dark;
+        });
+        if (n === last) return n;
+        last = n;
+      }
+      return last;
+    };
+    // Zoomed in, so a line's weight covers many pixels.
+    await app.cmd('view.singlePage');
+    await app.page.evaluate(() => window.__nb.viewer.zoomBy(4));
+    const normal = await ink();
+    await app.cmd('view.thinLines');
+    const thin = await ink();
+    expect(thin).toBeGreaterThan(0);
+    expect(thin).toBeLessThan(normal * 0.9);
+    await app.cmd('view.thinLines');
+    expect(await ink()).toBe(normal);
+  });
+
   // On/off settings: each flips and flips back.
   const TOGGLES = [
     'view.rulers',
