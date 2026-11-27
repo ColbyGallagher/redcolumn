@@ -5,6 +5,10 @@
   "private": true,
   "type": "module",
   "main": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "node --test --experimental-strip-types src/*.test.ts"
+  },
   "dependencies": {
     "@nb/markup": "workspace:*",
     "valibot": "1.5.0"
