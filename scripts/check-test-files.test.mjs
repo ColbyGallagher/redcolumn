@@ -16,9 +16,9 @@ test('reads the file globs out of a test script', () => {
 // A stand-in for fs.globSync: one level for `*`, any depth for `**`.
 const FILES = ['packages/a/src/x.test.ts', 'packages/a/src/deep/y.test.ts', 'packages/b/src/z.test.ts'];
 function expand(dir, pattern) {
-  const re = new RegExp(
-    `^${`${dir}/${pattern}`.replace(/\./g, '\\.').replace(/\*\*\//g, '(?:.+/)?').replace(/\*/g, '[^/]*')}$`,
-  );
+  // Escape every regex character except `*`, then turn `**/` and `*` into their patterns.
+  const escaped = `${dir}/${pattern}`.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`^${escaped.replace(/\*\*\//g, '(?:.+/)?').replace(/\*/g, '[^/]*')}$`);
   return FILES.filter((f) => re.test(f));
 }
 
