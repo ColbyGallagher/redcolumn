@@ -134,6 +134,8 @@ export interface CellContext {
   columns: readonly CustomColumn[];
   /** The document's assemblies, for the Assembly column. */
   assemblies?: readonly Assembly[];
+  /** What the ID column shows for a markup that has no number yet, such as one a server has still to number. */
+  idLabel?: (m: Markup) => string | null;
 }
 
 const cell = (text: string, num: number | null = null): Cell => ({ text, num });
@@ -213,7 +215,7 @@ export function cellsFor(m: Markup, ctx: CellContext): Record<string, Cell> {
   // Secondary quantities: text as shown, numbers in the page's display units for sorting and formulas.
   const q = (v: number | undefined, fmt: (v: number, s: Scale) => string, div: number) => (v === undefined ? cell('') : cell(fmt(v, scale), v / div));
   const out: Record<string, Cell> = {
-    seq: cell(m.seq ? String(m.seq) : '', m.seq ?? null),
+    seq: cell(m.seq ? String(m.seq) : (ctx.idLabel?.(m) ?? ''), m.seq ?? null),
     subject: cell(m.subject || MARKUP_LABELS[m.type] || 'Markup'),
     label: cell(markupLabel(m)),
     page: cell(String(m.pageIndex + 1), m.pageIndex + 1),

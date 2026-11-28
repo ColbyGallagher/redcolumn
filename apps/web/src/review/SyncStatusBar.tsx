@@ -2,7 +2,7 @@ import { msg } from '@nb/i18n';
 import type { InboxEntry } from '@nb/sync';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { ReviewDocument } from './ReviewDocument';
-import { describeChange, describeRejection, syncSummary } from './syncText';
+import { canRetry, describeChange, describeRejection, syncSummary } from './syncText';
 import './review.css';
 
 export interface SyncStatusBarProps {
@@ -20,16 +20,18 @@ function RejectedList({ doc, entries }: { doc: ReviewDocument; entries: readonly
             <strong>{describeChange(entry)}</strong> {describeRejection(entry.reason)}
           </span>
           <span className="sync-rejected-actions">
-            <button
-              type="button"
-              className="btn small"
-              disabled={doc.readOnly}
-              onClick={() => {
-                if (!doc.sync.retryInboxAsNew(entry.id)) doc.report(msg('That change can no longer be made.'));
-              }}
-            >
-              {msg('Try again')}
-            </button>
+            {canRetry(entry) && (
+              <button
+                type="button"
+                className="btn small"
+                disabled={doc.readOnly}
+                onClick={() => {
+                  if (!doc.sync.retryInboxAsNew(entry.id)) doc.report(msg('That change can no longer be made.'));
+                }}
+              >
+                {msg('Try again')}
+              </button>
+            )}
             <button type="button" className="btn small" onClick={() => doc.sync.discardInbox(entry.id)}>
               {msg('Discard')}
             </button>

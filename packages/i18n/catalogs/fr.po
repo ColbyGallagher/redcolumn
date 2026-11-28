@@ -23071,7 +23071,19 @@ msgid "you"
 msgstr "vous"
 
 #: apps/web/src/review/ReviewDocument.ts
+msgid "A new markup starts without a status or a tick."
+msgstr ""
+
+#: apps/web/src/review/ReviewDocument.ts
+msgid "A status change cannot be undone. Set the status again to change it. Undo again to undo what you did before it."
+msgstr ""
+
+#: apps/web/src/review/ReviewDocument.ts
 msgid "Nothing was undone: it has been changed since."
+msgstr ""
+
+#: apps/web/src/review/ReviewDocument.ts
+msgid "Replies are not available for documents on a server yet, so they were not saved."
 msgstr ""
 
 #: apps/web/src/review/ReviewDocument.ts
@@ -23079,7 +23091,7 @@ msgid "Scales, page labels and custom columns are not shared on a server yet, so
 msgstr ""
 
 #: apps/web/src/review/ReviewDocument.ts
-msgid "Statuses, ticks and replies are not available for documents on a server yet, so they were not saved."
+msgid "Temp {id}"
 msgstr ""
 
 #: apps/web/src/review/ReviewDocument.ts
@@ -23092,6 +23104,14 @@ msgstr ""
 
 #: apps/web/src/review/ReviewDocument.ts
 msgid "You cannot undo that change here."
+msgstr ""
+
+#: apps/web/src/review/ReviewDocument.ts
+msgid "You may not check markups here."
+msgstr ""
+
+#: apps/web/src/review/ReviewDocument.ts
+msgid "You may not set that status here."
 msgstr ""
 
 #: apps/web/src/review/SyncStatusBar.tsx
@@ -23167,6 +23187,10 @@ msgid "Change."
 msgstr ""
 
 #: apps/web/src/review/syncText.ts
+msgid "Checkmark."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
 msgid "Connecting… {count} pending"
 msgstr ""
 
@@ -23204,6 +23228,14 @@ msgstr ""
 
 #: apps/web/src/review/syncText.ts
 msgid "Someone else changed the same thing first."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Someone else set the status first. Set it again if you still want to."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Status change."
 msgstr ""
 
 #: apps/web/src/review/syncText.ts

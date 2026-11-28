@@ -30,13 +30,25 @@ export function describeChange(entry: Pick<InboxEntry, 'ops'>): string {
   if (types.has('markup.restore') || types.has('placement.restore')) return msg('Restore.');
   if (types.has('markup.patch')) return msg('Change to a markup.');
   if (types.has('placement.patch') || types.has('placement.create')) return msg('Move or reshape.');
+  if (types.has('status.transition')) return msg('Status change.');
+  if (types.has('issue.patch')) return msg('Checkmark.');
+  if (types.has('issue.create') || types.has('issue.link')) return msg('Status change.');
   return msg('Change.');
 }
+
+/**
+ * Whether a refused change can be sent again as it was. A status, or what raises an issue, is
+ * decided again by the person who set it, looking at what is there now.
+ */
+export const canRetry = (entry: Pick<InboxEntry, 'ops'>): boolean =>
+  !entry.ops.some((op) => op.type === 'status.transition' || op.type === 'issue.create' || op.type === 'issue.link');
 
 export function describeRejection(reason: ServerRejection): string {
   switch (reason.code) {
     case 'conflict':
-      return msg('Someone else changed the same thing first.');
+      return reason.conflicts.some((c) => c.kind === 'issue' && c.groups.includes('status'))
+        ? msg('Someone else set the status first. Set it again if you still want to.')
+        : msg('Someone else changed the same thing first.');
     case 'forbidden':
       return msg('You do not have permission to make this change.');
     case 'deleted':

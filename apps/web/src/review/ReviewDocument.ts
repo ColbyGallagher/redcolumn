@@ -11,6 +11,7 @@ import {
   type Estimating,
   type ImportedExtras,
   type Markup,
+  type MarkupStatusDef,
   type PageClip,
   type Place,
   type Point,
@@ -23,9 +24,11 @@ import {
   type Viewport,
 } from '@nb/markup';
 import type { GeoRegion, Scale } from '@nb/measure';
-import type { PresenceUser, SyncDocument, SyncFacet, SyncStatus } from '@nb/sync';
+import type { StatusDef, StatusCategory } from '@nb/ops';
+import type { PresenceUser, StatusRules, SyncDocument, SyncFacet, SyncStatus } from '@nb/sync';
 import type { SheetInfo } from '@nb/sheets';
 import type { AppDocument, FacetName } from './facets.ts';
+import type { SharedStatuses } from './statusUi.ts';
 import type { ProjectRole } from '../connect/client.ts';
 
 /*
@@ -60,7 +63,21 @@ export class MissingFacetError extends Error {
 }
 
 /** Markup fields that are separate records on a server, which this version does not write yet. */
-const UNSYNCED_FIELDS = ['status', 'statusHistory', 'replies', 'checked', 'raisedRev'] as const;
+const UNSYNCED_FIELDS = ['replies', 'raisedRev'] as const;
+
+/** The colours the project's statuses are shown in: by what they mean, with the usual open ones told apart. */
+const CATEGORY_COLOURS: Readonly<Record<StatusCategory, string>> = { open: '#d97706', closed: '#16a34a', void: '#6b7280' };
+const STATUS_COLOURS: Readonly<Record<string, string>> = { actioned: '#7c3aed', answered: '#0891b2' };
+
+/** The project's statuses as the status controls list them, with "None" for a markup that has no issue. */
+const statusChoices = (statuses: readonly StatusDef[]): MarkupStatusDef[] => [
+  { id: 'none', name: 'None', color: '#9aa1a9' },
+  ...statuses.map((s) => ({
+    id: s.id,
+    name: s.name,
+    color: (Object.hasOwn(STATUS_COLOURS, s.id) ? STATUS_COLOURS[s.id] : undefined) ?? CATEGORY_COLOURS[s.category],
+  })),
+];
 
 const NO_ASSEMBLIES: Assembly[] = [];
 const NO_PORTALS: Portal[] = [];
@@ -82,7 +99,7 @@ export interface ReviewTransport {
   setPage(pageIndex: number): void;
   retryNow(): void;
   onPresence(listener: (users: PresenceUser[]) => void): () => void;
-  onAccess(listener: (role: string) => void): () => void;
+  onAccess(listener: (role: string, rules?: StatusRules) => void): () => void;
   onSessionEnded(listener: () => void): () => void;
 }
 
@@ -94,11 +111,14 @@ export interface ReviewDocumentInfo {
   userId: string;
   userName: string;
   role: ProjectRole;
+  /** The project's status set. */
+  statuses: readonly StatusDef[];
+  rules: StatusRules;
 }
 
 const isRole = (role: string): role is ProjectRole => role === 'project_admin' || role === 'reviewer' || role === 'viewer';
 
-export class ReviewDocument implements AppDocument, SyncFacet {
+export class ReviewDocument implements AppDocument, SyncFacet, SharedStatuses {
   readonly missingFacets = MISSING_FACETS;
   readonly info: ReviewDocumentInfo;
   readonly sync: SyncStatus;
@@ -109,6 +129,9 @@ export class ReviewDocument implements AppDocument, SyncFacet {
   private readonly cleanups: (() => void | Promise<void>)[] = [];
   private readonly statusListeners = new Set<() => void>();
   private _role: ProjectRole;
+  private _rules: StatusRules;
+  private readonly statusDefs: MarkupStatusDef[];
+  private columnCache: { from: ColumnSet; value: ColumnSet } | null = null;
   private forcedReadOnly = false;
   private _others: PresenceUser[] = [];
   private _problem: string | null = null;
@@ -122,6 +145,8 @@ export class ReviewDocument implements AppDocument, SyncFacet {
     this.names = names;
     this.sync = inner.sync;
     this._role = info.role;
+    this._rules = info.rules;
+    this.statusDefs = statusChoices(info.statuses);
     this.applyRole();
     this.cleanups.push(
       inner.sync.subscribe(() => this.statusChanged()),
@@ -130,9 +155,12 @@ export class ReviewDocument implements AppDocument, SyncFacet {
         this._others = users.filter((u) => u.connectionId !== transport.connectionId);
         this.statusChanged();
       }),
-      transport.onAccess((role) => {
-        if (!isRole(role) || role === this._role) return;
+      transport.onAccess((role, rules) => {
+        if (!isRole(role)) return;
+        const next = rules ?? this._rules;
+        if (role === this._role && JSON.stringify(next) === JSON.stringify(this._rules)) return;
         this._role = role;
+        this._rules = next;
         this.applyRole();
         this.statusChanged();
       }),
@@ -267,7 +295,14 @@ export class ReviewDocument implements AppDocument, SyncFacet {
   }
 
   add(markup: Markup): void {
-    if (markup.replies?.length || markup.checked || (markup.status && markup.status !== 'none')) this.unsyncedRefused();
+    // Adding a markup that is already here replaces it, and its issue stays as it is.
+    if (!this.inner.get(markup.id)) {
+      if (markup.replies?.length) this.repliesRefused();
+      // A status or tick is the issue's: a new or copied markup has no issue yet.
+      else if (markup.checked || (markup.status && markup.status !== 'none')) {
+        this.report(msg('A new markup starts without a status or a tick.'));
+      }
+    }
     this.inner.add(markup);
   }
 
@@ -277,14 +312,51 @@ export class ReviewDocument implements AppDocument, SyncFacet {
     const rest: Record<string, unknown> = { ...patch };
     for (const key of UNSYNCED_FIELDS) {
       if (!(key in rest)) continue;
-      if (JSON.stringify(rest[key]) !== JSON.stringify(current[key])) this.unsyncedRefused();
+      if (JSON.stringify(rest[key]) !== JSON.stringify(current[key])) this.repliesRefused();
       delete rest[key];
+    }
+    // The history comes from the server's status events.
+    delete rest.statusHistory;
+    if ('status' in rest && rest.status !== current.status && !this.mayChooseStatus([id], rest.status as string)) {
+      this.report(msg('You may not set that status here.'));
+      delete rest.status;
+    }
+    if ('checked' in rest && !!rest.checked !== !!current.checked && !this.mayTick()) {
+      this.report(msg('You may not check markups here.'));
+      delete rest.checked;
     }
     if (Object.keys(rest).length) this.inner.update(id, rest as Partial<Omit<Markup, 'id'>>);
   }
 
-  private unsyncedRefused(): void {
-    this.report(msg('Statuses, ticks and replies are not available for documents on a server yet, so they were not saved.'));
+  private repliesRefused(): void {
+    this.report(msg('Replies are not available for documents on a server yet, so they were not saved.'));
+  }
+
+  // ---- Statuses and ticks: hints for the interface. The server decides. --------------------
+
+  mayChooseStatus(markupIds: readonly string[], statusId: string): boolean {
+    if (this.readOnly || !this._rules.changeStatus) return false;
+    // An issue cannot go back to having no status.
+    if (statusId === 'none') return markupIds.every((id) => !this.inner.issueFor(id));
+    const def = this.info.statuses.find((s) => s.id === statusId);
+    if (!def) return false;
+    if (def.category !== 'closed' || this._rules.close === 'any') return true;
+    // A markup with no issue yet would get one raised by this person.
+    return markupIds.every(
+      (id) =>
+        this.inner.get(id)?.status === statusId ||
+        (this._rules.close === 'own' && (this.inner.issueFor(id)?.owner.userId ?? this.info.userId) === this.info.userId),
+    );
+  }
+
+  mayTick(): boolean {
+    return !this.readOnly && this._rules.tick;
+  }
+
+  temporaryId(markupId: string): string | null {
+    const issue = this.inner.issueFor(markupId);
+    if (!issue || issue.number !== null) return null;
+    return msg('Temp {id}', { id: issue.id.replace(/-/g, '').slice(0, 4).toUpperCase() });
   }
 
   remove(ids: Iterable<string>): void {
@@ -320,6 +392,9 @@ export class ReviewDocument implements AppDocument, SyncFacet {
     if (!result.ok && result.reason === 'changed') this.report(msg('Nothing was undone: it has been changed since.'));
     else if (!result.ok && result.reason === 'forbidden') this.report(msg('You cannot undo that change here.'));
     else if (!result.ok && result.reason === 'offline') this.report(msg('Undo needs a connection to the server.'));
+    else if (!result.ok && result.reason === 'permanent') {
+      this.report(msg('A status change cannot be undone. Set the status again to change it. Undo again to undo what you did before it.'));
+    }
     return result;
   }
 
@@ -328,7 +403,11 @@ export class ReviewDocument implements AppDocument, SyncFacet {
   }
 
   async undoSteps(steps: number): Promise<void> {
-    for (let i = 0; i < steps; i++) if (!(await this.undo()).ok) break;
+    for (let i = 0; i < steps; i++) {
+      const result = await this.undo();
+      // A status change stays, and the steps before it are still undone.
+      if (!result.ok && result.reason !== 'permanent') break;
+    }
   }
 
   async destroy(): Promise<void> {
@@ -398,8 +477,11 @@ export class ReviewDocument implements AppDocument, SyncFacet {
     this.setupRefused();
   }
 
+  /** The columns as read from the file, with the project's statuses. The same object until they change. */
   columnSet(): ColumnSet {
-    return this.inner.columnSet();
+    const from = this.inner.columnSet();
+    if (this.columnCache?.from !== from) this.columnCache = { from, value: { columns: from.columns, statuses: this.statusDefs } };
+    return this.columnCache.value;
   }
 
   hasColumnSet(): boolean {

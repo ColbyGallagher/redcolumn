@@ -49,6 +49,7 @@ import { customHatchName, HatchSwatch, LEGACY_HATCH_LABELS } from './HatchSwatch
 import { StampFieldsForm } from './StampsDialog';
 import { FontPicker } from './FontPicker';
 import { canHaveCutout } from '../markup/cutoutTarget';
+import { mayChooseStatus, mayTick } from '../review/statusUi';
 import { isCloudPlusSelection } from '../markup/selectionFormat';
 
 interface Props {
@@ -228,7 +229,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
             }}
           >
             {cellContext.statuses.map((s) => (
-              <option key={s.id} value={s.id}>
+              <option key={s.id} value={s.id} disabled={!mayChooseStatus(store, ids, s.id)}>
                 {s.id === 'none' ? '—' : s.name}
               </option>
             ))}
@@ -238,7 +239,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
           <input
             type="checkbox"
             checked={!!m.checked}
-            disabled={statusReadOnly}
+            disabled={statusReadOnly || !mayTick(store)}
             onChange={(e) => {
               store?.checkpoint();
               store?.batch(() => ids.forEach((id) => store.update(id, { checked: e.target.checked || undefined })));
