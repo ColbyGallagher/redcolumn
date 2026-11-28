@@ -21,6 +21,7 @@ import { checkDbConnection, type Database } from './db.ts';
 import { acceptInvite, listAccessibleSessions, previewInvite } from './invites.ts';
 import { createLogger } from './logger.ts';
 import { OpPipeline, type OpPipelineHooks } from './pipeline.ts';
+import { registerProjectRoutes } from './projectRoutes.ts';
 import { registerStaticWebApp } from './static.ts';
 import { attachWebSocketServer, type WsHandle } from './ws.ts';
 
@@ -229,7 +230,7 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
       },
     );
 
-    auth.post<{ Params: { token: string }; Body: { name?: unknown; password?: unknown } }>(
+    auth.post<{ Params: { token: string }; Body: { email?: unknown; name?: unknown; password?: unknown } }>(
       '/api/invites/:token/accept',
       {
         config: {
@@ -244,11 +245,13 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
         const sessionToken = extractSessionToken(request.headers, config.sessionCookieName);
         const existingSession = sessionToken ? await lookupSession(db, sessionToken) : null;
 
+        const email = typeof request.body?.email === 'string' ? request.body.email : undefined;
         const name = typeof request.body?.name === 'string' ? request.body.name : undefined;
         const password = typeof request.body?.password === 'string' ? request.body.password : undefined;
 
         const result = await acceptInvite(db, request.params.token, {
           signedInUser: existingSession?.user ?? null,
+          email,
           name,
           password,
           sessionTtlMs: config.sessionTtlMs,
@@ -291,6 +294,8 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
       const data = await listAccessibleSessions(db, session.user);
       return reply.code(200).send(data);
     });
+
+    registerProjectRoutes(auth, db, config);
   });
 
   if (config.webDistDir) {

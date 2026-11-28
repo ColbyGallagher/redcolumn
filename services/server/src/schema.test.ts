@@ -126,13 +126,18 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
     assert.equal(tablesBefore.rowCount, 0);
 
     const first = await runMigrations(pool);
-    assert.deepEqual(first.appliedNow, ['0001_skeleton.sql', '0002_schema_v1.sql', '0003_invites.sql']);
+    assert.deepEqual(first.appliedNow, [
+      '0001_skeleton.sql',
+      '0002_schema_v1.sql',
+      '0003_invites.sql',
+      '0004_project_roles.sql',
+    ]);
     const second = await runMigrations(pool);
     assert.deepEqual(second.appliedNow, []);
 
     const status = await checkMigrations(pool);
     assert.deepEqual(status, {
-      applied: ['0001_skeleton.sql', '0002_schema_v1.sql', '0003_invites.sql'],
+      applied: ['0001_skeleton.sql', '0002_schema_v1.sql', '0003_invites.sql', '0004_project_roles.sql'],
       pending: [],
       mismatched: [],
       unknown: [],

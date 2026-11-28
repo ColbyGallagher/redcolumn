@@ -182,4 +182,146 @@ describe('createServerClient', () => {
       (err: unknown) => err instanceof ServerClientError && err.status === 410 && err.code === 'invite_expired',
     );
   });
+
+  it('supports project creation, member listing, invites, role updates, and removal', async () => {
+    const calls: { url: string; method: string; credentials?: RequestCredentials; body?: string }[] = [];
+
+    const client = createServerClient(async (input, init) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      calls.push({
+        url,
+        method,
+        credentials: init?.credentials,
+        body: typeof init?.body === 'string' ? init.body : undefined,
+      });
+
+      if (url === '/api/projects' && method === 'POST') {
+        return jsonResponse(
+          {
+            project: {
+              id: 'p-2',
+              name: 'River Tunnel',
+              number: 'NB-202',
+              description: 'Structural review',
+              role: 'project_admin',
+              createdAt: '2026-11-10T00:00:00.000Z',
+            },
+            scope: {
+              id: 's-2',
+              projectId: 'p-2',
+              projectName: 'River Tunnel',
+              kind: 'session',
+              name: 'General review',
+              state: 'open',
+              createdAt: '2026-11-10T00:00:00.000Z',
+            },
+            lane: { id: 'l-2', name: 'Team' },
+            role: 'project_admin',
+          },
+          201,
+        );
+      }
+      if (url === '/api/projects/p-2' && method === 'GET') {
+        return jsonResponse({
+          project: {
+            id: 'p-2',
+            name: 'River Tunnel',
+            number: 'NB-202',
+            description: 'Structural review',
+            role: 'project_admin',
+            createdAt: '2026-11-10T00:00:00.000Z',
+          },
+          role: 'project_admin',
+        });
+      }
+      if (url === '/api/projects/p-2/members' && method === 'GET') {
+        return jsonResponse({
+          role: 'project_admin',
+          members: [
+            {
+              userId: 'u-1',
+              email: 'ada@northbridge.example',
+              name: 'Ada Admin',
+              role: 'project_admin',
+              state: 'active',
+              createdAt: '2026-11-10T00:00:00.000Z',
+            },
+          ],
+          invites: [],
+        });
+      }
+      if (url === '/api/projects/p-2/invites' && method === 'POST') {
+        return jsonResponse(
+          {
+            invite: {
+              id: 'inv-1',
+              email: 'ben@northbridge.example',
+              name: null,
+              role: 'reviewer',
+              expiresAt: '2026-11-17T00:00:00.000Z',
+              createdAt: '2026-11-10T00:00:00.000Z',
+            },
+            token: 'tok_invite1234',
+            inviteUrl: '/invite/tok_invite1234',
+          },
+          201,
+        );
+      }
+      if (url === '/api/projects/p-2/members/u-2' && method === 'PATCH') {
+        return jsonResponse({
+          member: {
+            userId: 'u-2',
+            email: 'ben@northbridge.example',
+            name: 'Ben Reviewer',
+            role: 'viewer',
+            state: 'active',
+            createdAt: '2026-11-10T00:00:00.000Z',
+          },
+        });
+      }
+      if (url === '/api/projects/p-2/members/u-1' && method === 'PATCH') {
+        return jsonResponse({ error: 'last_admin' }, 409);
+      }
+      if (url === '/api/projects/p-2/members/u-2' && method === 'DELETE') {
+        return jsonResponse({ ok: true, userId: 'u-2' });
+      }
+      return jsonResponse({ error: 'not_found' }, 404);
+    });
+
+    const created = await client.createProject({
+      name: 'River Tunnel',
+      number: 'NB-202',
+      description: 'Structural review',
+    });
+    assert.equal(created.project.id, 'p-2');
+    assert.equal(created.role, 'project_admin');
+
+    const proj = await client.getProject('p-2');
+    assert.equal(proj.project.name, 'River Tunnel');
+
+    const members = await client.listProjectMembers('p-2');
+    assert.equal(members.members.length, 1);
+
+    const invited = await client.createProjectInvite('p-2', {
+      email: 'ben@northbridge.example',
+      role: 'reviewer',
+    });
+    assert.equal(invited.inviteUrl, '/invite/tok_invite1234');
+
+    const updated = await client.updateProjectMemberRole('p-2', 'u-2', 'viewer');
+    assert.equal(updated.role, 'viewer');
+
+    await assert.rejects(
+      () => client.updateProjectMemberRole('p-2', 'u-1', 'reviewer'),
+      (err: unknown) => err instanceof ServerClientError && err.status === 409 && err.code === 'last_admin',
+    );
+
+    await client.removeProjectMember('p-2', 'u-2');
+
+    assert.equal(calls.length, 7);
+    for (const call of calls) {
+      assert.equal(call.credentials, 'same-origin');
+    }
+  });
 });

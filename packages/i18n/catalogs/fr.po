@@ -377,7 +377,7 @@ msgstr "Sens horaire"
 msgid "Clockwise 90°"
 msgstr "Sens horaire 90°"
 
-#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/ApplyStitchingDialog.tsx apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/CadReportBar.tsx apps/web/src/components/CloseOutDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CommentsTableDialog.tsx apps/web/src/components/CompareResultsPanel.tsx apps/web/src/components/CountSymbolsDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/DocumentPropertiesDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/GeospatialPanel.tsx apps/web/src/components/InstallDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LibraryDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/ProductListsDialog.tsx apps/web/src/components/QuantitiesDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/RevisionsDialog.tsx apps/web/src/components/ScaleRegionsPanel.tsx apps/web/src/components/ScriptsDialog.tsx apps/web/src/components/SheetScaleReview.tsx apps/web/src/components/SheetSyncDialog.tsx apps/web/src/components/SpellCheckDialog.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/components/TemplatesDialog.tsx apps/web/src/components/UndoHistoryDialog.tsx apps/web/src/components/VisualSearchPanel.tsx apps/web/src/components/WhatsNewDialog.tsx apps/web/src/components/sessions/InviteDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx apps/web/src/takeoff/PortalDialog.tsx
+#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/ApplyStitchingDialog.tsx apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/CadReportBar.tsx apps/web/src/components/CloseOutDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CommentsTableDialog.tsx apps/web/src/components/CompareResultsPanel.tsx apps/web/src/components/CountSymbolsDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/DocumentPropertiesDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/GeospatialPanel.tsx apps/web/src/components/InstallDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LibraryDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/ProductListsDialog.tsx apps/web/src/components/QuantitiesDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/RevisionsDialog.tsx apps/web/src/components/ScaleRegionsPanel.tsx apps/web/src/components/ScriptsDialog.tsx apps/web/src/components/SheetScaleReview.tsx apps/web/src/components/SheetSyncDialog.tsx apps/web/src/components/SpellCheckDialog.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/components/TemplatesDialog.tsx apps/web/src/components/UndoHistoryDialog.tsx apps/web/src/components/VisualSearchPanel.tsx apps/web/src/components/WhatsNewDialog.tsx apps/web/src/components/sessions/InviteDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx apps/web/src/review/ProjectMembersPanel.tsx apps/web/src/takeoff/PortalDialog.tsx
 msgid "Close"
 msgstr "Fermer"
 
@@ -3900,7 +3900,7 @@ msgstr "Ajuste l’image sélectionnée. Annuler la rétablit."
 msgid "Applies to the {count} selected pictures; the first is shown."
 msgstr "S’applique aux {count} images sélectionnées ; la première est affichée."
 
-#: apps/web/src/components/AdjustImageDialog.tsx apps/web/src/components/ApplyRedactionsDialog.tsx apps/web/src/components/ApplyStitchingDialog.tsx apps/web/src/components/AskText.tsx apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/AssemblyInputs.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/BulkInsertDialog.tsx apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/CalibrateDialog.tsx apps/web/src/components/CameraDialog.tsx apps/web/src/components/ChangeColoursDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CombineDialog.tsx apps/web/src/components/CommentDialog.tsx apps/web/src/components/CompareDialog.tsx apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/CountToolDialog.tsx apps/web/src/components/DeletePagesDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/DocumentPropertiesDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/FilterBuilderDialog.tsx apps/web/src/components/HeaderFooterDialog.tsx apps/web/src/components/HyperlinkDialog.tsx apps/web/src/components/ImportExcelDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/JobsBar.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/ManualQuantityDialog.tsx apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/MultiplyDialog.tsx apps/web/src/components/NewPdfDialog.tsx apps/web/src/components/OcrDialog.tsx apps/web/src/components/PageToolsDialog.tsx apps/web/src/components/PictureColoursDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/PrintDialog.tsx apps/web/src/components/ProcessDialog.tsx apps/web/src/components/ProductListsDialog.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/PublishDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/ReportsDialog.tsx apps/web/src/components/RevuMigrationDialog.tsx apps/web/src/components/ScaleRegionsPanel.tsx apps/web/src/components/ScaleRequiredDialog.tsx apps/web/src/components/ScaleToLengthDialog.tsx apps/web/src/components/SecurityDialog.tsx apps/web/src/components/SetScaleDialog.tsx apps/web/src/components/SetsPanel.tsx apps/web/src/components/SheetSyncDialog.tsx apps/web/src/components/SignaturesPanel.tsx apps/web/src/components/SlipSheetDialog.tsx apps/web/src/components/SoundDialog.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/components/StepUpDialog.tsx apps/web/src/components/TableDialog.tsx apps/web/src/components/TakeoffReview.tsx apps/web/src/components/TemplatesDialog.tsx apps/web/src/components/ToolLibraryReview.tsx apps/web/src/components/UnsavedChangesDialog.tsx apps/web/src/components/sessions/InviteDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/connect/ConnectView.tsx apps/web/src/takeoff/PortalDialog.tsx
+#: apps/web/src/components/AdjustImageDialog.tsx apps/web/src/components/ApplyRedactionsDialog.tsx apps/web/src/components/ApplyStitchingDialog.tsx apps/web/src/components/AskText.tsx apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/AssemblyInputs.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/BulkInsertDialog.tsx apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/CalibrateDialog.tsx apps/web/src/components/CameraDialog.tsx apps/web/src/components/ChangeColoursDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CombineDialog.tsx apps/web/src/components/CommentDialog.tsx apps/web/src/components/CompareDialog.tsx apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/CountToolDialog.tsx apps/web/src/components/DeletePagesDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/DocumentPropertiesDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/FilterBuilderDialog.tsx apps/web/src/components/HeaderFooterDialog.tsx apps/web/src/components/HyperlinkDialog.tsx apps/web/src/components/ImportExcelDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/JobsBar.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/ManualQuantityDialog.tsx apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/MultiplyDialog.tsx apps/web/src/components/NewPdfDialog.tsx apps/web/src/components/OcrDialog.tsx apps/web/src/components/PageToolsDialog.tsx apps/web/src/components/PictureColoursDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/PrintDialog.tsx apps/web/src/components/ProcessDialog.tsx apps/web/src/components/ProductListsDialog.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/PublishDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/ReportsDialog.tsx apps/web/src/components/RevuMigrationDialog.tsx apps/web/src/components/ScaleRegionsPanel.tsx apps/web/src/components/ScaleRequiredDialog.tsx apps/web/src/components/ScaleToLengthDialog.tsx apps/web/src/components/SecurityDialog.tsx apps/web/src/components/SetScaleDialog.tsx apps/web/src/components/SetsPanel.tsx apps/web/src/components/SheetSyncDialog.tsx apps/web/src/components/SignaturesPanel.tsx apps/web/src/components/SlipSheetDialog.tsx apps/web/src/components/SoundDialog.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/components/StepUpDialog.tsx apps/web/src/components/TableDialog.tsx apps/web/src/components/TakeoffReview.tsx apps/web/src/components/TemplatesDialog.tsx apps/web/src/components/ToolLibraryReview.tsx apps/web/src/components/UnsavedChangesDialog.tsx apps/web/src/components/sessions/InviteDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/connect/ConnectView.tsx apps/web/src/review/CreateProjectForm.tsx apps/web/src/takeoff/PortalDialog.tsx
 msgid "Cancel"
 msgstr "Annuler"
 
@@ -4356,7 +4356,7 @@ msgstr "Formule de quantité"
 msgid "Read {code} as: length × height (the measurement’s depth if it has one, else the Wall Height variable) × 2 sides ÷ the area of one board."
 msgstr "Lisez {code} ainsi : longueur × hauteur (la profondeur de la mesure si elle en a une, sinon la variable Hauteur de mur) × 2 faces ÷ la surface d’une plaque."
 
-#: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/BulkInsertDialog.tsx apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CombineDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/GeospatialPanel.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/OfflinePrefs.tsx apps/web/src/components/Ribbon.tsx apps/web/src/components/SessionsPanel.tsx apps/web/src/components/SlipSheetDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx
+#: apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/BulkInsertDialog.tsx apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CombineDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/GeospatialPanel.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/OfflinePrefs.tsx apps/web/src/components/Ribbon.tsx apps/web/src/components/SessionsPanel.tsx apps/web/src/components/SlipSheetDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx apps/web/src/review/ProjectMembersPanel.tsx
 msgid "Remove"
 msgstr "Retirer"
 
@@ -10354,7 +10354,7 @@ msgstr "⚠ {missingCount} obligatoires manquants"
 msgid "Compact tool list (fewer tokens)"
 msgstr ""
 
-#: apps/web/src/components/McpPrefs.tsx apps/web/src/components/sessions/InviteDialog.tsx
+#: apps/web/src/components/McpPrefs.tsx apps/web/src/components/sessions/InviteDialog.tsx apps/web/src/review/ProjectMembersPanel.tsx
 msgid "Copied"
 msgstr "Copié"
 
@@ -13370,7 +13370,7 @@ msgstr "Nouveau projet"
 msgid "New folder"
 msgstr "Nouveau dossier"
 
-#: apps/web/src/components/ProjectsPanel.tsx
+#: apps/web/src/components/ProjectsPanel.tsx apps/web/src/connect/ConnectView.tsx apps/web/src/review/CreateProjectForm.tsx
 msgid "New project"
 msgstr "Nouveau projet"
 
@@ -13498,7 +13498,7 @@ msgstr "Taille du projet"
 msgid "Project files"
 msgstr "Fichiers du projet"
 
-#: apps/web/src/components/ProjectsPanel.tsx
+#: apps/web/src/components/ProjectsPanel.tsx apps/web/src/review/CreateProjectForm.tsx
 msgid "Project name"
 msgstr "Nom du projet"
 
@@ -21009,6 +21009,10 @@ msgid "Checking invitation…"
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
+msgid "Close form"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
 msgid "Confirm password"
 msgstr ""
 
@@ -21020,7 +21024,7 @@ msgstr ""
 msgid "Continue to sign in"
 msgstr ""
 
-#: apps/web/src/connect/ConnectView.tsx
+#: apps/web/src/connect/ConnectView.tsx apps/web/src/review/CreateProjectForm.tsx apps/web/src/review/ProjectMembersPanel.tsx
 msgid "Could not reach the server. Check your connection and try again."
 msgstr ""
 
@@ -21038,6 +21042,10 @@ msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
 msgid "Enter both your email address and password."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Hide members"
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
@@ -21061,6 +21069,10 @@ msgid "Locked"
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
+msgid "Members"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
 msgid "No projects or review sessions yet."
 msgstr ""
 
@@ -21078,6 +21090,10 @@ msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
 msgid "Passwords do not match."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Please enter a valid email address."
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
@@ -21100,8 +21116,12 @@ msgstr ""
 msgid "Projects and sessions assigned to your account will appear here."
 msgstr ""
 
-#: apps/web/src/connect/ConnectView.tsx
+#: apps/web/src/connect/ConnectView.tsx apps/web/src/review/ProjectMembersPanel.tsx
 msgid "Request failed ({code})."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Role: {role}"
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
@@ -22846,6 +22866,142 @@ msgstr "Impossible de lire {name} comme une image."
 msgid "{name} is {value} MB; attachments can be up to 25 MB."
 msgstr "{name} fait {value} Mo ; les pièces jointes peuvent atteindre 25 Mo."
 
+#: apps/web/src/review/CreateProjectForm.tsx
+msgid "Brief scope or notes for reviewers"
+msgstr ""
+
+#: apps/web/src/review/CreateProjectForm.tsx
+msgid "Could not create project ({code})."
+msgstr ""
+
+#: apps/web/src/review/CreateProjectForm.tsx
+msgid "Create project"
+msgstr ""
+
+#: apps/web/src/review/CreateProjectForm.tsx apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Creating…"
+msgstr ""
+
+#: apps/web/src/review/CreateProjectForm.tsx
+msgid "Description (optional)"
+msgstr ""
+
+#: apps/web/src/review/CreateProjectForm.tsx
+msgid "Please enter a valid project name."
+msgstr ""
+
+#: apps/web/src/review/CreateProjectForm.tsx
+msgid "Project number (optional)"
+msgstr ""
+
+#: apps/web/src/review/CreateProjectForm.tsx
+msgid "Your session has expired. Please sign in again."
+msgstr ""
+
+#: apps/web/src/review/CreateProjectForm.tsx
+msgid "e.g. Harbour Bridge Upgrade"
+msgstr ""
+
+#: apps/web/src/review/CreateProjectForm.tsx
+msgid "e.g. NB-104"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Admin"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Cannot demote or remove the last active project admin."
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Copy link"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Create invite link"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Email (optional for link-only invite)"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Expires {date}"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Invite member"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Link-only invitation"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Loading members…"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Members ({count})"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Only project admins can manage members and invitations."
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Pending invitations ({count})"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Please choose a valid project role."
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Please enter a valid email address, or leave blank for a link-only invite."
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Project members"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Project not found or you no longer have access."
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Reviewer"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Role"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Role for {name}"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Shareable single-use invite link"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "This member is no longer on the project."
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Viewer"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "reviewer@example.com"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx apps/web/src/studio/projects/Project.ts
+msgid "you"
+msgstr "vous"
+
 #: apps/web/src/sheets/standardsWizard.ts
 msgid "Drag a box around the current revision (the letter or number in the revision box, not the revision table)."
 msgstr "Tracez un cadre autour de la révision actuelle (la lettre ou le numéro dans la case de révision, pas le tableau des révisions)."
@@ -23373,10 +23529,6 @@ msgstr "Vous pouvez consulter ce projet mais pas le modifier. Demandez au propri
 #: apps/web/src/studio/projects/Project.ts
 msgid "by {value}"
 msgstr "par {value}"
-
-#: apps/web/src/studio/projects/Project.ts
-msgid "you"
-msgstr "vous"
 
 #: apps/web/src/studio/projects/Project.ts
 msgid "{by} has this file checked out."

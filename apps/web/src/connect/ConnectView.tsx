@@ -1,8 +1,11 @@
 import { msg } from '@nb/i18n';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { CreateProjectForm } from '../review/CreateProjectForm';
+import { ProjectMembersPanel, projectRoleLabel } from '../review/ProjectMembersPanel';
 import {
   createServerClient,
   ServerClientError,
+  type CreateProjectResponse,
   type InvitePreview,
   type ServerClient,
   type ServerSessionsResponse,
@@ -49,6 +52,8 @@ function describeAuthError(err: unknown): string {
         return msg('An account with this email already exists. Sign in first to accept the invitation.');
       case 'invalid_password':
         return msg('Password must be at least 8 characters long.');
+      case 'invalid_email':
+        return msg('Please enter a valid email address.');
       case 'invalid_name':
         return msg('Please enter your display name.');
       default:
@@ -94,6 +99,8 @@ export function ConnectView({
   const [sessionsData, setSessionsData] = useState<ServerSessionsResponse>({ projects: [], sessions: [] });
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [showCreateProject, setShowCreateProject] = useState(false);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
   const updateUser = useCallback(
     (next: ServerUser | null) => {
@@ -158,7 +165,7 @@ export function ConnectView({
       .then((preview) => {
         if (!live) return;
         setInvitePreview(preview);
-        setEmail(preview.email);
+        setEmail(preview.email ?? '');
         if (preview.name) setDisplayName(preview.name);
       })
       .catch((err) => {
@@ -220,7 +227,7 @@ export function ConnectView({
 
     setSubmitting(true);
     try {
-      if (!user && invitePreview.hasAccount) {
+      if (!user && invitePreview.hasAccount && invitePreview.email) {
         const signedIn = await client.login(invitePreview.email, password);
         updateUser(signedIn);
         setPassword('');
@@ -234,6 +241,7 @@ export function ConnectView({
       const acceptedUser = user
         ? await client.acceptInvite(inviteToken)
         : await client.acceptInvite(inviteToken, {
+            email: invitePreview.email ? undefined : email.trim() || undefined,
             name: displayName.trim() || undefined,
             password,
           });
@@ -298,12 +306,19 @@ export function ConnectView({
           ) : invitePreview ? (
             <form className="connect-form" onSubmit={handleAcceptInvite}>
               <div className="connect-invite-meta">
-                <p>
-                  {msg('Invited email: {email}', { email: invitePreview.email })}
-                </p>
+                {invitePreview.email && (
+                  <p>
+                    {msg('Invited email: {email}', { email: invitePreview.email })}
+                  </p>
+                )}
                 {invitePreview.projectName && (
                   <p>
                     {msg('Project: {name}', { name: invitePreview.projectName })}
+                  </p>
+                )}
+                {invitePreview.projectRole && (
+                  <p>
+                    {msg('Role: {role}', { role: projectRoleLabel(invitePreview.projectRole) })}
                   </p>
                 )}
                 {invitePreview.scopeName && (
@@ -335,6 +350,18 @@ export function ConnectView({
                 </>
               ) : (
                 <>
+                  {!invitePreview.email && (
+                    <label className="connect-field">
+                      <span>{msg('Email')}</span>
+                      <input
+                        type="email"
+                        autoComplete="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                      />
+                    </label>
+                  )}
                   <label className="connect-field">
                     <span>{msg('Display name')}</span>
                     <input
@@ -496,7 +523,29 @@ export function ConnectView({
         )}
 
         <section className="connect-section" aria-label={msg('Projects & sessions')}>
-          <h2>{msg('Projects & review sessions')}</h2>
+          <div className="review-section-bar">
+            <h2>{msg('Projects & review sessions')}</h2>
+            <button
+              type="button"
+              className="btn primary"
+              onClick={() => setShowCreateProject((prev) => !prev)}
+            >
+              {showCreateProject ? msg('Close form') : msg('New project')}
+            </button>
+          </div>
+
+          {showCreateProject && (
+            <CreateProjectForm
+              client={client}
+              onCreated={(created: CreateProjectResponse) => {
+                setShowCreateProject(false);
+                setSelectedProjectId(created.project.id);
+                void loadSessions();
+              }}
+              onCancel={() => setShowCreateProject(false)}
+            />
+          )}
+
           {sessionsLoading ? (
             <p className="connect-muted">{msg('Loading…')}</p>
           ) : sessionsData.projects.length === 0 && sessionsData.sessions.length === 0 ? (
@@ -525,20 +574,55 @@ export function ConnectView({
                 <div className="connect-projects-block">
                   <h3>{msg('Projects')}</h3>
                   <ul className="connect-list">
-                    {sessionsData.projects.map((p) => (
-                      <li key={p.id} className="connect-list-item">
-                        <div>
-                          <strong>{p.name}</strong>
-                          {p.number && <span className="connect-item-meta">{p.number}</span>}
-                        </div>
-                      </li>
-                    ))}
+                    {sessionsData.projects.map((p) => {
+                      const isSelected = selectedProjectId === p.id;
+                      return (
+                        <li
+                          key={p.id}
+                          className={`connect-list-item${isSelected ? ' is-selected' : ''}`}
+                        >
+                          <div>
+                            <strong>{p.name}</strong>
+                            {p.number && <span className="connect-item-meta">{p.number}</span>}
+                            {p.description && <span className="connect-item-meta">{p.description}</span>}
+                          </div>
+                          <div className="connect-actions">
+                            {p.role && <span className="connect-pill">{projectRoleLabel(p.role)}</span>}
+                            <button
+                              type="button"
+                              className="btn"
+                              onClick={() => setSelectedProjectId(isSelected ? null : p.id)}
+                            >
+                              {isSelected ? msg('Hide members') : msg('Members')}
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               )}
             </div>
           )}
         </section>
+
+        {selectedProjectId && (() => {
+          const selectedProject = sessionsData.projects.find((p) => p.id === selectedProjectId);
+          if (!selectedProject) return null;
+          return (
+            <ProjectMembersPanel
+              client={client}
+              project={selectedProject}
+              currentUserId={user.id}
+              serverOrigin={config.origin}
+              onClose={() => setSelectedProjectId(null)}
+              onProjectAccessLost={() => {
+                setSelectedProjectId(null);
+                void loadSessions();
+              }}
+            />
+          );
+        })()}
 
         <footer className="connect-workspace-footer">
           <div className="connect-local-row">
