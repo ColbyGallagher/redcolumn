@@ -15,7 +15,6 @@ import { canonicalizeJson, hashOperationPayload } from './pipeline.ts';
 import { runCli } from './cli.ts';
 import { createLogger } from './logger.ts';
 import { contentTypeForPath, isReservedServerPath, resolveStaticPath } from './static.ts';
-import { authorizeStream } from './ws.ts';
 
 describe('admin CLI', () => {
   const io = (lines: { stdout: string[]; stderr: string[] }, stdin = '') => ({
@@ -43,14 +42,6 @@ describe('admin CLI', () => {
     const usage = lines.stdout.join('\n');
     assert.match(usage, /--password-stdin/);
     assert.doesNotMatch(usage, /--password </);
-  });
-});
-
-describe('stream access', () => {
-  it('allows every signed-in user on every stream until stream permissions exist', () => {
-    const actor = { userId: 'user-1', partyId: null, groupId: null };
-    assert.equal(authorizeStream(actor, 'doc-1', 'read'), true);
-    assert.equal(authorizeStream(actor, 'doc-1', 'write'), true);
   });
 });
 

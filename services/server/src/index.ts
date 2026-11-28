@@ -4,6 +4,7 @@ import { loadConfig } from './config.ts';
 import { createDb } from './db.ts';
 import { createLogger } from './logger.ts';
 import { runMigrations } from './migrate.ts';
+import { ensureReaderRole } from './syncFeed.ts';
 
 export * from './admin.ts';
 export * from './app.ts';
@@ -31,6 +32,8 @@ export async function startServer(env: NodeJS.ProcessEnv = process.env): Promise
       logger.info({ applied: result.appliedNow }, 'Applied database migrations');
     }
   }
+  // Document content is read through this database role, under row-level security.
+  await ensureReaderRole(pool);
 
   const { app } = buildServer({ config, db, pool, logger });
   const address = await app.listen({ host: config.host, port: config.port });

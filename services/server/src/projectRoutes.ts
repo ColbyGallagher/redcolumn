@@ -31,10 +31,16 @@ async function authenticateRequest(
   return session.user;
 }
 
+export interface ProjectRoutesHooks {
+  /** Called after a member's role changed or a member was removed. */
+  onMembershipChanged?: () => void;
+}
+
 export function registerProjectRoutes(
   app: FastifyInstance,
   db: Kysely<Database>,
   config: ServerConfig,
+  hooks: ProjectRoutesHooks = {},
 ): void {
   app.post<{ Body: { name?: unknown; number?: unknown; description?: unknown } }>(
     '/api/projects',
@@ -153,6 +159,7 @@ export function registerProjectRoutes(
       if (!result.ok) {
         return reply.code(result.status).send({ error: result.code });
       }
+      hooks.onMembershipChanged?.();
       return reply.code(200).send({ member: result.member });
     },
   );
@@ -167,6 +174,7 @@ export function registerProjectRoutes(
       if (!result.ok) {
         return reply.code(result.status).send({ error: result.code });
       }
+      hooks.onMembershipChanged?.();
       return reply.code(200).send({ ok: true, userId: result.userId });
     },
   );
