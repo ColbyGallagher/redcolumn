@@ -1,4 +1,6 @@
 export * from './types.ts';
+export * from './wsProtocol.ts';
+export { WsSyncTransport, type WebSocketLike, type WsSyncTransportOptions } from './wsTransport.ts';
 export {
   defaultSyncPersistence,
   IndexedDbSyncPersistence,
