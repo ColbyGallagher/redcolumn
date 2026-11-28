@@ -97,3 +97,30 @@ test('the package builds no code at run time and loads nothing Node- or DOM-only
     for (const line of text.split('\n').filter((l) => l.includes("from '@nb/markup'"))) assert.match(line, /^import type /, `${name}: ${line}`);
   }
 });
+
+test('text a database cannot store is refused wherever it is, keys included', () => {
+  const bad = ['nul\u0000here', 'cut \ud83d', '\ude00 cut', '\ud83dx'];
+  for (const text of bad) {
+    const cases = {
+      comment: { ...good.create, payload: { ...good.create.payload, content: { style: STYLE, comment: text } } },
+      style: { ...good.create, payload: { ...good.create.payload, content: { style: { ...STYLE, dash: text } } } },
+      nested: { ...good.create, payload: { ...good.create.payload, content: { style: STYLE, extra: [{ deep: [text] }] } } },
+      nestedValue: { ...good.create, payload: { ...good.create.payload, content: { style: STYLE, meta: [{ deep: [text] }] } } },
+      nestedKey: { ...good.create, payload: { ...good.create.payload, content: { style: STYLE, meta: { [text]: 1 } } } },
+      columnKey: { ...good.patch, payload: { fields: { [text]: '1' } } },
+      columnValue: { ...good.patch, payload: { fields: { cost: text } } },
+      basedOnKey: { ...good.patch, basedOn: { [text]: 1 } },
+      title: { ...good.issue, payload: { ...good.issue.payload, title: text } },
+      body: { ...good.response, payload: { ...good.response.payload, body: text } },
+    };
+    for (const [name, input] of Object.entries(cases)) {
+      // As it arrives: `JSON.parse` gives back the same broken string.
+      assert.match(refused(wire(input)), /cannot be saved/, `${name} with ${JSON.stringify(text)}`);
+    }
+  }
+});
+
+test('a whole surrogate pair is ordinary text', () => {
+  const input = { ...good.create, payload: { ...good.create.payload, content: { style: STYLE, comment: 'Done \u{1F600}\u{10FFFF}', fields: { '\u{1F3D7}': 'ok' } } } };
+  assert.equal(parseOperation(wire(input)).ok, true);
+});

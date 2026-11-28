@@ -20,8 +20,19 @@ export interface WsSyncTransportOptions {
    * page's own server; a client outside a browser supplies one that adds it.
    */
   createSocket?: (url: string) => WebSocketLike;
-  /** The first and longest wait before reconnecting. Waits double, with jitter. */
-  backoff?: { minMs: number; maxMs: number };
+  /**
+   * The first and longest wait before reconnecting. Waits double, with jitter. They start again
+   * from the first once the server has answered an operation, or a document has stayed open for
+   * `stableMs` (10 s). Opening it is not enough: a failure that repeats right after must back off.
+   */
+  backoff?: { minMs: number; maxMs: number; stableMs?: number };
+  /**
+   * Asks the server, over HTTP, whether the session has ended: true only when it says so. A
+   * session that ends while there is no socket is otherwise never heard of, since a refused
+   * upgrade looks like any network failure. Asked after a connection fails before the server's
+   * welcome.
+   */
+  checkSessionEnded?: () => Promise<boolean>;
   /** How often to check the connection is alive. */
   pingIntervalMs?: number;
   random?: () => number;
@@ -29,6 +40,10 @@ export interface WsSyncTransportOptions {
 
 const DEFAULT_BACKOFF = { minMs: 500, maxMs: 15_000 };
 const DEFAULT_PING_MS = 25_000;
+const DEFAULT_STABLE_MS = 10_000;
+
+const encoder = new TextEncoder();
+const jsonBytes = (value: unknown): number => encoder.encode(JSON.stringify(value)).byteLength;
 
 /**
  * A {@link SyncTransport} for one document stream over the server's WebSocket. It reconnects with
@@ -54,6 +69,9 @@ export class WsSyncTransport implements SyncTransport {
   private heard = false;
   private silentPings = 0;
   private maxOpBytes = Number.POSITIVE_INFINITY;
+  private maxBatchBytes = Number.POSITIVE_INFINITY;
+  private stableTimer: ReturnType<typeof setTimeout> | null = null;
+  private checkingSession = false;
   private pageIndex: number | null = null;
   private reconnect: (() => void) | null = null;
   private _connectionId: string | null = null;
@@ -142,8 +160,11 @@ export class WsSyncTransport implements SyncTransport {
   send(ops: readonly Operation[]): void {
     const first = ops[0];
     if (!first || !this.greeted || !this.handshake) return;
-    const body = ops.length === 1 && first.batchId === undefined ? first : ops;
-    if (new TextEncoder().encode(JSON.stringify(body)).byteLength > this.maxOpBytes) {
+    const single = ops.length === 1 && first.batchId === undefined;
+    const tooLarge = single
+      ? jsonBytes(first) > this.maxOpBytes
+      : jsonBytes(ops) > this.maxBatchBytes || ops.some((op) => jsonBytes(op) > this.maxOpBytes);
+    if (tooLarge) {
       // Sending it would only be refused again and again: it goes to the inbox instead.
       const opIds = ops.map((op) => op.opId);
       queueMicrotask(() =>
@@ -201,6 +222,7 @@ export class WsSyncTransport implements SyncTransport {
         this.greeted = true;
         this._connectionId = frame.connectionId;
         this.maxOpBytes = frame.maxOpBytes;
+        this.maxBatchBytes = frame.maxBatchBytes ?? frame.maxOpBytes;
         this.setState('connected');
         this.sendOpen();
         return;
@@ -216,7 +238,8 @@ export class WsSyncTransport implements SyncTransport {
         return;
       case 'sync':
         if (frame.streamId !== this.handshake?.streamId) return;
-        if (frame.message.type === 'welcome') this.attempts = 0;
+        if (frame.message.type === 'welcome') this.startStableTimer();
+        if (frame.message.type === 'ack' || frame.message.type === 'reject') this.attempts = 0;
         if (frame.message.type === 'revoked') this.wanted = false;
         this.deliver(frame.message);
         if (frame.message.type === 'welcome') this.sendPage();
@@ -263,14 +286,55 @@ export class WsSyncTransport implements SyncTransport {
   }
 
   private handleClose(code: number): void {
+    const greeted = this.greeted;
     this.releaseSocket();
     this.setState('disconnected');
     if (code === WS_SESSION_ENDED) {
-      this.wanted = false;
-      for (const listener of [...this.sessionEndedListeners]) listener();
+      this.sessionEnded();
       return;
     }
-    if (this.wanted) this.scheduleRetry();
+    if (!this.wanted) return;
+    this.scheduleRetry();
+    if (!greeted) this.askWhetherSessionEnded();
+  }
+
+  /** Stops for good: the user has to sign in again. */
+  private sessionEnded(): void {
+    this.wanted = false;
+    this.clearRetry();
+    if (this.socket) this.dropSocket();
+    for (const listener of [...this.sessionEndedListeners]) listener();
+  }
+
+  private askWhetherSessionEnded(): void {
+    const check = this.options.checkSessionEnded;
+    if (!check || this.checkingSession) return;
+    this.checkingSession = true;
+    void check()
+      .then(
+        (ended) => {
+          // Not if the answer is out of date: closed meanwhile, or the server has let us in.
+          if (ended && this.wanted && !this.greeted) this.sessionEnded();
+        },
+        // No answer, as when offline: nothing is known, and reconnecting carries on.
+        () => undefined,
+      )
+      .finally(() => {
+        this.checkingSession = false;
+      });
+  }
+
+  private startStableTimer(): void {
+    this.clearStableTimer();
+    this.stableTimer = setTimeout(() => {
+      this.stableTimer = null;
+      this.attempts = 0;
+    }, this.options.backoff?.stableMs ?? DEFAULT_STABLE_MS);
+  }
+
+  private clearStableTimer(): void {
+    if (this.stableTimer !== null) clearTimeout(this.stableTimer);
+    this.stableTimer = null;
   }
 
   private dropSocket(): void {
@@ -298,6 +362,7 @@ export class WsSyncTransport implements SyncTransport {
     this._connectionId = null;
     if (this.pingTimer !== null) clearInterval(this.pingTimer);
     this.pingTimer = null;
+    this.clearStableTimer();
     for (const listener of [...this.presenceListeners]) listener([]);
   }
 

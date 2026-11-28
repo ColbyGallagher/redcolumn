@@ -39,8 +39,10 @@ export type ServerFrame =
       protocolVersion: number;
       user: { id: string; name: string };
       connectionId: string;
-      /** The largest operation, or batch of them, the server accepts, in bytes of JSON. */
+      /** The largest operation the server accepts, in bytes of JSON. */
       maxOpBytes: number;
+      /** The largest batch of operations it accepts, in bytes of JSON. */
+      maxBatchBytes: number;
     }
   | { type: 'pong' }
   | { type: 'error'; code: string; message?: string; streamId?: string; server?: ProtocolRange }

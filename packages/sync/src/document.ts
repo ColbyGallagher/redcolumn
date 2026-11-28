@@ -8,7 +8,6 @@ import {
   applyOp,
   columnGroupKey,
   emptyState,
-  MAX_BATCH_SIZE,
   own,
   PROTOCOL_VERSION,
   SUPPORTED_PROTOCOL,
@@ -25,7 +24,7 @@ import {
 import { SOURCE_RANK, type SheetInfo } from '@nb/sheets';
 import { defaultSyncPersistence, type SyncPersistence } from './persistence.ts';
 import { diffMarkup, projectMarkups, splitMarkup } from './project.ts';
-import { baseForGroup, buildRetryOps, groupPendingUnits, rebasePending } from './rebase.ts';
+import { baseForGroup, buildRetryOps, groupPendingUnits, rebasePending, splitIntoBatches } from './rebase.ts';
 import type {
   ConnectionState,
   ForwardCheck,
@@ -81,8 +80,8 @@ function describeOps(ops: readonly Operation[]): string {
 }
 
 /**
- * Applies `ops` as consecutive units (single ops or batches of at most `MAX_BATCH_SIZE`), the way
- * the server receives them. Stops at the first refused unit.
+ * Applies `ops` as consecutive units (single ops or batches), the way the server receives them.
+ * Stops at the first refused unit.
  */
 function applyUnits(
   state: OpsState,
@@ -472,6 +471,18 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     this.notifyAll();
     void this.flush();
     return true;
+  }
+
+  /**
+   * Adds changes the server refused to another copy of this document, such as one left by a window
+   * that has closed, to the rejected list. `whenPersisted` then says when they are saved here.
+   */
+  adoptRejected(entries: readonly InboxEntry[]): void {
+    const fresh = entries.filter((entry) => !this.inbox.some((e) => e.id === entry.id));
+    if (!fresh.length) return;
+    this.inbox = [...this.inbox, ...structuredClone(fresh)];
+    this.schedulePersist();
+    this.notifySync();
   }
 
   // ---- MarkupDocument core ----------------------------------------------------------------
@@ -1282,10 +1293,12 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
 
   private stampBatch(ops: readonly Operation[]): Operation[] {
     if (ops.length <= 1) return [...ops];
-    // Split into chunks if larger than MAX_BATCH_SIZE.
+    const markupOf = (op: Operation): string => {
+      if (op.type === 'placement.create') return op.payload.markupId;
+      return (op.type.startsWith('placement.') ? own(this.view.placements, op.entityId)?.markupId : undefined) ?? op.entityId;
+    };
     const out: Operation[] = [];
-    for (let start = 0; start < ops.length; start += MAX_BATCH_SIZE) {
-      const chunk = ops.slice(start, start + MAX_BATCH_SIZE);
+    for (const chunk of splitIntoBatches(ops, markupOf)) {
       if (chunk.length === 1) {
         out.push(chunk[0]!);
       } else {

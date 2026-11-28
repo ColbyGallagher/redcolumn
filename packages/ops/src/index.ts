@@ -9,5 +9,5 @@ export { reduceIssue, statusDef } from './issue.ts';
 export { reduceResponse } from './response.ts';
 export { reduceStatus } from './status.ts';
 export { itemOf, reduceRelease } from './release.ts';
-export { applyBatch, applyOp, dependencies, kindOf, MAX_BATCH_SIZE, type BatchResult } from './apply.ts';
-export { IdSchema, JsonSchema, MAX_DEPTH, OperationSchema, parseOperation, withinDepth, type JsonValue, type ParseResult } from './schema.ts';
+export { applyBatch, applyOp, dependencies, kindOf, MAX_BATCH_BYTES, MAX_BATCH_SIZE, type BatchResult } from './apply.ts';
+export { hasUnstorableText, IdSchema, JsonSchema, MAX_DEPTH, OperationSchema, parseOperation, withinDepth, type JsonValue, type ParseResult } from './schema.ts';

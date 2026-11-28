@@ -3,6 +3,8 @@ import {
   applyOp,
   columnGroupKey,
   contentGroupKey,
+  MAX_BATCH_BYTES,
+  MAX_BATCH_SIZE,
   own,
   versionOf,
   type ApplyContext,
@@ -37,6 +39,42 @@ export function groupPendingUnits(pending: readonly Operation[]): Operation[][] 
     i = j;
   }
   return units;
+}
+
+/** Room for what stamping a batch adds to each operation: its id, size and a comma. */
+const BATCH_FIELD_BYTES = 128;
+const encoder = new TextEncoder();
+
+/**
+ * Cuts one edit's operations into the batches to send: each within what a batch may hold, by count
+ * and by bytes. Consecutive operations on one markup (`markupOf`) stay in one batch, so a markup is
+ * never saved without its placement. Each batch is then applied all or nothing on its own.
+ */
+export function splitIntoBatches(ops: readonly Operation[], markupOf: (op: Operation) => string): Operation[][] {
+  const batches: Operation[][] = [];
+  let batch: Operation[] = [];
+  let size = 0;
+  const close = () => {
+    if (batch.length) batches.push(batch);
+    batch = [];
+    size = 0;
+  };
+  for (let start = 0, end = 0; start < ops.length; start = end) {
+    const markup = markupOf(ops[start]!);
+    end = start + 1;
+    while (end < ops.length && markupOf(ops[end]!) === markup) end += 1;
+    const together = ops.slice(start, end);
+    const bytes = together.reduce((sum, op) => sum + encoder.encode(JSON.stringify(op)).byteLength + BATCH_FIELD_BYTES, 0);
+    if (batch.length + together.length > MAX_BATCH_SIZE || size + bytes > MAX_BATCH_BYTES) close();
+    for (const op of together) {
+      // Only a run longer than a whole batch is ever cut.
+      if (batch.length === MAX_BATCH_SIZE) close();
+      batch.push(op);
+    }
+    size += bytes;
+  }
+  close();
+  return batches;
 }
 
 /**
