@@ -88,11 +88,20 @@ test('file.combine reorders files by dragging them', async ({ app }) => {
     await page.mouse.move(at.x, at.y);
     await page.mouse.down();
   };
+  const settle = () => expect.poll(() => list.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0);
   const over = async (i: number) => {
-    const at = await middle(i);
+    // Rows may still be sliding from the press (carried rows close up), so measure row i again once
+    // they stop, and follow it if it moved: the pointer must end on row i as it is drawn.
+    let at = await middle(i);
     await page.mouse.move(at.x, at.y, { steps: 8 });
-    // Let the rows finish sliding before the next one is measured.
-    await expect.poll(() => list.evaluate((el) => el.getAnimations({ subtree: true }).length)).toBe(0);
+    await settle();
+    for (let tries = 0; tries < 3; tries++) {
+      const now = await middle(i);
+      if (Math.abs(now.y - at.y) < 1) break;
+      at = now;
+      await page.mouse.move(at.x, at.y, { steps: 4 });
+      await settle();
+    }
   };
 
   // The list reorders under the pointer, before the button is let go.

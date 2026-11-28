@@ -60,8 +60,8 @@ for review: you are responsible for every line in it.
 ## What happens next
 
 - CI runs on every PR (`.github/workflows/ci.yml`): client-data guard, typecheck, unit tests,
-  build, bundle guard, dependency audit, desktop security scan, and Mac and Linux packaging. Fork
-  PRs run with read-only permissions and no secrets.
+  build, bundle guard, dependency audit, desktop security scan, Windows, Mac and Linux packaging,
+  and the web end-to-end suite. Fork PRs run with read-only permissions and no secrets.
 - The Vercel preview shows **Authorization required to deploy** on PRs from forks until the
   maintainer allows it. That is expected and is not a CI failure.
 - The maintainer reviews and merges. There may be a round or two of changes.

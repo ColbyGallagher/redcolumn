@@ -10,6 +10,7 @@ const keepGoing = process.argv.includes('--keep-going');
 const steps = [
   ['Client data guard', 'pnpm', ['check:client-data']],
   ['Test files are run', 'pnpm', ['check:tests']],
+  ['No new untested commands', 'pnpm', ['check:e2e-coverage']],
   ['Typecheck', 'pnpm', ['typecheck']],
   ['Unit tests', 'pnpm', ['test']],
 ];

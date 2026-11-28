@@ -500,8 +500,9 @@ test.describe('markup tools', () => {
     await app.tool('select');
     const edge = await app.at([400, A[1]]);
     await app.page.mouse.click(edge.x, edge.y);
-    await app.page.getByRole('button', { name: /^Hatch/ }).first().click();
-    await app.page.getByRole('button', { name: 'Horizontal' }).first().click();
+    // The pattern menu is a list box: a combobox with options.
+    await app.page.getByRole('combobox', { name: 'Hatch pattern', exact: true }).first().click();
+    await app.page.getByRole('option', { name: 'Horizontal' }).first().click();
     await app.page.getByRole('button', { name: 'Hatch color' }).click();
     const menu = app.page.getByRole('dialog', { name: 'Hatch color' });
     await menu.getByRole('button', { name: '#dc2626' }).click();

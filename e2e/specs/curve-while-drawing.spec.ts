@@ -25,7 +25,9 @@ test('a polylength curved with Ctrl+drag measures the arc, not the chord', async
   const bulges = await app.page.evaluate(() => (window.__nb.tools.store as unknown as { all(): { bulges?: number[] }[] }).all()[0]!.bulges);
   expect(bulges).toHaveLength(2);
   expect(bulges![0]).toBe(0);
-  expect(Math.abs(bulges![1]!)).toBeCloseTo(1, 6);
+  // The points come through the pointer, rounded to device pixels (about 1e-6 off on Linux CI), so 5
+  // places, not 6: still a half circle, and the measurement above checks the arc length.
+  expect(Math.abs(bulges![1]!)).toBeCloseTo(1, 5);
 });
 
 // Arc (3-point): arm it, click a point on the curve, then the arc end; the next segment is straight again.
@@ -59,6 +61,7 @@ test('a polylength traced with a 3-point arc measures the arc', async ({ app }) 
   expect(m.points).toHaveLength(4);
   expect(m.bulges).toHaveLength(3);
   expect(m.bulges![0]).toBe(0);
-  expect(Math.abs(m.bulges![1]!)).toBeCloseTo(1, 6);
+  // 5 places for the same reason as the test above.
+  expect(Math.abs(m.bulges![1]!)).toBeCloseTo(1, 5);
   expect(m.bulges![2]).toBe(0);
 });

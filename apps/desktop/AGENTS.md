@@ -30,6 +30,7 @@ process, preload or IPC are security-sensitive and need the maintainer's agreeme
 - Unit tests: `src/**/*.test.ts` (`pnpm --filter @nb/desktop test`). `src/token.test.ts` needs
   SoftHSM2 and OpenSC; it skips without them locally, and CI sets `REQUIRE_TOKEN_TESTS=1`.
 - End to end: `pnpm e2e:desktop` builds a `VITE_E2E=1` web build and runs the same specs in the
-  unpackaged app (`e2e/README.md`). CI does not run it yet; run it yourself for desktop changes.
+  unpackaged app (`e2e/README.md`). CI runs only the web project; run the desktop one yourself
+  for desktop changes.
 - Installers: `pnpm --filter @nb/desktop package` (Windows), `package:mac`, `package:linux`. CI
-  packages Mac and Linux on every PR.
+  packages all three on every PR.

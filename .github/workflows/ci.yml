@@ -1,8 +1,8 @@
 name: CI
 
 # Runs on every push and pull request: type checks, every package's tests (including the markup
-# tool tests), a production build, a dependency audit, a security scan of the desktop app, and
-# a packaging build of the Mac and Linux installers.
+# tool tests), a production build, a dependency audit, a security scan of the desktop app, a
+# packaging build of the Windows, Mac and Linux installers, and the web end-to-end suite.
 # A red run means the push would break something.
 #
 # Pull requests from forks run here on `pull_request`, with the read-only token below and no
@@ -81,6 +81,19 @@ jobs:
       - name: Test files are run
         run: pnpm check:tests
 
+      # New commands get an end-to-end test or a skip reason, not 'todo' (e2e/coverage-todo.json only shrinks).
+      # On a pull request the list is also compared with the base branch's, so it cannot be refilled.
+      - name: No new untested commands
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            pnpm check:e2e-coverage --base FETCH_HEAD
+          else
+            pnpm check:e2e-coverage
+          fi
+
       - name: Test
         run: pnpm test
         # Only this job installs SoftHSM2, OpenSC, and qpdf: here the token and qpdf checks must run, not skip.
@@ -108,7 +121,7 @@ jobs:
 
   # The Mac and Linux installers are otherwise only built when a release tag is pushed, so a break
   # in either would show up at release time. These build them on every push and pull request (free
-  # on a public repo) and run the tests on a second OS. The e2e suite stays a local gate (pnpm verify).
+  # on a public repo) and run the tests on a second OS.
   package-mac:
     runs-on: macos-latest
     timeout-minutes: 30
@@ -133,6 +146,73 @@ jobs:
         run: pnpm --filter @nb/desktop package:mac
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+  # The Windows installer, as release.yml builds it (unsigned, x64), plus the unit tests on Windows.
+  # Not a required check until it has a record of passing.
+  package-windows:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Test
+        run: pnpm test
+
+      - name: Package installer
+        run: pnpm --filter @nb/desktop package
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+  # The web end-to-end suite (e2e/README.md): Chromium against the dev server, in four shards.
+  # No secrets; the report is uploaded when a shard fails. Not a required check yet. Tests that are
+  # known to fail are listed, with the reason, in e2e/quarantine.md. The desktop project still runs
+  # only locally (pnpm e2e:desktop).
+  e2e-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Install Chromium
+        run: pnpm --filter @nb/e2e exec playwright install --with-deps chromium
+
+      - name: End-to-end tests (web)
+        run: pnpm --filter @nb/e2e exec playwright test --project=web --shard=${{ matrix.shard }}/4
+
+      - if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: e2e-web-report-${{ matrix.shard }}
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 14
 
   package-linux:
     runs-on: ubuntu-latest

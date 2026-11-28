@@ -11,6 +11,7 @@
     "check:client-data": "node scripts/check-client-data.mjs",
     "check:bundle": "node scripts/check-bundle.mjs",
     "check:tests": "node scripts/check-test-files.mjs",
+    "check:e2e-coverage": "node scripts/check-e2e-coverage.mjs",
     "i18n:extract": "pnpm --filter @nb/i18n extract",
     "i18n:check": "pnpm --filter @nb/i18n check",
     "dev": "pnpm --filter @nb/web dev",

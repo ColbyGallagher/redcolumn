@@ -16,8 +16,8 @@ Each stage runs in its own session. Identify which role you are in, then follow 
 
 - `pnpm check:client-data`: no client drawings or identifiers. The repo is public. Use fictional names and generated drawings. Never paste client project names, drawing numbers or file paths into commits, PR text or review comments: the hook only sees commits.
 - `pnpm typecheck`
-- `pnpm test` and `pnpm check:tests`
-- `pnpm e2e` before marking a PR ready: the end-to-end suite (e2e/README.md) drives every tool in the browser and the desktop app. CI does not run it.
+- `pnpm test`, `pnpm check:tests` and `pnpm check:e2e-coverage`
+- `pnpm e2e` before marking a PR ready: the end-to-end suite (e2e/README.md) drives every tool in the browser and the desktop app. CI runs the web project (`e2e-web`, not yet a required check) but not the desktop one.
 
 ## Role: author
 
@@ -48,7 +48,8 @@ Each stage runs in its own session. Identify which role you are in, then follow 
 Merge only when all of these hold on the current head:
 
 - CI is green.
-- The end-to-end suite has been run on the current head: `pnpm e2e:web` for anything the user can see, plus `pnpm e2e:desktop` for changes to the desktop app or to behaviour that differs there. CI does not run it, so this is the only gate (`pnpm verify` runs everything). A failure may be accepted only if the same test also fails on the base branch: list each one in the merge comment, with the summary line. Any new failure blocks.
+- All four `e2e-web` shards are green, even though they are not required checks yet. A quarantined test is skipped, so it cannot excuse a failure.
+- CI does not run the desktop end-to-end tests. For changes to the desktop app, or to behaviour that differs there, `pnpm e2e:desktop` has been run on the current head. A failure may be accepted only if the same test also fails on the base branch: list each one in the merge comment, with the summary line. Any new failure blocks.
 - No open `BLOCKER:` threads.
 - The branch is up to date with the base (merge base in and re-validate if not).
 - No push has landed since the last review without a re-review of that delta.

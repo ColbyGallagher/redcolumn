@@ -27,8 +27,9 @@ pnpm monorepo, Node 24 (`.nvmrc`), pnpm version from `packageManager` in `packag
 | `e2e` | Playwright tests, run against web and desktop | (drives the apps) |
 
 A package imports only what its *May import* column names: no package imports `apps/*`, and
-nothing imports `@nb/web`. Add a dependency between packages only with the maintainer's agreement. Logic that can be tested without a browser belongs in a package or a
-plain `.ts` module, not in a React component.
+nothing imports `@nb/web`. Add a dependency between packages only with the maintainer's
+agreement. Logic that can be tested without a browser belongs in a package or a plain `.ts`
+module, not in a React component.
 
 ## Commands
 
@@ -40,9 +41,10 @@ pnpm i18n:check          # catalogs, untranslated literals, logical CSS
 pnpm typecheck
 pnpm test                # every package's unit tests (node --test)
 pnpm check:tests         # every *.test.* file is reached by some package's test script
+pnpm check:e2e-coverage  # no new 'todo' commands in e2e/coverage.ts
 pnpm build && pnpm check:bundle
 pnpm e2e:web             # Playwright, web (see e2e/README.md for first-run setup)
-pnpm verify:fast         # client-data + check:tests + typecheck + test
+pnpm verify:fast         # client-data + both check:* guards + typecheck + test
 pnpm verify              # everything, including both e2e projects
 ```
 
@@ -61,8 +63,9 @@ quotes (unquoted, the Linux shell does not recurse).
   ([packages/i18n/AGENTS.md](packages/i18n/AGENTS.md)).
 - **Commands need tests.** Every command in `apps/web/src/commands/appCommands.ts` has an entry in
   `e2e/coverage.ts`. A new command gets `{ spec: '<file>' }` with a test that runs it, or
-  `{ skip: '<reason>' }` if it cannot run unattended. Not `'todo'`. The end-to-end suite checks this;
-  CI does not run it yet, so run it yourself.
+  `{ skip: '<reason>' }` if it cannot run unattended. Not `'todo'`: `pnpm check:e2e-coverage`
+  fails on any `'todo'` not already in `e2e/coverage-todo.json`, and that list only shrinks. That every
+  command is listed at all is checked by the e2e suite (the `e2e-web` job, not yet a required check).
 
 ## When a test is required
 
@@ -72,7 +75,8 @@ quotes (unquoted, the Linux shell does not recurse).
   refactor: explain why the old expectation was wrong.
 - Expected values are worked out from the input, never pasted from what the code printed.
 - Never weaken, skip or delete a failing test to get green. If a test is wrong or flaky, say so in
-  the PR and let the maintainer decide.
+  the PR and let the maintainer decide. Quarantined e2e tests are listed, with the reason, in
+  `e2e/quarantine.md`; nowhere else.
 
 ## Needs the maintainer's approval first
 

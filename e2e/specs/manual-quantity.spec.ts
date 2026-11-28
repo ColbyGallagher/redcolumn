@@ -43,9 +43,9 @@ test.describe('manual quantity', () => {
     // Properties edits the typed value.
     await app.page.getByRole('button', { name: 'Properties', exact: true }).click();
     const panel = app.page.locator('.props-panel');
-    await expect(panel.getByLabel('Value')).toHaveValue('24');
-    await panel.getByLabel('Value').fill('30');
-    await panel.getByLabel('Value').blur();
+    await expect(panel.getByLabel('Value', { exact: true })).toHaveValue('24');
+    await panel.getByLabel('Value', { exact: true }).fill('30');
+    await panel.getByLabel('Value', { exact: true }).blur();
     await expect.poll(async () => (await app.markups())[0]!.measurement).toBe('322.92 sf');
     await expect(app.page.locator('.markups')).toContainText('322.92 sf');
   });
