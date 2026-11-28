@@ -189,6 +189,8 @@ export interface SyncHandshake {
   streamId: string;
   cursor: string | null;
   protocol: ProtocolRange;
+  /** Operations still waiting for an answer, so a snapshot can say which were already applied. */
+  pendingOpIds?: readonly string[];
 }
 
 /** Messages a server delivers to a connected client over a {@link SyncTransport}. */

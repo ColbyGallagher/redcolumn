@@ -19,6 +19,7 @@
     "@fastify/rate-limit": "11.2.2",
     "@nb/ops": "workspace:*",
     "@nb/pdf-core": "workspace:*",
+    "@nb/policy": "workspace:*",
     "@node-rs/argon2": "2.2.2",
     "fastify": "5.12.8",
     "kysely": "0.29.9",
@@ -27,6 +28,7 @@
     "ws": "8.23.0"
   },
   "devDependencies": {
+    "@nb/sync": "workspace:*",
     "@types/node": "^26.6.1",
     "@types/pg": "8.23.1",
     "@types/ws": "8.18.2",

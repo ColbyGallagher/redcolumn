@@ -373,6 +373,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       streamId: this.streamId,
       cursor: this.cursor,
       protocol: this.protocol,
+      pendingOpIds: this.pending.map((o) => o.opId),
     });
   }
 
