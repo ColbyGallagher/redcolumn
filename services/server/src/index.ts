@@ -8,13 +8,16 @@ import { runMigrations } from './migrate.ts';
 export * from './admin.ts';
 export * from './app.ts';
 export * from './auth.ts';
+export * from './blobStore.ts';
 export * from './broadcaster.ts';
 export * from './cli.ts';
 export * from './config.ts';
 export * from './db.ts';
 export * from './logger.ts';
 export * from './migrate.ts';
+export * from './pdfJob.ts';
 export * from './pipeline.ts';
+export * from './uploadRoutes.ts';
 export * from './ws.ts';
 
 export async function startServer(env: NodeJS.ProcessEnv = process.env): Promise<{ stop: () => Promise<void>; address: string }> {

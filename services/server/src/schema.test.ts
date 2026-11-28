@@ -38,7 +38,7 @@ const FILE_HASH = 'c'.repeat(64);
 const READER_DENIED_TABLES = [
   'users', 'sessions', 'invites', 'identities', 'identity_providers', 'workspace_members', 'project_members',
   'groups', 'group_members', 'lane_members', 'party_visibility', 'item_access', 'item_draft_access',
-  'documents', 'revisions', 'sheets', 'pages', 'document_sets', 'document_set_members', 'document_set_documents',
+  'documents', 'revisions', 'document_uploads', 'sheets', 'pages', 'document_sets', 'document_set_members', 'document_set_documents',
   'projects', 'lanes', 'scopes', 'gates', 'gate_checkers',
 ] as const;
 
@@ -140,7 +140,7 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
 
     const status = await checkMigrations(pool);
     assert.deepEqual(status, {
-      applied: ['0001_skeleton.sql', '0002_schema_v1.sql', '0003_invites.sql', '0004_project_roles.sql'],
+      applied: ['0001_skeleton.sql', '0002_schema_v1.sql', '0003_invites.sql', '0004_project_roles.sql', '0005_document_uploads.sql'],
       pending: [],
       mismatched: [],
       unknown: [],

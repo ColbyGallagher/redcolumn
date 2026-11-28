@@ -289,6 +289,9 @@ importers:
       '@nb/ops':
         specifier: workspace:*
         version: link:../../packages/ops
+      '@nb/pdf-core':
+        specifier: workspace:*
+        version: link:../../packages/pdf-core
       '@node-rs/argon2':
         specifier: 2.2.2
         version: 2.2.2
