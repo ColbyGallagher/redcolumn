@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import { PROTOCOL_VERSION, type Operation } from '@nb/ops';
+import { DEFAULT_STATUSES } from '@nb/policy';
 import { MemorySyncPersistence, SyncDocument, WsSyncTransport, type PresenceUser, type SyncPersistence, type WebSocketLike } from '@nb/sync';
 import WebSocket from 'ws';
 import { buildServer, type ServerInstance } from './app.ts';
@@ -167,6 +168,7 @@ describe('server documents over WebSocket (Postgres 17)', { skip: !DATABASE_URL 
       resolveAuthor: (actor) => actor.userId,
       transport,
       persistence: options.persistence ?? false,
+      statuses: DEFAULT_STATUSES,
     });
     transport.onReconnectDue(() => void doc.connect());
     const client: Client = { doc, transport, sockets, presence: () => present };
@@ -184,6 +186,37 @@ describe('server documents over WebSocket (Postgres 17)', { skip: !DATABASE_URL 
     const fixture = await createDocumentFixture(dbHandle.db, ada.user, [{ userId: ben.user.id, role: roles.ben ?? 'reviewer' }]);
     return { ada, ben, fixture };
   }
+
+  /** Another document of the same project, with one revision of two pages. */
+  async function secondDocument(fixture: DocumentFixture, owner: UserProfile): Promise<DocumentFixture> {
+    const next: DocumentFixture = { ...fixture, documentId: randomUUID(), revisionId: randomUUID(), pageIds: [randomUUID(), randomUUID()] };
+    const { db } = dbHandle;
+    await db.insertInto('documents').values({ id: next.documentId, project_id: next.projectId, number: `A-${next.documentId.slice(0, 8)}`, title: 'Sections', discipline: null }).execute();
+    await db
+      .insertInto('revisions')
+      .values({ id: next.revisionId, document_id: next.documentId, label: '1', file_sha256: 'b'.repeat(64), file_size: 1, page_count: 2, processing_status: 'ready', processing_error: null, issued_by: owner.id, issued_at: new Date() })
+      .execute();
+    await db
+      .insertInto('pages')
+      .values(next.pageIds.map((id, position) => ({ id, revision_id: next.revisionId, sheet_id: null, position, width: 842, height: 595, rotation: 0 as const })))
+      .execute();
+    return next;
+  }
+
+  /** An operation as a client other than the app's might send it. */
+  const rawOp = (fixture: DocumentFixture, type: Operation['type'], entityId: string, payload: unknown, basedOn?: Record<string, number | string>) =>
+    ({ opId: randomUUID(), schemaVersion: PROTOCOL_VERSION, streamId: fixture.documentId, type, entityId, payload, ...(basedOn ? { basedOn } : {}) }) as Operation;
+
+  const submit = (who: Person, op: Operation) =>
+    server.pipeline.submitOperation(op, { userId: who.user.id, partyId: null, groupId: null }, undefined, { documentOnly: true });
+
+  const refusal = async (who: Person, op: Operation) => {
+    const ack = await submit(who, op);
+    assert.equal(ack.ok, false, `${op.type} should have been refused`);
+    return ack.ok ? null : (ack.rejection as { code: string; message?: string });
+  };
+
+  const storedIssues = () => dbHandle.db.selectFrom('issues').selectAll().orderBy('number', 'asc').execute();
 
   const storedMarkup = async (id: string) =>
     (await dbHandle.db.selectFrom('markups').select('record_json').where('id', '=', id).executeTakeFirstOrThrow())
@@ -592,6 +625,249 @@ describe('server documents over WebSocket (Postgres 17)', { skip: !DATABASE_URL 
     await waitFor(() => settled(second) && !!a.doc.get(unsent.id), 'the unsent markup to arrive');
     assert.equal(second.doc.all().length, 3);
     assert.equal(second.doc.sync.inbox.length, 0);
+  });
+
+  it('raises an issue with the first status, numbers it across the project and shares it', async () => {
+    const { ada, ben, fixture } = await team();
+    const sections = await secondDocument(fixture, ada.user);
+    const a = await openClient(ada, fixture);
+    const b = await openClient(ben, fixture);
+    const other = await openClient(ben, sections);
+
+    const plain = rectangle(ada.user.name);
+    const first = rectangle(ada.user.name, { comment: 'Beam splice bolt grade missing' });
+    const second = rectangle(ada.user.name, { comment: 'Check the slab edge thickening' });
+    for (const markup of [plain, first, second]) a.doc.add(markup);
+    a.doc.update(first.id, { status: 'open' });
+    await waitFor(() => settled(a) && b.doc.get(first.id)?.seq === 1, 'Ben to see number 1');
+    assert.equal(b.doc.get(first.id)!.status, 'open');
+    assert.equal(a.doc.get(first.id)!.seq, 1);
+    assert.equal(b.doc.get(plain.id)!.seq, undefined, 'a markup without a status has no number');
+    assert.equal(b.doc.get(plain.id)!.status, 'none');
+    assert.equal((await storedIssues()).length, 1);
+
+    // Raised on two documents at once: the numbers never meet.
+    const elsewhere = rectangle(ben.user.name);
+    other.doc.add(elsewhere);
+    await waitFor(() => settled(other), 'the other document to be synced');
+    a.doc.update(second.id, { status: 'actioned' });
+    other.doc.update(elsewhere.id, { status: 'open' });
+    await waitFor(() => settled(a) && settled(other), 'both to be answered');
+    await waitFor(() => !!a.doc.get(second.id)?.seq && !!other.doc.get(elsewhere.id)?.seq, 'both numbers');
+    assert.deepEqual([a.doc.get(second.id)!.seq, other.doc.get(elsewhere.id)!.seq].sort(), [2, 3]);
+
+    // A tick is the issue's own field: the status stays.
+    await waitFor(() => !!b.doc.get(second.id)?.seq, 'Ben to see the second number');
+    b.doc.update(first.id, { checked: true });
+    await waitFor(() => a.doc.get(first.id)?.checked === true, 'Ada to see the tick');
+    assert.equal(a.doc.get(first.id)!.status, 'open');
+
+    // Someone who opens it now gets the same, from rows row-level security lets them read.
+    const late = await openClient(ben, fixture);
+    await waitFor(() => !!late.doc.get(first.id), 'the snapshot');
+    for (const markup of [first, second]) {
+      const seen = late.doc.get(markup.id)!;
+      const known = a.doc.get(markup.id)!;
+      assert.deepEqual([seen.seq, seen.status, seen.checked, seen.statusHistory], [known.seq, known.status, known.checked, known.statusHistory]);
+    }
+    assert.equal(late.doc.all().find((m) => m.id === second.id)!.statusHistory!.at(-1)!.state, 'Actioned');
+    assert.equal(Object.keys(late.doc.viewState().issues).length, 2, 'only this document’s issues');
+
+    const issues = await storedIssues();
+    assert.deepEqual(issues.map((i) => i.number), [1, 2, 3]);
+    assert.equal(issues[0]!.ticked, true);
+    assert.equal(issues[0]!.title, 'Beam splice bolt grade missing');
+    const lanes = await dbHandle.db.selectFrom('issue_lane_state').select(['issue_id', 'status', 'status_event_id']).where('issue_id', '=', a.doc.issueFor(second.id)!.id).execute();
+    assert.equal(lanes.length, 1);
+    assert.ok(lanes[0]!.status_event_id);
+    const links = await dbHandle.db.selectFrom('issue_links').selectAll().execute();
+    assert.equal(links.length, 3);
+    for (const client of [a, b, other, late]) assert.equal(client.doc.sync.inbox.length, 0);
+  });
+
+  it('lets only the closing list close, records the revision checked, and numbers nothing twice', async () => {
+    const { ada, ben, fixture } = await team();
+    const a = await openClient(ada, fixture);
+    const b = await openClient(ben, fixture);
+    const markup = rectangle(ada.user.name);
+    a.doc.add(markup);
+    a.doc.update(markup.id, { status: 'open' });
+    await waitFor(() => b.doc.get(markup.id)?.seq === 1, 'Ben to see the issue');
+
+    // The document itself asks nothing, so the server is what refuses.
+    b.doc.update(markup.id, { status: 'closed' });
+    await waitFor(() => b.doc.sync.inbox.length === 1 && settled(b), 'the reviewer to be refused');
+    assert.equal(b.doc.sync.inbox[0]!.reason.code, 'forbidden');
+    assert.equal(b.doc.get(markup.id)!.status, 'open');
+
+    // Raising and closing in one go is refused as a whole: no issue, no number.
+    const fresh = rectangle(ben.user.name);
+    b.doc.add(fresh);
+    b.doc.update(fresh.id, { status: 'closed' });
+    await waitFor(() => b.doc.sync.inbox.length === 2 && settled(b), 'the whole batch to be refused');
+    assert.equal(b.doc.get(fresh.id)!.status, 'none');
+    assert.equal((await storedIssues()).length, 1);
+
+    a.doc.update(markup.id, { status: 'closed' });
+    await waitFor(() => b.doc.get(markup.id)?.status === 'closed', 'Ben to see it closed');
+    const [event] = await dbHandle.db.selectFrom('status_events').selectAll().where('to_status', '=', 'closed').execute();
+    assert.equal(event!.revision_seen_id, fixture.revisionId);
+    assert.equal(event!.actor_user_id, ada.user.id);
+
+    // A closed issue whose markup is deleted keeps its number.
+    a.doc.remove([markup.id]);
+    const next = rectangle(ada.user.name);
+    a.doc.add(next);
+    a.doc.update(next.id, { status: 'open' });
+    await waitFor(() => a.doc.get(next.id)?.seq === 2, 'number 2');
+  });
+
+  it('refuses every status and tick operation from a viewer', async () => {
+    const { ada, fixture } = await team();
+    const vic = await person('Vic Viewer');
+    await addMember(dbHandle.db, fixture, vic.user.id, 'viewer');
+    const a = await openClient(ada, fixture);
+    const [raised, plain] = [rectangle(ada.user.name), rectangle(ada.user.name)];
+    a.doc.add(raised);
+    a.doc.add(plain);
+    a.doc.update(raised.id, { status: 'open' });
+    await waitFor(() => settled(a) && a.doc.get(raised.id)?.seq === 1, 'the issue');
+    const issueId = a.doc.issueFor(raised.id)!.id;
+    const attempts: Operation[] = [
+      rawOp(fixture, 'issue.create', randomUUID(), { scopeId: fixture.scopeId, title: '', status: 'open', markupIds: [plain.id] }),
+      rawOp(fixture, 'issue.link', issueId, { markupId: plain.id }),
+      rawOp(fixture, 'issue.patch', issueId, { checked: true }, { checked: 0 }),
+      rawOp(fixture, 'status.transition', randomUUID(), { issueId, from: 'open', to: 'actioned' }),
+      rawOp(fixture, 'status.transition', randomUUID(), { issueId, from: 'open', to: 'closed', revisionSeenId: fixture.revisionId }),
+    ];
+    for (const op of attempts) assert.equal((await refusal(vic, op))!.code, 'forbidden', op.type);
+    assert.equal((await storedIssues()).length, 1);
+    assert.equal((await storedIssues())[0]!.ticked, false);
+    assert.equal((await dbHandle.db.selectFrom('status_events').select('id').execute()).length, 0);
+  });
+
+  it('checks what a modified client could send about issues', async () => {
+    const { ada, ben, fixture } = await team();
+    const sections = await secondDocument(fixture, ada.user);
+    const outsider = await person('Olive Outsider');
+    const a = await openClient(ada, fixture);
+    const other = await openClient(ada, sections);
+    const [markup, spare, gone] = [rectangle(ada.user.name), rectangle(ada.user.name), rectangle(ada.user.name)];
+    for (const m of [markup, spare, gone]) a.doc.add(m);
+    a.doc.update(markup.id, { status: 'open' });
+    a.doc.remove([gone.id]);
+    const foreign = rectangle(ada.user.name);
+    other.doc.add(foreign);
+    await waitFor(() => settled(a) && settled(other) && a.doc.get(markup.id)?.seq === 1, 'the set-up');
+    const issueId = a.doc.issueFor(markup.id)!.id;
+
+    const create = (markupIds: string[] | undefined, status = 'open', id: string = randomUUID()) =>
+      rawOp(fixture, 'issue.create', id, { scopeId: fixture.scopeId, title: '', status, ...(markupIds ? { markupIds } : {}) });
+    const transition = (patch: Record<string, unknown>) =>
+      rawOp(fixture, 'status.transition', randomUUID(), { issueId, from: 'open', to: 'actioned', ...patch });
+
+    // Numbers are the server's alone.
+    const numbering = { ...rawOp(fixture, 'issue.patch', issueId, {}), type: 'issue.number', payload: { number: 99 } } as unknown as Operation;
+    assert.equal((await refusal(ada, numbering))!.code, 'invalid');
+    assert.equal((await refusal(ben, create(undefined)))!.code, 'invalid');
+    assert.equal((await refusal(ben, create([])))!.code, 'invalid');
+    assert.equal((await refusal(ben, create([spare.id], 'signed-off')))!.code, 'invalid');
+    assert.equal((await refusal(ben, create([gone.id])))!.code, 'deleted');
+    // Another document's markup, and an unknown one, answer alike.
+    assert.equal((await refusal(ben, create([foreign.id])))!.code, 'not_found');
+    assert.equal((await refusal(ben, create([randomUUID()])))!.code, 'not_found');
+    // A markup has one issue: whoever raises it second decides again.
+    assert.equal((await refusal(ben, create([markup.id])))!.code, 'conflict');
+    // An issue id in use, on this document or another, cannot be taken over.
+    assert.equal((await refusal(ben, create([spare.id], 'open', issueId)))!.code, 'exists');
+    const overOther = { ...create([foreign.id], 'open', issueId), streamId: sections.documentId } as Operation;
+    assert.equal((await refusal(ben, overOther))!.code, 'exists');
+    // This document's issue is not found from another document's stream.
+    assert.equal((await refusal(ben, { ...transition({}), streamId: sections.documentId } as Operation))!.code, 'not_found');
+    assert.equal((await refusal(ben, transition({ from: 'actioned', to: 'answered' })))!.code, 'conflict');
+    assert.equal((await refusal(ben, transition({ to: 'signed-off' })))!.code, 'invalid');
+    assert.equal((await refusal(ada, transition({ to: 'closed' })))!.code, 'invalid', 'closing names the revision checked');
+    assert.equal((await refusal(ada, transition({ to: 'closed', revisionSeenId: sections.revisionId })))!.code, 'invalid');
+    assert.equal((await refusal(ben, transition({ to: 'closed', revisionSeenId: fixture.revisionId })))!.code, 'forbidden');
+    assert.equal((await refusal(outsider, transition({})))!.code, 'forbidden');
+    const nowhere = { ...transition({}), streamId: 'not-a-document' } as Operation;
+    const unlisted = await server.pipeline.submitOperation(nowhere, { userId: ben.user.id, partyId: null, groupId: null });
+    assert.equal(!unlisted.ok && unlisted.rejection.code, 'unsupported_operation');
+
+    assert.deepEqual((await storedIssues()).map((i) => [i.number, i.project_id]), [[1, fixture.projectId]]);
+    assert.equal((await dbHandle.db.selectFrom('status_events').select('id').execute()).length, 0);
+  });
+
+  it('gives one markup one issue when two people set its first status at once', async () => {
+    const { ada, ben, fixture } = await team();
+    const a = await openClient(ada, fixture);
+    const b = await openClient(ben, fixture);
+    const markup = rectangle(ada.user.name);
+    a.doc.add(markup);
+    await waitFor(() => !!b.doc.get(markup.id) && settled(a), 'both to have the markup');
+
+    a.doc.update(markup.id, { status: 'actioned' });
+    b.doc.update(markup.id, { status: 'answered' });
+    await waitFor(() => settled(a) && settled(b), 'both to be answered');
+    await waitFor(() => a.doc.sync.inbox.length + b.doc.sync.inbox.length === 1, 'one to be rejected');
+    const loser = a.doc.sync.inbox.length ? a : b;
+    const winning = loser === a ? 'answered' : 'actioned';
+    await waitFor(() => loser.doc.get(markup.id)?.status === winning, 'the loser to show the other status');
+    assert.deepEqual((await storedIssues()).map((i) => i.number), [1]);
+  });
+
+  it('numbers an issue raised offline when it arrives, once, even if the answer is lost', async () => {
+    const { ada, ben, fixture } = await team();
+    const persistence = new MemorySyncPersistence();
+    const b = await openClient(ben, fixture, { persistence });
+    await b.doc.disconnect();
+    const markup = rectangle(ben.user.name);
+    b.doc.add(markup);
+    b.doc.update(markup.id, { status: 'actioned' });
+    assert.equal(b.doc.get(markup.id)!.status, 'actioned');
+    assert.equal(b.doc.get(markup.id)!.seq, undefined);
+    await b.doc.whenPersisted();
+
+    let failures = 1;
+    hooks.onAfterCommitBeforeAck = (ctx) => {
+      // The batch that raises the issue: the markup's own goes first.
+      if (ctx.events.some((e) => e.opType === 'issue.create') && failures-- > 0) throw new Error('simulated crash between commit and answer');
+    };
+    const again = await openClient(ben, fixture, { persistence });
+    await waitFor(() => settled(again) && again.doc.get(markup.id)?.seq === 1, 'Ben to see number 1');
+    assert.ok(failures <= 0, 'the answer was lost once');
+    assert.equal(again.doc.sync.inbox.length, 0);
+    assert.equal(again.doc.get(markup.id)!.status, 'actioned');
+    const looking = await openClient(ada, fixture);
+    await waitFor(() => looking.doc.get(markup.id)?.seq === 1, 'Ada to see number 1');
+    assert.deepEqual((await storedIssues()).map((i) => i.number), [1]);
+    const events = await dbHandle.db.selectFrom('events').select('op_type').orderBy('seq', 'asc').execute();
+    assert.deepEqual(events.map((e) => e.op_type), ['markup.create', 'placement.create', 'issue.create', 'status.transition', 'issue.number']);
+  });
+
+  it('says what each role may do when a revision opens and when the role changes', async () => {
+    const { ada, ben, fixture } = await team();
+    const open = async (who: Person) => {
+      const res = await api(who, `/api/projects/${fixture.projectId}/documents/${fixture.documentId}/revisions/${fixture.revisionId}/open`);
+      assert.equal(res.status, 200);
+      return (await res.json()) as { statuses: { id: string; category: string }[]; rules: unknown };
+    };
+    const asAdmin = await open(ada);
+    assert.deepEqual(asAdmin.statuses.map((s) => [s.id, s.category]), DEFAULT_STATUSES.map((s) => [s.id, s.category]));
+    assert.deepEqual(asAdmin.rules, { changeStatus: true, tick: true, close: 'any' });
+    assert.deepEqual((await open(ben)).rules, { changeStatus: true, tick: true, close: 'none' });
+
+    const b = await openClient(ben, fixture);
+    const heard: unknown[] = [];
+    b.transport.onAccess((role, rules) => heard.push([role, rules]));
+    const res = await api(ada, `/api/projects/${fixture.projectId}/members/${ben.user.id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ role: 'viewer' }),
+    });
+    assert.equal(res.status, 200);
+    await waitFor(() => heard.length === 1, 'the new role');
+    assert.deepEqual(heard[0], ['viewer', { changeStatus: false, tick: false, close: 'none' }]);
   });
 
   it('seals a cursor for one user and stream', () => {

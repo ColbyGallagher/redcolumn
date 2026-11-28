@@ -73,13 +73,14 @@ export function findRejectedDependency(
         if (typeof base === 'string' && rejectedOpIds.has(base)) return base;
       }
     }
-    if (
-      op.type === 'placement.create' &&
-      rejectedCreatedMarkups.has(op.payload.markupId) &&
-      !own(state.markups, op.payload.markupId)
-    ) {
-      return op.payload.markupId;
-    }
+    const linked =
+      op.type === 'placement.create' || op.type === 'issue.link'
+        ? [op.payload.markupId]
+        : op.type === 'issue.create'
+          ? (op.payload.markupIds ?? [])
+          : [];
+    const missing = linked.find((id) => rejectedCreatedMarkups.has(id) && !own(state.markups, id));
+    if (missing !== undefined) return missing;
   }
   return null;
 }

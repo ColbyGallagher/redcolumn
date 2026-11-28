@@ -77,9 +77,12 @@ export interface SyncFacet {
   readonly sync: SyncStatus;
 }
 
+/** The records an undo step can change. An issue only ever has its tick undone. */
+export type UndoKind = 'markup' | 'placement' | 'issue';
+
 /** Version expectation recorded with an undo/redo step so concurrent edits to the same group block undo. */
 export interface UndoGroupCheck {
-  kind: 'markup' | 'placement';
+  kind: UndoKind;
   entityId: string;
   /**
    * Field-group key (e.g. `'text'`, `'style'`, `'fields.cost'`, `'geometry'`, `'deleted'`), or `'*'`
@@ -103,7 +106,8 @@ export interface UndoOpSpec {
     | 'placement.patch'
     | 'placement.delete'
     | 'placement.restore'
-    | 'placement.create';
+    | 'placement.create'
+    | 'issue.patch';
   entityId: string;
   payload: Record<string, unknown>;
   /** Group keys whose `basedOn` values are attached when the inverse operation is emitted. */
@@ -112,7 +116,7 @@ export interface UndoOpSpec {
 
 /** A group touched by an undo step's `forward` ops; becomes a check on the step pushed after it runs. */
 export interface ForwardCheck {
-  kind: 'markup' | 'placement';
+  kind: UndoKind;
   entityId: string;
   group: string;
   /**
@@ -137,6 +141,11 @@ export interface UndoStep {
   forwardChecks: ForwardCheck[];
   /** OpIds originally emitted by this step (used to drop the step if those ops are rejected). */
   sourceOpIds: string[];
+  /**
+   * Stands for a change that is never undone (a status change). It has no checks or operations:
+   * undoing it only takes it off the stack and reports `permanent`.
+   */
+  permanent?: boolean;
 }
 
 /** Persisted document setup (scales, viewports, sheets, columns). */

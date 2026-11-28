@@ -74,6 +74,7 @@ async function startDocument(info: RevisionOpenInfo, hooks: OpenRevisionHooks): 
       },
     },
     resolveAuthor: (actor) => names.get(actor.userId) ?? msg('Unknown user'),
+    statuses: info.statuses,
     persistence: devicePersistence(),
   };
   let inner: SyncDocument;
@@ -98,6 +99,8 @@ async function startDocument(info: RevisionOpenInfo, hooks: OpenRevisionHooks): 
       userId: info.user.id,
       userName: info.user.name,
       role: info.role,
+      statuses: info.statuses,
+      rules: info.rules,
     },
     names,
   );

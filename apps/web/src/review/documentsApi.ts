@@ -1,3 +1,5 @@
+import type { StatusDef } from '@nb/ops';
+import type { StatusRules } from '@nb/sync';
 import { ServerClientError, type ProjectRole } from '../connect/client.ts';
 
 /** Same-origin calls about a project's documents. The session cookie goes with them. */
@@ -36,6 +38,10 @@ export interface RevisionOpenInfo {
   scopeId: string;
   laneId: string;
   role: ProjectRole;
+  /** The project's status set, in order. */
+  statuses: StatusDef[];
+  /** What this person may do with statuses and ticks. */
+  rules: StatusRules;
   user: { id: string; name: string };
   members: { userId: string; name: string }[];
 }

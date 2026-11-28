@@ -25,6 +25,18 @@ export interface PresenceUser {
   pageIndex: number | null;
 }
 
+/**
+ * What the signed-in person may do with statuses and ticks, worked out by the server from the
+ * project's rules. A hint for the interface: the server checks every operation itself.
+ */
+export interface StatusRules {
+  /** Set a status that does not close, which includes raising an issue for a markup. */
+  changeStatus: boolean;
+  tick: boolean;
+  /** Which issues they may move into a closed status: any, only those they raised, or none. */
+  close: 'any' | 'own' | 'none';
+}
+
 export type ClientFrame =
   | { type: 'hello'; protocol: ProtocolRange }
   | { type: 'ping' }
@@ -46,4 +58,4 @@ export type ServerFrame =
   | { type: 'error'; code: string; message?: string; streamId?: string; server?: ProtocolRange }
   | { type: 'sync'; streamId: string; message: ServerMessage }
   | { type: 'presence'; streamId: string; users: PresenceUser[] }
-  | { type: 'access'; streamId: string; role: string };
+  | { type: 'access'; streamId: string; role: string; rules?: StatusRules };

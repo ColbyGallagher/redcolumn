@@ -1,9 +1,19 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { emptyState, type Operation, type OpsState, type MarkupRecord, type Placement } from '@nb/ops';
+import {
+  emptyState,
+  type AnyOperation,
+  type Issue,
+  type LaneStatus,
+  type MarkupRecord,
+  type OpsState,
+  type Placement,
+  type StatusEvent,
+} from '@nb/ops';
 import { sql, type Kysely, type Transaction } from 'kysely';
 import type pg from 'pg';
 import { resolveDocumentAccess, type DocumentAccess } from './documentAccess.ts';
 import type { Database } from './db.ts';
+import { statusEventFromRow } from './issueRows.ts';
 
 /*
  * What a client may read of a document stream. Content is read as a database role that row-level
@@ -61,7 +71,7 @@ export interface FeedUnit {
   seq: number;
   actorId: string;
   serverTime: number;
-  ops: Operation[];
+  ops: AnyOperation[];
 }
 
 export type FeedRead =
@@ -80,7 +90,7 @@ async function visibleUnits(trx: Transaction<Database>, streamId: string, after:
     .execute();
   const units: FeedUnit[] = [];
   for (const row of rows) {
-    const op = row.payload_json as Operation;
+    const op = row.payload_json as AnyOperation;
     const previous = units.at(-1);
     if (previous && op.batchId !== undefined && previous.ops[0]!.batchId === op.batchId && previous.actorId === row.actor_id) {
       previous.ops.push(op);
@@ -103,7 +113,52 @@ async function visibleState(trx: Transaction<Database>, streamId: string): Promi
   for (const row of markupRows) markups[row.id] = row.record_json as MarkupRecord;
   const placements: Record<string, Placement> = {};
   for (const row of placementRows) placements[row.id] = row.record_json as Placement;
-  return { ...emptyState(), markups, placements };
+  return { ...emptyState(), markups, placements, ...(await visibleIssues(trx, streamId)) };
+}
+
+/**
+ * The issues raised for the stream's markups, with their status changes and the status the reader's
+ * lane sees. Everything is read under row-level security, and an issue names only the markups
+ * whose link the reader may see.
+ */
+async function visibleIssues(
+  trx: Transaction<Database>,
+  streamId: string,
+): Promise<Pick<OpsState, 'issues' | 'statusEvents' | 'laneStatus'>> {
+  const links = await trx
+    .selectFrom('issue_links')
+    .innerJoin('markups', 'markups.id', 'issue_links.markup_id')
+    .select(['issue_links.issue_id', 'issue_links.markup_id'])
+    .where('markups.stream_id', '=', streamId)
+    .execute();
+  const linked = new Map<string, Set<string>>();
+  for (const link of links) {
+    const markupIds = linked.get(link.issue_id) ?? new Set<string>();
+    markupIds.add(link.markup_id);
+    linked.set(link.issue_id, markupIds);
+  }
+  const issues: Record<string, Issue> = {};
+  const statusEvents: Record<string, StatusEvent> = {};
+  const laneStatus: Record<string, Record<string, LaneStatus>> = {};
+  const ids = [...linked.keys()];
+  if (!ids.length) return { issues, statusEvents, laneStatus };
+
+  const issueRows = await trx.selectFrom('issues').select(['id', 'record_json']).where('id', 'in', ids).execute();
+  for (const row of issueRows) {
+    const record = row.record_json as Issue;
+    issues[row.id] = { ...record, markupIds: record.markupIds.filter((id) => linked.get(row.id)!.has(id)) };
+  }
+  const eventRows = await trx.selectFrom('status_events').selectAll().where('issue_id', 'in', ids).execute();
+  for (const row of eventRows) statusEvents[row.id] = statusEventFromRow(row);
+  const laneRows = await trx
+    .selectFrom('issue_lane_state')
+    .select(['issue_id', 'lane_id', 'status', 'status_event_id'])
+    .where('issue_id', 'in', ids)
+    .execute();
+  for (const row of laneRows) {
+    (laneStatus[row.issue_id] ??= {})[row.lane_id] = { status: row.status, eventId: row.status_event_id };
+  }
+  return { issues, statusEvents, laneStatus };
 }
 
 /**

@@ -5,12 +5,16 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { MarkupStore, type Markup } from '@nb/markup';
 import { DEFAULT_SCALE } from '@nb/measure';
-import { FakeSyncServer, SyncDocument } from '@nb/sync';
+import type { StatusDef } from '@nb/ops';
+import { FakeSyncServer, SyncDocument, type StatusRules } from '@nb/sync';
+import { cellsFor } from '../columns/listColumns.ts';
 import type { Command } from '../commands/appCommands.ts';
 import { ServerClientError } from '../connect/client.ts';
 import { applyFacetPolicy, hiddenRibbonTabs, listedCommandIds, measureToolIds, panelUnavailable, toolsFor } from './facetUi.ts';
 import { hasFacet, hasFileSteps, hasYjs, isSynced, type FacetName } from './facets.ts';
 import { MissingFacetError, ReviewDocument, type ReviewTransport } from './ReviewDocument.ts';
+import { mayChooseStatus, mayTick, temporaryId } from './statusUi.ts';
+import { canRetry } from './syncText.ts';
 import { uploadPdf } from './upload.ts';
 
 const FACETS: FacetName[] = ['takeoff', 'aiReview', 'portals', 'links', 'stitch', 'geo', 'import', 'fileSteps', 'yjs', 'setup'];
@@ -24,7 +28,21 @@ const quietTransport: ReviewTransport = {
   onSessionEnded: () => () => {},
 };
 
-async function serverDocument(server: FakeSyncServer, userId: string, role: 'project_admin' | 'reviewer' | 'viewer') {
+const STATUSES: StatusDef[] = [
+  { id: 'open', name: 'Open', category: 'open' },
+  { id: 'actioned', name: 'Actioned', category: 'open' },
+  { id: 'closed', name: 'Closed', category: 'closed' },
+];
+
+const RULES: Record<'project_admin' | 'reviewer' | 'viewer', StatusRules> = {
+  project_admin: { changeStatus: true, tick: true, close: 'any' },
+  reviewer: { changeStatus: true, tick: true, close: 'none' },
+  viewer: { changeStatus: false, tick: false, close: 'none' },
+};
+
+const statusServer = () => new FakeSyncServer({ statuses: STATUSES });
+
+async function serverDocument(server: FakeSyncServer, userId: string, role: 'project_admin' | 'reviewer' | 'viewer', rules: StatusRules = RULES[role]) {
   const transport = server.createTransport({ userId, partyId: null, groupId: null });
   const inner = await SyncDocument.open({
     streamId: 'doc-1',
@@ -35,8 +53,9 @@ async function serverDocument(server: FakeSyncServer, userId: string, role: 'pro
     context: { actor: { id: userId, name: userId } },
     transport,
     persistence: false,
+    statuses: STATUSES,
   });
-  const info = { projectName: 'Wharf Pavilion', documentTitle: 'S-101.pdf', documentNumber: 'S-101', revisionLabel: '1', userId, userName: userId, role };
+  const info = { projectName: 'Wharf Pavilion', documentTitle: 'S-101.pdf', documentNumber: 'S-101', revisionLabel: '1', userId, userName: userId, role, statuses: STATUSES, rules };
   const doc = new ReviewDocument(inner, quietTransport, info, new Map());
   await inner.connect();
   return { doc, inner, transport };
@@ -123,14 +142,14 @@ test('a server document refuses file changes instead of making them only here', 
   await doc.destroy();
 });
 
-test('statuses and replies are refused aloud, and the rest of the same change is kept', async () => {
-  const { doc } = await serverDocument(new FakeSyncServer(), 'ada', 'project_admin');
+test('replies are refused aloud, and the rest of the same change is kept', async () => {
+  const { doc } = await serverDocument(statusServer(), 'ada', 'project_admin');
   doc.add(rectangle('m1', 'ada'));
   assert.equal(doc.problem, null);
 
-  doc.update('m1', { status: 'accepted', comment: 'Check the splice' });
+  doc.update('m1', { replies: [{ id: 'r1', author: 'ada', text: 'Which bolt?', createdAt: 1 }], comment: 'Check the splice' });
   assert.equal(doc.get('m1')!.comment, 'Check the splice');
-  assert.equal(doc.get('m1')!.status, 'none');
+  assert.equal(doc.get('m1')!.replies, undefined);
   assert.match(doc.problem ?? '', /not saved/);
 
   doc.dismissProblem();
@@ -139,6 +158,198 @@ test('statuses and replies are refused aloud, and the rest of the same change is
   assert.equal(doc.problem, null);
   assert.equal(doc.get('m1')!.label, 'B2');
   await doc.destroy();
+});
+
+test('the status controls list the project statuses, in the same object each time', async () => {
+  const { doc } = await serverDocument(statusServer(), 'ada', 'project_admin');
+  assert.deepEqual(doc.columnSet().statuses.map((s) => s.id), ['none', 'open', 'actioned', 'closed']);
+  assert.equal(doc.columnSet(), doc.columnSet());
+  await doc.destroy();
+});
+
+test('a markup has no issue until a status is set, and shows a temporary ID until the server numbers it', async () => {
+  const server = statusServer();
+  const { doc, inner } = await serverDocument(server, 'ada', 'project_admin');
+  doc.add(rectangle('m1', 'ada', { comment: 'Bolt grade missing' }));
+  assert.equal(Object.keys(server.state.issues).length, 0);
+  assert.equal(doc.get('m1')!.seq, undefined);
+  assert.equal(temporaryId(doc, 'm1'), null);
+
+  doc.update('m1', { status: 'actioned' });
+  const [issue] = Object.values(server.state.issues);
+  assert.equal(issue!.title, 'Bolt grade missing');
+  assert.deepEqual(issue!.markupIds, ['m1']);
+  assert.equal(doc.get('m1')!.status, 'actioned');
+  // The history names statuses as they read: raising an issue for a change is not an entry of its own.
+  assert.deepEqual(doc.get('m1')!.statusHistory!.map((h) => h.state), ['Actioned']);
+
+  // This server gives no numbers, as when the change was made offline.
+  const label = temporaryId(doc, 'm1')!;
+  assert.match(label, /^Temp [0-9A-Z]{1,4}$/);
+  const cells = cellsFor(doc.get('m1')!, { scaleOf: (m) => doc.scaleOf(m), sheets: {}, statuses: doc.columnSet().statuses, columns: [], idLabel: (m) => temporaryId(doc, m.id) });
+  assert.equal(cells.seq!.text, label);
+  assert.equal(cells.status!.text, 'Actioned');
+
+  inner.submitOps([{ opId: 'reopen', schemaVersion: 1, streamId: 'doc-1', type: 'status.transition', entityId: 'e2', payload: { issueId: issue!.id, from: 'actioned', to: 'open' } }]);
+  assert.deepEqual(doc.get('m1')!.statusHistory!.map((h) => h.state), ['Actioned', 'Open']);
+  await doc.destroy();
+});
+
+test('raising an issue with its first status keeps that status in the history', async () => {
+  const { doc } = await serverDocument(statusServer(), 'ada', 'project_admin');
+  doc.add(rectangle('m1', 'ada'));
+  doc.update('m1', { status: 'open' });
+  assert.equal(doc.get('m1')!.status, 'open');
+  assert.deepEqual(doc.get('m1')!.statusHistory!.map((h) => [h.state, h.author]), [['Open', 'ada']]);
+  await doc.destroy();
+});
+
+test('markups grouped as one comment get one issue', async () => {
+  const server = statusServer();
+  const { doc } = await serverDocument(server, 'ada', 'project_admin');
+  doc.add(rectangle('cloud', 'ada', { groupId: 'g1' }));
+  doc.add(rectangle('note', 'ada', { groupId: 'g1' }));
+  doc.batch(() => ['cloud', 'note'].forEach((id) => doc.update(id, { status: 'actioned' })));
+  assert.equal(Object.keys(server.state.issues).length, 1);
+  assert.deepEqual([doc.get('cloud')!.status, doc.get('note')!.status], ['actioned', 'actioned']);
+  assert.equal(Object.keys(server.state.statusEvents).length, 1);
+  await doc.destroy();
+});
+
+test('a markup grouped later with someone else’s comment changes its issue without taking it over', async () => {
+  const server = statusServer();
+  const ada = await serverDocument(server, 'ada', 'project_admin');
+  const ben = await serverDocument(server, 'ben', 'reviewer');
+  ada.doc.add(rectangle('cloud', 'ada', { groupId: 'g1' }));
+  ada.doc.update('cloud', { status: 'open' });
+  ben.doc.add(rectangle('note', 'ben', { groupId: 'g1' }));
+
+  // Only whoever raised the issue, or an admin, may link another markup to it.
+  ben.doc.batch(() => ['cloud', 'note'].forEach((id) => ben.doc.update(id, { checked: true })));
+  const [issue, ...rest] = Object.values(server.state.issues);
+  assert.deepEqual(rest, []);
+  assert.deepEqual(issue!.markupIds, ['cloud']);
+  assert.equal(issue!.checked, true);
+  assert.equal(ben.doc.sync.inbox.length, 0);
+
+  ada.doc.update('note', { status: 'actioned' });
+  assert.deepEqual(server.state.issues[issue!.id]!.markupIds, ['cloud', 'note']);
+  assert.deepEqual([ben.doc.get('cloud')!.status, ben.doc.get('note')!.status], ['actioned', 'actioned']);
+  await ben.doc.destroy();
+  await ada.doc.destroy();
+});
+
+test('adding a markup that is already here says nothing about its status', async () => {
+  const { doc } = await serverDocument(statusServer(), 'ada', 'project_admin');
+  doc.add(rectangle('m1', 'ada'));
+  doc.update('m1', { status: 'actioned', checked: true });
+  doc.add({ ...doc.get('m1')!, comment: 'Replaced' });
+  assert.equal(doc.problem, null);
+  assert.deepEqual([doc.get('m1')!.comment, doc.get('m1')!.status, doc.get('m1')!.checked], ['Replaced', 'actioned', true]);
+
+  doc.add({ ...doc.get('m1')!, id: 'copy' });
+  assert.match(doc.problem ?? '', /without a status/);
+  assert.deepEqual([doc.get('copy')!.status, doc.get('copy')!.checked, doc.get('copy')!.seq], ['none', undefined, undefined]);
+  await doc.destroy();
+});
+
+test('a status change is not undone: undo says so, and the next undo reaches the edit before it', async () => {
+  const server = statusServer();
+  const { doc } = await serverDocument(server, 'ada', 'project_admin');
+  doc.add(rectangle('m1', 'ada'));
+  doc.update('m1', { comment: 'First wording' });
+  doc.update('m1', { status: 'closed' });
+
+  assert.deepEqual(await doc.undo(), { ok: false, reason: 'permanent' });
+  assert.match(doc.problem ?? '', /cannot be undone/);
+  assert.equal(doc.get('m1')!.status, 'closed');
+  assert.equal(doc.get('m1')!.comment, 'First wording');
+
+  assert.deepEqual(await doc.undo(), { ok: true });
+  assert.equal(doc.get('m1')!.comment ?? '', '');
+  assert.equal(doc.get('m1')!.status, 'closed');
+  assert.deepEqual(await doc.redo(), { ok: true });
+  assert.equal(doc.get('m1')!.comment, 'First wording');
+  assert.equal(Object.keys(server.state.statusEvents).length, 1);
+  await doc.destroy();
+});
+
+test('stepping back several steps passes a status change and keeps it', async () => {
+  const { doc } = await serverDocument(statusServer(), 'ada', 'project_admin');
+  doc.add(rectangle('m1', 'ada'));
+  doc.update('m1', { comment: 'First wording' });
+  doc.update('m1', { status: 'actioned' });
+  await doc.undoSteps(2);
+  assert.equal(doc.get('m1')!.comment ?? '', '');
+  assert.equal(doc.get('m1')!.status, 'actioned');
+  await doc.destroy();
+});
+
+test('the tick is apart from the status, is shared, and undoes like an edit', async () => {
+  const server = statusServer();
+  const ben = await serverDocument(server, 'ben', 'reviewer');
+  const ada = await serverDocument(server, 'ada', 'project_admin');
+  ada.doc.add(rectangle('m1', 'ada'));
+
+  // A reviewer ticks off someone else's markup, which raises its issue.
+  ben.doc.update('m1', { checked: true });
+  assert.equal(ada.doc.get('m1')!.checked, true);
+  assert.equal(ada.doc.get('m1')!.status, 'open');
+  ada.doc.update('m1', { status: 'actioned' });
+  assert.equal(ben.doc.get('m1')!.checked, true);
+
+  assert.deepEqual(await ben.doc.undo(), { ok: true });
+  assert.equal(ada.doc.get('m1')!.checked, undefined);
+  assert.equal(ada.doc.get('m1')!.status, 'actioned', 'the status is not the tick’s to undo');
+  assert.deepEqual(await ben.doc.redo(), { ok: true });
+  assert.equal(ada.doc.get('m1')!.checked, true);
+
+  // Ticked since by someone else: undoing says so.
+  ada.doc.update('m1', { checked: undefined });
+  assert.deepEqual(await ben.doc.undo(), { ok: false, reason: 'changed' });
+  assert.equal(ada.doc.get('m1')!.checked, undefined);
+  await ben.doc.destroy();
+  await ada.doc.destroy();
+});
+
+test('closing is offered only to those the server lets close, and viewers set nothing', async () => {
+  const server = statusServer();
+  const ada = await serverDocument(server, 'ada', 'project_admin');
+  const ben = await serverDocument(server, 'ben', 'reviewer');
+  const own = await serverDocument(server, 'eve', 'reviewer', { changeStatus: true, tick: true, close: 'own' });
+  const vic = await serverDocument(server, 'vic', 'viewer');
+  ada.doc.add(rectangle('m1', 'ada'));
+  ada.doc.update('m1', { status: 'open' });
+
+  assert.equal(mayChooseStatus(ben.doc, ['m1'], 'actioned'), true);
+  assert.equal(mayChooseStatus(ben.doc, ['m1'], 'closed'), false);
+  assert.equal(mayChooseStatus(ben.doc, ['m1'], 'none'), false, 'an issue keeps a status');
+  assert.equal(mayChooseStatus(ada.doc, ['m1'], 'closed'), true);
+  assert.equal(mayChooseStatus(own.doc, ['m1'], 'closed'), false, 'someone else raised it');
+  own.doc.add(rectangle('eves', 'eve'));
+  assert.equal(mayChooseStatus(own.doc, ['eves'], 'closed'), true, 'its issue would be their own');
+
+  ben.doc.update('m1', { status: 'closed' });
+  assert.equal(ben.doc.get('m1')!.status, 'open');
+  assert.match(ben.doc.problem ?? '', /may not set that status/);
+
+  assert.equal(mayTick(vic.doc), false);
+  assert.equal(mayChooseStatus(vic.doc, ['m1'], 'actioned'), false);
+  vic.doc.update('m1', { status: 'actioned', checked: true });
+  assert.equal(vic.inner.sync.pendingCount, 0);
+  assert.equal(ada.doc.get('m1')!.status, 'open');
+  assert.equal(ada.doc.get('m1')!.checked, undefined);
+
+  // A file on this device asks nothing.
+  const local = await MarkupStore.open('review-test-statuses', { persist: false });
+  assert.deepEqual([mayChooseStatus(local, ['x'], 'accepted'), mayTick(local), temporaryId(local, 'x')], [true, true, null]);
+  await local.destroy();
+  for (const each of [ada, ben, own, vic]) await each.doc.destroy();
+});
+
+test('a refused status is decided again, not sent again', () => {
+  assert.equal(canRetry({ ops: [{ type: 'status.transition' }] as never }), false);
+  assert.equal(canRetry({ ops: [{ type: 'markup.patch' }] as never }), true);
 });
 
 test('the edit hint follows the role: reviewers their own markups, admins any, viewers none', async () => {

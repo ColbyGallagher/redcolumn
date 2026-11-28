@@ -1,6 +1,6 @@
 import type { Operation } from '@nb/ops';
 import type { ServerMessage, SyncHandshake, SyncTransport, TransportState } from './types.ts';
-import { MAX_OPEN_PENDING_IDS, WS_SESSION_ENDED, type ClientFrame, type PresenceUser, type ServerFrame } from './wsProtocol.ts';
+import { MAX_OPEN_PENDING_IDS, WS_SESSION_ENDED, type ClientFrame, type PresenceUser, type ServerFrame, type StatusRules } from './wsProtocol.ts';
 
 /** The parts of the browser's `WebSocket` the transport uses. */
 export interface WebSocketLike {
@@ -61,7 +61,7 @@ export class WsSyncTransport implements SyncTransport {
   private readonly messageListeners = new Set<(message: ServerMessage) => void>();
   private readonly stateListeners = new Set<(state: TransportState) => void>();
   private readonly presenceListeners = new Set<(users: PresenceUser[]) => void>();
-  private readonly accessListeners = new Set<(role: string) => void>();
+  private readonly accessListeners = new Set<(role: string, rules?: StatusRules) => void>();
   private readonly sessionEndedListeners = new Set<() => void>();
 
   constructor(options: WsSyncTransportOptions) {
@@ -98,8 +98,8 @@ export class WsSyncTransport implements SyncTransport {
     return () => this.presenceListeners.delete(listener);
   }
 
-  /** The user's project role, sent when the document opens and when it changes. */
-  onAccess(listener: (role: string) => void): () => void {
+  /** The user's project role and what it lets them do, sent when the document opens and when it changes. */
+  onAccess(listener: (role: string, rules?: StatusRules) => void): () => void {
     this.accessListeners.add(listener);
     return () => this.accessListeners.delete(listener);
   }
@@ -228,7 +228,7 @@ export class WsSyncTransport implements SyncTransport {
         return;
       case 'access':
         if (frame.streamId !== this.handshake?.streamId) return;
-        for (const listener of [...this.accessListeners]) listener(frame.role);
+        for (const listener of [...this.accessListeners]) listener(frame.role, frame.rules);
         return;
     }
   }

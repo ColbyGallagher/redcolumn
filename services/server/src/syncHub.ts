@@ -4,7 +4,7 @@ import type { Kysely } from 'kysely';
 import type pg from 'pg';
 import type { Logger } from 'pino';
 import type { Broadcaster } from './broadcaster.ts';
-import { resolveDocumentAccess, type DocumentAccess } from './documentAccess.ts';
+import { resolveDocumentAccess, statusRules, type DocumentAccess } from './documentAccess.ts';
 import type { Database } from './db.ts';
 import type { OpPipeline, PipelineRejection } from './pipeline.ts';
 import { CursorSealer, ensureReaderRole, readFeed, type FeedUnit } from './syncFeed.ts';
@@ -262,7 +262,7 @@ export class SyncSession {
         const events = feed.units.map((unit) => this.event(sub, unit));
         this.message(sub, { type: 'welcome', protocol: negotiated, events });
       }
-      this.connection.send({ type: 'access', streamId, role: sub.access.role });
+      this.connection.send({ type: 'access', streamId, role: sub.access.role, rules: statusRules(sub.access) });
       this.hub.watch(sub, this.connection);
       this.hub.announcePresence(streamId);
     });
@@ -431,7 +431,7 @@ export class SyncSession {
           this.revoke(sub);
         } else if (access.role !== sub.access.role) {
           sub.access = access;
-          this.connection.send({ type: 'access', streamId: sub.streamId, role: access.role });
+          this.connection.send({ type: 'access', streamId: sub.streamId, role: access.role, rules: statusRules(access) });
         }
       } catch (err) {
         logger.warn({ err, streamId: sub.streamId }, 'Failed to re-check document access');

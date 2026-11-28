@@ -26,6 +26,7 @@ import { ContextMenu, type MenuEntry } from './ContextMenu';
 import { FilterBuilderDialog } from './FilterBuilderDialog';
 import { MENU_ICONS } from './menuIcons';
 import { markupTypeIcon } from './ToolBar';
+import { mayChooseStatus, mayTick, temporaryId } from '../review/statusUi';
 
 interface Props {
   markups: Markup[];
@@ -208,8 +209,8 @@ export const MarkupList = memo(function MarkupList(props: Props) {
   const layout = useMemo(() => resolveLayout(settings.columns, all), [settings.columns, all]);
   const visible = layout.filter((c) => !c.hidden);
   const ctx: CellContext = useMemo(
-    () => ({ scaleOf, sheets, statuses: columnSet.statuses, columns: columnSet.columns, spaces, assemblies }),
-    [scaleOf, sheets, columnSet, spaces, assemblies],
+    () => ({ scaleOf, sheets, statuses: columnSet.statuses, columns: columnSet.columns, spaces, assemblies, idLabel: (m) => temporaryId(store, m.id) }),
+    [scaleOf, sheets, columnSet, spaces, assemblies, store],
   );
   // Filters on columns this document does not have (another document's custom columns) are ignored.
   const filters = useMemo(() => {
@@ -596,7 +597,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
           <span className="status-dot" style={{ background: m.status === 'none' ? 'transparent' : (def?.color ?? '#9aa1a9') }} />
           <select value={m.status} disabled={readOnly} onClick={stop} onChange={(e) => patchAll(m, { status: e.target.value })}>
             {columnSet.statuses.map((s) => (
-              <option key={s.id} value={s.id}>
+              <option key={s.id} value={s.id} disabled={!mayChooseStatus(store, [m.id], s.id)}>
                 {s.id === 'none' ? '—' : s.name}
               </option>
             ))}
@@ -627,7 +628,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     }
     if (col.key === 'checked') {
       // Like the status, a review mark anyone who can markup may set.
-      return <input type="checkbox" checked={!!m.checked} disabled={readOnly} onClick={stop} title={msg('Checkmark')} onChange={(e) => patchAll(m, { checked: e.target.checked || undefined })} />;
+      return <input type="checkbox" checked={!!m.checked} disabled={readOnly || !mayTick(store)} onClick={stop} title={msg('Checkmark')} onChange={(e) => patchAll(m, { checked: e.target.checked || undefined })} />;
     }
     if (col.key === 'comment') {
       return (

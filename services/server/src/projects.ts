@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { Kysely } from 'kysely';
+import { DEFAULT_STATUSES } from '@nb/policy';
+import { sql, type Kysely } from 'kysely';
 import type { UserProfile } from './auth.ts';
 import type { Database, ProjectRole } from './db.ts';
+import { DEFAULT_CLOSING } from './documentAccess.ts';
 import { createInvite, isValidEmail } from './invites.ts';
 
 export const PROJECT_ROLES: readonly ProjectRole[] = ['project_admin', 'reviewer', 'viewer'] as const;
@@ -9,14 +11,6 @@ export const PROJECT_ROLES: readonly ProjectRole[] = ['project_admin', 'reviewer
 export function isProjectRole(value: unknown): value is ProjectRole {
   return value === 'project_admin' || value === 'reviewer' || value === 'viewer';
 }
-
-const DEFAULT_PROJECT_STATUSES: readonly { id: string; name: string; category: 'open' | 'closed' | 'void'; position: number }[] = [
-  { id: 'open', name: 'Open', category: 'open', position: 0 },
-  { id: 'actioned', name: 'Actioned', category: 'open', position: 1 },
-  { id: 'answered', name: 'Answered', category: 'open', position: 2 },
-  { id: 'closed', name: 'Closed', category: 'closed', position: 3 },
-  { id: 'void', name: 'Not applicable', category: 'void', position: 4 },
-];
 
 export interface ProjectSummary {
   id: string;
@@ -199,6 +193,7 @@ export async function createProject(
         numbering_mode: 'on_create',
         tick_closes_issue: false,
         allow_amendment_while_open: true,
+        closing_json: sql`${JSON.stringify(DEFAULT_CLOSING)}::jsonb`,
         session_state: 'open',
       })
       .returning(['id', 'project_id', 'kind', 'name', 'session_state', 'created_at'])
@@ -242,12 +237,12 @@ export async function createProject(
     await trx
       .insertInto('statuses')
       .values(
-        DEFAULT_PROJECT_STATUSES.map((s) => ({
+        DEFAULT_STATUSES.map((s, position) => ({
           project_id: projectId,
           id: s.id,
           name: s.name,
           category: s.category,
-          position: s.position,
+          position,
         })),
       )
       .execute();

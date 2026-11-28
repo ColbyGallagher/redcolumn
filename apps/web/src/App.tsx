@@ -259,6 +259,7 @@ import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
 import { UnsavedChangesDialog, askSaveChanges } from './components/UnsavedChangesDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
 import { hasFacet, hasYjs, isSynced, type AppDocument } from './review/facets';
+import { mayChooseStatus, mayTick } from './review/statusUi';
 import { applyFacetPolicy, facetOfCommand, hiddenRibbonTabs, panelUnavailable, toolsFor } from './review/facetUi';
 import type { RevisionTarget } from './review/documentsApi';
 import type { ReviewDocument } from './review/ReviewDocument';
@@ -7639,8 +7640,8 @@ export function App() {
     const first = ms[0];
     if (!first) return [];
     const ro = store.readOnly;
-    // Replies, statuses and ticks are not written to a server yet.
-    const noComments = ro || isSynced(store);
+    // Replies are not written to a server yet.
+    const noReplies = ro || isSynced(store);
     const one = ms.length === 1;
     // Selecting one list row selects its whole group (a Cloud+ is a cloud and a callout). That is still one comment.
     const oneGroup = !!first.groupId && ms.every((m) => m.groupId === first.groupId);
@@ -7909,20 +7910,21 @@ export function App() {
         ],
       },
       SEP,
-      { label: msg('Reply'), icon: MENU_ICONS.reply, disabled: noComments || !(one || oneGroup), onClick: () => setReplyTo({ pane, id: replyMarkup.id }) },
+      { label: msg('Reply'), icon: MENU_ICONS.reply, disabled: noReplies || !(one || oneGroup), onClick: () => setReplyTo({ pane, id: replyMarkup.id }) },
       {
         label: msg('Set Status'),
-        disabled: noComments,
+        disabled: ro,
         items: store.columnSet().statuses.map((s) => ({
           label: s.id === 'none' ? msg('None') : s.name,
           checked: status === s.id,
+          disabled: !mayChooseStatus(store, ids, s.id),
           onClick: () => setStatus(s.id),
         })),
       },
       {
         label: msg('Check'),
         checked: ms.every((m) => m.checked),
-        disabled: noComments,
+        disabled: ro || !mayTick(store),
         onClick: () => {
           const check = !ms.every((m) => m.checked);
           setAll(() => ({ checked: check || undefined }));
