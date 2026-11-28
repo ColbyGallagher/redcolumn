@@ -509,7 +509,9 @@ on Windows, run this in PowerShell from the folder you downloaded to, then check
 
 ## Building from source
 
-redcolumn is a pnpm monorepo. Needs Node.js 22 and pnpm.
+redcolumn is a pnpm monorepo. Needs Node.js 24 (`.nvmrc`; Node 26 cannot run the web unit tests) and
+the pnpm version in `package.json` (`corepack enable`). `pnpm health` checks your setup.
+To contribute, read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md).
 
 ```sh
 pnpm install
@@ -539,6 +541,9 @@ contents in `toc.js`. Its screenshots are taken by `scripts/help` from sample dr
 | `packages/measure` | Scales, measurements, snapping, symbol search |
 | `packages/sheets` | Sheet number detection and sheet links |
 | `packages/stitch` | Stitching sheets along match lines |
+| `packages/model3d` | The 3D model viewer |
+| `packages/i18n` | Interface translation: `msg()`, catalogs, locale-aware numbers |
+| `e2e` | End-to-end tests in the browser and the desktop app |
 
 ### Releasing the desktop app
 

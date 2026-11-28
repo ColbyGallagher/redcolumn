@@ -4,6 +4,10 @@ name: CI
 # tool tests), a production build, a dependency audit, a security scan of the desktop app, and
 # a packaging build of the Mac and Linux installers.
 # A red run means the push would break something.
+#
+# Pull requests from forks run here on `pull_request`, with the read-only token below and no
+# secrets. Never switch to `pull_request_target` or `workflow_run` (for AI review bots or anything
+# else) in a way that checks out or runs a fork's code: those run with secrets and a write token.
 on:
   push:
   pull_request:
@@ -71,6 +75,11 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      # Every *.test.* file must be reached by some package's test script (a glob like
+      # src/*.test.ts is not recursive, so a nested test would otherwise never run).
+      - name: Test files are run
+        run: pnpm check:tests
 
       - name: Test
         run: pnpm test

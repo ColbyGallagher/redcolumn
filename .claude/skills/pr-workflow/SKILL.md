@@ -5,7 +5,10 @@ description: Author -> review -> fix -> merge workflow for PRs in this repo. Use
 
 # PR workflow
 
-Pipeline: author opens a draft PR -> CI green -> fresh-session review -> author fixes -> CI green -> re-review of the fix delta -> human approves (or auto-merge if low risk) -> merge.
+Pipeline: author opens a draft PR -> CI green -> independent review -> author fixes -> CI green -> re-review of the fix delta -> human approves (or auto-merge if low risk) -> merge.
+
+This works with any agent or none: where a step says "tell" or "wait for", use whatever your
+tools provide (a PR comment always works). Read [AGENTS.md](../../../AGENTS.md) first.
 
 Each stage runs in its own session. Identify which role you are in, then follow only that section.
 
@@ -13,45 +16,46 @@ Each stage runs in its own session. Identify which role you are in, then follow 
 
 - `pnpm check:client-data`: no client drawings or identifiers. The repo is public. Use fictional names and generated drawings. Never paste client project names, drawing numbers or file paths into commits, PR text or review comments: the hook only sees commits.
 - `pnpm typecheck`
-- `pnpm test`
+- `pnpm test` and `pnpm check:tests`
 - `pnpm e2e` before marking a PR ready: the end-to-end suite (e2e/README.md) drives every tool in the browser and the desktop app. CI does not run it.
 
 ## Role: author
 
-1. Implement the change on the designated branch. Keep the diff scoped to the task; no unrelated cleanups.
+1. Implement the change on its own branch from up-to-date `origin/master`. Keep the diff scoped to the task; no unrelated cleanups.
 2. Run the checks above and fix failures before pushing.
-3. Push and open a **draft** PR. Put your session ID in the PR description so the reviewer can reach you with `send_message`.
-4. Call `subscribe_pr_activity` for the PR, then end your turn. Do not poll.
+3. Push and open a **draft** PR using the PR template (`.github/pull_request_template.md`). Say how a reviewer can reach you if not by PR comments.
+4. Wait for CI and review without busy-polling: use your tool's PR notifications if it has them, otherwise check back later.
 5. On review comments: fix blockers and small asks, push, and resolve the thread. Reply with a one-line reason on anything you decline. Skip optional/nit findings unless trivial.
 6. After a fix push, wait for CI. Re-run checks locally first.
 7. Stop after 3 review rounds. If blockers remain, summarize them for the human instead of looping.
 
 ## Role: reviewer
 
-1. Start from a fresh session. Do not reuse the author's context. Run the review on Opus 5.5 (the author runs on Sonnet 5.5): a stronger, different model catches more and shares fewer blind spots with the author.
-2. Run the `code-review` skill with `--comment` on the PR at `high` effort.
+1. Start from a fresh session. Do not reuse the author's context. If you can choose, use a different (preferably stronger) model from the author's: it shares fewer blind spots.
+2. Review the whole diff for correctness, security, data loss and missing tests. If your tool has a code-review command, run it at high effort.
 3. Label every comment with a severity prefix:
    - `BLOCKER:` correctness, security, data loss, broken build. Must be fixed.
    - `SHOULD:` real but non-blocking issue.
    - `NIT:` optional style/preference.
 4. Make each comment concrete: what is wrong, the failing scenario, the suggested fix.
-5. Also check that the diff matches the PR's stated task and contains no unrelated changes.
-6. Post findings and end your turn. Do not push fixes and do not merge. The author owns the fix.
-7. On a re-review after fixes, review only the new commits plus any previously open threads.
+5. Also check that the diff matches the PR's stated task and contains no unrelated changes, that a bug fix has a test that would have failed before it, and that no assertion was weakened to get green.
+6. Treat the author's claims ("tests pass", "tried it") as unverified: check CI results and the tests themselves.
+7. Post findings and end your turn. Do not push fixes and do not merge. The author owns the fix.
+8. On a re-review after fixes, review only the new commits plus any previously open threads.
 
 ## Role: merger
 
 Merge only when all of these hold on the current head:
 
 - CI is green.
-- `pnpm verify` passes locally on the current head (typecheck, unit tests, release build, end-to-end suite in web and desktop). CI does not run the end-to-end suite, so this is the only gate for it. Paste its summary line in the merge comment.
+- The end-to-end suite has been run on the current head: `pnpm e2e:web` for anything the user can see, plus `pnpm e2e:desktop` for changes to the desktop app or to behaviour that differs there. CI does not run it, so this is the only gate (`pnpm verify` runs everything). A failure may be accepted only if the same test also fails on the base branch: list each one in the merge comment, with the summary line. Any new failure blocks.
 - No open `BLOCKER:` threads.
 - The branch is up to date with the base (merge base in and re-validate if not).
 - No push has landed since the last review without a re-review of that delta.
 
-**Always require explicit human approval first** for changes touching: database migrations or schema, auth, payments, deploy/CI config (`.github/`), data deletion, or dependency/lockfile changes.
+**Always require explicit human approval first** for changes touching: database migrations or schema, auth, payments, deploy/CI config (`.github/`), data deletion, dependency/lockfile changes, the desktop main process or IPC, or the saved-file format.
 
-For anything else, either the human merges after a short summary, or enable auto-merge only once the conditions above are met. Never self-merge as the reviewer session.
+For anything else, either the human merges after a short summary, or enable auto-merge only once the conditions above are met. Never self-merge as the reviewer session. Never use an admin bypass to merge past failing or missing checks.
 
 ## Escalate to the human
 

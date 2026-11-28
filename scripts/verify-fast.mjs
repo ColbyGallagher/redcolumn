@@ -9,6 +9,7 @@ import { c, fmtSeconds, show } from './lib/cli.mjs';
 const keepGoing = process.argv.includes('--keep-going');
 const steps = [
   ['Client data guard', 'pnpm', ['check:client-data']],
+  ['Test files are run', 'pnpm', ['check:tests']],
   ['Typecheck', 'pnpm', ['typecheck']],
   ['Unit tests', 'pnpm', ['test']],
 ];
