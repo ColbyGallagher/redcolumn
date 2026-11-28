@@ -27,8 +27,9 @@ pnpm monorepo, Node 24 (`.nvmrc`), pnpm version from `packageManager` in `packag
 | `e2e` | Playwright tests, run against web and desktop | (drives the apps) |
 
 A package imports only what its *May import* column names: no package imports `apps/*`, and
-nothing imports `@nb/web`. Add a dependency between packages only with the maintainer's agreement. Logic that can be tested without a browser belongs in a package or a
-plain `.ts` module, not in a React component.
+nothing imports `@nb/web`. Add a dependency between packages only with the maintainer's
+agreement. Logic that can be tested without a browser belongs in a package or a plain `.ts`
+module, not in a React component.
 
 ## Commands
 
