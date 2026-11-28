@@ -510,6 +510,8 @@ describe('document uploads & PDF inspection (Postgres 17)', { skip: !DATABASE_UR
       BLOB_DIR: dir,
       UPLOAD_CHUNK_BYTES: String(8 * 1024 * 1024),
       MAX_UPLOAD_BYTES: String(512 * 1024 * 1024),
+      // Every test signs in to the one server from the one address.
+      LOGIN_RATE_LIMIT_MAX: '1000',
     });
   }
 
@@ -1327,5 +1329,132 @@ describe('document uploads & PDF inspection (Postgres 17)', { skip: !DATABASE_UR
       await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${dupRevUploadId}`, { headers: { cookie } })
     ).json()) as { state: string };
     assert.equal(dupRevStatus.state, 'failed');
+  });
+
+  /** One call to an upload route, as the person with the cookie `as`. */
+  const uploadCall = (as: string, method: string, path: string, body?: unknown, chunk?: Uint8Array, offset = 0) =>
+    fetch(`${baseUrl}/api/projects/${projectId}/uploads${path}`, {
+      method,
+      headers: {
+        cookie: as,
+        origin: baseUrl,
+        ...(chunk ? { 'content-type': 'application/octet-stream', 'x-upload-offset': String(offset) } : {}),
+        ...(body ? { 'content-type': 'application/json' } : {}),
+      },
+      body: chunk ? toBody(chunk) : body ? JSON.stringify(body) : undefined,
+    });
+
+  const setRole = (role: 'project_admin' | 'reviewer' | 'viewer') =>
+    dbHandle.pool.query('UPDATE project_members SET role = $1 WHERE project_id = $2', [role, projectId]);
+
+  const countOf = async (table: 'documents' | 'revisions' | 'document_uploads') =>
+    (await dbHandle.pool.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table}`)).rows[0]!.n;
+
+  const uploadRequest = (pdf: Uint8Array, extra: Record<string, unknown> = {}) => ({
+    filename: 'S-200.pdf',
+    totalBytes: pdf.byteLength,
+    expectedSha256: sha256Hex(pdf),
+    ...extra,
+  });
+
+  const newUpload = async (as: string, pdf: Uint8Array, extra: Record<string, unknown> = {}) => {
+    const res = await uploadCall(as, 'POST', '', uploadRequest(pdf, extra));
+    assert.equal(res.status, 201);
+    return ((await res.json()) as { uploadId: string }).uploadId;
+  };
+
+  it('refuses every upload change by a viewer, for a new document or a new revision', async () => {
+    const pdf = buildPdfBytes([{ width: 612, height: 792 }]);
+    // A document added while still a reviewer, and an upload left unfinished.
+    const first = await newUpload(cookie, pdf);
+    assert.equal((await uploadCall(cookie, 'PUT', `/${first}/chunks`, undefined, pdf)).status, 200);
+    const done = await uploadCall(cookie, 'POST', `/${first}/complete`);
+    assert.equal(done.status, 201);
+    const { documentId, revisionId } = (await done.json()) as { documentId: string; revisionId: string };
+    await server.jobRunner.drain();
+    const unfinished = await newUpload(cookie, pdf);
+
+    await setRole('viewer');
+    const before = [await countOf('documents'), await countOf('revisions'), await countOf('document_uploads')];
+    for (const extra of [{}, { documentId, revisionLabel: '2' }]) {
+      // The role comes from the database, whatever the request says.
+      const res = await uploadCall(cookie, 'POST', '', uploadRequest(pdf, { ...extra, role: 'project_admin' }));
+      assert.equal(res.status, 403);
+      assert.deepEqual(await res.json(), { error: 'forbidden' });
+    }
+    assert.equal((await uploadCall(cookie, 'PUT', `/${unfinished}/chunks`, undefined, pdf)).status, 403);
+    assert.equal((await uploadCall(cookie, 'PATCH', `/${unfinished}/chunks`, undefined, pdf)).status, 403);
+    assert.equal((await uploadCall(cookie, 'POST', `/${unfinished}/complete`)).status, 403);
+    assert.equal((await uploadCall(cookie, 'DELETE', `/${unfinished}`)).status, 403);
+    assert.deepEqual([await countOf('documents'), await countOf('revisions'), await countOf('document_uploads')], before);
+
+    // A viewer still reads.
+    const revision = await fetch(`${baseUrl}/api/projects/${projectId}/documents/${documentId}/revisions/${revisionId}`, {
+      headers: { cookie },
+    });
+    assert.equal(revision.status, 200);
+
+    // Both other roles may add a revision.
+    for (const [role, label] of [['reviewer', '2'], ['project_admin', '3']] as const) {
+      await setRole(role);
+      await newUpload(cookie, pdf, { documentId, revisionLabel: label });
+    }
+  });
+
+  it('stops an uploader made a viewer part-way through', async () => {
+    const pdf = buildPdfBytes([{ width: 612, height: 792 }]);
+    const half = Math.floor(pdf.byteLength / 2);
+    const uploadId = await newUpload(cookie, pdf);
+    assert.equal((await uploadCall(cookie, 'PUT', `/${uploadId}/chunks`, undefined, pdf.subarray(0, half))).status, 200);
+
+    await setRole('viewer');
+    const rest = await uploadCall(cookie, 'PUT', `/${uploadId}/chunks`, undefined, pdf.subarray(half), half);
+    assert.equal(rest.status, 403);
+    assert.deepEqual(await server.blobStore.statUpload(projectId, uploadId), { receivedBytes: half });
+    assert.equal((await uploadCall(cookie, 'POST', `/${uploadId}/complete`)).status, 403);
+
+    // Every byte sent while still allowed, then made a viewer before completing.
+    await setRole('reviewer');
+    const whole = await newUpload(cookie, pdf);
+    assert.equal((await uploadCall(cookie, 'PUT', `/${whole}/chunks`, undefined, pdf)).status, 200);
+    await setRole('viewer');
+    assert.equal((await uploadCall(cookie, 'POST', `/${whole}/complete`)).status, 403);
+    assert.equal(await countOf('documents'), 0);
+    assert.equal(await countOf('revisions'), 0);
+  });
+
+  it('adds nothing when the role goes while the server is checking the file', async () => {
+    const pdf = buildPdfBytes([{ width: 612, height: 792 }]);
+    const uploadId = await newUpload(cookie, pdf);
+    assert.equal((await uploadCall(cookie, 'PUT', `/${uploadId}/chunks`, undefined, pdf)).status, 200);
+
+    const finalize = server.blobStore.finalizeUpload;
+    server.blobStore.finalizeUpload = async (...args) => {
+      const committed = await finalize.apply(server.blobStore, args);
+      await setRole('viewer');
+      return committed;
+    };
+    try {
+      const res = await uploadCall(cookie, 'POST', `/${uploadId}/complete`);
+      assert.equal(res.status, 403);
+      assert.deepEqual(await res.json(), { error: 'forbidden' });
+    } finally {
+      server.blobStore.finalizeUpload = finalize;
+    }
+    assert.equal(await countOf('documents'), 0);
+    assert.equal(await countOf('revisions'), 0);
+    const row = await dbHandle.pool.query('SELECT state, error_message FROM document_uploads WHERE id = $1', [uploadId]);
+    assert.deepEqual(row.rows[0], { state: 'failed', error_message: 'forbidden' });
+  });
+
+  it('still lets a server admin upload to a project they are not a member of', async () => {
+    await createLocalUser(dbHandle.db, {
+      email: 'admin@harbour.example',
+      name: 'Jordan Lee',
+      password: 'fictional-password-77',
+      role: 'admin',
+    });
+    const admin = await login(baseUrl, 'admin@harbour.example', 'fictional-password-77');
+    await newUpload(admin, buildPdfBytes([{ width: 612, height: 792 }]));
   });
 });
