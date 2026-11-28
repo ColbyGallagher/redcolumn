@@ -1,0 +1,36 @@
+name: Contributor-ready task
+description: A piece of work scoped so an outside contributor (or their agent) can pick it up.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A task here should be small enough for one PR and checkable by someone who did not write it.
+        The maintainer decides whether it is ready for outside contributors.
+  - type: textarea
+    id: goal
+    attributes:
+      label: What and why
+      description: The change, and the problem it solves for users.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: A list of things that must be true when it is done, each one checkable.
+      placeholder: |
+        - [ ] Choosing Markup > Foo on a selected cloud does ...
+        - [ ] The saved PDF keeps ... (round-trip test in packages/markup)
+        - [ ] e2e test in e2e/specs/<area>.spec.ts; e2e/coverage.ts entry is { spec: '<area>' }
+    validations:
+      required: true
+  - type: textarea
+    id: where
+    attributes:
+      label: Where the code is
+      description: Files or packages to start from (see AGENTS.md), and anything out of scope.
+  - type: textarea
+    id: tests
+    attributes:
+      label: How to test it
+      description: Unit tests, e2e tests, and what to try by hand.

@@ -15,8 +15,9 @@ const add = (level, name, detail = '', fix = '') => results.push({ level, name, 
 
 // Node
 const nodeMajor = Number(process.versions.node.split('.')[0]);
-if (nodeMajor >= 24) add('ok', 'Node', `v${process.versions.node}`);
-else add('fail', 'Node', `v${process.versions.node}`, 'CI and releases use Node 24. Install Node 24 or newer.');
+// package.json engines and .nvmrc: Node 24. Node 26 rejects --experimental-transform-types, which the web unit tests use.
+if (nodeMajor >= 24 && nodeMajor < 26) add('ok', 'Node', `v${process.versions.node}`);
+else add('fail', 'Node', `v${process.versions.node}`, 'CI and releases use Node 24 (.nvmrc). Install Node 24: Node 26 cannot run the web unit tests.');
 
 // pnpm
 const wantPnpm = (pkg.packageManager ?? '').replace('pnpm@', '');
