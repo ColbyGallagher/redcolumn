@@ -7,7 +7,9 @@ Playwright tests that drive redcolumn like a person: open a PDF, pick tools, cli
 | `web` | Chromium on the Vite dev server (port 5179) | `pnpm e2e:web` |
 | `desktop` | The Electron app, unpackaged, on a `VITE_E2E=1` build in `apps/web/dist-e2e` | `pnpm e2e:desktop` |
 
-`pnpm e2e` runs both. `pnpm verify` runs everything that must pass before a merge: typecheck, unit tests, the release build, a check that the build has no test hook, and both e2e projects. CI does not run the e2e suite, so run `pnpm verify` yourself before merging.
+`pnpm e2e` runs both. `pnpm verify` runs everything that must pass before a merge: typecheck, unit tests, the release build, a check that the build has no test hook, and both e2e projects.
+
+CI runs the `web` project on every push and pull request (the `e2e-web` job in `.github/workflows/ci.yml`, on Linux, in four shards; a failed shard uploads its report and traces). It is not a required check yet, and the `desktop` project still runs only locally, so run `pnpm verify` yourself before merging. Tests known to fail are listed in [quarantine.md](quarantine.md) with the reason.
 
 ## First run
 
@@ -72,5 +74,7 @@ pnpm --filter @nb/e2e exec playwright test --project=web --headed --debug scale
 - a covered command doesn't appear in its spec.
 
 It also prints the covered, skip and todo counts. Set `E2E_STRICT_COVERAGE=1` to fail on `todo` too. This will be the default once every command has a test.
+
+`pnpm check:e2e-coverage` (in CI's `test` job, no browser needed) stops the `todo` list growing: every `todo` must be in `coverage-todo.json`, the commands that were `todo` when the check was added. A new command needs a test or a `skip` reason. When a listed command gets its test, delete it from `coverage-todo.json` as well.
 
 To add a test, write it in the spec for its area and change the command's entry from `'todo'` to `{ spec: '<file>' }`.

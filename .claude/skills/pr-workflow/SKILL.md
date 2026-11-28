@@ -16,8 +16,8 @@ Each stage runs in its own session. Identify which role you are in, then follow 
 
 - `pnpm check:client-data`: no client drawings or identifiers. The repo is public. Use fictional names and generated drawings. Never paste client project names, drawing numbers or file paths into commits, PR text or review comments: the hook only sees commits.
 - `pnpm typecheck`
-- `pnpm test` and `pnpm check:tests`
-- `pnpm e2e` before marking a PR ready: the end-to-end suite (e2e/README.md) drives every tool in the browser and the desktop app. CI does not run it.
+- `pnpm test`, `pnpm check:tests` and `pnpm check:e2e-coverage`
+- `pnpm e2e` before marking a PR ready: the end-to-end suite (e2e/README.md) drives every tool in the browser and the desktop app. CI runs the web project (`e2e-web`, not yet a required check) but not the desktop one.
 
 ## Role: author
 
@@ -48,7 +48,8 @@ Each stage runs in its own session. Identify which role you are in, then follow 
 Merge only when all of these hold on the current head:
 
 - CI is green.
-- `pnpm verify` passes locally on the current head (typecheck, unit tests, release build, end-to-end suite in web and desktop). CI does not run the end-to-end suite, so this is the only gate for it. Paste its summary line in the merge comment.
+- `pnpm verify` passes locally on the current head (typecheck, unit tests, release build, end-to-end suite in web and desktop). CI's `e2e-web` job is not required yet and does not cover desktop, so this is the gate for desktop e2e. Paste its summary line in the merge comment.
+- The `e2e-web` job is green, or each failure is already in `e2e/quarantine.md`.
 - No open `BLOCKER:` threads.
 - The branch is up to date with the base (merge base in and re-validate if not).
 - No push has landed since the last review without a re-review of that delta.
