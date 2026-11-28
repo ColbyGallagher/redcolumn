@@ -1,0 +1,24 @@
+# TLS Mode 1: Organisation Certificate Authority (most common for corporate LANs)
+#
+# Mount your CA-signed certificate (full chain) and private key into ./certs/
+# (or set TLS_CERTS_DIR, TLS_CERT_FILE, and TLS_KEY_FILE in .env) and set:
+#   CADDY_MODE=org-ca
+#   REDCOLUMN_DOMAIN=review.northbridge.example
+#
+# Because client machines already trust your organisation's root CA, browsers
+# and the redcolumn desktop app connect over HTTPS and WSS with no extra steps.
+
+{$REDCOLUMN_DOMAIN} {
+	tls {$TLS_CERT_FILE:/etc/caddy/certs/server.crt} {$TLS_KEY_FILE:/etc/caddy/certs/server.key}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# Caddy v2 automatically proxies WebSocket upgrade headers and X-Forwarded-*.
+	reverse_proxy server:3000
+}

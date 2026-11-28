@@ -506,6 +506,7 @@ on Windows, run this in PowerShell from the folder you downloaded to, then check
 - **Bluebeam compatibility report:** [docs/compatibility.md](docs/compatibility.md)
 - **Planned work:** [docs/ROADMAP.md](docs/ROADMAP.md)
 - **Setting up OneDrive for Live Sessions and Projects:** [docs/CLOUD-SETUP.md](docs/CLOUD-SETUP.md)
+- **Self-hosting the server:** [docs/self-host/install.md](docs/self-host/install.md) ([TLS](docs/self-host/tls.md), [backup and restore](docs/self-host/backup-restore.md))
 
 ## Building from source
 
@@ -541,6 +542,7 @@ contents in `toc.js`. Its screenshots are taken by `scripts/help` from sample dr
 | `packages/policy` | Review permissions, audience-based visibility, settings validator, presets and scenario runner |
 | `packages/sheets` | Sheet number detection and sheet links |
 | `packages/stitch` | Stitching sheets along match lines |
+| `services/server` | Self-hosted review server, admin CLI, and Docker Compose deployment bundle |
 | `services/server` | Self-hosted review server: HTTP/WebSocket API, Postgres migrations, local auth, and operation pipeline |
 
 ### Releasing the desktop app

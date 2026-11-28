@@ -1,0 +1,28 @@
+# TLS Mode 3: Caddy Internal CA (for LAN trials and evaluation)
+#
+# Caddy generates a local root certificate authority inside the caddy_data volume
+# and issues short-lived leaf certificates for {$REDCOLUMN_DOMAIN}.
+#
+# Set in .env:
+#   CADDY_MODE=internal-ca
+#   REDCOLUMN_DOMAIN=review.lan.internal
+#
+# IMPORTANT: After starting the stack, export Caddy's root certificate and
+# install it into each client machine's OS trust store:
+#   docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt ./redcolumn-root-ca.crt
+# See docs/self-host/tls.md for Windows, macOS, and Linux trust-store commands.
+# Never bypass or disable TLS certificate verification on clients.
+
+{$REDCOLUMN_DOMAIN} {
+	tls internal
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy server:3000
+}

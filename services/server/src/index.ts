@@ -5,6 +5,7 @@ import { createDb } from './db.ts';
 import { createLogger } from './logger.ts';
 import { runMigrations } from './migrate.ts';
 
+export * from './admin.ts';
 export * from './app.ts';
 export * from './auth.ts';
 export * from './broadcaster.ts';
