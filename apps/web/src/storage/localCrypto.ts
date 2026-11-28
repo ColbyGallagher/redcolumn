@@ -203,6 +203,8 @@ export async function installLocalEncryption(rewriteLibrary: () => Promise<void>
   } catch (err) {
     console.error('Local encryption: could not convert stored data:', err);
   }
+  // Synced documents (`@nb/sync`) seal their own store with sealLocal and openLocal when they are
+  // opened (review/openRevision.ts).
   if (on) setMarkupPersistence((name, doc) => new SealedMarkupPersistence(name, doc));
 }
 

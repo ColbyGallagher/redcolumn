@@ -45,7 +45,8 @@ interface Props {
   onReply: (m: Markup, parentReplyId?: string) => void;
   /** Right-click on a markup row (the App adds tool library and other actions). */
   onRowMenu: (m: Markup, x: number, y: number) => void;
-  onManageColumns: () => void;
+  /** Unset when the document's columns cannot be changed. */
+  onManageColumns?: () => void;
   onExport: (rows: ListRowData[], columns: ListColumn[]) => void;
   /** Opens the dialog that keeps this list in an Excel workbook. */
   onSync?: () => void;
@@ -445,8 +446,7 @@ export const MarkupList = memo(function MarkupList(props: Props) {
     { label: msg('Reset Column Layout'), onClick: () => editList((l) => ({ ...l, columns: [] })) },
     { label: msg('Wrap Comments'), checked: settings.wrapComments !== false, onClick: () => editList((l) => ({ ...l, wrapComments: l.wrapComments === false })) },
     ...(col.key === 'status' ? [{ sep: true } as MenuEntry, ...statusMenu()] : []),
-    { sep: true },
-    { label: msg('Manage Custom Columns…'), onClick: onManageColumns },
+    ...(onManageColumns ? [{ sep: true } as MenuEntry, { label: msg('Manage Custom Columns…'), onClick: onManageColumns }] : []),
   ];
   // An open menu is rebuilt from this render's state, so its ticks follow clicks while it stays open.
   const menus = useRef({ headerItems, columnsMenu, statusMenu });
@@ -862,9 +862,11 @@ export const MarkupList = memo(function MarkupList(props: Props) {
         <button className="btn small flat" onClick={(e) => setMenu({ x: e.clientX, y: e.clientY, items: () => menus.current.statusMenu() })} title={msg('Show every status change or only the latest, and who made it when')}>
           {msg('Status ▾')}
         </button>
-        <button className="btn small flat" onClick={onManageColumns} title={msg('Add custom columns and statuses')}>
-          {msg('Manage Columns…')}
-        </button>
+        {onManageColumns && (
+          <button className="btn small flat" onClick={onManageColumns} title={msg('Add custom columns and statuses')}>
+            {msg('Manage Columns…')}
+          </button>
+        )}
         <button className="btn small" onClick={() => onExport(rows, visible)} title={msg('Markup Summary…')}>
           {msg('Export…')}
         </button>

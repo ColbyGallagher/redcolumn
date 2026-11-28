@@ -262,8 +262,10 @@ export function authorizeOp(op: AnyOperation, ctx: PolicyContext): PolicyDecisio
       const parent = requireVisibleMeta(member, 'markup', op.payload.markupId, ctx);
       if (!parent.ok) return parent.decision;
       if (parent.meta.locked) return deny({ code: 'locked', reason: 'record_locked' });
+      // Where a markup sits is part of it. Making comments lets someone place their own; placing
+      // another person's takes the right to edit it, or to carry comments to a new revision.
       const canCreate =
-        grants.some((g) => g.action === 'comment.create') ||
+        (parent.meta.owner.userId === member.userId && grants.some((g) => g.action === 'comment.create')) ||
         grants.some((g) => g.action === 'revisions.manage') ||
         hasScopedGrant(grants, 'comment.edit', member, lanes, parent.meta);
       return canCreate ? allow() : forbidden('comment.edit');

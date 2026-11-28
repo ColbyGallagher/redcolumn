@@ -257,3 +257,55 @@ test('delegation limits and at-least-one-admin rule are enforced', () => {
   assert.equal(removeLastAdmin.ok, false);
   assert.equal(removeLastAdmin.reason.code, 'invalid_state');
 });
+
+test('a reviewer places only their own markups; placing another person\'s takes the right to edit it', () => {
+  const project = sampleProject();
+  const process = presets.singleTeam({
+    id: 'r1',
+    members: [{ kind: 'party', id: 'firmA' }, { kind: 'party', id: 'firmB' }],
+  });
+  const grants: Grant[] = [{ subject: { kind: 'user', id: 'admin' }, level: 'project', action: 'comment.edit', scope: 'any' }];
+  const created = executeAction(
+    createPolicyState(),
+    'rev1',
+    { type: 'createMarkup', id: 'm1', text: 'Check the beam depth' },
+    { project, process, now: 1000, opSeq: 1 },
+  );
+  assert.ok(created.ok);
+
+  const place = {
+    opId: 'o_place',
+    schemaVersion: PROTOCOL_VERSION,
+    streamId: 'r1',
+    type: 'placement.create' as const,
+    entityId: 'p1',
+    payload: {
+      markupId: 'm1',
+      revisionId: 'revB',
+      pageId: 'revB_p1',
+      geometry: { points: [[1, 1], [2, 2]] as [number, number][] },
+      method: 'original' as const,
+      confidence: null,
+      state: 'confirmed' as const,
+    },
+  };
+  const as = (actorUserId: string, extra: Grant[] = []) =>
+    authorizeOp(place, { actorUserId, project: { ...project, grants: extra }, process, state: created.state });
+
+  assert.deepEqual(as('rev1'), { ok: true });
+  // The lead's right to edit covers their group, which the owner is in.
+  assert.deepEqual(as('lead'), { ok: true });
+  assert.equal(as('viewer').ok, false);
+  assert.equal(as('admin').ok, false, 'running the project is not itself a right to edit comments');
+  assert.deepEqual(as('admin', grants), { ok: true });
+
+  // Another reviewer may make comments of their own, but may not place this one.
+  const second: ProjectConfig = {
+    ...project,
+    roles: [...project.roles!, { subject: { kind: 'user', id: 'rev2' }, role: 'reviewer', level: 'project' }],
+  };
+  assert.deepEqual(authorizeOp(place, { actorUserId: 'rev2', project: second, process, state: created.state }), {
+    ok: false,
+    reason: { code: 'forbidden', action: 'comment.edit' },
+  });
+});

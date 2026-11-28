@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { MAX_BATCH_BYTES } from '@nb/ops';
 
 export const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
@@ -12,7 +13,10 @@ export interface ServerConfig {
   cookieSecure: boolean;
   sessionCookieName: string;
   sessionTtlMs: number;
+  /** The most bytes of JSON one operation holds. */
   maxOpBytes: number;
+  /** The most bytes of JSON one batch holds. Never less than `maxOpBytes`. */
+  maxBatchBytes: number;
   wsHeartbeatMs: number;
   /** Login attempts allowed per client IP within `loginRateLimitWindowMs`. */
   loginRateLimitMax: number;
@@ -131,6 +135,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
 
   const sessionTtlHours = parseInteger('SESSION_TTL_HOURS', env.SESSION_TTL_HOURS, 24 * 7, { min: 1, max: 24 * 365 });
   const maxOpBytes = parseInteger('MAX_OP_BYTES', env.MAX_OP_BYTES, 256 * 1024, { min: 1024, max: 16 * 1024 * 1024 });
+  // Not a setting of its own: clients cut large edits at `MAX_BATCH_BYTES`, so it must not be less.
+  const maxBatchBytes = Math.max(maxOpBytes, MAX_BATCH_BYTES);
   const wsHeartbeatMs = parseInteger('WS_HEARTBEAT_MS', env.WS_HEARTBEAT_MS, 30_000, { min: 1000, max: 300_000 });
   const loginRateLimitMax = parseInteger('LOGIN_RATE_LIMIT_MAX', env.LOGIN_RATE_LIMIT_MAX, 10, { min: 1, max: 10_000 });
   const loginRateLimitWindowMs = parseInteger('LOGIN_RATE_LIMIT_WINDOW_MS', env.LOGIN_RATE_LIMIT_WINDOW_MS, 60_000, {
@@ -161,6 +167,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     sessionCookieName,
     sessionTtlMs: sessionTtlHours * 60 * 60 * 1000,
     maxOpBytes,
+    maxBatchBytes,
     wsHeartbeatMs,
     loginRateLimitMax,
     loginRateLimitWindowMs,

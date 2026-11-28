@@ -50,6 +50,12 @@ export function applyOp(state: OpsState, op: AnyOperation, ctx: ApplyContext): A
 /** The most operations one batch may hold. Larger imports are split into several batches. */
 export const MAX_BATCH_SIZE = 1000;
 
+/**
+ * The most bytes of JSON one batch holds: room for a full batch of ordinary markups, at about 4 KB
+ * an operation. A client splits a larger edit into several batches, and a server takes at least this.
+ */
+export const MAX_BATCH_BYTES = 4 * 1024 * 1024;
+
 export type BatchResult =
   | { ok: true; state: OpsState; changes: Change[] }
   | { ok: false; rejection: Rejection; /** Which operation was rejected. */ index: number };

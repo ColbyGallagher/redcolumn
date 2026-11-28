@@ -24,6 +24,7 @@ COPY packages/pdf-core/package.json packages/pdf-core/
 COPY packages/policy/package.json packages/policy/
 COPY packages/sheets/package.json packages/sheets/
 COPY packages/stitch/package.json packages/stitch/
+COPY packages/sync/package.json packages/sync/
 COPY services/server/package.json services/server/
 
 RUN pnpm install --frozen-lockfile --ignore-scripts
@@ -49,6 +50,7 @@ COPY packages/pdf-core/package.json packages/pdf-core/
 COPY packages/policy/package.json packages/policy/
 COPY packages/sheets/package.json packages/sheets/
 COPY packages/stitch/package.json packages/stitch/
+COPY packages/sync/package.json packages/sync/
 COPY services/server/package.json services/server/
 
 RUN pnpm --filter @nb/server... install --frozen-lockfile --prod --ignore-scripts
@@ -80,6 +82,12 @@ COPY packages/markup/src ./packages/markup/src
 COPY --from=server-deps /src/packages/ops/package.json ./packages/ops/
 COPY --from=server-deps /src/packages/ops/node_modules ./packages/ops/node_modules
 COPY packages/ops/src ./packages/ops/src
+COPY --from=server-deps /src/packages/policy/package.json ./packages/policy/
+COPY --from=server-deps /src/packages/policy/node_modules ./packages/policy/node_modules
+COPY packages/policy/src ./packages/policy/src
+COPY --from=server-deps /src/packages/pdf-core/package.json ./packages/pdf-core/
+COPY --from=server-deps /src/packages/pdf-core/node_modules ./packages/pdf-core/node_modules
+COPY packages/pdf-core/src ./packages/pdf-core/src
 COPY --from=server-deps /src/services/server/package.json ./services/server/
 COPY --from=server-deps /src/services/server/node_modules ./services/server/node_modules
 COPY services/server/migrations ./services/server/migrations

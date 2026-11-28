@@ -429,6 +429,8 @@ export interface RibbonProps {
   onCollapsedChange: (collapsed: boolean) => void;
   /** The display options menu (ribbon, tabs only, simplified). */
   displayMenu: ReactNode;
+  /** Tabs left out for the document in front. */
+  hiddenTabs?: readonly string[];
 }
 
 type Size = 'large' | 'small';
@@ -893,7 +895,7 @@ function UnitsScale({ scale, disabled, onPreset, onCustom, onUnitsChanged }: Uni
  * Buttons come from the command table, so they disable themselves when what is selected cannot
  * take them (Explode with a text box selected, Fillet with a cloud).
  */
-export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displayMenu }: RibbonProps) {
+export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displayMenu, hiddenTabs }: RibbonProps) {
   const [baseTab, setBaseTab] = useState<TabId>(savedTab);
   // Whether the contextual tab is the one showing (picked, or switched to by a selection); it is never remembered, and gives way when it goes.
   const [follow, dispatch] = useReducer(followFormat, FOLLOW_START);
@@ -912,8 +914,8 @@ export function Ribbon({ commands, toolbar, collapsed, onCollapsedChange, displa
 
   // The contextual tab is there while there is anything to format: a styled tool, or a selection of one markup type.
   const contextual = !!(toolbar.styleType || toolbar.textType || toolbar.cloudBubble || toolbar.geometry || toolbar.selection);
-  const tabs = contextual ? [...TABS, FORMAT_TAB] : TABS;
-  const tab: TabId = onFormat && contextual ? 'format' : baseTab;
+  const tabs = (contextual ? [...TABS, FORMAT_TAB] : TABS).filter((t) => !hiddenTabs?.includes(t.id));
+  const tab: TabId = onFormat && contextual ? 'format' : hiddenTabs?.includes(baseTab) ? 'home' : baseTab;
 
   const pick = (id: TabId) => {
     dispatch({ type: 'pick', format: id === 'format' });

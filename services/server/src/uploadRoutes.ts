@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage } from 'node:http';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { Kysely } from 'kysely';
+import type { Kysely, Transaction } from 'kysely';
 import { extractSessionToken, lookupSession, type SessionInfo } from './auth.ts';
 import {
   BlobValidationError,
@@ -23,7 +23,7 @@ import {
   type PdfInspectJobPayload,
   type SheetSuggestion,
 } from './pdfJob.ts';
-import type { Database } from './schema.ts';
+import type { Database, ProjectRole } from './schema.ts';
 
 export interface UploadRoutesOptions {
   config: ServerConfig;
@@ -85,12 +85,45 @@ function getPgErrorInfo(err: unknown): { code?: string; constraint?: string } {
   };
 }
 
+/** The project roles that may add documents and revisions. A viewer changes nothing. */
+const UPLOADER_ROLES: ReadonlySet<ProjectRole> = new Set<ProjectRole>(['project_admin', 'reviewer']);
+
+/** The user may no longer upload, found while committing an upload. */
+class UploadForbiddenError extends Error {}
+
+/**
+ * Whether the signed-in user may change the project's documents right now, by the role the
+ * database holds for them. A server admin may on any project. With `lock`, the role cannot change
+ * until the transaction `db` ends.
+ */
+async function mayUpload(
+  db: Kysely<Database> | Transaction<Database>,
+  session: SessionInfo,
+  projectId: string,
+  lock = false,
+): Promise<boolean> {
+  if (session.user.isAdmin) return true;
+  let query = db
+    .selectFrom('project_members')
+    .select(['role', 'state'])
+    .where('project_id', '=', projectId)
+    .where('user_id', '=', session.user.id);
+  if (lock) query = query.forShare();
+  const membership = await query.executeTakeFirst();
+  return !!membership && membership.state === 'active' && UPLOADER_ROLES.has(membership.role);
+}
+
+/**
+ * The session, when its user may see the project; with `write`, only when their role also lets
+ * them change its documents. Otherwise it answers the request and returns null.
+ */
 async function requireAuthenticatedProjectAccess(
   db: Kysely<Database>,
   config: ServerConfig,
   request: FastifyRequest,
   reply: FastifyReply,
   projectId: string,
+  options: { write?: boolean } = {},
 ): Promise<SessionInfo | null> {
   const token = extractSessionToken(request.headers, config.sessionCookieName);
   if (!token) {
@@ -132,6 +165,11 @@ async function requireAuthenticatedProjectAccess(
       reply.code(404).send({ error: 'project_not_found' });
       return null;
     }
+  }
+
+  if (options.write && !(await mayUpload(db, session, projectId))) {
+    reply.code(403).send({ error: 'forbidden' });
+    return null;
   }
 
   return session;
@@ -186,7 +224,7 @@ export async function registerUploadRoutes(
     };
   }>('/api/projects/:projectId/uploads', async (request, reply) => {
     const { projectId } = request.params;
-    const session = await requireAuthenticatedProjectAccess(db, config, request, reply, projectId);
+    const session = await requireAuthenticatedProjectAccess(db, config, request, reply, projectId, { write: true });
     if (!session) return;
 
     const body = request.body;
@@ -378,7 +416,7 @@ export async function registerUploadRoutes(
     reply: FastifyReply,
   ) => {
     const { projectId, uploadId } = request.params;
-    const session = await requireAuthenticatedProjectAccess(db, config, request, reply, projectId);
+    const session = await requireAuthenticatedProjectAccess(db, config, request, reply, projectId, { write: true });
     if (!session) return;
 
     try {
@@ -499,7 +537,7 @@ export async function registerUploadRoutes(
     '/api/projects/:projectId/uploads/:uploadId/complete',
     async (request, reply) => {
       const { projectId, uploadId } = request.params;
-      const session = await requireAuthenticatedProjectAccess(db, config, request, reply, projectId);
+      const session = await requireAuthenticatedProjectAccess(db, config, request, reply, projectId, { write: true });
       if (!session) return;
 
       try {
@@ -636,6 +674,8 @@ export async function registerUploadRoutes(
 
         try {
           await db.transaction().execute(async (trx) => {
+            // Checking a large file takes a while: the role may have changed since the request came in.
+            if (!(await mayUpload(trx, session, projectId, true))) throw new UploadForbiddenError();
             if (!documentId) {
               documentId = randomUUID();
               const docNumber = claimed.document_number ?? deriveDocumentNumber(claimed.filename, documentId);
@@ -695,6 +735,15 @@ export async function registerUploadRoutes(
               .execute();
           });
         } catch (err) {
+          if (err instanceof UploadForbiddenError) {
+            await db
+              .updateTable('document_uploads')
+              .set({ state: 'failed', error_message: 'forbidden', updated_at: new Date() })
+              .where('id', '=', uploadId)
+              .where('state', '=', 'completing')
+              .execute();
+            return reply.code(403).send({ error: 'forbidden' });
+          }
           const pgErr = getPgErrorInfo(err);
           if (pgErr.code === '23505') {
             const conflictError = pgErr.constraint?.includes('documents')
@@ -756,7 +805,7 @@ export async function registerUploadRoutes(
     '/api/projects/:projectId/uploads/:uploadId',
     async (request, reply) => {
       const { projectId, uploadId } = request.params;
-      const session = await requireAuthenticatedProjectAccess(db, config, request, reply, projectId);
+      const session = await requireAuthenticatedProjectAccess(db, config, request, reply, projectId, { write: true });
       if (!session) return;
 
       try {

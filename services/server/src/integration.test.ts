@@ -15,6 +15,7 @@ import { createDb, type DbHandle } from './db.ts';
 import { createInvite } from './invites.ts';
 import { checkMigrations, runMigrations } from './migrate.ts';
 import type { BatchAck, OpAck } from './pipeline.ts';
+import { createDocumentFixture, FrameInbox, type DocumentFixture } from './testSupport.ts';
 import { WS_CLOSE_SESSION_ENDED } from './ws.ts';
 
 function makeMarkupPatch(opId: string, entityId: string, text: string, basedOn: string, streamId = 'doc-alpha'): Operation {
@@ -138,6 +139,12 @@ function makeMarkupCreate(opId: string, entityId: string, text: string, streamId
       },
     },
   };
+}
+
+/** A markup create as a client sends it for a real document. */
+function documentCreate(fixture: DocumentFixture, opId: string, entityId: string, text: string): Operation {
+  const op = makeMarkupCreate(opId, entityId, text, fixture.documentId);
+  return { ...op, payload: { ...op.payload, scopeId: fixture.scopeId } } as Operation;
 }
 
 function openWs(url: string, headers: Record<string, string>): Promise<WebSocket> {
@@ -285,44 +292,35 @@ describe('server integration (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_U
       const badOriginStatus = await expectWsRejected(wsUrl, { cookie: cookiePair, origin: 'https://evil.example.test' });
       assert.equal(badOriginStatus, 403);
 
-      // Authenticated WS connection + handshake + subscribe + op submit + broadcast
+      // Authenticated WS connection + handshake + open a document + send an operation + broadcast
+      const admin = { id: loginBody.user.id, email: 'ada@example.test', name: 'Ada Reviewer', role: 'admin' as const, isAdmin: true };
+      const fixture = await createDocumentFixture(dbHandle.db, admin);
       const ws1 = await openWs(wsUrl, { cookie: cookiePair, origin: baseUrl });
       const ws2 = await openWs(wsUrl, { cookie: cookiePair, origin: baseUrl });
+      const inbox1 = new FrameInbox(ws1);
+      const inbox2 = new FrameInbox(ws2);
 
       try {
-        ws1.send(JSON.stringify({ type: 'hello', protocol: { min: 1, max: PROTOCOL_VERSION } }));
-        const welcome1 = await nextJsonMessage(ws1);
-        assert.equal(welcome1.type, 'welcome');
-        assert.equal(welcome1.protocolVersion, PROTOCOL_VERSION);
-
-        ws2.send(JSON.stringify({ type: 'hello', protocol: { min: 1, max: PROTOCOL_VERSION } }));
-        const welcome2 = await nextJsonMessage(ws2);
-        assert.equal(welcome2.type, 'welcome');
-
-        ws2.send(JSON.stringify({ type: 'subscribe', streamId: 'doc-ws-1' }));
-        const subMsg = await nextJsonMessage(ws2);
-        assert.equal(subMsg.type, 'subscribed');
-
-        const eventPromise = nextJsonMessage(ws2);
-        const ackPromise = nextJsonMessage(ws1);
-
-        const op = makeMarkupCreate('op-ws-1', 'markup-ws-1', 'Verify beam depth', 'doc-ws-1');
-        ws1.send(JSON.stringify({ type: 'op', op }));
-
-        const [ackMsg, eventMsg] = await Promise.all([ackPromise, eventPromise]);
-        assert.equal(ackMsg.type, 'ack');
-        const ackResult = ackMsg.result as OpAck;
-        assert.equal(ackResult.ok, true);
-        if (ackResult.ok) {
-          assert.equal(ackResult.seq, 1);
-          assert.equal(ackResult.opId, 'op-ws-1');
+        for (const [ws, inbox] of [[ws1, inbox1], [ws2, inbox2]] as const) {
+          ws.send(JSON.stringify({ type: 'hello', protocol: { min: 1, max: PROTOCOL_VERSION } }));
+          const welcome = await inbox.next((frame) => frame.type === 'welcome', 'welcome');
+          assert.equal(welcome.protocolVersion, PROTOCOL_VERSION);
+          ws.send(JSON.stringify({ type: 'open', streamId: fixture.documentId, cursor: null, pendingOpIds: [] }));
+          await inbox.sync('welcome');
         }
 
-        assert.equal(eventMsg.type, 'event');
-        const evt = eventMsg.event as StreamEvent;
-        assert.equal(evt.seq, 1);
-        assert.equal(evt.opId, 'op-ws-1');
-        assert.equal(evt.actorId, loginBody.user.id);
+        const op = documentCreate(fixture, 'op-ws-1', 'markup-ws-1', 'Verify beam depth');
+        ws1.send(JSON.stringify({ type: 'send', streamId: fixture.documentId, ops: [op] }));
+
+        const ack = await inbox1.sync('ack');
+        assert.deepEqual(ack.opIds, ['op-ws-1']);
+        assert.equal((ack.actor as { userId: string }).userId, loginBody.user.id);
+
+        const { event } = (await inbox2.sync('event')) as { event: { ops: Operation[]; cursor: string; actor: { userId: string } } };
+        assert.equal(event.ops[0]!.opId, 'op-ws-1');
+        assert.equal(event.actor.userId, loginBody.user.id);
+        // The stream position is sealed: a cursor says nothing a client can read.
+        assert.doesNotMatch(event.cursor, /^(seq:)?\d+$/);
       } finally {
         ws1.close();
         ws2.close();
@@ -694,36 +692,33 @@ describe('server integration (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_U
   });
 
   it('handles frames on one WS connection in order: a patch sent right after its create applies', async () => {
-    await createLocalUser(dbHandle.db, { email: 'ord@example.test', name: 'Ord Tester', password: 'fictional-pass-789' });
+    const user = await createLocalUser(dbHandle.db, { email: 'ord@example.test', name: 'Ord Tester', password: 'fictional-pass-789' });
     const config = makeConfig();
     const server = buildServer({ config, db: dbHandle.db, pool: dbHandle.pool });
     const baseUrl = await server.app.listen({ host: config.host, port: 0 });
     const wsUrl = `${baseUrl.replace(/^http/, 'ws')}/ws`;
     try {
+      const fixture = await createDocumentFixture(dbHandle.db, user);
       const cookie = await login(baseUrl, 'ord@example.test', 'fictional-pass-789');
       const ws = await openHandshakenWs(wsUrl, baseUrl, cookie);
       try {
+        const inbox = new FrameInbox(ws);
+        ws.send(JSON.stringify({ type: 'open', streamId: fixture.documentId, cursor: null, pendingOpIds: [] }));
+        await inbox.sync('welcome');
         const pairs = 20;
-        const acks: OpAck[] = [];
-        const done = new Promise<void>((resolve) => {
-          ws.on('message', (data) => {
-            const msg = JSON.parse(data.toString()) as { type: string; result: OpAck };
-            if (msg.type === 'ack') acks.push(msg.result);
-            if (acks.length === pairs * 2) resolve();
-          });
-        });
         // Send every create and patch back to back without waiting for any ack.
         for (let i = 0; i < pairs; i++) {
-          ws.send(JSON.stringify({ type: 'op', op: makeMarkupCreate(`op-c-${i}`, `m-ord-${i}`, 'Draft', 'doc-order') }));
-          ws.send(JSON.stringify({ type: 'op', op: makeMarkupPatch(`op-p-${i}`, `m-ord-${i}`, 'Final', `op-c-${i}`, 'doc-order') }));
+          const send = (op: Operation) => ws.send(JSON.stringify({ type: 'send', streamId: fixture.documentId, ops: [op] }));
+          send(documentCreate(fixture, `op-c-${i}`, `m-ord-${i}`, 'Draft'));
+          send(makeMarkupPatch(`op-p-${i}`, `m-ord-${i}`, 'Final', `op-c-${i}`, fixture.documentId));
         }
-        await done;
+        const acked: string[] = [];
+        for (let i = 0; i < pairs * 2; i++) acked.push(...((await inbox.sync('ack')).opIds as string[]));
         assert.deepEqual(
-          acks.map((a) => a.opId),
+          acked,
           Array.from({ length: pairs }, (_, i) => [`op-c-${i}`, `op-p-${i}`]).flat(),
         );
-        for (const ack of acks) assert.equal(ack.ok, true, JSON.stringify(ack));
-        const rows = await dbHandle.db.selectFrom('markups').select(['id', 'record_json']).where('stream_id', '=', 'doc-order').execute();
+        const rows = await dbHandle.db.selectFrom('markups').select(['id', 'record_json']).where('stream_id', '=', fixture.documentId).execute();
         assert.equal(rows.length, pairs);
         for (const row of rows) assert.equal((row.record_json as { content: { text: string } }).content.text, 'Final');
       } finally {

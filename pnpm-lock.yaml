@@ -54,6 +54,9 @@ importers:
       '@nb/measure':
         specifier: workspace:*
         version: link:../../packages/measure
+      '@nb/ops':
+        specifier: workspace:*
+        version: link:../../packages/ops
       '@nb/pdf-core':
         specifier: workspace:*
         version: link:../../packages/pdf-core
@@ -63,6 +66,9 @@ importers:
       '@nb/stitch':
         specifier: workspace:*
         version: link:../../packages/stitch
+      '@nb/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
       '@pdf-lib/fontkit':
         specifier: ^1.1.1
         version: 1.1.1
@@ -281,6 +287,28 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/sync:
+    dependencies:
+      '@nb/markup':
+        specifier: workspace:*
+        version: link:../markup
+      '@nb/measure':
+        specifier: workspace:*
+        version: link:../measure
+      '@nb/ops':
+        specifier: workspace:*
+        version: link:../ops
+      '@nb/sheets':
+        specifier: workspace:*
+        version: link:../sheets
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.1
+        version: 26.6.1
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   services/server:
     dependencies:
       '@fastify/rate-limit':
@@ -292,6 +320,9 @@ importers:
       '@nb/pdf-core':
         specifier: workspace:*
         version: link:../../packages/pdf-core
+      '@nb/policy':
+        specifier: workspace:*
+        version: link:../../packages/policy
       '@node-rs/argon2':
         specifier: 2.2.2
         version: 2.2.2
@@ -311,6 +342,9 @@ importers:
         specifier: 8.23.0
         version: 8.23.0
     devDependencies:
+      '@nb/sync':
+        specifier: workspace:*
+        version: link:../../packages/sync
       '@types/node':
         specifier: ^26.6.1
         version: 26.6.1

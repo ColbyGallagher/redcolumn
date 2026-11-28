@@ -1,21 +1,20 @@
+import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { negotiateProtocol, type Actor, type ProtocolRange } from '@nb/ops';
+import { negotiateProtocol, SUPPORTED_PROTOCOL, type ProtocolRange } from '@nb/ops';
 import type { Kysely } from 'kysely';
 import type { Logger } from 'pino';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { extractSessionToken, lookupSession, type SessionInfo } from './auth.ts';
-import type { Broadcaster } from './broadcaster.ts';
 import { isOriginAllowed, type ServerConfig } from './config.ts';
 import type { Database } from './db.ts';
-import type { OpPipeline } from './pipeline.ts';
+import type { SyncHub } from './syncHub.ts';
 
 export interface WsServerOptions {
   httpServer: HttpServer;
   config: ServerConfig;
   db: Kysely<Database>;
-  pipeline: OpPipeline;
-  broadcaster: Broadcaster;
+  hub: SyncHub;
   logger: Logger;
 }
 
@@ -25,6 +24,8 @@ export interface WsHandle {
   closeSession: (sessionId: string) => void;
   /** Re-checks every open socket's session now and closes those that are no longer valid. */
   revalidateSessions: () => Promise<void>;
+  /** Re-checks every open document stream now. Call it when memberships or roles change. */
+  revalidateAccess: () => Promise<void>;
   close: () => Promise<void>;
 }
 
@@ -32,16 +33,8 @@ export interface WsHandle {
 export const WS_CLOSE_SESSION_ENDED = 4401;
 
 const STREAM_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
-
-export type StreamAccess = 'read' | 'write';
-
-/**
- * The one place stream access is decided. Stream-level access control is not enforced yet:
- * any signed-in user may read and write any stream. Deny here once stream permissions exist.
- */
-export function authorizeStream(_actor: Actor, _streamId: string, _access: StreamAccess): boolean {
-  return true;
-}
+/** The most pending operation ids an open frame may list; clients send no more. */
+const MAX_OPEN_PENDING_IDS = 4000;
 
 interface Connection {
   session: SessionInfo;
@@ -66,19 +59,13 @@ function rawDataToBuffer(data: RawData): Buffer {
   return Buffer.from(data);
 }
 
-function rawStreamId(op: unknown): string | null {
-  if (op && typeof op === 'object' && typeof (op as { streamId?: unknown }).streamId === 'string') {
-    return (op as { streamId: string }).streamId;
-  }
-  return null;
-}
-
 export function attachWebSocketServer(options: WsServerOptions): WsHandle {
-  const { httpServer, config, db, pipeline, broadcaster, logger } = options;
+  const { httpServer, config, db, hub, logger } = options;
 
   const wss = new WebSocketServer({
     noServer: true,
-    maxPayload: config.maxOpBytes + 16_384,
+    // Room for the largest operation or batch with its frame, and always for a full open frame.
+    maxPayload: Math.max(config.maxOpBytes + 16_384, config.maxBatchBytes + 16_384, MAX_OPEN_PENDING_IDS * 64),
   });
 
   const alive = new WeakMap<WebSocket, boolean>();
@@ -116,6 +103,7 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
     // Logout on this server closes sockets at once (closeSession). This catches sessions that
     // expired, were revoked elsewhere, or whose user was disabled.
     void revalidateSessions();
+    void hub.revalidate();
   }, config.wsHeartbeatMs);
   heartbeatTimer.unref();
 
@@ -128,16 +116,20 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
     const conn: Connection = { session, token, ended: false };
     connections.set(ws, conn);
 
-    const actor: Actor = { userId: session.user.id, partyId: null, groupId: null };
-    const subscriptions = new Map<string, () => void>();
+    const connectionId = randomUUID();
+    const sync = hub.createSession({
+      id: connectionId,
+      user: { id: session.user.id, name: session.user.name },
+      send: (frame) => {
+        if (!conn.ended) sendJson(ws, frame);
+      },
+      close: () => ws.close(1011, 'internal_error'),
+    });
     let negotiatedVersion: number | null = null;
 
     const cleanup = () => {
       connections.delete(ws);
-      for (const unsubscribe of subscriptions.values()) {
-        unsubscribe();
-      }
-      subscriptions.clear();
+      sync.dispose();
     };
 
     ws.on('close', cleanup);
@@ -186,6 +178,9 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
           type: 'welcome',
           protocolVersion: result.version,
           user: session.user,
+          connectionId,
+          maxOpBytes: config.maxOpBytes,
+          maxBatchBytes: config.maxBatchBytes,
         });
         return;
       }
@@ -195,71 +190,34 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
         return;
       }
 
-      const forbidden = (streamId: string) =>
-        sendJson(ws, { type: 'error', code: 'forbidden', streamId, message: 'Not allowed on this stream' });
-
-      if (typed.type === 'subscribe') {
+      if (typed.type === 'open' || typed.type === 'send' || typed.type === 'presence' || typed.type === 'close') {
         const streamId = typeof typed.streamId === 'string' ? typed.streamId : '';
         if (!STREAM_ID_RE.test(streamId)) {
           sendJson(ws, { type: 'error', code: 'invalid_stream_id', message: 'Invalid streamId' });
           return;
         }
-        if (!authorizeStream(actor, streamId, 'read')) {
-          forbidden(streamId);
-          return;
-        }
-        if (!subscriptions.has(streamId)) {
-          const unsubscribe = broadcaster.subscribe(streamId, (event) => {
-            if (!conn.ended) sendJson(ws, { type: 'event', event });
-          });
-          subscriptions.set(streamId, unsubscribe);
-        }
-        sendJson(ws, { type: 'subscribed', streamId });
-        return;
-      }
-
-      if (typed.type === 'unsubscribe') {
-        const streamId = typeof typed.streamId === 'string' ? typed.streamId : '';
-        const unsubscribe = subscriptions.get(streamId);
-        if (unsubscribe) {
-          unsubscribe();
-          subscriptions.delete(streamId);
-        }
-        sendJson(ws, { type: 'unsubscribed', streamId });
-        return;
-      }
-
-      if (typed.type === 'op') {
-        const streamId = rawStreamId(typed.op);
-        if (streamId !== null && !authorizeStream(actor, streamId, 'write')) {
-          forbidden(streamId);
-          return;
-        }
         try {
-          const result = await pipeline.submitOperation(typed.op, actor, buf.byteLength);
-          sendJson(ws, { type: 'ack', result });
-        } catch (err) {
-          logger.error({ err, userId: session.user.id }, 'Failed to process operation');
-          sendJson(ws, { type: 'error', code: 'internal_error', message: 'Failed to process operation' });
-        }
-        return;
-      }
-
-      if (typed.type === 'batch') {
-        const ops = Array.isArray(typed.ops) ? typed.ops : [];
-        for (const op of ops) {
-          const streamId = rawStreamId(op);
-          if (streamId !== null && !authorizeStream(actor, streamId, 'write')) {
-            forbidden(streamId);
-            return;
+          if (typed.type === 'open') {
+            const cursor = typeof typed.cursor === 'string' ? typed.cursor : null;
+            const pending = Array.isArray(typed.pendingOpIds)
+              ? typed.pendingOpIds.filter((id): id is string => typeof id === 'string' && STREAM_ID_RE.test(id))
+              : [];
+            await sync.open(streamId, cursor, pending.slice(0, MAX_OPEN_PENDING_IDS), {
+              ...SUPPORTED_PROTOCOL,
+              version: negotiatedVersion,
+            });
+          } else if (typed.type === 'send') {
+            await sync.submit(streamId, typed.ops);
+          } else if (typed.type === 'presence') {
+            sync.setPage(streamId, typed.pageIndex);
+          } else {
+            sync.close(streamId);
           }
-        }
-        try {
-          const result = await pipeline.submitBatch(ops, actor, buf.byteLength);
-          sendJson(ws, { type: 'batch_ack', result });
         } catch (err) {
-          logger.error({ err, userId: session.user.id }, 'Failed to process operation batch');
-          sendJson(ws, { type: 'error', code: 'internal_error', message: 'Failed to process operation batch' });
+          logger.error({ err, userId: session.user.id, frame: typed.type }, 'Failed to handle sync frame');
+          // The client reconnects and sends anything unanswered again.
+          sendJson(ws, { type: 'error', code: 'internal_error', streamId, message: 'Failed to process the message' });
+          ws.close(1011, 'internal_error');
         }
         return;
       }
@@ -271,11 +229,13 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
     // another (a patch after its create) never overtakes it, and acks come back in order.
     let queue: Promise<void> = Promise.resolve();
     ws.on('message', (raw) => {
-      queue = queue
-        .then(() => handleMessage(raw))
-        .catch((err) => {
-          logger.error({ err, userId: session.user.id }, 'Failed to handle WebSocket frame');
-        });
+      queue = hub.track(
+        queue
+          .then(() => handleMessage(raw))
+          .catch((err) => {
+            logger.error({ err, userId: session.user.id }, 'Failed to handle WebSocket frame');
+          }),
+      );
     });
   };
 
@@ -333,6 +293,7 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
       }
     },
     revalidateSessions,
+    revalidateAccess: () => hub.revalidate(),
     close: async () => {
       clearInterval(heartbeatTimer);
       httpServer.off('upgrade', onUpgrade);
@@ -342,6 +303,7 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
       await new Promise<void>((resolve) => {
         wss.close(() => resolve());
       });
+      await hub.close();
     },
   };
 }

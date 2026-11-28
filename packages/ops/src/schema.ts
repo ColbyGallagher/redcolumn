@@ -176,11 +176,42 @@ export function withinDepth(value: unknown, max: number): boolean {
   return true;
 }
 
+// A NUL, or half of a surrogate pair. With the `u` flag a whole pair is one character, so only a
+// lone half matches.
+const UNSTORABLE = /[\0\uD800-\uDFFF]/u;
+
+/**
+ * Whether any string in `value`, keys included, holds a character a database cannot store as text
+ * or JSON. An operation holding one could never be applied, however often it was sent. Iterative,
+ * like `withinDepth`.
+ */
+export function hasUnstorableText(value: unknown): boolean {
+  const stack: unknown[] = [value];
+  while (stack.length) {
+    const item = stack.pop();
+    if (typeof item === 'string') {
+      if (UNSTORABLE.test(item)) return true;
+    } else if (typeof item === 'object' && item !== null) {
+      for (const [key, child] of Object.entries(item)) {
+        if (UNSTORABLE.test(key)) return true;
+        stack.push(child);
+      }
+    }
+  }
+  return false;
+}
+
 export type ParseResult = { ok: true; op: Operation } | { ok: false; rejection: Extract<Rejection, { code: 'invalid' }> };
 
 /** Reads an operation a client sent (already parsed from JSON). Server-only operations are refused. */
 export function parseOperation(input: unknown): ParseResult {
   if (!withinDepth(input, MAX_DEPTH)) return { ok: false, rejection: { code: 'invalid', message: 'The operation is nested too deeply' } };
+  if (hasUnstorableText(input)) {
+    return {
+      ok: false,
+      rejection: { code: 'invalid', message: 'Text holds a character that cannot be saved (a NUL or half of a surrogate pair)' },
+    };
+  }
   const result = v.safeParse(OperationSchema, input);
   if (result.success) return { ok: true, op: result.output as Operation };
   const issue = result.issues[0];

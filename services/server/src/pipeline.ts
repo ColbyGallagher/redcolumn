@@ -4,6 +4,7 @@ import {
   applyOp,
   dependencies,
   emptyState,
+  MAX_BATCH_BYTES,
   parseOperation,
   type Actor,
   type ApplyContext,
@@ -17,12 +18,35 @@ import {
 import { sql, type Kysely, type Transaction } from 'kysely';
 import type { Broadcaster, StreamEvent } from './broadcaster.ts';
 import type { Database } from './db.ts';
+import {
+  addsSecondPlacement,
+  authorizeDocumentOp,
+  documentOfStream,
+  findForeignPage,
+  loadItemRows,
+  newItemRow,
+  resolveDocumentAccess,
+  versionAfter,
+  writeItemVersion,
+  type DocumentAccess,
+  type ItemVersion,
+  type StoredItemRow,
+} from './documentAccess.ts';
 
 export type PipelineRejection =
   | Rejection
   | { code: 'op_id_conflict'; message: string }
   | { code: 'payload_too_large'; message: string }
-  | { code: 'unsupported_operation'; message: string };
+  | { code: 'unsupported_operation'; message: string }
+  | { code: 'forbidden'; message?: string };
+
+export interface SubmitOptions {
+  /**
+   * Refuse a stream that is not a document's. Everything a client sends is submitted this way; a
+   * document stream is always checked against the document's rules, with or without it.
+   */
+  documentOnly?: boolean;
+}
 
 export type OpAck =
   | { ok: true; opId: string; streamId: string; seq: number; receivedAt: string; replayed?: boolean }
@@ -42,7 +66,10 @@ export interface OpPipelineHooks {
 export interface OpPipelineOptions {
   db: Kysely<Database>;
   broadcaster: Broadcaster;
+  /** The most bytes of one operation. */
   maxOpBytes: number;
+  /** The most bytes of one batch. At least `maxOpBytes`. */
+  maxBatchBytes?: number;
   defaultLaneId?: string;
   now?: () => number;
   hooks?: OpPipelineHooks;
@@ -152,6 +179,23 @@ async function findForeignCreate(
   return null;
 }
 
+/**
+ * What a client hears when it creates a record under an id that cannot be used. It does not say
+ * that the id is in use elsewhere, which would tell a former member that a record still exists.
+ */
+const UNUSABLE_CREATE: PipelineRejection = { code: 'invalid', message: 'The server could not accept this operation' };
+
+/**
+ * PostgreSQL's class 22, "data exception": a value in the write cannot be stored, however often it
+ * is sent. It is answered, so the sender sets it aside instead of sending it again for ever.
+ */
+function isDataError(err: unknown): boolean {
+  const code = err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && /^22[0-9A-Z]{3}$/.test(code);
+}
+
+const UNSTORABLE_WRITE: PipelineRejection = { code: 'invalid', message: 'The server could not store this operation' };
+
 function measureBytes(raw: unknown, provided?: number): number {
   if (provided !== undefined) return provided;
   try {
@@ -159,6 +203,87 @@ function measureBytes(raw: unknown, provided?: number): number {
   } catch {
     return Infinity;
   }
+}
+
+/** What a document stream's rules need for one write: who is writing, and the stored items' sharing state. */
+interface DocumentWrite {
+  access: DocumentAccess;
+  rows: Map<string, StoredItemRow>;
+}
+
+type GuardResult = { ok: true; write: DocumentWrite | null } | { ok: false; rejection: PipelineRejection };
+
+/** Checked after the stream is locked, so the answer reflects the membership in force when applying. */
+async function guardStream(
+  trx: Transaction<Database>,
+  streamId: string,
+  actor: Actor,
+  options: SubmitOptions,
+): Promise<GuardResult> {
+  const document = await documentOfStream(trx, streamId);
+  if (!document) {
+    return options.documentOnly ? { ok: false, rejection: { code: 'forbidden' } } : { ok: true, write: null };
+  }
+  const access = await resolveDocumentAccess(trx, actor.userId, streamId);
+  if (!access) return { ok: false, rejection: { code: 'forbidden' } };
+  return { ok: true, write: { access, rows: new Map() } };
+}
+
+type Evaluation =
+  | { ok: true; versions: (ItemVersion | null)[] }
+  | { ok: false; index: number; rejection: PipelineRejection };
+
+/**
+ * Walks a document write one operation at a time, as the reducers will apply it: each operation
+ * must be allowed against the state the earlier ones left. Returns the item version each one made.
+ * Permission is asked before the reducer, so a hidden record is only ever "not found".
+ */
+async function evaluateDocumentWrite(
+  trx: Transaction<Database>,
+  write: DocumentWrite,
+  state: OpsState,
+  ops: readonly Operation[],
+  ctx: ApplyContext,
+): Promise<Evaluation> {
+  const { access, rows } = write;
+  const foreignPage = await findForeignPage(trx, access.documentId, ops);
+  const versions: (ItemVersion | null)[] = [];
+  let next = state;
+  for (const [index, op] of ops.entries()) {
+    const decision = authorizeDocumentOp(access, op, next, rows);
+    if (!decision.ok) {
+      const { reason } = decision;
+      let rejection: PipelineRejection = { code: 'forbidden', message: reason.code };
+      if (reason.code === 'not_found') {
+        rejection =
+          reason.kind === 'scope'
+            ? { code: 'invalid', message: 'Unknown review scope' }
+            : { code: 'not_found', kind: reason.kind as 'markup' | 'placement', id: reason.id };
+      }
+      return { ok: false, index, rejection };
+    }
+    if (index === foreignPage) {
+      return { ok: false, index, rejection: { code: 'invalid', message: 'Unknown revision or page' } };
+    }
+    if (addsSecondPlacement(op, next)) {
+      return { ok: false, index, rejection: { code: 'invalid', message: 'The markup is already placed on this revision' } };
+    }
+    const applied = applyOp(next, op, ctx);
+    if (!applied.ok) return { ok: false, index, rejection: applied.rejection };
+    next = applied.state;
+    if (op.type === 'markup.create') rows.set(op.entityId, newItemRow(access));
+    versions.push(versionAfter(access, op, next, rows));
+  }
+  return { ok: true, versions };
+}
+
+/** The columns an event row has for the sync feed: which item version it produced, in which lane. */
+function eventAudience(version: ItemVersion | null | undefined) {
+  return {
+    item_kind: version?.kind ?? null,
+    version_rev: version?.record.rev ?? null,
+    lane_id: version?.row.originLaneId ?? null,
+  };
 }
 
 async function lockStreams(trx: Transaction<Database>, streamIds: readonly string[]): Promise<Map<string, number>> {
@@ -214,6 +339,26 @@ async function loadStateForOps(
     }
   }
 
+  // A markup has one live placement per revision, so making one needs to see its others.
+  const placedMarkups = new Set<string>();
+  for (const op of ops) {
+    if (op.type === 'placement.create') placedMarkups.add(op.payload.markupId);
+    if (op.type === 'placement.restore' && Object.hasOwn(placements, op.entityId)) {
+      placedMarkups.add(placements[op.entityId]!.markupId);
+    }
+  }
+  if (placedMarkups.size > 0) {
+    const rows = await trx
+      .selectFrom('placements')
+      .select(['id', 'record_json'])
+      .where('stream_id', '=', streamId)
+      .where('markup_id', 'in', [...placedMarkups])
+      .execute();
+    for (const row of rows) {
+      placements[row.id] = row.record_json as Placement;
+    }
+  }
+
   const markups: Record<string, MarkupRecord> = {};
   if (markupIds.size > 0) {
     const rows = await trx
@@ -239,8 +384,10 @@ async function persistChanges(
   streamId: string,
   state: OpsState,
   changes: readonly Change[],
+  write: DocumentWrite | null,
 ): Promise<void> {
   const nowDate = new Date();
+  const asDate = (ms: number | null) => (ms === null ? null : new Date(ms));
   for (const change of changes) {
     if (change.kind === 'markup') {
       const record = state.markups[change.id];
@@ -258,6 +405,15 @@ async function persistChanges(
           owner_party_id: record.owner.partyId,
           owner_group_id: record.owner.groupId,
           record_json: sql`${JSON.stringify(record)}::jsonb`,
+          project_id: write?.access.projectId ?? null,
+          origin_lane_id: write?.rows.get(record.id)?.originLaneId ?? null,
+          ...(write?.rows.has(record.id)
+            ? {
+                draft_visibility: write.rows.get(record.id)!.draftVisibility,
+                checking_state: write.rows.get(record.id)!.released ? ('released' as const) : ('draft' as const),
+              }
+            : {}),
+          client_time: asDate(record.clientTime),
           updated_at: nowDate,
         })
         .onConflict((oc) =>
@@ -287,6 +443,12 @@ async function persistChanges(
           rev: record.rev,
           deleted: record.deleted,
           record_json: sql`${JSON.stringify(record)}::jsonb`,
+          scope_id: write ? (state.markups[record.markupId]?.scopeId ?? null) : null,
+          origin_lane_id: write?.rows.get(record.markupId)?.originLaneId ?? null,
+          owner_party_id: state.markups[record.markupId]?.owner.partyId ?? null,
+          // The column has no 'ai' value; the record keeps the exact method.
+          method: record.method === 'ai' ? 'suggested' : record.method,
+          client_time: asDate(record.clientTime),
           updated_at: nowDate,
         })
         .onConflict((oc) =>
@@ -310,6 +472,7 @@ export class OpPipeline {
   private readonly db: Kysely<Database>;
   private readonly broadcaster: Broadcaster;
   private readonly maxOpBytes: number;
+  private readonly maxBatchBytes: number;
   private readonly defaultLaneId: string;
   private readonly now: () => number;
   private readonly hooks: OpPipelineHooks;
@@ -318,6 +481,7 @@ export class OpPipeline {
     this.db = options.db;
     this.broadcaster = options.broadcaster;
     this.maxOpBytes = options.maxOpBytes;
+    this.maxBatchBytes = Math.max(options.maxBatchBytes ?? MAX_BATCH_BYTES, options.maxOpBytes);
     this.defaultLaneId = options.defaultLaneId ?? 'default';
     this.now = options.now ?? (() => Date.now());
     this.hooks = options.hooks ?? {};
@@ -337,7 +501,12 @@ export class OpPipeline {
     }
   }
 
-  async submitOperation(rawInput: unknown, actor: Actor, rawByteLength?: number): Promise<OpAck> {
+  async submitOperation(
+    rawInput: unknown,
+    actor: Actor,
+    rawByteLength?: number,
+    options: SubmitOptions = {},
+  ): Promise<OpAck> {
     const rawOpId = extractRawOpId(rawInput);
     const bytes = measureBytes(rawInput, rawByteLength);
     if (bytes > this.maxOpBytes) {
@@ -364,7 +533,7 @@ export class OpPipeline {
 
     const payloadHash = hashOperationPayload(op);
 
-    const txOutcome = await this.runTransaction(async (trx) => {
+    const write = async (trx: Transaction<Database>) => {
       const seqByStream = await lockStreams(trx, [op.streamId]);
 
       const existing = await trx
@@ -387,15 +556,33 @@ export class OpPipeline {
         return { ack: { ...stored, replayed: true }, events: [] as StreamEvent[] };
       }
 
-      const foreign = await findForeignCreate(trx, op.streamId, [op]);
       const nowMs = this.now();
-      let applied: ReturnType<typeof applyOp>;
-      if (foreign) {
+      const guard = await guardStream(trx, op.streamId, actor, options);
+      if (!guard.ok) {
+        // Not stored: the answer depends on who may write now, not on the operation.
+        const refused: OpAck = { ok: false, opId: op.opId, rejection: guard.rejection };
+        return { ack: refused, events: [] as StreamEvent[] };
+      }
+      const { write: document } = guard;
+
+      const foreign = await findForeignCreate(trx, op.streamId, [op]);
+      let applied: { ok: true; state: OpsState; changes: Change[] } | { ok: false; rejection: PipelineRejection };
+      let version: ItemVersion | null = null;
+      if (foreign && !document) {
         applied = { ok: false, rejection: { code: 'exists', kind: foreign.kind, id: foreign.id } };
       } else {
         const state = await loadStateForOps(trx, op.streamId, [op]);
-        const ctx: ApplyContext = { actor, laneId: this.defaultLaneId, now: nowMs };
-        applied = applyOp(state, op, ctx);
+        const ctx: ApplyContext = { actor, laneId: document?.access.laneId ?? this.defaultLaneId, now: nowMs };
+        let refused: PipelineRejection | null = null;
+        if (document) {
+          document.rows = await loadItemRows(trx, op.streamId, Object.keys(state.markups));
+          const evaluation = await evaluateDocumentWrite(trx, document, state, [op], ctx);
+          if (evaluation.ok) version = evaluation.versions[0] ?? null;
+          else refused = evaluation.rejection;
+          // Asked after permission, so someone who may not create hears the same for any id.
+          if (foreign) refused ??= UNUSABLE_CREATE;
+        }
+        applied = refused ? { ok: false, rejection: refused } : applyOp(state, op, ctx);
       }
 
       if (!applied.ok) {
@@ -423,11 +610,16 @@ export class OpPipeline {
 
       await trx
         .updateTable('streams')
-        .set({ seq: String(nextSeq), updated_at: receivedAtDate })
+        .set({
+          seq: String(nextSeq),
+          updated_at: receivedAtDate,
+          ...(document ? { project_id: document.access.projectId } : {}),
+        })
         .where('id', '=', op.streamId)
         .execute();
 
-      await persistChanges(trx, op.streamId, applied.state, applied.changes);
+      await persistChanges(trx, op.streamId, applied.state, applied.changes, document);
+      if (document && version) await writeItemVersion(trx, document.access, op, version, receivedAtDate);
 
       await trx
         .insertInto('events')
@@ -440,6 +632,8 @@ export class OpPipeline {
           entity_id: op.entityId,
           payload_json: sql`${JSON.stringify(op)}::jsonb`,
           received_at: receivedAtDate,
+          client_time: op.clientTime === undefined ? null : new Date(op.clientTime),
+          ...eventAudience(version),
         })
         .execute();
 
@@ -478,6 +672,10 @@ export class OpPipeline {
         receivedAt,
       };
       return { ack: acceptedAck, events: [event] };
+    };
+    const txOutcome = await this.runTransaction<{ ack: OpAck; events: StreamEvent[] }>(write).catch((err: unknown) => {
+      if (!isDataError(err)) throw err;
+      return { ack: { ok: false as const, opId: op.opId, rejection: UNSTORABLE_WRITE }, events: [] };
     });
 
     if (txOutcome.events.length > 0) {
@@ -496,17 +694,31 @@ export class OpPipeline {
     return txOutcome.ack;
   }
 
-  async submitBatch(rawInputs: unknown[], actor: Actor, rawByteLength?: number): Promise<BatchAck> {
+  async submitBatch(
+    rawInputs: unknown[],
+    actor: Actor,
+    rawByteLength?: number,
+    options: SubmitOptions = {},
+  ): Promise<BatchAck> {
     if (!Array.isArray(rawInputs) || rawInputs.length === 0) {
       return { ok: false, index: 0, opId: null, rejection: { code: 'invalid', message: 'The batch is empty' } };
     }
     const bytes = measureBytes(rawInputs, rawByteLength);
-    if (bytes > this.maxOpBytes) {
+    if (bytes > this.maxBatchBytes) {
       return {
         ok: false,
         index: 0,
         opId: extractRawOpId(rawInputs[0]),
-        rejection: { code: 'payload_too_large', message: `Batch exceeds maximum size of ${this.maxOpBytes} bytes` },
+        rejection: { code: 'payload_too_large', message: `Batch exceeds maximum size of ${this.maxBatchBytes} bytes` },
+      };
+    }
+    const oversized = rawInputs.findIndex((raw) => measureBytes(raw) > this.maxOpBytes);
+    if (oversized >= 0) {
+      return {
+        ok: false,
+        index: oversized,
+        opId: extractRawOpId(rawInputs[oversized]),
+        rejection: { code: 'payload_too_large', message: `Operation exceeds maximum size of ${this.maxOpBytes} bytes` },
       };
     }
 
@@ -551,7 +763,7 @@ export class OpPipeline {
       }
     }
 
-    const txOutcome = await this.runTransaction(async (trx) => {
+    const write = async (trx: Transaction<Database>): Promise<{ ack: BatchAck; events: StreamEvent[] }> => {
       const seqByStream = await lockStreams(trx, [streamId]);
 
       const existingRows = await trx
@@ -598,8 +810,15 @@ export class OpPipeline {
         return { ack, events: [] as StreamEvent[] };
       }
 
+      const guard = await guardStream(trx, streamId, actor, options);
+      if (!guard.ok) {
+        const ack: BatchAck = { ok: false, index: 0, opId: ops[0]!.opId, rejection: guard.rejection };
+        return { ack, events: [] as StreamEvent[] };
+      }
+      const { write: document } = guard;
+
       const foreign = await findForeignCreate(trx, streamId, ops);
-      if (foreign) {
+      if (foreign && !document) {
         const ack: BatchAck = {
           ok: false,
           index: foreign.index,
@@ -611,7 +830,26 @@ export class OpPipeline {
 
       const state = await loadStateForOps(trx, streamId, ops);
       const nowMs = this.now();
-      const ctx: ApplyContext = { actor, laneId: this.defaultLaneId, now: nowMs };
+      const ctx: ApplyContext = { actor, laneId: document?.access.laneId ?? this.defaultLaneId, now: nowMs };
+      let versions: (ItemVersion | null)[] = [];
+      if (document) {
+        document.rows = await loadItemRows(trx, streamId, Object.keys(state.markups));
+        const evaluation = await evaluateDocumentWrite(trx, document, state, ops, ctx);
+        if (!evaluation.ok) {
+          const ack: BatchAck = {
+            ok: false,
+            index: evaluation.index,
+            opId: ops[evaluation.index]!.opId,
+            rejection: evaluation.rejection,
+          };
+          return { ack, events: [] as StreamEvent[] };
+        }
+        versions = evaluation.versions;
+      }
+      if (foreign) {
+        const ack: BatchAck = { ok: false, index: foreign.index, opId: ops[foreign.index]!.opId, rejection: UNUSABLE_CREATE };
+        return { ack, events: [] as StreamEvent[] };
+      }
       const applied = applyBatch(state, ops, ctx);
 
       if (!applied.ok) {
@@ -645,6 +883,8 @@ export class OpPipeline {
             entity_id: op.entityId,
             payload_json: sql`${JSON.stringify(op)}::jsonb`,
             received_at: receivedAtDate,
+            client_time: op.clientTime === undefined ? null : new Date(op.clientTime),
+            ...eventAudience(versions[i]),
           })
           .execute();
 
@@ -683,11 +923,21 @@ export class OpPipeline {
 
       await trx
         .updateTable('streams')
-        .set({ seq: String(seq), updated_at: receivedAtDate })
+        .set({
+          seq: String(seq),
+          updated_at: receivedAtDate,
+          ...(document ? { project_id: document.access.projectId } : {}),
+        })
         .where('id', '=', streamId)
         .execute();
 
-      await persistChanges(trx, streamId, applied.state, applied.changes);
+      await persistChanges(trx, streamId, applied.state, applied.changes, document);
+      if (document) {
+        for (const [i, op] of ops.entries()) {
+          const version = versions[i];
+          if (version) await writeItemVersion(trx, document.access, op, version, receivedAtDate);
+        }
+      }
 
       if (this.hooks.onBeforeCommit) {
         await this.hooks.onBeforeCommit({ opIds: ops.map((o) => o.opId), streamId });
@@ -695,6 +945,10 @@ export class OpPipeline {
 
       const ack: BatchAck = { ok: true, streamId, results };
       return { ack, events };
+    };
+    const txOutcome = await this.runTransaction(write).catch((err: unknown): { ack: BatchAck; events: StreamEvent[] } => {
+      if (!isDataError(err)) throw err;
+      return { ack: { ok: false, index: 0, opId: ops[0]!.opId, rejection: UNSTORABLE_WRITE }, events: [] };
     });
 
     if (txOutcome.events.length > 0) {
