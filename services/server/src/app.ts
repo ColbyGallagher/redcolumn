@@ -19,12 +19,14 @@ import { LocalDiskBlobStore, type BlobStore } from './blobStore.ts';
 import { InProcessBroadcaster, type Broadcaster } from './broadcaster.ts';
 import { isOriginAllowed, type ServerConfig } from './config.ts';
 import { checkDbConnection, type Database } from './db.ts';
+import { registerDocumentRoutes } from './documentRoutes.ts';
 import { acceptInvite, listAccessibleSessions, previewInvite } from './invites.ts';
 import { createLogger } from './logger.ts';
 import { InProcessJobRunner, registerPdfJobs, type JobRunner } from './pdfJob.ts';
 import { OpPipeline, type OpPipelineHooks } from './pipeline.ts';
 import { registerProjectRoutes } from './projectRoutes.ts';
 import { registerStaticWebApp } from './static.ts';
+import { SyncHub } from './syncHub.ts';
 import { registerUploadRoutes } from './uploadRoutes.ts';
 import { attachWebSocketServer, type WsHandle } from './ws.ts';
 
@@ -142,12 +144,12 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
     };
   });
 
+  const hub = new SyncHub({ db, pool, pipeline, broadcaster, logger });
   const ws = attachWebSocketServer({
     httpServer: app.server,
     config,
     db,
-    pipeline,
-    broadcaster,
+    hub,
     logger,
   });
 
@@ -314,7 +316,13 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
       return reply.code(200).send(data);
     });
 
-    registerProjectRoutes(auth, db, config);
+    // A removed member stops receiving a project's documents at once.
+    registerProjectRoutes(auth, db, config, {
+      onMembershipChanged: () => {
+        ws.revalidateAccess().catch((err: unknown) => logger.warn({ err }, 'Failed to re-check document access'));
+      },
+    });
+    registerDocumentRoutes(auth, { config, db, blobStore });
   });
 
   if (config.webDistDir) {
