@@ -1142,7 +1142,7 @@ msgstr "Neue Markierungsebene"
 msgid "New PDF from Template"
 msgstr "Neue PDF aus Vorlage"
 
-#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/StartScreen.tsx
+#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/StartScreen.tsx apps/web/src/connect/ConnectView.tsx
 msgid "New PDF…"
 msgstr "Neue PDF…"
 
@@ -1286,7 +1286,7 @@ msgstr "Offline: Ihre Kopie von {name} (Revision {rev}) wurde geöffnet; das Pro
 msgid "OneDrive, Apps/redcolumn/{folder}"
 msgstr "OneDrive, Apps/redcolumn/{folder}"
 
-#: apps/web/src/App.tsx apps/web/src/components/CloseOutDialog.tsx apps/web/src/components/Library.tsx apps/web/src/components/LinkPreview.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/RevisionsDialog.tsx apps/web/src/desktop/mainStrings.ts
+#: apps/web/src/App.tsx apps/web/src/components/CloseOutDialog.tsx apps/web/src/components/Library.tsx apps/web/src/components/LinkPreview.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/RevisionsDialog.tsx apps/web/src/connect/ConnectView.tsx apps/web/src/desktop/mainStrings.ts
 msgid "Open"
 msgstr "Öffnen"
 
@@ -1402,7 +1402,7 @@ msgstr "Bereiche"
 msgid "Parent"
 msgstr "Übergeordnet"
 
-#: apps/web/src/App.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/RegisterDialogs.tsx
+#: apps/web/src/App.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/connect/ConnectView.tsx
 msgid "Password"
 msgstr "Kennwort"
 
@@ -1454,7 +1454,7 @@ msgstr "Vorherige Ansicht"
 msgid "Project changes are being sent"
 msgstr "Projektänderungen werden gesendet"
 
-#: apps/web/src/App.tsx apps/web/src/components/MenuBar.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/studio/DesktopOnlyNotice.tsx
+#: apps/web/src/App.tsx apps/web/src/components/MenuBar.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/studio/DesktopOnlyNotice.tsx apps/web/src/connect/ConnectView.tsx
 msgid "Projects"
 msgstr "Projekte"
 
@@ -3796,7 +3796,7 @@ msgstr "Sitzungs- und Projektordner und ihre Dateien, Sicherung der Einstellunge
 msgid "Shared by link"
 msgstr "Per Link geteilt"
 
-#: apps/web/src/components/AccessPrefs.tsx apps/web/src/components/SessionsPanel.tsx
+#: apps/web/src/components/AccessPrefs.tsx apps/web/src/components/SessionsPanel.tsx apps/web/src/connect/ConnectView.tsx
 msgid "Sign out"
 msgstr "Abmelden"
 
@@ -3900,7 +3900,7 @@ msgstr "Passt das ausgewählte Bild an. Rückgängig stellt es wieder her."
 msgid "Applies to the {count} selected pictures; the first is shown."
 msgstr "Gilt für die {count} ausgewählten Bilder; das erste wird angezeigt."
 
-#: apps/web/src/components/AdjustImageDialog.tsx apps/web/src/components/ApplyRedactionsDialog.tsx apps/web/src/components/ApplyStitchingDialog.tsx apps/web/src/components/AskText.tsx apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/AssemblyInputs.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/BulkInsertDialog.tsx apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/CalibrateDialog.tsx apps/web/src/components/CameraDialog.tsx apps/web/src/components/ChangeColoursDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CombineDialog.tsx apps/web/src/components/CommentDialog.tsx apps/web/src/components/CompareDialog.tsx apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/CountToolDialog.tsx apps/web/src/components/DeletePagesDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/DocumentPropertiesDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/FilterBuilderDialog.tsx apps/web/src/components/HeaderFooterDialog.tsx apps/web/src/components/HyperlinkDialog.tsx apps/web/src/components/ImportExcelDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/JobsBar.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/ManualQuantityDialog.tsx apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/MultiplyDialog.tsx apps/web/src/components/NewPdfDialog.tsx apps/web/src/components/OcrDialog.tsx apps/web/src/components/PageToolsDialog.tsx apps/web/src/components/PictureColoursDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/PrintDialog.tsx apps/web/src/components/ProcessDialog.tsx apps/web/src/components/ProductListsDialog.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/PublishDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/ReportsDialog.tsx apps/web/src/components/RevuMigrationDialog.tsx apps/web/src/components/ScaleRegionsPanel.tsx apps/web/src/components/ScaleRequiredDialog.tsx apps/web/src/components/ScaleToLengthDialog.tsx apps/web/src/components/SecurityDialog.tsx apps/web/src/components/SetScaleDialog.tsx apps/web/src/components/SetsPanel.tsx apps/web/src/components/SheetSyncDialog.tsx apps/web/src/components/SignaturesPanel.tsx apps/web/src/components/SlipSheetDialog.tsx apps/web/src/components/SoundDialog.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/components/StepUpDialog.tsx apps/web/src/components/TableDialog.tsx apps/web/src/components/TakeoffReview.tsx apps/web/src/components/TemplatesDialog.tsx apps/web/src/components/ToolLibraryReview.tsx apps/web/src/components/UnsavedChangesDialog.tsx apps/web/src/components/sessions/InviteDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/takeoff/PortalDialog.tsx
+#: apps/web/src/components/AdjustImageDialog.tsx apps/web/src/components/ApplyRedactionsDialog.tsx apps/web/src/components/ApplyStitchingDialog.tsx apps/web/src/components/AskText.tsx apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/AssemblyInputs.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/BulkInsertDialog.tsx apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/CalibrateDialog.tsx apps/web/src/components/CameraDialog.tsx apps/web/src/components/ChangeColoursDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CombineDialog.tsx apps/web/src/components/CommentDialog.tsx apps/web/src/components/CompareDialog.tsx apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/CountToolDialog.tsx apps/web/src/components/DeletePagesDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/DocumentPropertiesDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/FilterBuilderDialog.tsx apps/web/src/components/HeaderFooterDialog.tsx apps/web/src/components/HyperlinkDialog.tsx apps/web/src/components/ImportExcelDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/JobsBar.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/ManualQuantityDialog.tsx apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/MultiplyDialog.tsx apps/web/src/components/NewPdfDialog.tsx apps/web/src/components/OcrDialog.tsx apps/web/src/components/PageToolsDialog.tsx apps/web/src/components/PictureColoursDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/PrintDialog.tsx apps/web/src/components/ProcessDialog.tsx apps/web/src/components/ProductListsDialog.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/PublishDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/ReportsDialog.tsx apps/web/src/components/RevuMigrationDialog.tsx apps/web/src/components/ScaleRegionsPanel.tsx apps/web/src/components/ScaleRequiredDialog.tsx apps/web/src/components/ScaleToLengthDialog.tsx apps/web/src/components/SecurityDialog.tsx apps/web/src/components/SetScaleDialog.tsx apps/web/src/components/SetsPanel.tsx apps/web/src/components/SheetSyncDialog.tsx apps/web/src/components/SignaturesPanel.tsx apps/web/src/components/SlipSheetDialog.tsx apps/web/src/components/SoundDialog.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/components/StepUpDialog.tsx apps/web/src/components/TableDialog.tsx apps/web/src/components/TakeoffReview.tsx apps/web/src/components/TemplatesDialog.tsx apps/web/src/components/ToolLibraryReview.tsx apps/web/src/components/UnsavedChangesDialog.tsx apps/web/src/components/sessions/InviteDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/connect/ConnectView.tsx apps/web/src/takeoff/PortalDialog.tsx
 msgid "Cancel"
 msgstr "Abbrechen"
 
@@ -5690,7 +5690,7 @@ msgstr "Abschluss"
 msgid "Close-out · {docName}"
 msgstr "Abschluss · {docName}"
 
-#: apps/web/src/components/CloseOutDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/SessionsPanel.tsx
+#: apps/web/src/components/CloseOutDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/SessionsPanel.tsx apps/web/src/connect/ConnectView.tsx
 msgid "Closed"
 msgstr "Geschlossen"
 
@@ -6218,7 +6218,7 @@ msgstr "Dateien werden gelesen…"
 msgid "Reading files… {done} of {total}"
 msgstr "Dateien werden gelesen… {done} von {total}"
 
-#: apps/web/src/components/CommentsTableDialog.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/studio/chrome.tsx
+#: apps/web/src/components/CommentsTableDialog.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/studio/chrome.tsx apps/web/src/connect/ConnectView.tsx
 msgid "Refresh"
 msgstr "Aktualisieren"
 
@@ -6338,7 +6338,7 @@ msgstr "Ausrichten"
 msgid "Lines that moved less than this are not a change"
 msgstr "Linien, die sich um weniger als diesen Wert bewegt haben, gelten nicht als Änderung"
 
-#: apps/web/src/components/CompareDialog.tsx apps/web/src/components/LinkPreview.tsx apps/web/src/components/McpPrefs.tsx apps/web/src/components/ProjectsPanel.tsx
+#: apps/web/src/components/CompareDialog.tsx apps/web/src/components/LinkPreview.tsx apps/web/src/components/McpPrefs.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/connect/ConnectView.tsx
 msgid "Loading…"
 msgstr "Wird geladen…"
 
@@ -12551,6 +12551,10 @@ msgid "Start"
 msgstr "Anfang"
 
 #: apps/web/src/components/PreferencesDialog.tsx
+msgid "Synchronise Panes When Splitting a Single Document"
+msgstr ""
+
+#: apps/web/src/components/PreferencesDialog.tsx
 msgid "TIFF Compression"
 msgstr "TIFF-Komprimierung"
 
@@ -12962,7 +12966,7 @@ msgstr "Ein neues Profil mit der Standardeinrichtung"
 msgid "A profile remembers how the workspace is set up. Changes are saved to the active profile as you make them."
 msgstr "Ein Profil merkt sich, wie der Arbeitsbereich eingerichtet ist. Änderungen werden beim Vornehmen im aktiven Profil gespeichert."
 
-#: apps/web/src/components/ProfilesDialog.tsx
+#: apps/web/src/components/ProfilesDialog.tsx apps/web/src/connect/ConnectView.tsx
 msgid "Active"
 msgstr "Aktiv"
 
@@ -13974,11 +13978,11 @@ msgstr "Grad im Uhrzeigersinn oder eine Neigung wie 2 % oder 1:50. Positiv steig
 msgid "Degrees counter-clockwise from east, as on paper"
 msgstr "Grad gegen den Uhrzeigersinn ab Osten, wie auf dem Papier"
 
-#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/takeoff/reports.ts
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/ToolBar.tsx apps/web/src/takeoff/reports.ts
 msgid "Depth"
 msgstr "Tiefe"
 
-#: apps/web/src/components/PropertiesPanel.tsx
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/ToolBar.tsx
 msgid "Depth: gives the volume"
 msgstr "Tiefe: ergibt das Volumen"
 
@@ -14382,7 +14386,7 @@ msgstr "Wandfläche"
 msgid "Wall height: gives the wall area"
 msgstr "Wandhöhe: ergibt die Wandfläche"
 
-#: apps/web/src/components/PropertiesPanel.tsx
+#: apps/web/src/components/PropertiesPanel.tsx apps/web/src/components/ToolBar.tsx
 msgid "e.g. {sample} ({unit})"
 msgstr "z. B. {sample} ({unit})"
 
@@ -17962,7 +17966,7 @@ msgstr "Tipp"
 msgid "What's new"
 msgstr "Neuigkeiten"
 
-#: apps/web/src/components/StartScreen.tsx
+#: apps/web/src/components/StartScreen.tsx apps/web/src/connect/ConnectView.tsx
 msgid "or drop a PDF anywhere on this window"
 msgstr "oder legen Sie eine PDF irgendwo in diesem Fenster ab"
 
@@ -20987,6 +20991,178 @@ msgstr "{value} funktionieren nur in der redcolumn-Desktop-App, und zwar nur lok
 #: apps/web/src/components/studio/chrome.tsx
 msgid "Sort"
 msgstr "Sortieren"
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Accept invitation"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Accepting…"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "An account with this email already exists. Sign in first to accept the invitation."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Checking invitation…"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Confirm password"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Connecting to server…"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Continue to sign in"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Could not reach the server. Check your connection and try again."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Create account & accept"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Display name"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Email"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Enter both your email address and password."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Invalid email or password."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Invited email: {email}"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Local PDFs open directly on this device with no account required."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Local files"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Locked"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "No projects or review sessions yet."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Open a local file"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Open a local file instead"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Password must be at least 8 characters long."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Passwords do not match."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Please enter your display name."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Project: {name}"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Projects & review sessions"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Projects & sessions"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Projects and sessions assigned to your account will appear here."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Request failed ({code})."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Server workspace"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Session: {name}"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Sign in"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Sign in to access your server projects and review sessions."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Sign in to redcolumn"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Sign in with your existing password to accept this invitation."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Signed in as {name} ({email})"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Signed in as {name} ({email})."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Signing in…"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "This invitation has already been accepted."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "This invitation has expired. Ask an administrator for a new link."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "This invitation link is invalid or no longer available."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "Too many attempts. Please wait a moment and try again."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "You are signed in with a different email address than this invitation."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "or"
+msgstr ""
 
 #: apps/web/src/desktop/mainStrings.ts
 msgid "Choose a shared folder for the Live Session"

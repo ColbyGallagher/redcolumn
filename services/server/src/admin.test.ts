@@ -430,7 +430,7 @@ describe('admin lifecycle integration (Postgres)', { skip: !DATABASE_URL }, () =
     });
 
     assert.equal(manifest.version, 1);
-    assert.equal(manifest.schemaVersion, '0002');
+    assert.equal(manifest.schemaVersion, '0003');
     assert.equal(manifest.blobs.length, 1);
     assert.equal(manifest.blobs[0]!.path, storageKey);
     assert.equal(manifest.blobs[0]!.sha256, pdfSha);

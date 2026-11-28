@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import type { IncomingMessage, Server as HttpServer, ServerResponse } from 'node:http';
 import rateLimit from '@fastify/rate-limit';
-import Fastify, { type FastifyInstance } from 'fastify';
+import Fastify, { type FastifyInstance, type FastifyRequest } from 'fastify';
 import type { Kysely } from 'kysely';
 import type pg from 'pg';
 import type { Logger } from 'pino';
@@ -17,9 +18,30 @@ import {
 import { InProcessBroadcaster, type Broadcaster } from './broadcaster.ts';
 import { isOriginAllowed, type ServerConfig } from './config.ts';
 import { checkDbConnection, type Database } from './db.ts';
+import { acceptInvite, listAccessibleSessions, previewInvite } from './invites.ts';
 import { createLogger } from './logger.ts';
 import { OpPipeline, type OpPipelineHooks } from './pipeline.ts';
+import { registerStaticWebApp } from './static.ts';
 import { attachWebSocketServer, type WsHandle } from './ws.ts';
+
+const SERVER_VERSION: string = (() => {
+  try {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: unknown };
+    return typeof pkg.version === 'string' && pkg.version.length > 0 ? pkg.version : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+})();
+
+function resolveRequestOrigin(request: FastifyRequest, config: ServerConfig): string {
+  if (config.publicOrigin) return config.publicOrigin;
+  if (config.allowedOrigins.length === 1) return config.allowedOrigins[0]!;
+  const forwardedProto = request.headers['x-forwarded-proto'];
+  const rawProto = Array.isArray(forwardedProto) ? forwardedProto[0] : forwardedProto;
+  const proto = rawProto === 'https' || rawProto === 'http' ? rawProto : request.protocol;
+  const host = request.headers.host || `${config.host}:${config.port}`;
+  return `${proto}://${host}`;
+}
 
 export interface BuildServerOptions {
   config: ServerConfig;
@@ -92,6 +114,16 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
       return reply.code(503).send({ ok: false, error: 'database_unavailable' });
     }
     return { ok: true };
+  });
+
+  app.get('/config.json', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
+    return {
+      mode: 'server' as const,
+      origin: resolveRequestOrigin(request, config),
+      version: SERVER_VERSION,
+      auth: { local: true },
+    };
   });
 
   const ws = attachWebSocketServer({
@@ -173,7 +205,100 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
       }
       return { user: session.user };
     });
+
+    auth.get<{ Params: { token: string } }>(
+      '/api/invites/:token',
+      {
+        config: {
+          rateLimit: {
+            max: config.loginRateLimitMax * 2,
+            timeWindow: config.loginRateLimitWindowMs,
+            keyGenerator: (request) => request.ip,
+          },
+        },
+      },
+      async (request, reply) => {
+        reply.header('Cache-Control', 'no-store');
+        const result = await previewInvite(db, request.params.token);
+        if (!result.ok) {
+          const status =
+            result.code === 'invite_expired' ? 410 : result.code === 'invite_already_accepted' ? 409 : 404;
+          return reply.code(status).send({ error: result.code });
+        }
+        return reply.code(200).send({ invite: result.invite });
+      },
+    );
+
+    auth.post<{ Params: { token: string }; Body: { name?: unknown; password?: unknown } }>(
+      '/api/invites/:token/accept',
+      {
+        config: {
+          rateLimit: {
+            max: config.loginRateLimitMax,
+            timeWindow: config.loginRateLimitWindowMs,
+            keyGenerator: (request) => request.ip,
+          },
+        },
+      },
+      async (request, reply) => {
+        const sessionToken = extractSessionToken(request.headers, config.sessionCookieName);
+        const existingSession = sessionToken ? await lookupSession(db, sessionToken) : null;
+
+        const name = typeof request.body?.name === 'string' ? request.body.name : undefined;
+        const password = typeof request.body?.password === 'string' ? request.body.password : undefined;
+
+        const result = await acceptInvite(db, request.params.token, {
+          signedInUser: existingSession?.user ?? null,
+          name,
+          password,
+          sessionTtlMs: config.sessionTtlMs,
+        });
+
+        if (!result.ok) {
+          return reply.code(result.status).send({ error: result.code });
+        }
+
+        if (result.session) {
+          reply.header(
+            'Set-Cookie',
+            formatSessionCookie(config.sessionCookieName, result.session.token, {
+              secure: config.cookieSecure,
+              maxAgeSeconds: Math.floor(config.sessionTtlMs / 1000),
+            }),
+          );
+          return reply.code(200).send({
+            ok: true,
+            user: result.user,
+            sessionId: result.session.sessionId,
+            expiresAt: result.session.expiresAt.toISOString(),
+          });
+        }
+
+        return reply.code(200).send({ ok: true, user: result.user });
+      },
+    );
+
+    auth.get('/api/sessions', async (request, reply) => {
+      reply.header('Cache-Control', 'no-store');
+      const token = extractSessionToken(request.headers, config.sessionCookieName);
+      if (!token) {
+        return reply.code(401).send({ error: 'unauthenticated' });
+      }
+      const session = await lookupSession(db, token);
+      if (!session) {
+        return reply.code(401).send({ error: 'unauthenticated' });
+      }
+      const data = await listAccessibleSessions(db, session.user);
+      return reply.code(200).send(data);
+    });
   });
+
+  if (config.webDistDir) {
+    const mounted = registerStaticWebApp(app, config.webDistDir);
+    if (!mounted) {
+      logger.warn({ webDistDir: config.webDistDir }, 'WEB_DIST_DIR does not exist or is not a directory; skipping static web serving');
+    }
+  }
 
   app.addHook('onClose', async () => {
     await ws.close();

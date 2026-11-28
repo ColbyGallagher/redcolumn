@@ -1,6 +1,8 @@
 import { msg, msgParts } from '@nb/i18n';
 import { keyed } from './i18n/keyed';
 import { lazy } from './i18n/lazy';
+import { ConnectView } from './connect/ConnectView';
+import { LOCAL_MODE_CONFIG, loadAppConfig, parseInviteToken, type AppConfig } from './connect/config';
 import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncExternalStore, type DragEvent as ReactDragEvent, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
@@ -976,6 +978,19 @@ export function App() {
     if (ctl) ctl.engine.includeShxText = prefs.importShxText;
   }, [ctl, prefs.importShxText]);
   const [open, setOpen] = useState<OpenFile | null>(null);
+  const [appConfig, setAppConfig] = useState<AppConfig>(LOCAL_MODE_CONFIG);
+  const [initialInviteToken] = useState<string | null>(() =>
+    typeof window !== 'undefined' ? parseInviteToken(window.location) : null,
+  );
+  useEffect(() => {
+    let live = true;
+    void loadAppConfig().then((cfg) => {
+      if (live) setAppConfig(cfg);
+    });
+    return () => {
+      live = false;
+    };
+  }, []);
   const openRef = useRef<OpenFile | null>(null);
   const [openB, setOpenB] = useState<OpenFile | null>(null);
   const openBRef = useRef<OpenFile | null>(null);
@@ -10691,16 +10706,24 @@ export function App() {
                     onCancel={() => ctl.tools.cancel()}
                   />
                 )}
-                {!open && (
-                  <StartScreen
-                    launchOpen={launchOpen}
-                    onOpen={() => openFromDisk()}
-                    onNew={() => setBlankPdf('new')}
-                    showTip={prefs.startTips}
-                    onHideTip={() => settings.set({ startTips: false })}
-                    onHelp={(page) => window.open(`${import.meta.env.BASE_URL}help/index.html#${encodeURIComponent(page)}`, '_blank', 'noopener')}
-                  />
-                )}
+                {!open &&
+                  (appConfig.mode === 'server' ? (
+                    <ConnectView
+                      config={appConfig}
+                      initialInviteToken={initialInviteToken}
+                      onOpenLocal={() => openFromDisk()}
+                      onNewLocal={() => setBlankPdf('new')}
+                    />
+                  ) : (
+                    <StartScreen
+                      launchOpen={launchOpen}
+                      onOpen={() => openFromDisk()}
+                      onNew={() => setBlankPdf('new')}
+                      showTip={prefs.startTips}
+                      onHideTip={() => settings.set({ startTips: false })}
+                      onHelp={(page) => window.open(`${import.meta.env.BASE_URL}help/index.html#${encodeURIComponent(page)}`, '_blank', 'noopener')}
+                    />
+                  ))}
                 {open?.store.readOnly && <div className="readonly-banner">{readOnlyReason(open, snapshots)}</div>}
                 {open && recoveredOnOpen.has(open.file.id) && !recoveredKept.has(open.file.id) && hasUnsavedChanges(open) && (
                   <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(open.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(open)} />

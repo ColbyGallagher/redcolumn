@@ -1,0 +1,239 @@
+.connect-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.connect-card,
+.connect-workspace {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.connect-card {
+  max-width: 420px;
+}
+
+.connect-workspace {
+  max-width: 680px;
+}
+
+.connect-header h1,
+.connect-workspace-header h1 {
+  margin: 6px 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.connect-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--muted);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+}
+
+.connect-muted {
+  margin: 0;
+  color: var(--muted);
+}
+
+.connect-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.connect-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connect-field span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.connect-field input {
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+.connect-field input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.connect-submit {
+  width: 100%;
+  justify-content: center;
+  height: 34px;
+}
+
+.connect-error {
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--danger, #c43e3e);
+  color: var(--danger, #c43e3e);
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.connect-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.connect-actions,
+.connect-local-row,
+.connect-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.connect-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.connect-divider::before,
+.connect-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.connect-drop-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.connect-invite-meta {
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connect-invite-meta p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.connect-workspace-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.connect-section h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.connect-projects-block h3 {
+  margin: 14px 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.connect-empty {
+  padding: 18px;
+  border-radius: 6px;
+  border: 1px dashed var(--border);
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.connect-empty p {
+  margin: 0;
+}
+
+.connect-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.connect-list-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.connect-list-item strong {
+  display: block;
+  font-weight: 600;
+}
+
+.connect-item-meta {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.connect-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+}
+
+.connect-workspace-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}

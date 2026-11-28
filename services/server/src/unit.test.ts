@@ -14,6 +14,7 @@ import { ConfigError, isOriginAllowed, loadConfig, normalizeOrigin } from './con
 import { canonicalizeJson, hashOperationPayload } from './pipeline.ts';
 import { runCli } from './cli.ts';
 import { createLogger } from './logger.ts';
+import { contentTypeForPath, isReservedServerPath, resolveStaticPath } from './static.ts';
 import { authorizeStream } from './ws.ts';
 
 describe('admin CLI', () => {
@@ -261,5 +262,55 @@ describe('auth helpers', () => {
     assert.equal(extractSessionToken({ cookie: 'rc_session=tok_abc' }, 'rc_session'), 'tok_abc');
     assert.equal(extractSessionToken({ authorization: 'Bearer tok_xyz' }, 'rc_session'), 'tok_xyz');
     assert.equal(extractSessionToken({}, 'rc_session'), null);
+  });
+});
+
+describe('static web serving helpers', () => {
+  it('loads WEB_DIST_DIR and PUBLIC_ORIGIN from config', () => {
+    const defaults = loadConfig({ DATABASE_URL: 'postgres://localhost/db' });
+    assert.equal(defaults.webDistDir, null);
+    assert.equal(defaults.publicOrigin, null);
+
+    const custom = loadConfig({
+      DATABASE_URL: 'postgres://localhost/db',
+      WEB_DIST_DIR: '/app/web',
+      PUBLIC_ORIGIN: 'https://Review.Northbridge.Example:443',
+    });
+    assert.equal(custom.webDistDir, '/app/web');
+    assert.equal(custom.publicOrigin, 'https://review.northbridge.example');
+
+    assert.throws(
+      () => loadConfig({ DATABASE_URL: 'postgres://localhost/db', PUBLIC_ORIGIN: 'https://a.test/bad-path' }),
+      ConfigError,
+    );
+  });
+
+  it('resolves safe static paths and rejects path traversal attempts', () => {
+    const root = '/tmp/fictional-web-dist';
+    const ok = resolveStaticPath(root, '/assets/app-1234.js?v=1');
+    assert.equal(ok.ok, true);
+    if (ok.ok) {
+      assert.equal(ok.relativePath, 'assets/app-1234.js');
+    }
+
+    for (const bad of ['/../etc/passwd', '/assets/../../secret.txt', '/%2e%2e/secret.txt', '/a\\b', '/bad%00.txt']) {
+      const res = resolveStaticPath(root, bad);
+      assert.equal(res.ok, false, `expected ${bad} to be rejected`);
+    }
+  });
+
+  it('identifies reserved server paths and maps MIME types', () => {
+    assert.equal(isReservedServerPath('/api/sessions'), true);
+    assert.equal(isReservedServerPath('/auth/login'), true);
+    assert.equal(isReservedServerPath('/ws'), true);
+    assert.equal(isReservedServerPath('/config.json'), true);
+    assert.equal(isReservedServerPath('/healthz'), true);
+    assert.equal(isReservedServerPath('/assets/index.js'), false);
+    assert.equal(isReservedServerPath('/invite/tok12345'), false);
+
+    assert.equal(contentTypeForPath('index.html'), 'text/html; charset=utf-8');
+    assert.equal(contentTypeForPath('app.js'), 'text/javascript; charset=utf-8');
+    assert.equal(contentTypeForPath('pdfium.wasm'), 'application/wasm');
+    assert.equal(contentTypeForPath('unknown.bin'), 'application/octet-stream');
   });
 });

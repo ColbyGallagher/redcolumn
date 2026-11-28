@@ -17,6 +17,10 @@ export interface ServerConfig {
   loginRateLimitWindowMs: number;
   autoMigrate: boolean;
   blobDir: string;
+  /** Optional directory containing the built web app static bundle. */
+  webDistDir: string | null;
+  /** Optional explicit public origin reported in /config.json. */
+  publicOrigin: string | null;
 }
 
 export class ConfigError extends Error {
@@ -128,6 +132,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   });
   const autoMigrate = parseBoolean('AUTO_MIGRATE', env.AUTO_MIGRATE, true);
   const blobDir = env.BLOB_DIR?.trim() || './data/blobs';
+  const webDistDir = env.WEB_DIST_DIR?.trim() || null;
+  const rawPublicOrigin = env.PUBLIC_ORIGIN?.trim();
+  const publicOrigin = rawPublicOrigin ? normalizeOrigin(rawPublicOrigin) : null;
 
   return {
     databaseUrl,
@@ -144,6 +151,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     loginRateLimitWindowMs,
     autoMigrate,
     blobDir,
+    webDistDir,
+    publicOrigin,
   };
 }
 
