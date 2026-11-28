@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+
 export const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
@@ -16,11 +18,16 @@ export interface ServerConfig {
   loginRateLimitMax: number;
   loginRateLimitWindowMs: number;
   autoMigrate: boolean;
+  /** Root directory for local disk blob storage. */
   blobDir: string;
   /** Optional directory containing the built web app static bundle. */
   webDistDir: string | null;
   /** Optional explicit public origin reported in /config.json. */
   publicOrigin: string | null;
+  /** Default chunk size (bytes) advertised to resumable upload clients. */
+  uploadChunkBytes: number;
+  /** Maximum total bytes accepted for a single document upload. */
+  maxUploadBytes: number;
 }
 
 export class ConfigError extends Error {
@@ -131,10 +138,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     max: 24 * 60 * 60 * 1000,
   });
   const autoMigrate = parseBoolean('AUTO_MIGRATE', env.AUTO_MIGRATE, true);
-  const blobDir = env.BLOB_DIR?.trim() || './data/blobs';
+  const blobDir = resolve(env.BLOB_DIR?.trim() || './data/blobs');
   const webDistDir = env.WEB_DIST_DIR?.trim() || null;
   const rawPublicOrigin = env.PUBLIC_ORIGIN?.trim();
   const publicOrigin = rawPublicOrigin ? normalizeOrigin(rawPublicOrigin) : null;
+  const uploadChunkBytes = parseInteger('UPLOAD_CHUNK_BYTES', env.UPLOAD_CHUNK_BYTES, 4 * 1024 * 1024, {
+    min: 1024,
+    max: 64 * 1024 * 1024,
+  });
+  const maxUploadBytes = parseInteger('MAX_UPLOAD_BYTES', env.MAX_UPLOAD_BYTES, 1024 * 1024 * 1024, {
+    min: 1024,
+    max: 4 * 1024 * 1024 * 1024,
+  });
 
   return {
     databaseUrl,
@@ -153,6 +168,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     blobDir,
     webDistDir,
     publicOrigin,
+    uploadChunkBytes,
+    maxUploadBytes,
   };
 }
 
