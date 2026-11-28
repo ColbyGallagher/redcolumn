@@ -1,3 +1,5 @@
+export type ProjectRole = 'project_admin' | 'reviewer' | 'viewer';
+
 export interface ServerUser {
   id: string;
   email: string;
@@ -7,10 +9,11 @@ export interface ServerUser {
 }
 
 export interface InvitePreview {
-  email: string;
+  email: string | null;
   name: string | null;
   projectName: string | null;
   scopeName: string | null;
+  projectRole?: ProjectRole | null;
   hasAccount: boolean;
   expiresAt: string;
 }
@@ -19,6 +22,8 @@ export interface ServerProjectSummary {
   id: string;
   name: string;
   number: string | null;
+  description?: string | null;
+  role?: ProjectRole | null;
   createdAt: string;
 }
 
@@ -35,6 +40,55 @@ export interface ServerSessionSummary {
 export interface ServerSessionsResponse {
   projects: ServerProjectSummary[];
   sessions: ServerSessionSummary[];
+}
+
+export interface CreateProjectInput {
+  name: string;
+  number?: string | null;
+  description?: string | null;
+}
+
+export interface CreateProjectResponse {
+  project: ServerProjectSummary;
+  scope: ServerSessionSummary;
+  lane: { id: string; name: string };
+  role: ProjectRole;
+}
+
+export interface ProjectMember {
+  userId: string;
+  email: string;
+  name: string;
+  role: ProjectRole;
+  state: 'invited' | 'active';
+  createdAt: string;
+}
+
+export interface PendingProjectInvite {
+  id: string;
+  email: string | null;
+  name: string | null;
+  role: ProjectRole;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface ProjectMembersResponse {
+  role: ProjectRole;
+  members: ProjectMember[];
+  invites: PendingProjectInvite[];
+}
+
+export interface CreateProjectInviteInput {
+  email?: string | null;
+  name?: string | null;
+  role: ProjectRole;
+}
+
+export interface CreateProjectInviteResponse {
+  invite: PendingProjectInvite;
+  token: string;
+  inviteUrl: string;
 }
 
 export class ServerClientError extends Error {
@@ -56,8 +110,15 @@ export interface ServerClient {
   login(email: string, password: string): Promise<ServerUser>;
   logout(): Promise<void>;
   previewInvite(token: string): Promise<InvitePreview>;
-  acceptInvite(token: string, input?: { name?: string; password?: string }): Promise<ServerUser>;
+  acceptInvite(token: string, input?: { email?: string; name?: string; password?: string }): Promise<ServerUser>;
   listSessions(): Promise<ServerSessionsResponse>;
+  createProject(input: CreateProjectInput): Promise<CreateProjectResponse>;
+  getProject(projectId: string): Promise<{ project: ServerProjectSummary; role: ProjectRole }>;
+  listProjectMembers(projectId: string): Promise<ProjectMembersResponse>;
+  createProjectInvite(projectId: string, input: CreateProjectInviteInput): Promise<CreateProjectInviteResponse>;
+  revokeProjectInvite(projectId: string, inviteId: string): Promise<void>;
+  updateProjectMemberRole(projectId: string, userId: string, role: ProjectRole): Promise<ProjectMember>;
+  removeProjectMember(projectId: string, userId: string): Promise<void>;
 }
 
 async function readErrorCode(res: Response): Promise<string> {
@@ -138,7 +199,10 @@ export function createServerClient(fetchImpl: FetchLike = fetch): ServerClient {
       return data.invite;
     },
 
-    async acceptInvite(token: string, input: { name?: string; password?: string } = {}): Promise<ServerUser> {
+    async acceptInvite(
+      token: string,
+      input: { email?: string; name?: string; password?: string } = {},
+    ): Promise<ServerUser> {
       const data = await requestJson<{ ok: boolean; user: ServerUser }>(
         `/api/invites/${encodeURIComponent(token)}/accept`,
         {
@@ -154,6 +218,79 @@ export function createServerClient(fetchImpl: FetchLike = fetch): ServerClient {
         method: 'GET',
         cache: 'no-store',
       });
+    },
+
+    async createProject(input: CreateProjectInput): Promise<CreateProjectResponse> {
+      return requestJson<CreateProjectResponse>('/api/projects', {
+        method: 'POST',
+        body: JSON.stringify(input),
+      });
+    },
+
+    async getProject(projectId: string): Promise<{ project: ServerProjectSummary; role: ProjectRole }> {
+      return requestJson<{ project: ServerProjectSummary; role: ProjectRole }>(
+        `/api/projects/${encodeURIComponent(projectId)}`,
+        {
+          method: 'GET',
+          cache: 'no-store',
+        },
+      );
+    },
+
+    async listProjectMembers(projectId: string): Promise<ProjectMembersResponse> {
+      return requestJson<ProjectMembersResponse>(
+        `/api/projects/${encodeURIComponent(projectId)}/members`,
+        {
+          method: 'GET',
+          cache: 'no-store',
+        },
+      );
+    },
+
+    async createProjectInvite(
+      projectId: string,
+      input: CreateProjectInviteInput,
+    ): Promise<CreateProjectInviteResponse> {
+      return requestJson<CreateProjectInviteResponse>(
+        `/api/projects/${encodeURIComponent(projectId)}/invites`,
+        {
+          method: 'POST',
+          body: JSON.stringify(input),
+        },
+      );
+    },
+
+    async revokeProjectInvite(projectId: string, inviteId: string): Promise<void> {
+      await requestJson<{ ok: boolean; inviteId: string }>(
+        `/api/projects/${encodeURIComponent(projectId)}/invites/${encodeURIComponent(inviteId)}`,
+        {
+          method: 'DELETE',
+        },
+      );
+    },
+
+    async updateProjectMemberRole(
+      projectId: string,
+      userId: string,
+      role: ProjectRole,
+    ): Promise<ProjectMember> {
+      const data = await requestJson<{ member: ProjectMember }>(
+        `/api/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(userId)}`,
+        {
+          method: 'PATCH',
+          body: JSON.stringify({ role }),
+        },
+      );
+      return data.member;
+    },
+
+    async removeProjectMember(projectId: string, userId: string): Promise<void> {
+      await requestJson<{ ok: boolean; userId: string }>(
+        `/api/projects/${encodeURIComponent(projectId)}/members/${encodeURIComponent(userId)}`,
+        {
+          method: 'DELETE',
+        },
+      );
     },
   };
 }

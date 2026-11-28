@@ -9,6 +9,7 @@ export type DraftSubjectKind = 'user' | 'group';
 export type DraftVisibility = 'private' | 'lane';
 export type AccessKind = 'internal' | 'released';
 export type CheckingState = 'draft' | 'submitted' | 'returned' | 'released' | 'withdrawn' | 'stopped';
+export type ProjectRole = 'project_admin' | 'reviewer' | 'viewer';
 export type ReviewItemKind = 'markup' | 'placement' | 'issue' | 'response' | 'statusEvent';
 export type TakeoffItemKind = 'scale' | 'viewport' | 'assembly' | 'catalogItem' | 'productList' | 'takeoffTemplate';
 /** Item kinds that can carry versions and audience rows. */
@@ -168,6 +169,7 @@ export interface ProjectsTable {
   workspace_id: string;
   name: string;
   number: string | null;
+  description: string | null;
   settings_json: Generated<unknown>;
   created_at: Generated<Date>;
   archived_at: Date | null;
@@ -186,6 +188,7 @@ export interface ProjectMembersTable {
   project_id: string;
   user_id: string;
   party_id: string | null;
+  role: Generated<ProjectRole>;
   state: Generated<'invited' | 'active' | 'removed'>;
   created_at: Generated<Date>;
   updated_at: Generated<Date>;
@@ -547,12 +550,14 @@ export interface TakeoffTemplatesTable extends LaneOwnedRecord {
 export interface InvitesTable {
   id: string;
   token_hash: string;
-  email: string;
-  email_lower: string;
+  email: string | null;
+  email_lower: string | null;
   name: string | null;
   project_id: string | null;
   scope_id: string | null;
   role: 'user' | 'admin';
+  project_role: ProjectRole | null;
+  revoked_at: Date | null;
   created_by: string | null;
   expires_at: Date;
   accepted_at: Date | null;

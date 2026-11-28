@@ -21,6 +21,7 @@ import { checkDbConnection, type Database } from './db.ts';
 import { acceptInvite, listAccessibleSessions, previewInvite } from './invites.ts';
 import { createLogger } from './logger.ts';
 import { OpPipeline, type OpPipelineHooks } from './pipeline.ts';
+import { registerProjectRoutes } from './projectRoutes.ts';
 import { registerStaticWebApp } from './static.ts';
 import { attachWebSocketServer, type WsHandle } from './ws.ts';
 
@@ -222,14 +223,18 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
         const result = await previewInvite(db, request.params.token);
         if (!result.ok) {
           const status =
-            result.code === 'invite_expired' ? 410 : result.code === 'invite_already_accepted' ? 409 : 404;
+            result.code === 'invite_expired' || result.code === 'invite_revoked'
+              ? 410
+              : result.code === 'invite_already_accepted'
+                ? 409
+                : 404;
           return reply.code(status).send({ error: result.code });
         }
         return reply.code(200).send({ invite: result.invite });
       },
     );
 
-    auth.post<{ Params: { token: string }; Body: { name?: unknown; password?: unknown } }>(
+    auth.post<{ Params: { token: string }; Body: { email?: unknown; name?: unknown; password?: unknown } }>(
       '/api/invites/:token/accept',
       {
         config: {
@@ -244,11 +249,13 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
         const sessionToken = extractSessionToken(request.headers, config.sessionCookieName);
         const existingSession = sessionToken ? await lookupSession(db, sessionToken) : null;
 
+        const email = typeof request.body?.email === 'string' ? request.body.email : undefined;
         const name = typeof request.body?.name === 'string' ? request.body.name : undefined;
         const password = typeof request.body?.password === 'string' ? request.body.password : undefined;
 
         const result = await acceptInvite(db, request.params.token, {
           signedInUser: existingSession?.user ?? null,
+          email,
           name,
           password,
           sessionTtlMs: config.sessionTtlMs,
@@ -291,6 +298,8 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
       const data = await listAccessibleSessions(db, session.user);
       return reply.code(200).send(data);
     });
+
+    registerProjectRoutes(auth, db, config);
   });
 
   if (config.webDistDir) {

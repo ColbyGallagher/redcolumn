@@ -37,7 +37,8 @@ export function installLogCapture() {
 export function logFile(): Blob {
   const header = [
     `redcolumn log, saved ${new Date().toISOString()}`,
-    `Page: ${location.href.split('?')[0]}`,
+    // Origin and path only: the query and hash can hold an invite token.
+    `Page: ${location.origin}${location.pathname}`,
     `Browser: ${navigator.userAgent}`,
     `Screen: ${screen.width}×${screen.height} @${devicePixelRatio}x`,
     '',
