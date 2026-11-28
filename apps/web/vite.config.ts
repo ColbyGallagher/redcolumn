@@ -163,8 +163,8 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 12 * 1024 * 1024,
         // msal-redirect.html receives Microsoft sign-in results in its query string, which the
         // precache would not match; let it load from the network rather than fall back to the app.
-        // The help and the landing page (/home) are their own sites, not the app.
-        navigateFallbackDenylist: [/msal-redirect\.html/, /share-target/, /\/help\//, /\/home(\/|$)/],
+        // The help, the landing page (/home), and server API/config endpoints are not client pages.
+        navigateFallbackDenylist: [/msal-redirect\.html/, /share-target/, /\/help\//, /\/home(\/|$)/, /^\/(api|auth|ws)(\/|$)/, /^\/(config\.json|healthz|readyz)$/],
         runtimeCaching: [
           {
             // The cache name is shared with src/offline/ocrCache.ts, which fills it ahead of time.

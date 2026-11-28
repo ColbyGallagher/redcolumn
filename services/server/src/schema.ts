@@ -544,10 +544,27 @@ export interface TakeoffTemplatesTable extends LaneOwnedRecord {
   name: string;
 }
 
+export interface InvitesTable {
+  id: string;
+  token_hash: string;
+  email: string;
+  email_lower: string;
+  name: string | null;
+  project_id: string | null;
+  scope_id: string | null;
+  role: 'user' | 'admin';
+  created_by: string | null;
+  expires_at: Date;
+  accepted_at: Date | null;
+  accepted_by: string | null;
+  created_at: Generated<Date>;
+}
+
 export interface Database {
   schema_migrations: SchemaMigrationsTable;
   users: UsersTable;
   sessions: SessionsTable;
+  invites: InvitesTable;
   streams: StreamsTable;
   op_results: OpResultsTable;
   markups: MarkupsTable;

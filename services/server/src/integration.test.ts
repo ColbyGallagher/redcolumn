@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import http from 'node:http';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, before, beforeEach, describe, it } from 'node:test';
 import { PROTOCOL_VERSION, type Operation } from '@nb/ops';
 import WebSocket from 'ws';
@@ -8,6 +12,7 @@ import type { StreamEvent } from './broadcaster.ts';
 import { runCli } from './cli.ts';
 import { loadConfig, type ServerConfig } from './config.ts';
 import { createDb, type DbHandle } from './db.ts';
+import { createInvite } from './invites.ts';
 import { checkMigrations, runMigrations } from './migrate.ts';
 import type { BatchAck, OpAck } from './pipeline.ts';
 import { WS_CLOSE_SESSION_ENDED } from './ws.ts';
@@ -187,7 +192,9 @@ describe('server integration (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_U
   });
 
   beforeEach(async () => {
-    await dbHandle.pool.query('TRUNCATE events, placements, markups, op_results, streams, sessions, users CASCADE');
+    await dbHandle.pool.query(
+      'TRUNCATE invites, scopes, project_members, projects, workspaces, events, placements, markups, op_results, streams, sessions, users CASCADE',
+    );
   });
 
   it('reports migrations up to date via checkMigrations and CLI', async () => {
@@ -784,6 +791,249 @@ describe('server integration (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_U
       assert.match(stderr.join('\n'), /Unknown migrations in database.*9999/);
     } finally {
       await dbHandle.pool.query(`DELETE FROM schema_migrations WHERE version = '9999'`);
+    }
+  });
+
+  it('serves /config.json, static web assets, SPA fallback, and refuses path traversal', async () => {
+    const tempRoot = await mkdtemp(join(tmpdir(), 'rc-web-static-'));
+    const webDir = join(tempRoot, 'dist');
+    const assetsDir = join(webDir, 'assets');
+    await mkdir(assetsDir, { recursive: true });
+    await writeFile(join(tempRoot, 'secret.txt'), 'top-secret-outside-root', 'utf8');
+    await writeFile(join(webDir, 'index.html'), '<!doctype html><html><body>redcolumn-app</body></html>', 'utf8');
+    await writeFile(join(assetsDir, 'main-abc123.js'), 'console.log("ok");', 'utf8');
+
+    const config = makeConfig({ webDistDir: webDir });
+    const server = buildServer({ config, db: dbHandle.db, pool: dbHandle.pool });
+    const baseUrl = await server.app.listen({ host: config.host, port: 0 });
+
+    try {
+      // /config.json
+      const cfgRes = await fetch(`${baseUrl}/config.json`);
+      assert.equal(cfgRes.status, 200);
+      assert.equal(cfgRes.headers.get('cache-control'), 'no-store');
+      const cfgBody = (await cfgRes.json()) as { mode: string; origin: string; version: string; auth: { local: boolean } };
+      assert.equal(cfgBody.mode, 'server');
+      assert.equal(cfgBody.origin, baseUrl);
+      assert.equal(typeof cfgBody.version, 'string');
+      assert.deepEqual(cfgBody.auth, { local: true });
+
+      // Root index.html with no-cache
+      const indexRes = await fetch(`${baseUrl}/`);
+      assert.equal(indexRes.status, 200);
+      assert.equal(indexRes.headers.get('cache-control'), 'no-cache');
+      assert.match(indexRes.headers.get('content-type') ?? '', /text\/html/);
+      assert.match(await indexRes.text(), /redcolumn-app/);
+
+      // Hashed asset with immutable cache header
+      const assetRes = await fetch(`${baseUrl}/assets/main-abc123.js`);
+      assert.equal(assetRes.status, 200);
+      assert.equal(assetRes.headers.get('cache-control'), 'public, max-age=31536000, immutable');
+      assert.match(assetRes.headers.get('content-type') ?? '', /text\/javascript/);
+      assert.equal(await assetRes.text(), 'console.log("ok");');
+
+      // SPA fallback on client route
+      const spaRes = await fetch(`${baseUrl}/invite/some-token-12345`);
+      assert.equal(spaRes.status, 200);
+      assert.equal(spaRes.headers.get('cache-control'), 'no-cache');
+      assert.match(await spaRes.text(), /redcolumn-app/);
+
+      // Missing asset file returns 404 (not index.html)
+      const missingAsset = await fetch(`${baseUrl}/assets/does-not-exist.js`);
+      assert.equal(missingAsset.status, 404);
+
+      // Unknown API route returns 404 (not index.html)
+      const missingApi = await fetch(`${baseUrl}/api/does-not-exist`);
+      assert.equal(missingApi.status, 404);
+
+      // Raw and percent-encoded path traversal are refused and never leak files outside WEB_DIST_DIR
+      const rawGet = (rawPath: string) =>
+        new Promise<{ status: number; body: string }>((resolve, reject) => {
+          const parsed = new URL(baseUrl);
+          const req = http.request(
+            { hostname: parsed.hostname, port: Number(parsed.port), path: rawPath, method: 'GET' },
+            (res) => {
+              let body = '';
+              res.setEncoding('utf8');
+              res.on('data', (chunk) => (body += chunk));
+              res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+            },
+          );
+          req.on('error', reject);
+          req.end();
+        });
+
+      for (const badPath of ['/../secret.txt', '/%2e%2e/secret.txt', '/assets/../../secret.txt']) {
+        const traversalRes = await rawGet(badPath);
+        assert.equal(traversalRes.status, 403, `expected 403 for ${badPath}`);
+        assert.doesNotMatch(traversalRes.body, /top-secret-outside-root/);
+      }
+    } finally {
+      await server.app.close();
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('previews and accepts single-use invites and lists only accessible sessions', async () => {
+    const admin = await createLocalUser(dbHandle.db, {
+      email: 'admin@northbridge.example',
+      name: 'Admin User',
+      password: 'fictional-admin-pass',
+      role: 'admin',
+    });
+    const otherUser = await createLocalUser(dbHandle.db, {
+      email: 'other@northbridge.example',
+      name: 'Other Reviewer',
+      password: 'fictional-other-pass',
+    });
+
+    await dbHandle.db.insertInto('workspaces').values({ id: 'ws-1', name: 'Northbridge' }).execute();
+    await dbHandle.db
+      .insertInto('projects')
+      .values([
+        { id: 'prj-1', workspace_id: 'ws-1', name: 'Harbour Bridge', number: 'NB-101' },
+        { id: 'prj-2', workspace_id: 'ws-1', name: 'South Tunnel', number: 'NB-202' },
+      ])
+      .execute();
+    await dbHandle.db
+      .insertInto('scopes')
+      .values([
+        { id: 'sc-1', project_id: 'prj-1', kind: 'session', name: 'IFC Structural Check', session_state: 'open' },
+        { id: 'sc-2', project_id: 'prj-2', kind: 'review', name: 'Tunnel Review', session_state: null },
+      ])
+      .execute();
+
+    const invite = await createInvite(dbHandle.db, {
+      email: 'guest@northbridge.example',
+      name: 'Guest Reviewer',
+      projectId: 'prj-1',
+      scopeId: 'sc-1',
+      createdBy: admin.id,
+    });
+
+    const config = makeConfig();
+    const server = buildServer({ config, db: dbHandle.db, pool: dbHandle.pool });
+    const baseUrl = await server.app.listen({ host: config.host, port: 0 });
+
+    try {
+      // Unauthenticated /api/sessions is rejected
+      const unauthSessions = await fetch(`${baseUrl}/api/sessions`);
+      assert.equal(unauthSessions.status, 401);
+
+      // Preview valid invite without leaking sensitive fields
+      const previewRes = await fetch(`${baseUrl}/api/invites/${encodeURIComponent(invite.token)}`);
+      assert.equal(previewRes.status, 200);
+      const previewBody = (await previewRes.json()) as {
+        invite: { email: string; projectName: string | null; scopeName: string | null; hasAccount: boolean };
+      };
+      assert.equal(previewBody.invite.email, 'guest@northbridge.example');
+      assert.equal(previewBody.invite.projectName, 'Harbour Bridge');
+      assert.equal(previewBody.invite.scopeName, 'IFC Structural Check');
+      assert.equal(previewBody.invite.hasAccount, false);
+
+      // Unknown invite returns 404
+      const unknownPreview = await fetch(`${baseUrl}/api/invites/not-a-real-token`);
+      assert.equal(unknownPreview.status, 404);
+
+      // Accept invite as new user -> creates account, sets session cookie, adds project membership
+      const acceptRes = await fetch(`${baseUrl}/api/invites/${encodeURIComponent(invite.token)}/accept`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: baseUrl },
+        body: JSON.stringify({ name: 'Guest Reviewer', password: 'fictional-guest-pass' }),
+      });
+      assert.equal(acceptRes.status, 200);
+      const guestCookie = (acceptRes.headers.get('set-cookie') ?? '').split(';')[0]!;
+      assert.ok(guestCookie.startsWith(`${config.sessionCookieName}=`));
+
+      // Replaying the single-use invite is rejected
+      const replayRes = await fetch(`${baseUrl}/api/invites/${encodeURIComponent(invite.token)}/accept`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: baseUrl },
+        body: JSON.stringify({ name: 'Guest Reviewer', password: 'fictional-guest-pass' }),
+      });
+      assert.equal(replayRes.status, 409);
+
+      // Guest sees only prj-1 / sc-1, never prj-2 / sc-2
+      const guestSessionsRes = await fetch(`${baseUrl}/api/sessions`, {
+        headers: { cookie: guestCookie },
+      });
+      assert.equal(guestSessionsRes.status, 200);
+      const guestSessions = (await guestSessionsRes.json()) as {
+        projects: { id: string }[];
+        sessions: { id: string }[];
+      };
+      assert.deepEqual(
+        guestSessions.projects.map((p) => p.id),
+        ['prj-1'],
+      );
+      assert.deepEqual(
+        guestSessions.sessions.map((s) => s.id),
+        ['sc-1'],
+      );
+
+      // Other user with no project memberships gets empty lists
+      const otherCookie = await login(baseUrl, otherUser.email, 'fictional-other-pass');
+      const otherSessionsRes = await fetch(`${baseUrl}/api/sessions`, {
+        headers: { cookie: otherCookie },
+      });
+      assert.equal(otherSessionsRes.status, 200);
+      assert.deepEqual(await otherSessionsRes.json(), { projects: [], sessions: [] });
+
+      // Bogus or expired invites return 404/410 even with a short password (pre-checked before password validation/hashing)
+      const bogusAccept = await fetch(`${baseUrl}/api/invites/not-a-real-token/accept`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: baseUrl },
+        body: JSON.stringify({ name: 'Ghost', password: 'short' }),
+      });
+      assert.equal(bogusAccept.status, 404);
+      assert.deepEqual(await bogusAccept.json(), { error: 'invite_not_found' });
+
+      const expiredInvite = await createInvite(dbHandle.db, {
+        email: 'expired@northbridge.example',
+        name: 'Expired Guest',
+        projectId: 'prj-1',
+        createdBy: admin.id,
+        ttlMs: -1000,
+      });
+      const expiredAccept = await fetch(`${baseUrl}/api/invites/${encodeURIComponent(expiredInvite.token)}/accept`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: baseUrl },
+        body: JSON.stringify({ name: 'Expired Guest', password: 'short' }),
+      });
+      assert.equal(expiredAccept.status, 410);
+      assert.deepEqual(await expiredAccept.json(), { error: 'invite_expired' });
+
+      // Concurrent acceptance of two distinct invites for the same email returns 200 and 409 account_exists (never 500)
+      const raceInviteA = await createInvite(dbHandle.db, {
+        email: 'race@northbridge.example',
+        name: 'Race Guest',
+        projectId: 'prj-1',
+        createdBy: admin.id,
+      });
+      const raceInviteB = await createInvite(dbHandle.db, {
+        email: 'race@northbridge.example',
+        name: 'Race Guest',
+        projectId: 'prj-2',
+        createdBy: admin.id,
+      });
+      const [raceResA, raceResB] = await Promise.all([
+        fetch(`${baseUrl}/api/invites/${encodeURIComponent(raceInviteA.token)}/accept`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: baseUrl },
+          body: JSON.stringify({ name: 'Race Guest', password: 'fictional-race-pass-1' }),
+        }),
+        fetch(`${baseUrl}/api/invites/${encodeURIComponent(raceInviteB.token)}/accept`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: baseUrl },
+          body: JSON.stringify({ name: 'Race Guest', password: 'fictional-race-pass-2' }),
+        }),
+      ]);
+      const statuses = [raceResA.status, raceResB.status].sort((a, b) => a - b);
+      assert.deepEqual(statuses, [200, 409]);
+      const loserBody = (raceResA.status === 409 ? await raceResA.json() : await raceResB.json()) as { error: string };
+      assert.equal(loserBody.error, 'account_exists');
+    } finally {
+      await server.app.close();
     }
   });
 });
