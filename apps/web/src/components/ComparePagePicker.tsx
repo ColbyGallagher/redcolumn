@@ -1,8 +1,7 @@
 import { msg } from '@nb/i18n';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SnapIndex, type Snap, type SnapKind } from '@nb/measure';
-import { affineFromPoints, type Affine } from '../compare/affine';
-import type { Box } from '../compare/diff';
+import { affineFromPoints, type Affine, type Box } from '@nb/align';
 import { gridSpacingPoints, settings } from '../settings/settings';
 
 /** A page drawn for picking on: the image and the page's size in points. */

@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
-import { coarsen, diffMasks, diffWords, findOffset, inkMask, mergeBoxes, type Box, type DiffOptions, type Difference, type Word } from './diff';
+import { findOffset, inkMask, type Box } from '@nb/align';
+import { coarsen, diffMasks, diffWords, mergeBoxes, type DiffOptions, type Difference, type Word } from './diff';
 
 export interface CompareWorkRequest {
   id: number;
