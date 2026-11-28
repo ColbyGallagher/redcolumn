@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { constants as fsConstants, createReadStream } from 'node:fs';
-import { copyFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, open, readdir, readFile, stat } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type pg from 'pg';
@@ -343,7 +343,7 @@ export async function runBackup(options: {
   const { databaseUrl, pool, blobDir, outDir } = options;
   const execPgDump = options.execPgDump ?? defaultExecPgDump;
 
-  await mkdir(outDir, { recursive: true });
+  await mkdir(outDir, { recursive: true, mode: 0o700 });
   const existing = await readdir(outDir);
   if (existing.length > 0) {
     throw new Error(`Backup output directory is not empty: ${outDir}`);
@@ -372,7 +372,7 @@ export async function runBackup(options: {
   for (const relPath of blobRelPaths) {
     const src = safeResolveUnder(blobDir, relPath);
     const dst = safeResolveUnder(blobsRoot, relPath);
-    await mkdir(dirname(dst), { recursive: true });
+    await mkdir(dirname(dst), { recursive: true, mode: 0o700 });
     await copyFile(src, dst, fsConstants.COPYFILE_EXCL);
     const digest = await hashFileSha256(dst);
     blobs.push({ path: relPath, sha256: digest.sha256, sizeBytes: digest.sizeBytes });
@@ -391,10 +391,13 @@ export async function runBackup(options: {
     blobs,
   };
 
-  await writeFile(join(outDir, MANIFEST_FILENAME), `${JSON.stringify(manifest, null, 2)}\n`, {
-    encoding: 'utf8',
-    flag: 'wx',
-  });
+  const manifestPath = join(outDir, MANIFEST_FILENAME);
+  const fh = await open(manifestPath, 'wx', 0o600);
+  try {
+    await fh.writeFile(`${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  } finally {
+    await fh.close();
+  }
   return manifest;
 }
 
