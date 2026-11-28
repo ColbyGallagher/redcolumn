@@ -16,6 +16,7 @@ export interface ServerConfig {
   loginRateLimitMax: number;
   loginRateLimitWindowMs: number;
   autoMigrate: boolean;
+  blobDir: string;
 }
 
 export class ConfigError extends Error {
@@ -126,6 +127,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     max: 24 * 60 * 60 * 1000,
   });
   const autoMigrate = parseBoolean('AUTO_MIGRATE', env.AUTO_MIGRATE, true);
+  const blobDir = env.BLOB_DIR?.trim() || './data/blobs';
 
   return {
     databaseUrl,
@@ -141,6 +143,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     loginRateLimitMax,
     loginRateLimitWindowMs,
     autoMigrate,
+    blobDir,
   };
 }
 

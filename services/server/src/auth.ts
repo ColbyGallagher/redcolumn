@@ -287,3 +287,59 @@ export async function revokeSession(db: Kysely<Database>, token: string): Promis
     .executeTakeFirst();
   return row?.id ?? null;
 }
+
+/**
+ * Updates a local user's password hash (argon2id) and revokes all active sessions for that user.
+ */
+export async function resetLocalUserPassword(
+  db: Kysely<Database>,
+  email: string,
+  newPassword: string,
+): Promise<{ user: UserProfile; revokedSessions: number }> {
+  const trimmedEmail = email.trim();
+  const normalized = trimmedEmail.toLowerCase();
+  if (!trimmedEmail || !trimmedEmail.includes('@')) {
+    throw new Error('A valid email address is required');
+  }
+  if (newPassword.length < 8) {
+    throw new Error('Password must be at least 8 characters');
+  }
+
+  const passwordHash = await hashPassword(newPassword);
+  const now = new Date();
+
+  return db.transaction().execute(async (trx) => {
+    const updated = await trx
+      .updateTable('users')
+      .set({
+        password_hash: passwordHash,
+        updated_at: now,
+      })
+      .where('email_lower', '=', normalized)
+      .returning(['id', 'email', 'name', 'role', 'is_admin'])
+      .executeTakeFirst();
+
+    if (!updated) {
+      throw new Error(`User not found: ${trimmedEmail}`);
+    }
+
+    const revoked = await trx
+      .updateTable('sessions')
+      .set({ revoked_at: now })
+      .where('user_id', '=', updated.id)
+      .where('revoked_at', 'is', null)
+      .returning('id')
+      .execute();
+
+    return {
+      user: {
+        id: updated.id,
+        email: updated.email,
+        name: updated.name,
+        role: updated.role,
+        isAdmin: updated.is_admin,
+      },
+      revokedSessions: revoked.length,
+    };
+  });
+}

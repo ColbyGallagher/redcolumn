@@ -13,7 +13,7 @@
     "admin": "node --experimental-strip-types src/cli.ts",
     "migrate": "node --experimental-strip-types src/cli.ts migrate",
     "typecheck": "tsc -p .",
-    "test": "node --test --experimental-strip-types src/*.test.ts"
+    "test": "node --test --test-concurrency=1 --experimental-strip-types src/*.test.ts"
   },
   "dependencies": {
     "@fastify/rate-limit": "11.2.2",

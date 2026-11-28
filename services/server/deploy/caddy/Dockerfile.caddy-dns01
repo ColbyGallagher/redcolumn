@@ -1,0 +1,16 @@
+# syntax=docker/dockerfile:1
+#
+# Builds a Caddy 2 image with a DNS-01 provider plugin compiled in via xcaddy.
+# Example:
+#   docker build -f caddy/Dockerfile.caddy-dns01 \
+#     --build-arg CADDY_DNS_PLUGIN=cloudflare \
+#     -t redcolumn-caddy-dns01:local caddy/
+
+ARG CADDY_VERSION=2
+
+FROM caddy:${CADDY_VERSION}-builder-alpine AS builder
+ARG CADDY_DNS_PLUGIN=cloudflare
+RUN xcaddy build --with github.com/caddy-dns/${CADDY_DNS_PLUGIN}
+
+FROM caddy:${CADDY_VERSION}-alpine
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy

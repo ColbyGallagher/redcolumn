@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { pathToFileURL } from 'node:url';
-import { createLocalUser } from './auth.ts';
+import { runBackup, runRestore, runVerify } from './admin.ts';
+import { createLocalUser, resetLocalUserPassword } from './auth.ts';
 import { createDb } from './db.ts';
 import { checkMigrations, runMigrations } from './migrate.ts';
 
@@ -24,7 +25,7 @@ const DEFAULT_IO: CliIo = {
   env: process.env,
 };
 
-function parseFlags(args: readonly string[]): { flags: Map<string, string | boolean>; positional: string[] } {
+export function parseFlags(args: readonly string[]): { flags: Map<string, string | boolean>; positional: string[] } {
   const flags = new Map<string, string | boolean>();
   const positional: string[] = [];
   for (let i = 0; i < args.length; i++) {
@@ -55,6 +56,35 @@ function getStringFlag(flags: Map<string, string | boolean>, name: string): stri
   return typeof val === 'string' ? val : undefined;
 }
 
+function resolveBlobDir(flags: Map<string, string | boolean>, env: NodeJS.ProcessEnv): string {
+  return getStringFlag(flags, 'blob-dir')?.trim() || env.BLOB_DIR?.trim() || './data/blobs';
+}
+
+async function readSecretPassword(
+  flags: Map<string, string | boolean>,
+  io: CliIo,
+): Promise<{ ok: true; password: string } | { ok: false; error: string }> {
+  // A password on the command line is visible in the process list and shell history.
+  if (flags.has('password')) {
+    return {
+      ok: false,
+      error: '--password is not supported; use --password-stdin or REDCOLUMN_ADMIN_PASSWORD',
+    };
+  }
+  if (flags.get('password-stdin') === true) {
+    const value = (await io.readStdin()).replace(/\r?\n$/, '');
+    if (!value) return { ok: false, error: 'Password from stdin was empty' };
+    return { ok: true, password: value };
+  }
+  if (io.env.REDCOLUMN_ADMIN_PASSWORD) {
+    return { ok: true, password: io.env.REDCOLUMN_ADMIN_PASSWORD };
+  }
+  return {
+    ok: false,
+    error: 'A password is required via --password-stdin or REDCOLUMN_ADMIN_PASSWORD',
+  };
+}
+
 function usage(): string {
   return [
     'Usage: redcolumn-admin <command> [options]',
@@ -66,8 +96,23 @@ function usage(): string {
     '    --name <name>           Admin display name (required)',
     '    --password-stdin        Read the password from stdin',
     '                            (or set REDCOLUMN_ADMIN_PASSWORD)',
+    '  reset-password          Reset a local user password and revoke active sessions',
+    '    --email <email>         User email address (required)',
+    '    --password-stdin        Read the new password from stdin',
+    '                            (or set REDCOLUMN_ADMIN_PASSWORD)',
+    '  backup                  Back up database (pg_dump -Fc), blobs, and manifest.json',
+    '    --out <dir>             Output directory (must be empty or not exist)',
+    '    --blob-dir <dir>        Blob directory (defaults to BLOB_DIR)',
+    '  restore                 Validate manifest and restore database + blobs',
+    '    --from <dir>            Backup directory containing manifest.json',
+    '    --yes                   Confirm overwriting current database and blobs',
+    '    --blob-dir <dir>        Blob directory (defaults to BLOB_DIR)',
+    '  verify                  Check database connectivity, migrations, blobs, and events',
+    '    --blob-dir <dir>        Blob directory (defaults to BLOB_DIR)',
   ].join('\n');
 }
+
+const KNOWN_COMMANDS = new Set(['migrate', 'create-admin', 'reset-password', 'backup', 'restore', 'verify']);
 
 export async function runCli(argv: readonly string[], io: CliIo = DEFAULT_IO): Promise<number> {
   const [command, ...rest] = argv;
@@ -76,13 +121,57 @@ export async function runCli(argv: readonly string[], io: CliIo = DEFAULT_IO): P
     return 0;
   }
 
+  if (!KNOWN_COMMANDS.has(command)) {
+    io.stderr(`Unknown command: ${command}\n\n${usage()}`);
+    return 1;
+  }
+
+  const { flags } = parseFlags(rest);
+
+  // Validate command arguments before connecting to the database.
+  if (command === 'create-admin') {
+    const email = getStringFlag(flags, 'email') ?? '';
+    const name = getStringFlag(flags, 'name') ?? '';
+    if (flags.has('password')) {
+      io.stderr('Error: --password is not supported; use --password-stdin or REDCOLUMN_ADMIN_PASSWORD');
+      return 1;
+    }
+    if (!email || !name) {
+      io.stderr('Error: --email, --name, and a password (--password-stdin or REDCOLUMN_ADMIN_PASSWORD) are required');
+      return 1;
+    }
+  } else if (command === 'reset-password') {
+    const email = getStringFlag(flags, 'email') ?? '';
+    if (flags.has('password')) {
+      io.stderr('Error: --password is not supported; use --password-stdin or REDCOLUMN_ADMIN_PASSWORD');
+      return 1;
+    }
+    if (!email) {
+      io.stderr('Error: --email and a new password (--password-stdin or REDCOLUMN_ADMIN_PASSWORD) are required');
+      return 1;
+    }
+  } else if (command === 'backup') {
+    if (!getStringFlag(flags, 'out')?.trim()) {
+      io.stderr('Error: --out <dir> is required');
+      return 1;
+    }
+  } else if (command === 'restore') {
+    if (!getStringFlag(flags, 'from')?.trim()) {
+      io.stderr('Error: --from <dir> is required');
+      return 1;
+    }
+    if (flags.get('yes') !== true) {
+      io.stderr('Error: restore overwrites existing data; pass --yes to confirm');
+      return 1;
+    }
+  }
+
   const databaseUrl = io.env.DATABASE_URL?.trim();
   if (!databaseUrl) {
     io.stderr('Error: DATABASE_URL is required');
     return 1;
   }
 
-  const { flags } = parseFlags(rest);
   const { db, pool, close } = createDb(databaseUrl);
 
   try {
@@ -116,32 +205,73 @@ export async function runCli(argv: readonly string[], io: CliIo = DEFAULT_IO): P
     }
 
     if (command === 'create-admin') {
-      const email = getStringFlag(flags, 'email') ?? '';
-      const name = getStringFlag(flags, 'name') ?? '';
-      // A password on the command line is visible in the process list and shell history.
-      if (flags.has('password')) {
-        io.stderr('Error: --password is not supported; use --password-stdin or REDCOLUMN_ADMIN_PASSWORD');
-        return 1;
-      }
-      let password: string | undefined;
-      if (flags.get('password-stdin') === true) {
-        password = (await io.readStdin()).replace(/\r?\n$/, '');
-      } else if (io.env.REDCOLUMN_ADMIN_PASSWORD) {
-        password = io.env.REDCOLUMN_ADMIN_PASSWORD;
-      }
-
-      if (!email || !name || !password) {
-        io.stderr('Error: --email, --name, and a password (--password-stdin or REDCOLUMN_ADMIN_PASSWORD) are required');
+      const email = getStringFlag(flags, 'email')!;
+      const name = getStringFlag(flags, 'name')!;
+      const secret = await readSecretPassword(flags, io);
+      if (!secret.ok) {
+        io.stderr(`Error: ${secret.error}`);
         return 1;
       }
 
       await runMigrations(pool);
-      const user = await createLocalUser(db, { email, name, password, role: 'admin' });
+      const user = await createLocalUser(db, { email, name, password: secret.password, role: 'admin' });
       io.stdout(`Created admin user ${user.email} (${user.id})`);
       return 0;
     }
 
-    io.stderr(`Unknown command: ${command}\n\n${usage()}`);
+    if (command === 'reset-password') {
+      const email = getStringFlag(flags, 'email')!;
+      const secret = await readSecretPassword(flags, io);
+      if (!secret.ok) {
+        io.stderr(`Error: ${secret.error}`);
+        return 1;
+      }
+
+      const result = await resetLocalUserPassword(db, email, secret.password);
+      io.stdout(
+        `Updated password for ${result.user.email} (${result.user.id}) and revoked ${result.revokedSessions} active session(s)`,
+      );
+      return 0;
+    }
+
+    if (command === 'backup') {
+      const outDir = getStringFlag(flags, 'out')!.trim();
+      const blobDir = resolveBlobDir(flags, io.env);
+      const manifest = await runBackup({ databaseUrl, pool, blobDir, outDir });
+      io.stdout(
+        `Backup written to ${outDir} (schema=${manifest.schemaVersion ?? 'none'}, db=${manifest.database.sizeBytes} bytes, blobs=${manifest.blobs.length})`,
+      );
+      return 0;
+    }
+
+    if (command === 'restore') {
+      const fromDir = getStringFlag(flags, 'from')!.trim();
+      const blobDir = resolveBlobDir(flags, io.env);
+      const { manifest, verification } = await runRestore({ databaseUrl, pool, blobDir, fromDir });
+      io.stdout(
+        `Restored backup from ${fromDir} (schema=${manifest.schemaVersion ?? 'none'}, blobs=${manifest.blobs.length}, verified assets=${verification.assetsChecked})`,
+      );
+      return 0;
+    }
+
+    if (command === 'verify') {
+      const blobDir = resolveBlobDir(flags, io.env);
+      const report = await runVerify({ pool, blobDir });
+      const counts = Object.entries(report.rowCounts)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(', ');
+      io.stdout(
+        `Verify: db=${report.databaseConnected ? 'ok' : 'failed'}, migrations=${report.migrations.applied.length} applied (${report.migrations.pending.length} pending), assets=${report.assetsChecked} checked, streams=${report.streamsChecked} checked`,
+      );
+      if (counts) io.stdout(`Row counts: ${counts}`);
+      if (!report.ok) {
+        for (const err of report.errors) io.stderr(`Error: ${err}`);
+        return 1;
+      }
+      io.stdout('Verification passed.');
+      return 0;
+    }
+
     return 1;
   } catch (err) {
     io.stderr(`Error: ${err instanceof Error ? err.message : String(err)}`);

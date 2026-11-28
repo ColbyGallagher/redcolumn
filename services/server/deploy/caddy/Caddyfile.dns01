@@ -1,0 +1,39 @@
+# TLS Mode 2: Public ACME DNS-01 (for servers not reachable from the internet)
+#
+# Obtain a publicly trusted Let's Encrypt certificate for a real domain name
+# without exposing ports 80 or 443 to the public internet.
+#
+# Prerequisites:
+#   1. Build a Caddy image that includes your DNS provider plugin using xcaddy
+#      (see Dockerfile.caddy-dns01 in this directory):
+#        docker build -f caddy/Dockerfile.caddy-dns01 \
+#          --build-arg CADDY_DNS_PLUGIN=cloudflare \
+#          -t redcolumn-caddy-dns01:local caddy/
+#   2. Set in .env:
+#        CADDY_MODE=dns01
+#        CADDY_IMAGE=redcolumn-caddy-dns01:local
+#        REDCOLUMN_DOMAIN=review.northbridge.example
+#        ACME_EMAIL=it-ops@northbridge.example
+#        DNS_PROVIDER_API_TOKEN=<scoped DNS-edit token>
+#   3. If using a provider other than Cloudflare (for example route53 or
+#      azure), update the `dns` directive below to match that plugin's syntax.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$REDCOLUMN_DOMAIN} {
+	tls {
+		dns cloudflare {env.DNS_PROVIDER_API_TOKEN}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	reverse_proxy server:3000
+}

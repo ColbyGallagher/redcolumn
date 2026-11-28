@@ -1,0 +1,71 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-redcolumn}
+      POSTGRES_USER: ${POSTGRES_USER:-redcolumn}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-redcolumn} -d ${POSTGRES_DB:-redcolumn}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  server:
+    build:
+      context: ../../..
+      dockerfile: services/server/deploy/Dockerfile
+    image: ${REDCOLUMN_SERVER_IMAGE:-redcolumn-server:local}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3000
+      BLOB_DIR: ${BLOB_DIR:-/var/lib/redcolumn/blobs}
+      DATABASE_URL: ${DATABASE_URL:-postgres://${POSTGRES_USER:-redcolumn}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-redcolumn}}
+    volumes:
+      - blobs:/var/lib/redcolumn/blobs
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  caddy:
+    image: ${CADDY_IMAGE:-caddy:2-alpine}
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      REDCOLUMN_DOMAIN: ${REDCOLUMN_DOMAIN:?REDCOLUMN_DOMAIN must be set in .env}
+      TLS_CERT_FILE: ${TLS_CERT_FILE:-/etc/caddy/certs/server.crt}
+      TLS_KEY_FILE: ${TLS_KEY_FILE:-/etc/caddy/certs/server.key}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      DNS_PROVIDER_API_TOKEN: ${DNS_PROVIDER_API_TOKEN:-}
+    volumes:
+      - ./caddy/Caddyfile.${CADDY_MODE:-internal-ca}:/etc/caddy/Caddyfile:ro
+      - ${TLS_CERTS_DIR:-./certs}:/etc/caddy/certs:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  blobs:
+  caddy_data:
+  caddy_config:
