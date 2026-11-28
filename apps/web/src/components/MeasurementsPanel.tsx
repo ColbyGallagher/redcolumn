@@ -11,7 +11,7 @@ import {
   measureProps,
   type Assembly,
   type Markup,
-  type MarkupStore,
+  type MarkupDocument,
   type Viewport,
 } from '@nb/markup';
 import {
@@ -638,7 +638,7 @@ function Properties({
 }: {
   markups: Markup[];
   selected: ReadonlySet<string>;
-  store: MarkupStore | null;
+  store: MarkupDocument | null;
   defaults: MeasureDefaults;
   onDefaults: (next: MeasureDefaults) => void;
   editable: boolean;
@@ -732,7 +732,7 @@ function AssemblyPicker({
   chosen: Markup[];
   /** How many markups are selected in all. */
   selected: number;
-  store: MarkupStore | null;
+  store: MarkupDocument | null;
   canEdit: boolean;
   defaults: MeasureDefaults;
   onDefaults: (next: MeasureDefaults) => void;
@@ -968,7 +968,7 @@ export function MeasurementsPanel({
   onViewports: { add: () => void; update: (v: Viewport) => void; remove: (id: string) => void } | null;
   tool: Tool;
   onTool: ((tool: Tool) => void) | null;
-  store: MarkupStore | null;
+  store: MarkupDocument | null;
   defaults: MeasureDefaults;
   onDefaults: (next: MeasureDefaults) => void;
   takeoff?: TakeoffProps | null;

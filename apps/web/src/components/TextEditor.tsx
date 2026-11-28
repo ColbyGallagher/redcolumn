@@ -1,6 +1,6 @@
 import { msg } from '@nb/i18n';
 import { useLayoutEffect, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { applySpanStyle, autoFormatList, autoSizedPoints, backspaceList, baseTextStyle, contentBox, continueList, cssFont, layoutRuns, normalizeSpans, rangeHasFlag, shiftList, shiftSpans, textBlockShift, textLineHeight, textPadding, textColor, toggleList, toggleSpanFlag, type ListKind, type Markup, type MarkupStore, type Point, type SpanFlag, type StyledMeasure, type TextEdit, type TextSpan } from '@nb/markup';
+import { applySpanStyle, autoFormatList, autoSizedPoints, backspaceList, baseTextStyle, contentBox, continueList, cssFont, layoutRuns, normalizeSpans, rangeHasFlag, shiftList, shiftSpans, textBlockShift, textLineHeight, textPadding, textColor, toggleList, toggleSpanFlag, type ListKind, type Markup, type MarkupDocument, type Point, type SpanFlag, type StyledMeasure, type TextEdit, type TextSpan } from '@nb/markup';
 import { readDom, readSelection, renderRuns, setSelection, type RichState } from './richEditorDom';
 import { settings, useSettings } from '../settings/settings';
 import type { TileViewer } from '../viewer/TileViewer';
@@ -9,7 +9,7 @@ const MIN_EDIT_FONT_PX = 13;
 
 interface Props {
   markup: Markup;
-  store: MarkupStore;
+  store: MarkupDocument;
   viewer: TileViewer;
   onDone: () => void;
 }

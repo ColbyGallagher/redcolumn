@@ -1,6 +1,6 @@
 import { msg } from '@nb/i18n';
 import { useLayoutEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { cssFont, setTableCell, tableCellFormat, tableCellRect, tableCellStyle, tableOf, tableRegion, textColor, type Markup, type MarkupStore } from '@nb/markup';
+import { cssFont, setTableCell, tableCellFormat, tableCellRect, tableCellStyle, tableOf, tableRegion, textColor, type Markup, type MarkupDocument } from '@nb/markup';
 import { useSettings } from '../settings/settings';
 import type { TileViewer } from '../viewer/TileViewer';
 
@@ -12,7 +12,7 @@ interface Props {
   col: number;
   /** Text typed on the selected cell to start editing it: it replaces the cell's text, as in a spreadsheet. */
   typed?: string;
-  store: MarkupStore;
+  store: MarkupDocument;
   viewer: TileViewer;
   /** Finished; `to` is the cell to edit next (Tab, Shift+Tab, Enter), if any. */
   onDone: (to?: { row: number; col: number }) => void;

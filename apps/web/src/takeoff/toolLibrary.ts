@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { runTool, sanitizeTool, toolRuns, type GroupingProposal, type GroupingTool, type MarkupStore } from '@nb/markup';
+import { runTool, sanitizeTool, toolRuns, type GroupingProposal, type GroupingTool, type MarkupDocument, type AiReviewFacet } from '@nb/markup';
 import { ruleContext } from './groupingColumns';
 
 /**
@@ -126,7 +126,7 @@ export function useToolLibrary(): GroupingTool[] {
  * tool may not run or groups nothing.
  */
 /** `ai`: the AI client that ran it (over MCP), when not the person. */
-export function runToolOn(store: MarkupStore, tool: GroupingTool, by: string, documentName: string, ai?: string): GroupingProposal {
+export function runToolOn(store: MarkupDocument & AiReviewFacet, tool: GroupingTool, by: string, documentName: string, ai?: string): GroupingProposal {
   if (!toolRuns(tool)) throw new Error(tool.status !== 'accepted' ? `“${tool.name}” is not accepted yet: a person accepts it in Review AI Takeoff › Tools first.` : `“${tool.name}” is turned off.`);
   if (store.readOnly) throw new Error(`${documentName} is read-only.`);
   const a = tool.action;

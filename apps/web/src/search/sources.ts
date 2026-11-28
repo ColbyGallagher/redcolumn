@@ -1,5 +1,5 @@
 import type { PdfDocument, DocumentInfo } from '@nb/pdf-core';
-import { boundsOf, MARKUP_LABELS, MarkupStore, type Markup } from '@nb/markup';
+import { boundsOf, MARKUP_LABELS, MarkupStore, type MarkupDocument, type Markup } from '@nb/markup';
 import type { PageText } from '@nb/sheets';
 import type { FormModel } from '../documents/forms';
 import { loadPageTexts, readForSearch } from '../sheets/indexer';
@@ -75,7 +75,7 @@ async function formOf(bytes: () => Promise<ArrayBuffer>): Promise<FormModel | nu
 }
 
 /** A document open in a tab: its live markups, its form as last read, and its cached text. */
-export function openSource(o: { file: StoredFile; doc: PdfDocument; store: MarkupStore }, form: FormModel | undefined, page?: number): SearchSource {
+export function openSource(o: { file: StoredFile; doc: PdfDocument; store: MarkupDocument }, form: FormModel | undefined, page?: number): SearchSource {
   const bytes = () => readFile(o.file.hash);
   return {
     id: o.file.id,

@@ -59,6 +59,33 @@ test('a read-only store ignores a batch', async () => {
   await store.destroy();
 });
 
+test('a store is keyed by the id it was opened with', async () => {
+  const store = await MarkupStore.open('doc-1', { persist: false });
+  assert.equal(store.key, 'doc-1');
+  await store.destroy();
+});
+
+test('undo and redo say whether they did anything', async () => {
+  const store = await MarkupStore.open('test', { persist: false });
+  assert.deepEqual(store.undo(), { ok: false, reason: 'nothing' });
+  assert.deepEqual(store.redo(), { ok: false, reason: 'nothing' });
+  store.add(rect('m0', 0));
+  store.checkpoint();
+  assert.deepEqual(store.undo(), { ok: true });
+  assert.equal(store.get('m0'), undefined);
+  assert.deepEqual(store.redo(), { ok: true });
+  assert.ok(store.get('m0'));
+  store.setReadOnly(true);
+  assert.deepEqual(store.undo(), { ok: false, reason: 'forbidden' });
+  assert.ok(store.get('m0'));
+  store.setReadOnly(false);
+  store.undo();
+  store.setReadOnly(true);
+  assert.deepEqual(store.redo(), { ok: false, reason: 'forbidden' });
+  assert.equal(store.get('m0'), undefined);
+  await store.destroy();
+});
+
 const seqs = (store: MarkupStore) => Object.fromEntries(store.all().map((m) => [m.id, m.seq]));
 const settle = () => new Promise((r) => setTimeout(r, 0));
 

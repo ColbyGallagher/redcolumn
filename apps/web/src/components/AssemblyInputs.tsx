@@ -1,6 +1,6 @@
 import { msg } from '@nb/i18n';
 import { useEffect, useState, type ReactNode } from 'react';
-import type { Assembly, Markup, MarkupStore } from '@nb/markup';
+import type { Assembly, Markup, MarkupDocument } from '@nb/markup';
 import { assemblyChoice, changedInputs, inputValues, withInput, type AssemblyChoice, type AssemblyDefaults } from '../assemblies/assemblyChoice';
 
 export { changedInputs, inputValues };
@@ -165,7 +165,7 @@ export function useAssemblyChoice<D extends AssemblyDefaults & { subject: string
 }: {
   chosen: readonly Markup[];
   selected?: number;
-  store: MarkupStore | null;
+  store: MarkupDocument | null;
   canEdit: boolean;
   defaults: D;
   onDefaults: (next: D) => void;

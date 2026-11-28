@@ -1,13 +1,13 @@
 import { msg, msgParts } from '@nb/i18n';
 import { keyed } from '../i18n/keyed';
 import { useEffect, useMemo, useState } from 'react';
-import { isTextType, MARKUP_LABELS, type Markup, type MarkupStore } from '@nb/markup';
+import { isTextType, MARKUP_LABELS, type Markup, type MarkupDocument } from '@nb/markup';
 import type { PdfDocument } from '@nb/pdf-core';
 import { useSettings } from '../settings/settings';
 import { addToDictionary, misspellings, speller, type Speller } from '../spelling/spell';
 
 interface Props {
-  store: MarkupStore;
+  store: MarkupDocument;
   markups: readonly Markup[];
   doc: PdfDocument;
   readOnly: boolean;

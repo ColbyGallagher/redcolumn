@@ -1,6 +1,6 @@
 import { msg } from '@nb/i18n';
 import { useEffect, useSyncExternalStore } from 'react';
-import type { MarkupStore, Point, Portal } from '@nb/markup';
+import type { MarkupDocument, PortalFacet, Point, Portal } from '@nb/markup';
 import type { MarkupTools } from '../markup/MarkupTools';
 import { PortalDialog } from './PortalDialog';
 
@@ -9,12 +9,12 @@ import { PortalDialog } from './PortalDialog';
 const NO_PORTALS: Portal[] = [];
 const noop = () => () => {};
 
-export function usePortals(store: MarkupStore | null): Portal[] {
+export function usePortals(store: (MarkupDocument & PortalFacet) | null): Portal[] {
   return useSyncExternalStore(store ? (l) => store.subscribe(l) : noop, () => store?.portals() ?? NO_PORTALS);
 }
 
 /** Outlines each pane's portals on their linked pages, and tells each store its page count (linked pages past the end are ignored). */
-export function usePortalGuides(panes: readonly (readonly [{ tools: MarkupTools } | null | undefined, MarkupStore | null | undefined, number | undefined])[]) {
+export function usePortalGuides(panes: readonly (readonly [{ tools: MarkupTools } | null | undefined, (MarkupDocument & PortalFacet) | null | undefined, number | undefined])[]) {
   const storeA = panes[0]?.[1] ?? null;
   const storeB = panes[1]?.[1] ?? null;
   const countA = panes[0]?.[2];
@@ -55,7 +55,7 @@ export const anyLinked = (markups: readonly { portalLink?: unknown }[]) => marku
 
 interface HostProps {
   state: PortalDialogState;
-  store: MarkupStore;
+  store: MarkupDocument & PortalFacet;
   pageCount: number;
   pageLabel: (pageIndex: number) => string;
   onClose: () => void;

@@ -1,7 +1,7 @@
 import { msg } from '@nb/i18n';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { PageOp, PdfDocument } from '@nb/pdf-core';
-import { drawMarkup, onImageLoad, type Markup, type MarkupStore } from '@nb/markup';
+import { drawMarkup, onImageLoad, type Markup, type MarkupDocument } from '@nb/markup';
 import type { SheetInfo } from '@nb/sheets';
 import { yScaleLabel, type Scale } from '@nb/measure';
 import { ScaleControl } from './ScaleControl';
@@ -142,7 +142,7 @@ const NO_MARKUPS: readonly Markup[] = [];
  * Each page's shown markups in drawing order. One subscription for the whole panel; a page keeps
  * the same array while none of its markups changed, so only that page's thumbnail redraws.
  */
-function usePagedMarkups(store: MarkupStore | null, view: MarkupView | null): ReadonlyMap<number, readonly Markup[]> {
+function usePagedMarkups(store: MarkupDocument | null, view: MarkupView | null): ReadonlyMap<number, readonly Markup[]> {
   const [byPage, setByPage] = useState<ReadonlyMap<number, readonly Markup[]>>(() => new Map());
   useEffect(() => {
     if (!store) {
@@ -182,7 +182,7 @@ function usePagedMarkups(store: MarkupStore | null, view: MarkupView | null): Re
 interface ThumbProps {
   doc: PdfDocument;
   /** The document's markups, for their scales and legends. */
-  store: MarkupStore | null;
+  store: MarkupDocument | null;
   /** This page's shown markups, drawn over the page. */
   markups: readonly Markup[];
   page: number;
@@ -355,7 +355,7 @@ function Thumbnail({ doc, store, markups, page, thumbW, renderW, label, sheet, s
 interface Props {
   doc: PdfDocument | null;
   /** The open document's markups, shown on the thumbnails. */
-  store: MarkupStore | null;
+  store: MarkupDocument | null;
   /** Which of them the drawing shows; thumbnails show the same. */
   view: MarkupView | null;
   currentPage: number;

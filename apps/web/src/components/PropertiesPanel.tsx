@@ -21,7 +21,7 @@ import {
   type FontFamily,
   type LineEnding,
   type Markup,
-  type MarkupStore,
+  type MarkupDocument,
   type MarkupStyle,
   type Alignment,
   type BlendMode,
@@ -54,7 +54,7 @@ import { isCloudPlusSelection } from '../markup/selectionFormat';
 interface Props {
   markups: Markup[];
   selected: ReadonlySet<string>;
-  store: MarkupStore | null;
+  store: MarkupDocument | null;
   scales: Readonly<Record<number, Scale>>;
   tools: MarkupTools | null;
   toolsState: ToolsState;
@@ -449,7 +449,7 @@ function ArrangeSection({ chosen, tools }: { chosen: Markup[]; tools: MarkupTool
 }
 
 /** The document's custom column values for the selected markups (edits apply to all of them). */
-function CustomFields({ markup: m, ids, store, readOnly, cellContext }: { markup: Markup; ids: string[]; store: MarkupStore | null; readOnly: boolean; cellContext: CellContext }) {
+function CustomFields({ markup: m, ids, store, readOnly, cellContext }: { markup: Markup; ids: string[]; store: MarkupDocument | null; readOnly: boolean; cellContext: CellContext }) {
   const cells = cellsFor(m, cellContext);
   return (
     <Section title={msg('Custom Columns')}>
@@ -1020,7 +1020,7 @@ function SlopeRows({ m, readOnly, update }: { m: Markup; readOnly: boolean; upda
 }
 
 /** A manual quantity's typed value, with its kind, unit and note. */
-function ManualSection({ m, scale, store, readOnly }: { m: Markup; scale: Scale; store: MarkupStore | null; readOnly: boolean }) {
+function ManualSection({ m, scale, store, readOnly }: { m: Markup; scale: Scale; store: MarkupDocument | null; readOnly: boolean }) {
   const q = m.manual;
   if (!q) return null;
   const set = (manual: NonNullable<Markup['manual']>) => {
@@ -1102,7 +1102,7 @@ function ManualSection({ m, scale, store, readOnly }: { m: Markup; scale: Scale;
  * A measurement's own properties: its other quantities (perimeter of an area, wall area of a run),
  * depth (turning areas into volumes and lengths into walls), slope, and cutouts.
  */
-function MeasurementSection({ m, scale, store, tools, readOnly }: { m: Markup; scale: Scale; store: MarkupStore | null; tools: MarkupTools | null; readOnly: boolean }) {
+function MeasurementSection({ m, scale, store, tools, readOnly }: { m: Markup; scale: Scale; store: MarkupDocument | null; tools: MarkupTools | null; readOnly: boolean }) {
   if (!isMeasureKind(m.type)) return null;
   const q = QUANTITY[m.type];
   const d = measureDetails(m.type, m.points, scale.metersPerPoint, measureProps(m), scale.yMetersPerPoint);

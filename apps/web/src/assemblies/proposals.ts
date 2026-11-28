@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { sanitizeAiReview, type Markup, type MarkupStore, type TakeoffApproval, type TakeoffProposal } from '@nb/markup';
+import { sanitizeAiReview, type Markup, type MarkupDocument, type TakeoffFacet, type AiReviewFacet, type TakeoffApproval, type TakeoffProposal } from '@nb/markup';
 
 /**
  * Takeoff proposals: an AI client (through the local MCP server) suggests the assembly for a
@@ -16,29 +16,29 @@ export type ProposalState = 'pending' | 'approved' | 'rejected';
 
 /** Proposals by document. AI clients add them; a person's decisions are undoable edits. */
 export const takeoffProposals = {
-  list(store: MarkupStore): TakeoffProposal[] {
+  list(store: MarkupDocument & TakeoffFacet & AiReviewFacet): TakeoffProposal[] {
     return store.aiReview().takeoff;
   },
 
   /** Adds proposals. A new one for a measurement replaces its older pending one. */
-  add(store: MarkupStore, proposals: TakeoffProposal[]) {
+  add(store: MarkupDocument & TakeoffFacet & AiReviewFacet, proposals: TakeoffProposal[]) {
     const fresh = new Set(proposals.map((p) => p.markupId));
     const stale = this.list(store).filter((p) => !p.rejected && fresh.has(p.markupId) && stateOf(p, store.get(p.markupId)) === 'pending');
     store.changeAiReview({ takeoff: proposals, remove: { takeoff: stale.map((p) => p.id) } }, true);
   },
 
-  reject(store: MarkupStore, ids: readonly string[], by: string) {
+  reject(store: MarkupDocument & TakeoffFacet & AiReviewFacet, ids: readonly string[], by: string) {
     const at = Date.now();
     store.changeAiReview({ takeoff: this.list(store).filter((p) => ids.includes(p.id)).map((p) => ({ ...p, rejected: { by, at } })) });
   },
 
   /** Takes a rejection back (it is pending again). */
-  reopen(store: MarkupStore, ids: readonly string[]) {
+  reopen(store: MarkupDocument & TakeoffFacet & AiReviewFacet, ids: readonly string[]) {
     store.changeAiReview({ takeoff: this.list(store).filter((p) => ids.includes(p.id)).map(({ rejected: _r, ...p }) => p) });
   },
 
   /** Forgets decided proposals. */
-  clearDecided(store: MarkupStore) {
+  clearDecided(store: MarkupDocument & TakeoffFacet & AiReviewFacet) {
     store.changeAiReview({ remove: { takeoff: this.list(store).filter((p) => stateOf(p, store.get(p.markupId)) !== 'pending').map((p) => p.id) } });
   },
 };
@@ -46,7 +46,7 @@ export const takeoffProposals = {
 const NONE: TakeoffProposal[] = [];
 const noop = () => () => {};
 
-export function useTakeoffProposals(store: MarkupStore | null): TakeoffProposal[] {
+export function useTakeoffProposals(store: (MarkupDocument & TakeoffFacet & AiReviewFacet) | null): TakeoffProposal[] {
   return useSyncExternalStore(store ? (l) => store.subscribe(l) : noop, () => (store ? store.aiReview().takeoff : NONE));
 }
 
@@ -69,7 +69,7 @@ export interface ApprovalEdit {
  * by hand) and a record of the approval. Proposals whose measurement is gone or locked are skipped
  * and returned.
  */
-export function approveProposals(store: MarkupStore, proposals: readonly TakeoffProposal[], by: string, edits: Readonly<Record<string, ApprovalEdit>> = {}): { approved: string[]; skipped: string[] } {
+export function approveProposals(store: MarkupDocument & TakeoffFacet & AiReviewFacet, proposals: readonly TakeoffProposal[], by: string, edits: Readonly<Record<string, ApprovalEdit>> = {}): { approved: string[]; skipped: string[] } {
   const approved: string[] = [];
   const skipped: string[] = [];
   const at = Date.now();
@@ -108,7 +108,7 @@ export function approveProposals(store: MarkupStore, proposals: readonly Takeoff
  * Proposals from before they were kept in the document lived in this browser's storage: they move
  * into the document once, the first time it is opened here and can be edited.
  */
-export function migrateLocalProposals(store: MarkupStore) {
+export function migrateLocalProposals(store: MarkupDocument & TakeoffFacet & AiReviewFacet) {
   if (store.readOnly) return;
   const take = (key: string): unknown[] => {
     try {
@@ -121,8 +121,8 @@ export function migrateLocalProposals(store: MarkupStore) {
       return [];
     }
   };
-  const takeoff = take(`nb.takeoffProposals.${store.fileHash}`);
-  const counts = take(`nb.countProposals.${store.fileHash}`);
+  const takeoff = take(`nb.takeoffProposals.${store.key}`);
+  const counts = take(`nb.countProposals.${store.key}`);
   if (!takeoff.length && !counts.length) return;
   const known = store.aiReview();
   const have = new Set([...known.takeoff, ...known.counts].map((p) => p.id));

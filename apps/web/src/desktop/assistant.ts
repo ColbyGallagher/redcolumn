@@ -1,4 +1,4 @@
-import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type Markup, type MarkupStyle, type MarkupType, type Point, type StoredStitchGroup } from '@nb/markup';
+import { DEFAULT_STYLES, MarkupStore, measureProps, TYPE_INFO, type AiReviewFacet, type LinkFacet, type Markup, type MarkupDocument, type StitchFacet, type TakeoffFacet, type MarkupStyle, type MarkupType, type Point, type StoredStitchGroup } from '@nb/markup';
 import { STITCH_METHODS, stitchCall } from './assistantStitch';
 import { VIEWPORT_METHODS, viewportCall } from './assistantViewports';
 import { SYMBOL_METHODS, symbolCall, type SymbolMethod } from './assistantSymbols';
@@ -33,7 +33,7 @@ export interface AssistantDocument {
   pageCount: number;
   pageIndex: number;
   active: boolean;
-  store: MarkupStore;
+  store: MarkupDocument & TakeoffFacet & AiReviewFacet & LinkFacet & StitchFacet;
   /** Displayed page size in PDF points. Absent in tests that never ask for a page. */
   pageSize?: (pageIndex: number) => { width: number; height: number } | null;
   /**
@@ -84,7 +84,7 @@ export interface PlaceExtras {
  * align, group, and copy act on.
  */
 export interface AssistantTools {
-  owns(store: MarkupStore): boolean;
+  owns(store: MarkupDocument): boolean;
   place(type: MarkupType, pageIndex: number, points: Point[], extras?: PlaceExtras): Markup;
   /** Cloud+: a cloud and the callout grouped with it. */
   placeCloudPlus?(pageIndex: number, points: Point[], extras?: PlaceExtras): { cloud: Markup; callout: Markup };

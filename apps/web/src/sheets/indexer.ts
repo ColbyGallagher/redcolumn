@@ -1,5 +1,5 @@
 import { PdfEngine, type DocumentInfo, type PdfDocument } from '@nb/pdf-core';
-import { DEFAULT_STATUSES, importAnnotations, importColumns, importGeoRegions, importStatuses, statusIdOf, type ImportedExtras, type Markup, type MarkupStore, type StoredStitchGroup } from '@nb/markup';
+import { DEFAULT_STATUSES, importAnnotations, importColumns, importGeoRegions, importStatuses, statusIdOf, type ImportedExtras, type Markup, type MarkupDocument, type GeoFacet, type ImportFacet, type LinkFacet, type StitchFacet, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, detectChainageLinks, idTest, SheetLookup, type DetectedLink, type LinkHints, type SetHints } from '@nb/sheets';
 import { stitchSet, type StitchPage } from '@nb/stitch';
 import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
@@ -64,14 +64,14 @@ export function forgetText(fileHash: string) {
 }
 
 /** Text of every page (cached for the session). `bytes` must return a fresh buffer. */
-export async function loadPageTexts(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal): Promise<PageText[]> {
-  return textCache.get(store.fileHash) ?? pageTexts(await bytes(), store, onProgress, signal);
+export async function loadPageTexts(bytes: () => Promise<ArrayBuffer>, store: MarkupDocument, onProgress: (p: IndexProgress) => void, signal?: AbortSignal): Promise<PageText[]> {
+  return textCache.get(store.key) ?? pageTexts(await bytes(), store, onProgress, signal);
 }
 
-async function pageTexts(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal): Promise<PageText[]> {
-  const cached = textCache.get(store.fileHash);
+async function pageTexts(bytes: ArrayBuffer, store: MarkupDocument, onProgress: (p: IndexProgress) => void, signal?: AbortSignal): Promise<PageText[]> {
+  const cached = textCache.get(store.key);
   if (cached) return cached;
-  const generation = generations.get(store.fileHash) ?? 0;
+  const generation = generations.get(store.key) ?? 0;
   return withBackgroundDoc(bytes, async (doc) => {
     const pages: PageText[] = [];
     for (let i = 0; i < doc.pages.length; i++) {
@@ -80,7 +80,7 @@ async function pageTexts(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p:
       pages.push({ width: size.width, height: size.height, words: await doc.text(i) });
       onProgress({ phase: 'text', done: i + 1, total: doc.pages.length });
     }
-    if ((generations.get(store.fileHash) ?? 0) === generation) textCache.set(store.fileHash, pages);
+    if ((generations.get(store.key) ?? 0) === generation) textCache.set(store.key, pages);
     return pages;
   });
 }
@@ -131,8 +131,8 @@ export async function readForSearch(key: string, bytes: () => Promise<ArrayBuffe
  * it is only called when this file's text is not already cached.
  */
 /** `standard`: the drawing standard the document is read with; without one, chainage links wait for review. */
-export async function linkFromText(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, standard?: SetHints) {
-  const pages = textCache.get(store.fileHash) ?? (await pageTexts(await bytes(), store, onProgress, signal));
+export async function linkFromText(bytes: () => Promise<ArrayBuffer>, store: MarkupDocument & LinkFacet, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, standard?: SetHints) {
+  const pages = textCache.get(store.key) ?? (await pageTexts(await bytes(), store, onProgress, signal));
   onProgress({ phase: 'links', done: 0, total: 1 });
   const sheets = store.allSheets();
   const numbers = pages.map((_, i) => sheets[i]?.number ?? null);
@@ -152,8 +152,8 @@ export async function linkFromText(bytes: () => Promise<ArrayBuffer>, store: Mar
  * every match in the Links tab's Needs review list. Line work is read one page at a time, and only
  * for pages whose text could hold a mark's label. `bytes` must return a fresh buffer on each call.
  */
-export async function linkFromMarks(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, marks: readonly TaughtMark[], onProgress: (p: IndexProgress) => void, signal?: AbortSignal, hints: LinkHints = DEFAULT_LINK_HINTS) {
-  const pages = textCache.get(store.fileHash) ?? (await pageTexts(await bytes(), store, onProgress, signal));
+export async function linkFromMarks(bytes: () => Promise<ArrayBuffer>, store: MarkupDocument & LinkFacet, marks: readonly TaughtMark[], onProgress: (p: IndexProgress) => void, signal?: AbortSignal, hints: LinkHints = DEFAULT_LINK_HINTS) {
+  const pages = textCache.get(store.key) ?? (await pageTexts(await bytes(), store, onProgress, signal));
   const sheets = store.allSheets();
   const numbers = pages.map((_, i) => sheets[i]?.number ?? null);
   const lookup = new SheetLookup(numbers, hints.calloutPart);
@@ -181,8 +181,8 @@ export async function linkFromMarks(bytes: () => Promise<ArrayBuffer>, store: Ma
  * is only loaded for sheets whose text mentions a match line, which keeps memory bounded on large
  * sets. `bytes` must return a fresh buffer on each call.
  */
-export async function stitchFromText(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal) {
-  const pages = textCache.get(store.fileHash) ?? (await pageTexts(await bytes(), store, onProgress, signal));
+export async function stitchFromText(bytes: () => Promise<ArrayBuffer>, store: MarkupDocument & StitchFacet, onProgress: (p: IndexProgress) => void, signal?: AbortSignal) {
+  const pages = textCache.get(store.key) ?? (await pageTexts(await bytes(), store, onProgress, signal));
   const candidates = pages.flatMap((p, i) => (p.words.some((w) => /^MATCH/i.test(w.text)) ? [i] : []));
   if (candidates.length < 2) {
     store.setStitch([]);
@@ -221,7 +221,7 @@ export async function stitchFromText(bytes: () => Promise<ArrayBuffer>, store: M
  * One-time import of the PDF's own markups and links into the document's store. `bytes` must
  * return a fresh buffer.
  */
-export async function importPdfAnnotations(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, keep?: (m: Markup) => boolean) {
+export async function importPdfAnnotations(bytes: () => Promise<ArrayBuffer>, store: MarkupDocument & ImportFacet, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, keep?: (m: Markup) => boolean) {
   const found = await readPdfAnnotations(await bytes(), store, onProgress, signal);
   store.importAnnotations(keep ? found.markups.filter(keep) : found.markups, found.links, found.imported, found.extras);
   // The PDF's own page labels were set by a person (in Bluebeam, say), so they win over numbers
@@ -243,7 +243,7 @@ export const fromOtherTools = (m: Markup) => m.id.startsWith('pdf-');
  * Image markups an earlier import stored as empty rectangles get their pictures back from the
  * annotation appearance. One pass: markups that already have a picture are left alone.
  */
-export async function repairSquareImages(bytes: () => Promise<ArrayBuffer>, store: MarkupStore, signal?: AbortSignal): Promise<void> {
+export async function repairSquareImages(bytes: () => Promise<ArrayBuffer>, store: MarkupDocument & ImportFacet, signal?: AbortSignal): Promise<void> {
   const { encodePng } = await import('@nb/markup/pdfExtras');
   await withBackgroundDoc(await bytes(), async (doc) => {
     const patches: { id: string; image: string; points: Markup['points'] }[] = [];
@@ -273,7 +273,7 @@ export async function repairSquareImages(bytes: () => Promise<ArrayBuffer>, stor
  * A PDF's own markups and links, which of its annotations they stand for (to hide those), and the
  * scales, viewports, custom columns, statuses and Spaces other tools (Bluebeam Revu) record with them.
  */
-export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void = () => {}, signal?: AbortSignal) {
+export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupDocument, onProgress: (p: IndexProgress) => void = () => {}, signal?: AbortSignal) {
   // Read before the engine takes the buffer; without it markups still import from PDFium's view.
   const { encodePng, readPdfExtras } = await import('@nb/markup/pdfExtras');
   const raw = await readPdfExtras(bytes).catch(() => null);
@@ -338,7 +338,7 @@ export async function readPdfAnnotations(bytes: ArrayBuffer, store: MarkupStore,
  * Reads the file's map registrations (geospatial PDFs) into the store, for documents whose
  * annotations were imported before they were read. A file too large to read records none.
  */
-export async function readGeoRegions(bytes: ArrayBuffer, store: MarkupStore) {
+export async function readGeoRegions(bytes: ArrayBuffer, store: MarkupDocument & GeoFacet) {
   const { readPdfExtras } = await import('@nb/markup/pdfExtras');
   const raw = await readPdfExtras(bytes).catch(() => null);
   store.setGeoRegions(raw ? raw.pages.flatMap((p, i) => importGeoRegions(i, p)) : []);
@@ -370,7 +370,7 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /** Offline pass over the text layer. Fast and free; fills whatever the title blocks make readable. */
-export async function indexFromText(bytes: ArrayBuffer, store: MarkupStore, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, standard?: SetHints) {
+export async function indexFromText(bytes: ArrayBuffer, store: MarkupDocument & LinkFacet, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, standard?: SetHints) {
   const pages = await pageTexts(bytes, store, onProgress, signal);
   store.setDetectedSheets(detectSheets(pages, standard?.sheets).map((info, i) => [i, info] as [number, SheetInfo]));
   // Text is cached by now, so `bytes` (already handed to an engine) is not read again.

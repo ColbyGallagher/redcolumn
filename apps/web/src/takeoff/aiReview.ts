@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import { aiEdits, isAiDraft, LOW_CONFIDENCE, MARKUP_LABELS, type CountProposal, type Markup, type MarkupStore, type RejectedDraft, type SourceRef, type TakeoffProposal } from '@nb/markup';
+import { aiEdits, isAiDraft, LOW_CONFIDENCE, MARKUP_LABELS, type CountProposal, type Markup, type MarkupDocument, type AiReviewFacet, type RejectedDraft, type SourceRef, type TakeoffProposal } from '@nb/markup';
 import { stateOf as takeoffState } from '../assemblies/proposals';
 import { countStateOf } from '../assemblies/countProposals';
 import { liveFindings, needsDecision } from './reviewPass';
@@ -46,7 +46,7 @@ const titleOf = (m: Markup | undefined) => (m ? (m.subject ?? MARKUP_LABELS[m.ty
 const isLow = (c: number | undefined, threshold: number) => c === undefined || c < threshold;
 
 /** Every AI result for the document, waiting ones first, then lowest confidence, then by page. */
-export function reviewItems(store: MarkupStore, threshold = LOW_CONFIDENCE): ReviewItem[] {
+export function reviewItems(store: MarkupDocument & AiReviewFacet, threshold = LOW_CONFIDENCE): ReviewItem[] {
   const review = store.aiReview();
   const items: ReviewItem[] = [];
   // Count markups an approved count placed are listed under that count, not one by one.
@@ -88,7 +88,7 @@ export function reviewItems(store: MarkupStore, threshold = LOW_CONFIDENCE): Rev
 }
 
 /** The AI results waiting for a person, by `ReviewItem.key` (grouping columns as `column:id`). */
-export function waitingKeys(store: MarkupStore): Set<string> {
+export function waitingKeys(store: MarkupDocument & AiReviewFacet): Set<string> {
   const review = store.aiReview();
   const out = new Set<string>();
   for (const m of store.all()) if (isAiDraft(m)) out.add(`draft:${m.id}`);
@@ -101,17 +101,17 @@ export function waitingKeys(store: MarkupStore): Set<string> {
 }
 
 /** How many AI results are waiting for a person: drafts, proposals, grouping columns and review findings. */
-export function waitingCount(store: MarkupStore): number {
+export function waitingCount(store: MarkupDocument & AiReviewFacet): number {
   return waitingKeys(store).size;
 }
 
 const noop = () => () => {};
-export function useWaitingCount(store: MarkupStore | null): number {
+export function useWaitingCount(store: (MarkupDocument & AiReviewFacet) | null): number {
   return useSyncExternalStore(store ? (l) => store.subscribe(l) : noop, () => (store ? waitingCount(store) : 0));
 }
 
 /** Approves AI drafts as one undo step. Drafts that are gone, locked or someone else's are skipped. */
-export function approveDrafts(store: MarkupStore, ids: readonly string[], by: string): { approved: string[]; skipped: string[] } {
+export function approveDrafts(store: MarkupDocument & AiReviewFacet, ids: readonly string[], by: string): { approved: string[]; skipped: string[] } {
   const approved: string[] = [];
   const skipped: string[] = [];
   const at = Date.now();
@@ -132,7 +132,7 @@ export function approveDrafts(store: MarkupStore, ids: readonly string[], by: st
 }
 
 /** Rejects AI drafts as one undo step: each comes off the drawing, kept in the review list to look at again. */
-export function rejectDrafts(store: MarkupStore, ids: readonly string[], by: string): string[] {
+export function rejectDrafts(store: MarkupDocument & AiReviewFacet, ids: readonly string[], by: string): string[] {
   const at = Date.now();
   const gone = ids.flatMap((id) => {
     const m = store.get(id);
@@ -148,7 +148,7 @@ export function rejectDrafts(store: MarkupStore, ids: readonly string[], by: str
 }
 
 /** Puts rejected drafts back on the drawing, waiting for review again. One undo step. */
-export function reopenDrafts(store: MarkupStore, ids: readonly string[]) {
+export function reopenDrafts(store: MarkupDocument & AiReviewFacet, ids: readonly string[]) {
   const back = store.aiReview().rejected.filter((r) => ids.includes(r.markup.id));
   if (!back.length || store.readOnly) return;
   store.checkpoint();
@@ -159,7 +159,7 @@ export function reopenDrafts(store: MarkupStore, ids: readonly string[]) {
 }
 
 /** Forgets rejected drafts, decided proposals and decided review findings, leaving what is still waiting. */
-export function clearDecided(store: MarkupStore) {
+export function clearDecided(store: MarkupDocument & AiReviewFacet) {
   const review = store.aiReview();
   // A decided item the review pass has a finding on that still needs a decision stays, with it.
   const waits = new Set(liveFindings(store).filter(needsDecision).flatMap((f) => (f.item ? [f.item] : [])));

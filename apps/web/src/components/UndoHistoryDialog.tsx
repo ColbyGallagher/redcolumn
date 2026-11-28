@@ -1,9 +1,9 @@
 import { msg } from '@nb/i18n';
 import { useSyncExternalStore } from 'react';
-import type { MarkupStore } from '@nb/markup';
+import type { MarkupDocument } from '@nb/markup';
 
 interface Props {
-  store: MarkupStore;
+  store: MarkupDocument;
   onClose: () => void;
 }
 
