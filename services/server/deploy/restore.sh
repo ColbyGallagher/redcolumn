@@ -17,7 +17,7 @@ fi
 BACKUP_DIR="$1"
 CONFIRM="${2:-}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TMP_IN_CONTAINER="/tmp/redcolumn-restore-$$"
+TMP_IN_CONTAINER=""
 
 if [[ "$CONFIRM" != "--yes" ]]; then
   echo "Error: restoring overwrites existing data. Re-run with --yes to confirm." >&2
@@ -30,13 +30,15 @@ if [[ ! -f "$BACKUP_DIR/manifest.json" || ! -f "$BACKUP_DIR/database.dump" ]]; t
 fi
 
 cleanup() {
-  docker compose -f "$SCRIPT_DIR/compose.yaml" exec -T server rm -rf "$TMP_IN_CONTAINER" >/dev/null 2>&1 || true
+  if [[ -n "$TMP_IN_CONTAINER" ]]; then
+    docker compose -f "$SCRIPT_DIR/compose.yaml" exec -T server rm -rf "$TMP_IN_CONTAINER" >/dev/null 2>&1 || true
+  fi
 }
 trap cleanup EXIT
 
 echo "Copying backup into server container..."
-docker compose -f "$SCRIPT_DIR/compose.yaml" exec -T server mkdir -p "$TMP_IN_CONTAINER"
-docker compose -f "$SCRIPT_DIR/compose.yaml" cp "$BACKUP_DIR/." "server:$TMP_IN_CONTAINER/"
+TMP_IN_CONTAINER="$(docker compose -f "$SCRIPT_DIR/compose.yaml" exec -T server mktemp -d /tmp/redcolumn-restore.XXXXXX)"
+tar -C "$BACKUP_DIR" -cf - . | docker compose -f "$SCRIPT_DIR/compose.yaml" exec -T server tar -xf - -C "$TMP_IN_CONTAINER"
 
 echo "Running redcolumn-admin restore..."
 docker compose -f "$SCRIPT_DIR/compose.yaml" exec -T server \
