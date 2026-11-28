@@ -199,7 +199,7 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
         INSERT INTO invites (id, token_hash, email, email_lower, project_id, expires_at)
         VALUES ('pending', 'h', 'new@northbridge.example', 'new@northbridge.example', 'with-admins', NOW())`);
 
-      assert.deepEqual((await runMigrations(old)).appliedNow, ['0004_project_roles.sql']);
+      assert.deepEqual((await runMigrations(old)).appliedNow, ['0004_project_roles.sql', '0005_document_uploads.sql']);
 
       const admins = await old.query<{ k: string }>(
         `SELECT project_id || '/' || user_id AS k FROM project_members WHERE role = 'project_admin' ORDER BY 1`,
