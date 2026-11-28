@@ -12,6 +12,7 @@ import {
   type LaneMemberRow,
   type PartyVisibilityRow,
   type PolicyState,
+  type ReleasedVersionRecord,
   type ProcessConfig,
   type ProjectConfig,
   type ProjectMember,
@@ -104,21 +105,36 @@ export function partyCanSeeInLane(
   viewerPartyId: string | null,
   ownerPartyId: string | null,
 ): boolean {
-  if (!ownerPartyId || !viewerPartyId) return true;
-  if (viewerPartyId === ownerPartyId) return true;
-  const laneParties = partiesInLane(lane, project);
-  // Items owned by a party outside this lane (e.g. a client item being checked inside a certifier lane)
-  // are not hidden by this lane's internal subconsultant matrix.
-  if (!laneParties.includes(ownerPartyId)) return true;
-
   const config = lane.partyVisibility ?? { mode: 'open' as const };
   if (config.mode === 'open') return true;
+  // A party-less viewer sees only party-less items (plus the lead's in `separated` mode), and a
+  // party-less owner's items are seen only by party-less viewers (plus the lead).
+  if (viewerPartyId === ownerPartyId) return true;
+  // Items owned by a party outside this lane (e.g. a client item being checked inside a certifier lane)
+  // are not hidden by this lane's internal subconsultant matrix.
+  if (ownerPartyId !== null && !partiesInLane(lane, project).includes(ownerPartyId)) return true;
+
   if (config.mode === 'separated') {
     const lead = config.leadPartyId ?? null;
     if (!lead) return false;
     return viewerPartyId === lead || ownerPartyId === lead;
   }
+  if (viewerPartyId === null || ownerPartyId === null) return false;
   return (config.pairs ?? []).some((p) => p.viewerPartyId === viewerPartyId && p.ownerPartyId === ownerPartyId);
+}
+
+/**
+ * The releases of `meta` to `laneId` that are still in force: those after the most recent
+ * withdrawal from that lane. Withdrawal records themselves are never included.
+ */
+export function activeReleases(meta: ItemMeta, laneId: string): ReleasedVersionRecord[] {
+  const records = own(meta.releasesByLane, laneId) ?? [];
+  const active: ReleasedVersionRecord[] = [];
+  for (const rec of records) {
+    if (rec.withdrawn) active.length = 0;
+    else active.push(rec);
+  }
+  return active;
 }
 
 /** Returns the lane ids that `member` belongs to in `process`. */
@@ -202,7 +218,8 @@ export function computeItemAudiences(meta: ItemMeta): ItemAudiences {
     const checkerEdit = checkerEdits[rev];
     if (checkerEdit) {
       // Edited by a checker in another lane (e.g. certifier): internal to the checking lane.
-      pushAccess(rev, checkerEdit.laneId, 'internal', null);
+      // The checker's own party owns this version for the checking lane's party matrix.
+      pushAccess(rev, checkerEdit.laneId, 'internal', checkerEdit.by.partyId);
       if (checkerEdit.visibleToOriginator) {
         // Gate allows the originating lane to see the checker's edit.
         pushAccess(rev, meta.originLaneId, 'released', meta.owner.partyId);
@@ -227,14 +244,43 @@ export function computeItemAudiences(meta: ItemMeta): ItemAudiences {
     }
   }
 
-  // 2. Released versions to target lanes (and same-lane releases).
+  // 2. Released versions to target lanes (and same-lane releases). A withdrawal record never adds a
+  // version: the lane keeps seeing what was released to it before, marked withdrawn.
   for (const [laneId, records] of Object.entries(meta.releasesByLane)) {
     for (const rel of records) {
+      if (rel.withdrawn) continue;
       pushAccess(rel.rev, laneId, 'released', meta.owner.partyId);
     }
   }
 
   return { access, draftAccess };
+}
+
+function draftRowMatches(member: ProjectMember, row: ItemDraftAccessRow): boolean {
+  return row.subject.kind === 'user' ? member.userId === row.subject.id : member.groupIds.includes(row.subject.id);
+}
+
+/**
+ * Whether an `item_access` row lets `member` (in `lanes`) see its version. Internal rows obey the
+ * lane's party matrix. So do released rows in the item's own lane: sharing an item with its own lane
+ * never crosses a wall, so it must not get past the matrix either. Released rows in other lanes are
+ * open to that whole lane.
+ */
+function accessRowMatches(
+  member: ProjectMember,
+  lanes: readonly string[],
+  row: ItemAccessRow,
+  meta: ItemMeta,
+  laneById: ReadonlyMap<string, LaneConfig>,
+  project: ProjectConfig,
+): boolean {
+  if (!lanes.includes(row.laneId)) return false;
+  const lane = laneById.get(row.laneId);
+  if (!lane) return false;
+  if (row.kind === 'internal' || row.laneId === meta.originLaneId) {
+    return partyCanSeeInLane(lane, project, member.partyId, row.ownerPartyId);
+  }
+  return true;
 }
 
 export interface VisibleVersion {
@@ -292,25 +338,14 @@ export function visibleVersionForMember(
   // Check draft access rows (author + assigned checkers in the originating lane).
   if (lanes.includes(meta.originLaneId)) {
     for (const row of draftAccess) {
-      const matched =
-        row.subject.kind === 'user'
-          ? member.userId === row.subject.id
-          : member.groupIds.includes(row.subject.id);
-      if (matched) consider(row.versionRev, 'draft', meta.originLaneId);
+      if (draftRowMatches(member, row)) consider(row.versionRev, 'draft', meta.originLaneId);
     }
   }
 
   // Check lane access rows (internal subject to party matrix; released open to receiving lane).
   for (const row of access) {
-    if (!lanes.includes(row.laneId)) continue;
-    const lane = laneById.get(row.laneId);
-    if (!lane) continue;
-    if (row.kind === 'internal') {
-      if (!partyCanSeeInLane(lane, project, member.partyId, row.ownerPartyId)) continue;
-      consider(row.versionRev, 'internal', row.laneId);
-    } else {
-      consider(row.versionRev, 'released', row.laneId);
-    }
+    if (!accessRowMatches(member, lanes, row, meta, laneById, project)) continue;
+    consider(row.versionRev, row.kind === 'internal' ? 'internal' : 'released', row.laneId);
   }
 
   if (bestRev === 0 || bestVisibility === null || bestLaneId === null) return null;
@@ -358,29 +393,29 @@ export function canActorSeeVersion(
   process: ProcessConfig,
 ): boolean {
   const member = findActiveMember(project, userId);
-  if (!member || meta.scopeId !== process.id) return false;
+  if (!member) return false;
+  return canMemberSeeVersion(member, meta, rev, project, process);
+}
+
+/** Checks whether a specific version `rev` of `meta` is visible to `member`. */
+export function canMemberSeeVersion(
+  member: ProjectMember,
+  meta: ItemMeta,
+  rev: number,
+  project: ProjectConfig,
+  process: ProcessConfig,
+): boolean {
+  if (member.state !== 'active' || meta.scopeId !== process.id) return false;
   const lanes = memberLaneIds(member, process);
   if (lanes.length === 0) return false;
   if (!canMemberAccessDocumentSet(member, project, process, lanes)) return false;
 
   const { access, draftAccess } = computeItemAudiences(meta);
   if (lanes.includes(meta.originLaneId)) {
-    for (const row of draftAccess) {
-      if (row.versionRev !== rev) continue;
-      if (row.subject.kind === 'user' ? member.userId === row.subject.id : member.groupIds.includes(row.subject.id)) {
-        return true;
-      }
-    }
+    if (draftAccess.some((row) => row.versionRev === rev && draftRowMatches(member, row))) return true;
   }
   const laneById = new Map<string, LaneConfig>(process.lanes.map((l) => [l.id, l]));
-  for (const row of access) {
-    if (row.versionRev !== rev || !lanes.includes(row.laneId)) continue;
-    const lane = laneById.get(row.laneId);
-    if (!lane) continue;
-    if (row.kind === 'internal' && !partyCanSeeInLane(lane, project, member.partyId, row.ownerPartyId)) continue;
-    return true;
-  }
-  return false;
+  return access.some((row) => row.versionRev === rev && accessRowMatches(member, lanes, row, meta, laneById, project));
 }
 
 /**

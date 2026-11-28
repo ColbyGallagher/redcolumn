@@ -289,6 +289,9 @@ importers:
       '@nb/ops':
         specifier: workspace:*
         version: link:../../packages/ops
+      '@nb/policy':
+        specifier: workspace:*
+        version: link:../../packages/policy
       '@node-rs/argon2':
         specifier: 2.2.2
         version: 2.2.2

@@ -50,6 +50,11 @@ export type ValidationCode =
   | 'session_widens_drafts'
   | 'session_widens_party_matrix'
   | 'session_widens_checker_visibility'
+  | 'session_widens_checker_powers'
+  | 'session_widens_checkers'
+  | 'session_widens_document_set'
+  | 'missing_parent_review'
+  | 'missing_scope_id'
   | 'no_admin';
 
 export interface ValidationIssue {
@@ -182,14 +187,28 @@ export function validateProcess(
         }
       } else if (pv.mode === 'custom') {
         for (const pair of pv.pairs ?? []) {
-          if (!project.parties.some((p) => p.id === pair.viewerPartyId)) {
-            error('invalid_party_matrix', `Unknown viewer party "${pair.viewerPartyId}" in lane "${lane.name}"`, lane.id);
-          }
-          if (!project.parties.some((p) => p.id === pair.ownerPartyId)) {
-            error('invalid_party_matrix', `Unknown owner party "${pair.ownerPartyId}" in lane "${lane.name}"`, lane.id);
+          for (const [role, partyId] of [['viewer', pair.viewerPartyId], ['owner', pair.ownerPartyId]] as const) {
+            if (!project.parties.some((p) => p.id === partyId)) {
+              error('invalid_party_matrix', `Unknown ${role} party "${partyId}" in lane "${lane.name}"`, lane.id);
+            } else if (!laneParties.includes(partyId)) {
+              error('invalid_party_matrix', `${role === 'viewer' ? 'Viewer' : 'Owner'} party "${partyId}" is not in lane "${lane.name}"`, lane.id);
+            }
           }
         }
       }
+    }
+  }
+
+  // 1b. Review- and session-level grants and roles must name the review or session they belong to.
+  const scoped = [
+    ...project.grants.map((g) => ({ level: g.level, scopeId: g.scopeId, what: `grant "${g.action}"` })),
+    ...(project.roles ?? []).map((r) => ({ level: r.level, scopeId: r.scopeId, what: `role "${r.role}"` })),
+    ...(process.grants ?? []).map((g) => ({ level: g.level, scopeId: g.scopeId, what: `grant "${g.action}"` })),
+    ...(process.roles ?? []).map((r) => ({ level: r.level, scopeId: r.scopeId, what: `role "${r.role}"` })),
+  ];
+  for (const s of scoped) {
+    if (s.level !== 'project' && !s.scopeId) {
+      error('missing_scope_id', `A ${s.level}-level ${s.what} must name the ${s.level} it applies to`);
     }
   }
 
@@ -504,18 +523,54 @@ function validateSessionDoesNotWidenReview(
             sGate.id,
           );
         }
-        if (
-          matchingReviewGate.checkerPowers &&
-          !matchingReviewGate.checkerPowers.originatorSeesEdits &&
-          sGate.checkerPowers?.originatorSeesEdits
-        ) {
+        const rPowers = matchingReviewGate.checkerPowers;
+        const sPowers = sGate.checkerPowers;
+        if (sPowers?.originatorSeesEdits && !rPowers?.originatorSeesEdits) {
           error(
             'session_widens_checker_visibility',
             `Session gate "${sGate.name}" exposes checker edits hidden by parent review gate "${matchingReviewGate.name}"`,
             sGate.id,
           );
         }
+        // A session may only narrow the receiving lane's checker powers, never add or turn one on.
+        if (sPowers) {
+          const widened = [
+            ...CHECKER_POWER_FLAGS.filter((f) => sPowers[f] && !rPowers?.[f]),
+            ...OVERRIDE_FLAGS.filter((f) => sPowers.originatorMayOverride[f] && !rPowers?.originatorMayOverride[f]).map(
+              (f) => `originatorMayOverride.${f}`,
+            ),
+          ];
+          if (widened.length > 0) {
+            error(
+              'session_widens_checker_powers',
+              `Session gate "${sGate.name}" grants checker powers [${widened.join(', ')}] that parent review gate "${matchingReviewGate.name}" does not`,
+              sGate.id,
+            );
+          }
+        }
+        // Assigned checkers get draft access, so a session may not add any.
+        const reviewCheckers = new Set((matchingReviewGate.checkers ?? []).map((c) => `${c.kind}:${c.id}`));
+        const extra = (sGate.checkers ?? []).filter((c) => !reviewCheckers.has(`${c.kind}:${c.id}`));
+        if (extra.length > 0) {
+          error(
+            'session_widens_checkers',
+            `Session gate "${sGate.name}" adds checkers [${extra.map((c) => `${c.kind}:${c.id}`).join(', ')}] not on parent review gate "${matchingReviewGate.name}"`,
+            sGate.id,
+          );
+        }
       }
     }
   }
+
+  // 5e. A session cannot drop or swap its review's document set (that would let others in).
+  if (review.documentSetId && session.documentSetId !== review.documentSetId) {
+    error(
+      'session_widens_document_set',
+      `Session must keep parent review document set "${review.documentSetId}"`,
+      session.id,
+    );
+  }
 }
+
+const CHECKER_POWER_FLAGS = ['approve', 'addNotes', 'return', 'editWording', 'delete'] as const;
+const OVERRIDE_FLAGS = ['return', 'edit', 'delete'] as const;

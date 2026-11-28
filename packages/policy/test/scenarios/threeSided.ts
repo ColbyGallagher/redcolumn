@@ -28,7 +28,8 @@ const project: ProjectConfig = {
   statuses: DEFAULT_STATUSES,
   statusTransitions: DEFAULT_STATUS_TRANSITIONS,
   defaultClosing: { allowedClosers: [{ kind: 'lane', id: 'certifier' }] },
-  grants: [],
+  // Victor checks what reaches the certifier lane (edit, return and delete through the client gate).
+  grants: [{ subject: { kind: 'user', id: 'victor' }, level: 'project', action: 'check.review', scope: 'lane' }],
   roles: [
     { subject: { kind: 'user', id: 'victor' }, role: 'project_admin', level: 'project' },
     { subject: { kind: 'user', id: 'clara' }, role: 'lead_reviewer', level: 'project', gateIds: ['client-to-certifier'], transitions: [{ from: 'open', to: 'answered' }] },

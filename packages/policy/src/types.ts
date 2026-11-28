@@ -59,7 +59,7 @@ export const DRAFT_VISIBILITIES = ['private', 'lane'] as const;
 /** Whether new drafts are visible only to author + assigned checkers, or shared within the lane. */
 export type DraftVisibility = (typeof DRAFT_VISIBILITIES)[number];
 
-export const CHECKING_STATES = ['draft', 'submitted', 'returned', 'released', 'withdrawn', 'stopped'] as const;
+export const CHECKING_STATES = ['draft', 'submitted', 'approved', 'returned', 'released', 'withdrawn', 'stopped'] as const;
 export type CheckingState = (typeof CHECKING_STATES)[number];
 
 export const PARTY_VISIBILITY_MODES = ['open', 'separated', 'custom'] as const;
@@ -366,6 +366,7 @@ export interface ItemHistoryEntry {
     | 'delete'
     | 'restore'
     | 'submit'
+    | 'approve'
     | 'return'
     | 'override'
     | 'check_edit'
@@ -390,8 +391,12 @@ export interface ItemMeta {
   scopeId: string;
   originLaneId: string;
   owner: Actor;
+  /** Every group the owner belonged to when the item was created (`owner.groupId` is only the first). */
+  ownerGroupIds?: readonly string[];
   draftVisibility: DraftVisibility;
   checkingState: CheckingState;
+  /** Revision an authorized checker approved. A gate that requires checking accepts only this revision. */
+  approvedRev?: number | null;
   assignedCheckers: readonly DraftAccessRef[];
   /** When an item has been released to a lane with checker powers, the gate it arrived through. */
   arrivedViaGateId?: string | null;
