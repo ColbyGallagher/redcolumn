@@ -1,13 +1,13 @@
 import { effectiveKind, expandArcs, isMeasureKind, type ManualQuantity, type MeasureKind, type MeasureProps, type Slope } from '@nb/measure';
-import { arcPoints } from './arc';
-import { TYPE_INFO } from './types';
+import { arcPoints } from './arc.ts';
+import { TYPE_INFO } from './types.ts';
 import type { StampContent } from './stamp';
 import type { LinkAction } from './bookmarks';
 import type { TableData } from './table';
 import type { CustomLine } from './lineStyle';
 import type { CountSymbol } from './countSymbol';
 import type { TextSpan } from './textSpans';
-import { lineEnds, type BlendMode, type FontFamily, type LineDash, type LineEnding, type HatchSpec, type StoredHatch, type TextAlign, type VerticalAlign } from './style';
+import { lineEnds, type BlendMode, type FontFamily, type LineDash, type LineEnding, type HatchSpec, type StoredHatch, type TextAlign, type VerticalAlign } from './style.ts';
 
 /** Point in page space: PDF points, origin at the top-left of the displayed (rotated) page, y down. */
 export type Point = [x: number, y: number];
