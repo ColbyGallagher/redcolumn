@@ -1,4 +1,5 @@
 import { arcPoints } from './arc';
+import { transformMarkup } from './cad';
 import { flatten, markupShape } from './geometry';
 import { TYPE_INFO } from './types';
 import { boundsOf, contentBox, isTextType, mapGeometry, markerSize, rotatePoint, rotationCentre, type Geometry, type Markup, type Point, type Rect } from './model';
@@ -30,43 +31,69 @@ function unionBounds(rects: readonly Rect[]): Rect {
 const shift = (m: Markup, dx: number, dy: number): Geometry => mapGeometry(m, ([x, y]) => [x + dx, y + dy]);
 
 /**
+ * Splits `markups` into the independent units that align and distribute move as one: markups
+ * sharing a `groupId` stay together in a single unit, and each ungrouped markup is its own unit.
+ */
+export function arrangeUnits(markups: readonly Markup[]): Markup[][] {
+  const units: Markup[][] = [];
+  const byGroup = new Map<string, Markup[]>();
+  for (const m of markups) {
+    if (!m.groupId) {
+      units.push([m]);
+    } else {
+      let members = byGroup.get(m.groupId);
+      if (!members) {
+        members = [];
+        byGroup.set(m.groupId, members);
+        units.push(members);
+      }
+      members.push(m);
+    }
+  }
+  return units;
+}
+
+/**
  * New geometry for each markup, lined up along one edge or centre line of the markups' combined
- * bounds. Markups already in place are left out.
+ * bounds. Grouped markups move together as a single unit so their internal layout is preserved.
+ * Markups already in place are left out.
  */
 export function align(markups: readonly Markup[], how: Alignment): Map<string, Geometry> {
   const out = new Map<string, Geometry>();
-  if (markups.length < 2) return out;
-  const boxes = markups.map(shapeBounds);
+  const units = arrangeUnits(markups);
+  if (units.length < 2) return out;
+  const boxes = units.map((u) => unionBounds(u.map(shapeBounds)));
   const all = unionBounds(boxes);
-  markups.forEach((m, i) => {
+  units.forEach((u, i) => {
     const b = boxes[i]!;
     const dx =
       how === 'left' ? all.x - b.x : how === 'right' ? all.x + all.w - (b.x + b.w) : how === 'center' ? all.x + all.w / 2 - (b.x + b.w / 2) : 0;
     const dy =
       how === 'top' ? all.y - b.y : how === 'bottom' ? all.y + all.h - (b.y + b.h) : how === 'middle' ? all.y + all.h / 2 - (b.y + b.h / 2) : 0;
-    if (dx || dy) out.set(m.id, shift(m, dx, dy));
+    if (dx || dy) for (const m of u) out.set(m.id, shift(m, dx, dy));
   });
   return out;
 }
 
 /**
- * New geometry spacing three or more markups evenly along an axis: the outermost two stay put and
- * the gaps between neighbouring markups become equal.
+ * New geometry spacing three or more markups (or groups) evenly along an axis: the outermost two
+ * stay put and the gaps between neighbouring units become equal. Grouped markups move together.
  */
 export function distribute(markups: readonly Markup[], axis: Axis): Map<string, Geometry> {
   const out = new Map<string, Geometry>();
-  if (markups.length < 3) return out;
+  const units = arrangeUnits(markups);
+  if (units.length < 3) return out;
   const h = axis === 'horizontal';
-  const items = markups.map((m) => ({ m, b: shapeBounds(m) })).sort((a, b) => (h ? a.b.x - b.b.x : a.b.y - b.b.y));
+  const items = units.map((u) => ({ u, b: unionBounds(u.map(shapeBounds)) })).sort((a, b) => (h ? a.b.x - b.b.x : a.b.y - b.b.y));
   const start = h ? items[0]!.b.x : items[0]!.b.y;
   const last = items[items.length - 1]!.b;
   const end = h ? last.x + last.w : last.y + last.h;
   const sizes = items.map(({ b }) => (h ? b.w : b.h));
   const gap = (end - start - sizes.reduce((a, s) => a + s, 0)) / (items.length - 1);
   let at = start;
-  items.forEach(({ m, b }, i) => {
+  items.forEach(({ u, b }, i) => {
     const d = at - (h ? b.x : b.y);
-    if (Math.abs(d) > 1e-9) out.set(m.id, h ? shift(m, d, 0) : shift(m, 0, d));
+    if (Math.abs(d) > 1e-9) for (const m of u) out.set(m.id, h ? shift(m, d, 0) : shift(m, 0, d));
     at += sizes[i]! + gap;
   });
   return out;
@@ -93,22 +120,36 @@ function stretchedAbout(m: Markup, base: Point, sx: number, sy: number): Geometr
 }
 
 /**
- * New geometry giving each target the `reference` markup's width, height or both, as they show on
- * the page. Each is stretched about its own centre; text boxes change shape but keep their font
- * size. A target turned a quarter turn is stretched along its own axes the other way round, so it
- * still ends up the right size on the page; at other angles it is stretched in its own frame.
- * Markups with no extent along an axis are left alone on that axis.
+ * New geometry giving each selected unit the width, height or both of the first one, as they show
+ * on the page. `selected` is in click order, and a group counts as one object: its combined box is
+ * what is measured. A unit with a `frozen` member is left alone, though it can still set the size.
+ *
+ * An ungrouped markup is stretched about its own centre; text boxes change shape but keep their
+ * font size. A target turned a quarter turn is stretched along its own axes the other way round,
+ * so it still ends up the right size on the page; at other angles it is stretched in its own frame.
+ * A group is stretched about the centre of its box as dragging its handles would, so its layout
+ * (and text size) scales with it. Units with no extent along an axis are left alone on that axis.
  */
-export function matchSize(reference: Markup, targets: readonly Markup[], dimension: 'width' | 'height' | 'both'): Map<string, Geometry> {
-  const out = new Map<string, Geometry>();
-  const want = visibleBounds(reference);
-  for (const m of targets) {
-    if (m.id === reference.id) continue;
-    const seen = visibleBounds(m);
+export function matchSize(selected: readonly Markup[], dimension: 'width' | 'height' | 'both', frozen: (m: Markup) => boolean = () => false): Map<string, Partial<Markup>> {
+  const out = new Map<string, Partial<Markup>>();
+  const [reference, ...targets] = arrangeUnits(selected);
+  if (!reference) return out;
+  const want = unionBounds(reference.map(visibleBounds));
+  for (const unit of targets) {
+    if (unit.some(frozen)) continue;
+    const seen = unionBounds(unit.map(visibleBounds));
     let sx = dimension !== 'height' && seen.w > 1e-9 ? want.w / seen.w : 1;
     let sy = dimension !== 'width' && seen.h > 1e-9 ? want.h / seen.h : 1;
-    if (Math.round((m.rotation ?? 0) / 90) % 2 !== 0 && (m.rotation ?? 0) % 90 === 0) [sx, sy] = [sy, sx];
     if (Math.abs(sx - 1) < 1e-9 && Math.abs(sy - 1) < 1e-9) continue;
+    if (unit.length > 1) {
+      const cx = seen.x + seen.w / 2;
+      const cy = seen.y + seen.h / 2;
+      const t = { a: sx, b: 0, c: 0, d: sy, e: cx * (1 - sx), f: cy * (1 - sy) };
+      for (const m of unit) out.set(m.id, transformMarkup(m, t));
+      continue;
+    }
+    const m = unit[0]!;
+    if (Math.round((m.rotation ?? 0) / 90) % 2 !== 0 && (m.rotation ?? 0) % 90 === 0) [sx, sy] = [sy, sx];
     const b = shapeBounds(m);
     out.set(m.id, stretchedAbout(m, [b.x + b.w / 2, b.y + b.h / 2], sx, sy));
   }

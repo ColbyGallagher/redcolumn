@@ -1169,6 +1169,23 @@ export class MarkupTools implements ViewerOverlay {
     return { ids: ms.map((m) => m.id), groupId, markups: ms, frame: groupFrame(ms, this.groupAngle(groupId, ms)), editable: !store.readOnly && ms.every((m) => !this.frozen(m)) };
   }
 
+  /**
+   * The groups selected whole on a page when `groupSelection` has no single box to give: several
+   * groups, or a group among other markups. Each shows a box without handles around its members.
+   */
+  private selectedGroups(pageIndex: number): { groupId: string; markups: Markup[] }[] {
+    // One markup, or a Cloud+ alone, keeps its own handles.
+    if (!this.store || this.state.selected.size < 2 || this.handleTargets().length || this.groupSelection()) return [];
+    const groups = new Map<string, Markup[]>();
+    const partial = new Set<string>();
+    for (const m of this.store.all()) {
+      if (!m.groupId) continue;
+      if (!this.state.selected.has(m.id)) partial.add(m.groupId);
+      else if (m.pageIndex === pageIndex) groups.set(m.groupId, [...(groups.get(m.groupId) ?? []), m]);
+    }
+    return [...groups].filter(([id, ms]) => ms.length > 1 && !partial.has(id)).map(([groupId, markups]) => ({ groupId, markups }));
+  }
+
   /** How far a group's box is turned: kept while its members stay as that turn left them (an undo or edit resets it). */
   private groupAngle(groupId: string, ms: readonly Markup[]): number {
     const kept = this.groupAngles.get(groupId);
@@ -1549,7 +1566,7 @@ export class MarkupTools implements ViewerOverlay {
   }
 
   /** Writes new points for markups as one undo step. */
-  private movePoints(moves: Map<string, Geometry>) {
+  private movePoints(moves: Map<string, Partial<Markup>>) {
     if (!this.store || this.store.readOnly || !moves.size) return;
     const store = this.store;
     store.checkpoint();
@@ -1625,13 +1642,12 @@ export class MarkupTools implements ViewerOverlay {
 
   /**
    * Resizes the selected markups to the width, height or both of the first one selected (the one
-   * clicked first; the selection keeps its click order). That one sets the size even when it is
-   * locked; only the editable others change.
+   * clicked first; the selection keeps its click order), each group as one object. That one sets
+   * the size even when it is locked; a group with a locked member is not resized.
    */
   matchSizeSelected(kind: 'width' | 'height' | 'both') {
-    const reference = this.store?.get([...this.state.selected][0] ?? '');
-    if (!reference) return;
-    this.movePoints(matchSize(reference, this.editable(), kind));
+    const selected = [...this.state.selected].map((id) => this.store?.get(id)).filter((m): m is Markup => !!m);
+    this.movePoints(matchSize(selected, kind, (m) => this.frozen(m)));
   }
 
   /**
@@ -2462,6 +2478,8 @@ export class MarkupTools implements ViewerOverlay {
     this.drawViewports(ctx, pageIndex, zoom);
     const editable = new Set(this.handleTargets().map((t) => t.id));
     const group = this.groupSelection();
+    const boxed = this.selectedGroups(pageIndex);
+    const inBox = new Set(boxed.flatMap((g) => g.markups.map((m) => m.id)));
     for (const m of this.pageMarkups(pageIndex)) {
       const shown = this.previewOf(m);
       // Markups the list's filter leaves out show faintly (or not at all, see setFilterView).
@@ -2474,7 +2492,7 @@ export class MarkupTools implements ViewerOverlay {
       if (faint) ctx.restore();
       if (m.replies?.length && settings.get().replyIndicators) drawReplyIndicator(ctx, shown, zoom);
       // A group selected whole shows one box around it (below) instead of a box on each member.
-      if (this.state.selected.has(m.id) && !group) {
+      if (this.state.selected.has(m.id) && !group && !inBox.has(m.id)) {
         drawSelection(ctx, shown, zoom, this.pointerKind === 'touch' ? 14 : 6);
         if (editable.has(m.id)) this.drawVertexKnobs(ctx, shown, zoom);
         if (editable.has(m.id) && this.reroutable(m)) this.drawSegmentHandles(ctx, shown, zoom);
@@ -2493,10 +2511,15 @@ export class MarkupTools implements ViewerOverlay {
       }
       ctx.restore();
     }
+    const handlePx = this.pointerKind === 'touch' ? 14 : 6;
+    for (const g of boxed) {
+      const live = g.markups.map((m) => this.previewOf(m));
+      drawGroupBox(ctx, live, groupFrame(live, this.groupAngle(g.groupId, g.markups)), zoom, handlePx, false);
+    }
     if (group && group.markups[0]!.pageIndex === pageIndex) {
-      // The box follows the members as they turn or stretch.
+      // The box follows the members as they move, turn or stretch.
       const live = group.markups.map((m) => this.previewOf(m));
-      drawGroupBox(ctx, live, this.gesture?.kind === 'groupXform' ? groupFrame(live, this.gesture.angle) : group.frame, zoom, this.pointerKind === 'touch' ? 14 : 6, group.editable);
+      drawGroupBox(ctx, live, groupFrame(live, this.gesture?.kind === 'groupXform' ? this.gesture.angle : group.frame.angle), zoom, handlePx, group.editable);
     } else {
       // A member picked out of its group: the group's box stays faintly, and its outline selects the group again.
       const parent = this.parentGroup();
@@ -3955,12 +3978,22 @@ export class MarkupTools implements ViewerOverlay {
             this.paste(copies, copies[0]!.pageIndex, [b.x + g.dx, b.y + g.dy]);
           }
         } else {
+          // Turned group boxes moved whole keep their turn.
+          const turned = [...this.groupAngles].flatMap(([groupId, { angle }]) => {
+            const ms = store.all().filter((m) => m.groupId === groupId);
+            const whole = ms.every((m) => this.state.selected.has(m.id) && !this.frozen(m));
+            return ms.length && whole && this.groupAngle(groupId, ms) === angle ? [{ groupId, angle, ids: ms.map((m) => m.id) }] : [];
+          });
           store.batch(() => {
             for (const id of this.state.selected) {
               const m = store.get(id);
               if (m && !this.frozen(m)) store.update(id, moved(m, g.dx, g.dy));
             }
           });
+          for (const { groupId, angle, ids } of turned) {
+            const after = ids.map((id) => store.get(id)).filter((m): m is Markup => !!m);
+            this.groupAngles.set(groupId, { angle, sig: groupSig(after) });
+          }
         }
       } else if (g.toggle) {
         const next = new Set(this.state.selected);
