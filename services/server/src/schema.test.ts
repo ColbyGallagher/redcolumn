@@ -131,6 +131,7 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
       '0002_schema_v1.sql',
       '0003_invites.sql',
       '0004_project_roles.sql',
+      '0005_document_uploads.sql',
     ]);
     const second = await runMigrations(pool);
     assert.deepEqual(second.appliedNow, []);
