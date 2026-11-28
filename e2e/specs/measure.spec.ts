@@ -247,6 +247,9 @@ test.describe('assemblies', () => {
     ]);
     const [run] = await app.raw();
     expect(run!.assemblyId).toBeUndefined();
+    // 210 pt is 21 ft: the quantities below depend on it.
+    const [[x1, y1], [x2, y2]] = (run as unknown as { points: [[number, number], [number, number]] }).points;
+    expect(Math.hypot(x2 - x1, y2 - y1)).toBeCloseTo(210, 1);
     const made = await app.assistant<{ proposed: number }>('propose_takeoff', { source: 'Claude', proposals: [{ id: run!.id, assembly: 'Stud wall', reasoning: 'A partition run.', expected: [{ item: 'Studs', quantity: 11 }] }] });
     expect(made.proposed).toBe(1);
     // The review opens by itself; the drawing is unchanged until a person approves.

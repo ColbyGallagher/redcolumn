@@ -11,11 +11,14 @@
 // coverage.ts at all is checked by e2e/specs/coverage.spec.ts, which runs in the e2e CI job.
 //
 //   pnpm check:e2e-coverage
+//   pnpm check:e2e-coverage --base <ref>   also fail if the list gained an id since <ref> (CI, on PRs)
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const LIST = 'e2e/coverage-todo.json';
 
 /** What changed against the baseline: new 'todo' commands (fail) and listed ones no longer 'todo' (fail: tidy the list). */
 export function compareTodo(coverage, baseline) {
@@ -30,11 +33,35 @@ export function compareTodo(coverage, baseline) {
   };
 }
 
+/** Ids in `baseline` that the base branch's list does not have: someone refilled it. */
+export function refilled(baseline, baseBaseline) {
+  const before = new Set(baseBaseline);
+  return baseline.filter((id) => !before.has(id)).sort();
+}
+
+/** The base branch's list, or null if it has none yet. Throws if `ref` cannot be read. */
+function listAt(ref) {
+  const git = (...args) => execFileSync('git', args, { cwd: root, encoding: 'utf8' });
+  git('rev-parse', '--verify', `${ref}^{commit}`);
+  if (!git('ls-tree', '--name-only', ref, '--', LIST).trim()) return null;
+  return JSON.parse(git('show', `${ref}:${LIST}`));
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const { COVERAGE } = await import(pathToFileURL(join(root, 'e2e', 'coverage.ts')).href);
   const baseline = JSON.parse(readFileSync(join(root, 'e2e', 'coverage-todo.json'), 'utf8'));
   const { added, resolved } = compareTodo(COVERAGE, baseline);
   let failed = false;
+  const at = process.argv.indexOf('--base');
+  if (at !== -1) {
+    const before = listAt(process.argv[at + 1]);
+    const grown = before ? refilled(baseline, before) : [];
+    if (grown.length) {
+      failed = true;
+      console.error(`Commands added to ${LIST}, which may only shrink:`);
+      for (const id of grown) console.error(`  ${id}`);
+    }
+  }
   if (added.length) {
     failed = true;
     console.error(`Commands marked 'todo' in e2e/coverage.ts that are not in e2e/coverage-todo.json:`);

@@ -48,8 +48,8 @@ Each stage runs in its own session. Identify which role you are in, then follow 
 Merge only when all of these hold on the current head:
 
 - CI is green.
-- `pnpm verify` passes locally on the current head (typecheck, unit tests, release build, end-to-end suite in web and desktop). CI's `e2e-web` job is not required yet and does not cover desktop, so this is the gate for desktop e2e. Paste its summary line in the merge comment.
-- The `e2e-web` job is green, or each failure is already in `e2e/quarantine.md`.
+- All four `e2e-web` shards are green, even though they are not required checks yet. A quarantined test is skipped, so it cannot excuse a failure.
+- CI does not run the desktop end-to-end tests. For changes to the desktop app, or to behaviour that differs there, `pnpm e2e:desktop` has been run on the current head. A failure may be accepted only if the same test also fails on the base branch: list each one in the merge comment, with the summary line. Any new failure blocks.
 - No open `BLOCKER:` threads.
 - The branch is up to date with the base (merge base in and re-validate if not).
 - No push has landed since the last review without a re-review of that delta.

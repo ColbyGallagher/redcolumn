@@ -44,12 +44,13 @@ pnpm check:tests         # every *.test.* file is reached by some package's test
 pnpm check:e2e-coverage  # no new 'todo' commands in e2e/coverage.ts
 pnpm build && pnpm check:bundle
 pnpm e2e:web             # Playwright, web (see e2e/README.md for first-run setup)
-pnpm verify:fast         # client-data + typecheck + test
+pnpm verify:fast         # client-data + both check:* guards + typecheck + test
 pnpm verify              # everything, including both e2e projects
 ```
 
 Package test scripts list their files with globs. `src/*.test.ts` is **not recursive**: a test in
-`src/sub/x.test.ts` never runs unless the glob is `src/**/*.test.ts` or the file is listed.
+`src/sub/x.test.ts` never runs unless the file is listed or the glob is `"src/**/*.test.ts"`, in double
+quotes (unquoted, the Linux shell does not recurse).
 `pnpm check:tests` (in CI) fails if a test file is not reached.
 
 ## Rules that CI enforces
@@ -63,7 +64,8 @@ Package test scripts list their files with globs. `src/*.test.ts` is **not recur
 - **Commands need tests.** Every command in `apps/web/src/commands/appCommands.ts` has an entry in
   `e2e/coverage.ts`. A new command gets `{ spec: '<file>' }` with a test that runs it, or
   `{ skip: '<reason>' }` if it cannot run unattended. Not `'todo'`: `pnpm check:e2e-coverage`
-  fails on any `'todo'` not already in `e2e/coverage-todo.json`, and that list only shrinks.
+  fails on any `'todo'` not already in `e2e/coverage-todo.json`, and that list only shrinks. That every
+  command is listed at all is checked by the e2e suite (the `e2e-web` job, not yet a required check).
 
 ## When a test is required
 

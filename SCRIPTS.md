@@ -39,10 +39,10 @@ Run it first on a new machine, or when something refuses to start.
 
 ### `pnpm verify:fast`
 
-The quick check, a minute or two: the client-data guard, the type check, and the unit tests. It
+The quick check, a minute or two: the client-data guard, the test-file and command-coverage checks, the type check and the unit tests. It
 does not build the app or run the end-to-end tests.
 
-- It stops at the first failure. Add `--keep-going` to run all three and see everything that
+- It stops at the first failure. Add `--keep-going` to run every step and see everything that
   failed.
 - It ends with a summary of what passed and how long each step took.
 

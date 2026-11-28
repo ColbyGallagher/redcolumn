@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { compareTodo } from './check-e2e-coverage.mjs';
+import { compareTodo, refilled } from './check-e2e-coverage.mjs';
 
 test('a new todo command is reported', () => {
   const r = compareTodo({ a: 'todo', b: { spec: 'x' }, c: 'todo' }, ['a']);
@@ -14,4 +14,9 @@ test('a listed command that got a test must leave the list', () => {
 
 test('an unchanged list passes', () => {
   assert.deepEqual(compareTodo({ a: 'todo', b: { spec: 'x' } }, ['a']), { added: [], resolved: [] });
+});
+
+test('an id added to the list since the base branch is reported', () => {
+  assert.deepEqual(refilled(['a', 'new'], ['a', 'b']), ['new']);
+  assert.deepEqual(refilled(['a'], ['a', 'b']), []);
 });

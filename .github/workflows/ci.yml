@@ -82,8 +82,17 @@ jobs:
         run: pnpm check:tests
 
       # New commands get an end-to-end test or a skip reason, not 'todo' (e2e/coverage-todo.json only shrinks).
+      # On a pull request the list is also compared with the base branch's, so it cannot be refilled.
       - name: No new untested commands
-        run: pnpm check:e2e-coverage
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            pnpm check:e2e-coverage --base FETCH_HEAD
+          else
+            pnpm check:e2e-coverage
+          fi
 
       - name: Test
         run: pnpm test
