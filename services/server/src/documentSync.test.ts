@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { after, afterEach, before, beforeEach, describe, it } from 'node:test';
 import { PROTOCOL_VERSION, type Operation } from '@nb/ops';
 import { MemorySyncPersistence, SyncDocument, WsSyncTransport, type PresenceUser, type SyncPersistence, type WebSocketLike } from '@nb/sync';
+import { sql } from 'kysely';
 import WebSocket from 'ws';
 import { buildServer, type ServerInstance } from './app.ts';
 import { createLocalUser, type UserProfile } from './auth.ts';
@@ -14,7 +15,7 @@ import { loadConfig, type ServerConfig } from './config.ts';
 import { createDb, type DbHandle, type ProjectRole } from './db.ts';
 import { runMigrations } from './migrate.ts';
 import type { OpPipelineHooks } from './pipeline.ts';
-import { CursorSealer, ensureReaderRole, READER_ROLE } from './syncFeed.ts';
+import { CursorSealer, ensureReaderRole, READER_ROLE, readFeed } from './syncFeed.ts';
 import { addMember, blankPdf, createDocumentFixture, FrameInbox, type DocumentFixture } from './testSupport.ts';
 
 const DATABASE_URL = process.env.DATABASE_URL?.trim();
@@ -74,6 +75,8 @@ describe('server documents over WebSocket (Postgres 17)', { skip: !DATABASE_URL 
   let baseUrl: string;
   const clients: Client[] = [];
   let hooks: OpPipelineHooks = {};
+  /** What the server reads document streams with: a test replaces it to delay or fail a read. */
+  let feedReader: typeof readFeed = readFeed;
 
   before(async () => {
     dbHandle = createDb(DATABASE_URL!);
@@ -103,10 +106,12 @@ describe('server documents over WebSocket (Postgres 17)', { skip: !DATABASE_URL 
       }),
     };
     hooks = {};
+    feedReader = readFeed;
     server = buildServer({
       config,
       db: dbHandle.db,
       pool: dbHandle.pool,
+      feedReader: (...args) => feedReader(...args),
       pipelineHooks: { onAfterCommitBeforeAck: (ctx) => hooks.onAfterCommitBeforeAck?.(ctx) },
     });
     baseUrl = await server.app.listen({ host: config.host, port: 0 });
@@ -151,6 +156,8 @@ describe('server documents over WebSocket (Postgres 17)', { skip: !DATABASE_URL 
         return socket as unknown as WebSocketLike;
       },
       backoff: { minMs: 20, maxMs: 100 },
+      // As the viewer asks it, over HTTP with the same cookie.
+      checkSessionEnded: async () => (await api(who, '/auth/me')).status === 401,
     });
     let present: PresenceUser[] = [];
     transport.onPresence((users) => {
@@ -592,6 +599,403 @@ describe('server documents over WebSocket (Postgres 17)', { skip: !DATABASE_URL 
     await waitFor(() => settled(second) && !!a.doc.get(unsent.id), 'the unsent markup to arrive');
     assert.equal(second.doc.all().length, 3);
     assert.equal(second.doc.sync.inbox.length, 0);
+  });
+
+  // ---- Permissions: every operation on someone else's work --------------------------------
+
+  const actorOf = (who: Person) => ({ userId: who.user.id, partyId: null, groupId: null });
+
+  /** An operation on the fixture's stream, with a fresh id. */
+  const operation = <T extends Operation['type']>(
+    fixture: DocumentFixture,
+    type: T,
+    entityId: string,
+    payload: Extract<Operation, { type: T }>['payload'],
+    extra: Partial<Pick<Operation, 'basedOn' | 'batchId' | 'batchSize' | 'clientTime'>> = {},
+  ) => ({ opId: randomUUID(), schemaVersion: PROTOCOL_VERSION, streamId: fixture.documentId, type, entityId, payload, ...extra }) as Operation;
+
+  const markupCreate = (fixture: DocumentFixture, id: string, comment = 'Check the splice') =>
+    operation(fixture, 'markup.create', id, {
+      scopeId: fixture.scopeId,
+      type: 'rect',
+      content: { style: { stroke: '#000000', fill: null, width: 1, opacity: 1 }, comment },
+    });
+
+  const placementCreate = (fixture: DocumentFixture, id: string, markupId: string, revisionId: string, pageId: string) =>
+    operation(fixture, 'placement.create', id, {
+      markupId,
+      revisionId,
+      pageId,
+      geometry: { points: [[1, 1], [2, 2]] },
+      method: 'original',
+      confidence: null,
+      state: 'confirmed',
+    });
+
+  const asBatch = (ops: readonly Operation[]): Operation[] => {
+    const batchId = randomUUID();
+    return ops.map((op) => ({ ...op, batchId, batchSize: ops.length }));
+  };
+
+  /** A second revision of the fixture's document, where no markup is placed yet. */
+  async function addRevision(fixture: DocumentFixture, ownerId: string): Promise<{ revisionId: string; pageId: string }> {
+    const revisionId = randomUUID();
+    const pageId = randomUUID();
+    await dbHandle.db
+      .insertInto('revisions')
+      .values({ id: revisionId, document_id: fixture.documentId, label: '2', file_sha256: 'b'.repeat(64), file_size: 1, page_count: 1, processing_status: 'ready', processing_error: null, issued_by: ownerId, issued_at: new Date() })
+      .execute();
+    await dbHandle.db.insertInto('pages').values({ id: pageId, revision_id: revisionId, sheet_id: null, position: 0, width: 842, height: 595, rotation: 0 }).execute();
+    return { revisionId, pageId };
+  }
+
+  const eventCount = async () => (await dbHandle.db.selectFrom('events').select('op_id').execute()).length;
+
+  /** One markup and its placement by `who`, and a second pair they then deleted. */
+  async function work(fixture: DocumentFixture, who: Person) {
+    const ids = { live: randomUUID(), livePlacement: randomUUID(), gone: randomUUID(), gonePlacement: randomUUID() };
+    const ops = [
+      markupCreate(fixture, ids.live),
+      placementCreate(fixture, ids.livePlacement, ids.live, fixture.revisionId, fixture.pageIds[0]!),
+      markupCreate(fixture, ids.gone),
+      placementCreate(fixture, ids.gonePlacement, ids.gone, fixture.revisionId, fixture.pageIds[0]!),
+      operation(fixture, 'placement.delete', ids.gonePlacement, {}),
+      operation(fixture, 'markup.delete', ids.gone, {}),
+    ];
+    const made = await server.pipeline.submitBatch(asBatch(ops), actorOf(who), undefined, { documentOnly: true });
+    assert.equal(made.ok, true, JSON.stringify(made));
+    return ids;
+  }
+
+  /** Every kind of change to the records `work` made, including what an undo sends to reverse one. */
+  function changesTo(fixture: DocumentFixture, ids: Awaited<ReturnType<typeof work>>, other: { revisionId: string; pageId: string }) {
+    return {
+      'markup.patch': () => operation(fixture, 'markup.patch', ids.live, { set: { comment: 'Changed' } }, { basedOn: { comment: 0 } }),
+      'markup.delete': () => operation(fixture, 'markup.delete', ids.live, {}),
+      'markup.restore': () => operation(fixture, 'markup.restore', ids.gone, {}),
+      'placement.create on another revision': () => placementCreate(fixture, randomUUID(), ids.live, other.revisionId, other.pageId),
+      'placement.patch': () => operation(fixture, 'placement.patch', ids.livePlacement, { geometry: { points: [[5, 5], [9, 9]] } }, { basedOn: { geometry: 0 } }),
+      'placement.delete': () => operation(fixture, 'placement.delete', ids.livePlacement, {}),
+      'placement.restore': () => operation(fixture, 'placement.restore', ids.gonePlacement, {}),
+    };
+  }
+
+  it('lets neither another reviewer nor a viewer send any change to someone else\'s markup, alone or in a batch', async () => {
+    const { ada, ben, fixture } = await team();
+    const vic = await person('Vic Viewer');
+    await addMember(dbHandle.db, fixture, vic.user.id, 'viewer');
+    const other = await addRevision(fixture, ada.user.id);
+    const ids = await work(fixture, ada);
+    const stored = await eventCount();
+
+    for (const [name, change] of Object.entries(changesTo(fixture, ids, other))) {
+      for (const who of [ben, vic]) {
+        const alone = await server.pipeline.submitOperation(change(), actorOf(who), undefined, { documentOnly: true });
+        assert.equal(!alone.ok && alone.rejection.code, 'forbidden', `${name} by ${who.user.name}: ${JSON.stringify(alone)}`);
+        // In a batch behind work of the sender's own, which then is not saved either.
+        const own = randomUUID();
+        const lead = who === ben ? [markupCreate(fixture, own), placementCreate(fixture, randomUUID(), own, other.revisionId, other.pageId)] : [];
+        const batch = await server.pipeline.submitBatch(asBatch([...lead, change()]), actorOf(who), undefined, { documentOnly: true });
+        assert.equal(!batch.ok && batch.rejection.code, 'forbidden', `batched ${name} by ${who.user.name}: ${JSON.stringify(batch)}`);
+        assert.equal(!batch.ok && batch.index, lead.length, name);
+      }
+    }
+    // A viewer may not make records of their own either.
+    const created = await server.pipeline.submitOperation(markupCreate(fixture, randomUUID()), actorOf(vic), undefined, { documentOnly: true });
+    assert.equal(!created.ok && created.rejection.code, 'forbidden');
+    assert.equal(await eventCount(), stored, 'nothing was stored');
+
+    // The same holds for a placement where the owner has none on this revision any more.
+    const removed = await server.pipeline.submitOperation(operation(fixture, 'placement.delete', ids.livePlacement, {}), actorOf(ada), undefined, { documentOnly: true });
+    assert.equal(removed.ok, true);
+    const replaced = await server.pipeline.submitOperation(
+      placementCreate(fixture, randomUUID(), ids.live, fixture.revisionId, fixture.pageIds[1]!),
+      actorOf(ben),
+      undefined,
+      { documentOnly: true },
+    );
+    assert.equal(!replaced.ok && replaced.rejection.code, 'forbidden');
+  });
+
+  it('lets a reviewer made a viewer change nothing, their own work included', async () => {
+    const { ben, fixture } = await team();
+    const other = await addRevision(fixture, ben.user.id);
+    const ids = await work(fixture, ben);
+    const stored = await eventCount();
+    await dbHandle.db
+      .updateTable('project_members')
+      .set({ role: 'viewer' })
+      .where('project_id', '=', fixture.projectId)
+      .where('user_id', '=', ben.user.id)
+      .execute();
+
+    for (const [name, change] of Object.entries(changesTo(fixture, ids, other))) {
+      const alone = await server.pipeline.submitOperation(change(), actorOf(ben), undefined, { documentOnly: true });
+      assert.equal(!alone.ok && alone.rejection.code, 'forbidden', `${name}: ${JSON.stringify(alone)}`);
+      const batch = await server.pipeline.submitBatch(asBatch([change()]), actorOf(ben), undefined, { documentOnly: true });
+      assert.equal(!batch.ok && batch.rejection.code, 'forbidden', `batched ${name}: ${JSON.stringify(batch)}`);
+    }
+    assert.equal(await eventCount(), stored, 'nothing was stored');
+  });
+
+  it('lets reviewers make every change to their own markups, and an admin to anyone\'s', async () => {
+    for (const sender of ['owner', 'admin'] as const) {
+      await dbHandle.pool.query('TRUNCATE invites, scopes, project_members, projects, workspaces, events, placements, markups, op_results, streams, sessions, users, item_access, item_draft_access, item_versions CASCADE');
+      const { ada, ben, fixture } = await team();
+      const other = await addRevision(fixture, ada.user.id);
+      const ids = await work(fixture, ben);
+      const changes = changesTo(fixture, ids, other);
+      const who = sender === 'owner' ? ben : ada;
+      // In an order each one can apply in.
+      for (const name of ['markup.patch', 'placement.patch', 'placement.create on another revision', 'placement.delete', 'markup.delete', 'markup.restore', 'placement.restore'] as const) {
+        const result = await server.pipeline.submitOperation(changes[name](), actorOf(who), undefined, { documentOnly: true });
+        assert.equal(result.ok, true, `${name} by the ${sender}: ${JSON.stringify(result)}`);
+      }
+    }
+  });
+
+  it('does not say that an id is in use in another project', async () => {
+    const { ada, ben, fixture } = await team();
+    const elsewhere = await createDocumentFixture(dbHandle.db, ada.user);
+    const secret = await work(elsewhere, ada);
+    const vic = await person('Vic Viewer');
+    await addMember(dbHandle.db, fixture, vic.user.id, 'viewer');
+    const submit = (op: Operation, who: Person) => server.pipeline.submitOperation(op, actorOf(who), undefined, { documentOnly: true });
+
+    const taken = await submit(markupCreate(fixture, secret.live), ben);
+    assert.deepEqual(!taken.ok && taken.rejection, { code: 'invalid', message: 'The server could not accept this operation' });
+    const batch = await server.pipeline.submitBatch(
+      asBatch([markupCreate(fixture, randomUUID()), markupCreate(fixture, secret.live)]),
+      actorOf(ben),
+      undefined,
+      { documentOnly: true },
+    );
+    assert.deepEqual(!batch.ok && [batch.index, batch.rejection.code], [1, 'invalid']);
+    // Someone who may not create at all hears the same for a used id as for a new one.
+    for (const id of [secret.live, randomUUID()]) {
+      const refused = await submit(markupCreate(fixture, id), vic);
+      assert.equal(!refused.ok && refused.rejection.code, 'forbidden');
+    }
+  });
+
+  // ---- Reads that fail, and sockets that go while one is under way --------------------------
+
+  /** Lets a test hold one person's next reads: `reached` once one is waiting, until `release`. */
+  function holdReadsFor(userId: string) {
+    let release!: () => void;
+    const wait = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const held = { reached: false, release };
+    feedReader = async (...args) => {
+      // The read itself is done first, so it sees the database as it was before the test goes on.
+      const feed = await readFeed(...args);
+      if (args[1] === userId) {
+        held.reached = true;
+        await wait;
+      }
+      return feed;
+    };
+    return held;
+  }
+
+  const pause = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+  it('never leaves a client showing synced while its document cannot be read, and recovers', async () => {
+    const { ada, ben, fixture } = await team();
+    const a = await openClient(ada, fixture);
+    const b = await openClient(ben, fixture);
+
+    let broken = true;
+    let failures = 0;
+    feedReader = async (...args) => {
+      if (!broken) return readFeed(...args);
+      failures++;
+      throw new Error('simulated database error');
+    };
+    const first = rectangle(ada.user.name);
+    a.doc.add(first);
+    await waitFor(() => a.doc.sync.connection !== 'connected' && b.doc.sync.connection !== 'connected', 'both to be told');
+    // While reads fail, reconnecting must not make either look up to date.
+    for (let i = 0; i < 40; i++) {
+      await pause(10);
+      assert.notEqual(a.doc.sync.connection, 'connected');
+      assert.notEqual(b.doc.sync.connection, 'connected');
+    }
+    assert.ok(failures > 2, 'they kept trying');
+    const second = rectangle(ben.user.name, { comment: 'Drawn while the server could not read' });
+    b.doc.add(second);
+
+    broken = false;
+    await waitFor(() => settled(a) && settled(b) && a.doc.all().length === 2 && b.doc.all().length === 2, 'both to catch up');
+    assert.equal(a.doc.sync.inbox.length + b.doc.sync.inbox.length, 0);
+    assert.equal(await eventCount(), 4, 'each operation was applied once');
+  });
+
+  it('recovers from a single failed read', async () => {
+    const { ada, ben, fixture } = await team();
+    const a = await openClient(ada, fixture);
+    const b = await openClient(ben, fixture);
+    let failures = 1;
+    feedReader = async (...args) => {
+      if (failures-- > 0) throw new Error('simulated database error');
+      return readFeed(...args);
+    };
+    a.doc.add(rectangle(ada.user.name));
+    a.doc.add(rectangle(ada.user.name));
+    await waitFor(() => a.sockets.length + b.sockets.length === 3, 'the client whose read failed to reconnect');
+    b.doc.add(rectangle(ben.user.name));
+    await waitFor(() => settled(a) && settled(b) && a.doc.all().length === 3 && b.doc.all().length === 3, 'both to have everything');
+    assert.equal(await eventCount(), 6);
+  });
+
+  it('shows no ghost of a socket that closed while its document was loading', async () => {
+    const { ada, ben, fixture } = await team();
+    const a = await openClient(ada, fixture);
+    const others = () => a.presence().filter((u) => u.connectionId !== a.transport.connectionId);
+
+    const held = holdReadsFor(ben.user.id);
+    const b = await openClient(ben, fixture, { connect: false });
+    await b.doc.connect();
+    await waitFor(() => held.reached, 'the read for Ben to be under way');
+    await b.doc.disconnect();
+    await waitFor(() => server.ws.wss.clients.size === 1, 'the server to see the socket go');
+    held.release();
+
+    await pause(100);
+    // Anything that announces presence again would show a ghost.
+    a.transport.setPage(1);
+    await waitFor(() => a.presence().some((u) => u.pageIndex === 1), 'presence to be announced again');
+    assert.deepEqual(others(), []);
+  });
+
+  it('sends a member removed while their document loads nothing more, presence included', async () => {
+    const { ada, ben, fixture } = await team();
+    const a = await openClient(ada, fixture);
+    a.doc.add(rectangle(ada.user.name));
+    await waitFor(() => settled(a), 'Ada to be synced');
+
+    const held = holdReadsFor(ben.user.id);
+    // A client of its own that does not hang up when told its access went.
+    const ws = new WebSocket(`${baseUrl.replace(/^http/, 'ws')}/ws`, { headers: { cookie: ben.cookie, origin: baseUrl } });
+    const inbox = new FrameInbox(ws);
+    await new Promise((resolve) => ws.once('open', resolve));
+    try {
+      ws.send(JSON.stringify({ type: 'hello', protocol: { min: 1, max: PROTOCOL_VERSION } }));
+      await inbox.next((f) => f.type === 'welcome', 'welcome');
+      ws.send(JSON.stringify({ type: 'open', streamId: fixture.documentId, cursor: null, pendingOpIds: [] }));
+      await waitFor(() => held.reached, 'the read for Ben to be under way');
+      const res = await api(ada, `/api/projects/${fixture.projectId}/members/${ben.user.id}`, { method: 'DELETE' });
+      assert.equal(res.status, 200);
+      await inbox.sync('revoked');
+      held.release();
+      await pause(100);
+      a.transport.setPage(1);
+      await waitFor(() => a.presence().some((u) => u.pageIndex === 1), 'presence to be announced again');
+      await pause(100);
+
+      assert.deepEqual(
+        inbox.frames.map((f) => (f.type === 'sync' ? (f.message as { type: string }).type : f.type)),
+        ['welcome', 'revoked'],
+      );
+      assert.equal(a.presence().some((u) => u.userId === ben.user.id), false);
+    } finally {
+      held.release();
+      ws.close();
+    }
+  });
+
+  // ---- Operations that cannot be stored ---------------------------------------------------
+
+  it('sets aside text the database cannot store, carries on, and does not send it again after a reload', async () => {
+    const { ben, fixture } = await team();
+    const persistence = new MemorySyncPersistence();
+    const first = await openClient(ben, fixture, { persistence });
+    const nul = rectangle(ben.user.name, { comment: 'Pasted \u0000 text' });
+    const half = rectangle(ben.user.name, { comment: 'Cut emoji \ud83d' });
+    const fine = rectangle(ben.user.name, { comment: 'Done \u{1F44D}' });
+    first.doc.add(nul);
+    first.doc.add(half);
+    first.doc.add(fine);
+    await waitFor(() => settled(first) && first.doc.sync.inbox.length === 2, 'both to be set aside and the rest sent');
+    assert.deepEqual(first.doc.sync.inbox.map((e) => e.reason.code), ['invalid', 'invalid']);
+    assert.match((first.doc.sync.inbox[0]!.reason as { message: string }).message, /cannot be saved/);
+    assert.equal((await storedMarkup(fine.id)).content.comment, 'Done \u{1F44D}');
+    assert.equal(first.sockets.length, 1, 'no reconnecting');
+    assert.equal(await eventCount(), 2);
+    await first.doc.whenPersisted();
+    await first.doc.disconnect();
+
+    const again = await openClient(ben, fixture, { persistence });
+    await waitFor(() => settled(again), 'the reload to be synced');
+    assert.equal(again.doc.sync.inbox.length, 2);
+    await pause(200);
+    assert.equal(again.sockets.length, 1);
+    assert.equal(await eventCount(), 2);
+  });
+
+  it('answers a value the database refuses instead of failing for ever', async () => {
+    const { ben, fixture } = await team();
+    // A client time no timestamp holds: a data error from the database, not from validation.
+    const bad = () => ({ ...markupCreate(fixture, randomUUID()), clientTime: 1e300 });
+    const expected = { code: 'invalid', message: 'The server could not store this operation' };
+    const alone = await server.pipeline.submitOperation(bad(), actorOf(ben), undefined, { documentOnly: true });
+    assert.deepEqual(!alone.ok && alone.rejection, expected);
+    const batch = await server.pipeline.submitBatch(asBatch([bad(), bad()]), actorOf(ben), undefined, { documentOnly: true });
+    assert.deepEqual(!batch.ok && batch.rejection, expected);
+    assert.equal(await eventCount(), 0);
+
+    const b = await openClient(ben, fixture);
+    assert.equal(b.doc.submitOps([bad()]), true);
+    await waitFor(() => settled(b) && b.doc.sync.inbox.length === 1, 'the client to set it aside');
+    assert.equal(b.sockets.length, 1);
+  });
+
+  // ---- Large edits ------------------------------------------------------------------------
+
+  it('saves a bulk edit larger than one operation may be, as one batch', async () => {
+    const { ada, ben, fixture } = await team();
+    const a = await openClient(ada, fixture);
+    const b = await openClient(ben, fixture);
+    const markups = Array.from({ length: 150 }, (_, i) => rectangle(ben.user.name, { comment: `${i} ${'x'.repeat(2000)}` }));
+    b.doc.batch(() => {
+      for (const markup of markups) b.doc.add(markup);
+    });
+    await waitFor(() => settled(b) && a.doc.all().length === 150, 'the paste to be saved and delivered', 30_000);
+    assert.equal(b.doc.sync.inbox.length, 0);
+    const events = await dbHandle.db.selectFrom('events').select(sql<string>`payload_json->>'batchId'`.as('batch')).execute();
+    assert.equal(events.length, 300);
+    assert.equal(new Set(events.map((e) => e.batch)).size, 1);
+    assert.ok(config.maxOpBytes < 150 * 2000);
+  });
+
+  it('keeps each operation within the operation limit, and a batch within the batch limit', async () => {
+    const { ben, fixture } = await team();
+    const big = markupCreate(fixture, randomUUID(), 'x'.repeat(config.maxOpBytes));
+    const inBatch = await server.pipeline.submitBatch(asBatch([markupCreate(fixture, randomUUID()), big]), actorOf(ben), undefined, { documentOnly: true });
+    assert.deepEqual(!inBatch.ok && [inBatch.index, inBatch.rejection.code], [1, 'payload_too_large']);
+    const many = Math.ceil(config.maxBatchBytes / 200_000) + 1;
+    const huge = asBatch(Array.from({ length: many }, () => markupCreate(fixture, randomUUID(), 'x'.repeat(200_000))));
+    const over = await server.pipeline.submitBatch(huge, actorOf(ben), undefined, { documentOnly: true });
+    assert.equal(!over.ok && over.rejection.code, 'payload_too_large');
+    assert.equal(await eventCount(), 0);
+  });
+
+  // ---- Sessions ---------------------------------------------------------------------------
+
+  it('says signed out when the session ended while the client was disconnected', async () => {
+    const { ben, fixture } = await team();
+    const b = await openClient(ben, fixture);
+    let ended = 0;
+    b.transport.onSessionEnded(() => ended++);
+    // Gone before the socket drops, and without telling the open socket, as expiry during sleep is.
+    await dbHandle.pool.query('DELETE FROM sessions WHERE user_id = $1', [ben.user.id]);
+    b.sockets.at(-1)!.terminate();
+    await waitFor(() => ended === 1, 'the client to be told');
+    const made = b.sockets.length;
+    await pause(300);
+    assert.equal(b.sockets.length, made, 'it stops trying');
+    assert.equal(b.doc.sync.connection, 'disconnected');
   });
 
   it('seals a cursor for one user and stream', () => {

@@ -26,7 +26,7 @@ import { InProcessJobRunner, registerPdfJobs, type JobRunner } from './pdfJob.ts
 import { OpPipeline, type OpPipelineHooks } from './pipeline.ts';
 import { registerProjectRoutes } from './projectRoutes.ts';
 import { registerStaticWebApp } from './static.ts';
-import { SyncHub } from './syncHub.ts';
+import { SyncHub, type SyncHubOptions } from './syncHub.ts';
 import { registerUploadRoutes } from './uploadRoutes.ts';
 import { attachWebSocketServer, type WsHandle } from './ws.ts';
 
@@ -56,6 +56,8 @@ export interface BuildServerOptions {
   logger?: Logger;
   broadcaster?: Broadcaster;
   pipelineHooks?: OpPipelineHooks;
+  /** How document streams are read. Tests use it to delay or fail a read. */
+  feedReader?: SyncHubOptions['feedReader'];
   blobStore?: BlobStore;
   jobRunner?: JobRunner;
 }
@@ -84,6 +86,7 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
     db,
     broadcaster,
     maxOpBytes: config.maxOpBytes,
+    maxBatchBytes: config.maxBatchBytes,
     hooks: options.pipelineHooks,
   });
 
@@ -144,7 +147,7 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
     };
   });
 
-  const hub = new SyncHub({ db, pool, pipeline, broadcaster, logger });
+  const hub = new SyncHub({ db, pool, pipeline, broadcaster, logger, feedReader: options.feedReader });
   const ws = attachWebSocketServer({
     httpServer: app.server,
     config,

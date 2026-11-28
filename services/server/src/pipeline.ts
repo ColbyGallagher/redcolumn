@@ -4,6 +4,7 @@ import {
   applyOp,
   dependencies,
   emptyState,
+  MAX_BATCH_BYTES,
   parseOperation,
   type Actor,
   type ApplyContext,
@@ -65,7 +66,10 @@ export interface OpPipelineHooks {
 export interface OpPipelineOptions {
   db: Kysely<Database>;
   broadcaster: Broadcaster;
+  /** The most bytes of one operation. */
   maxOpBytes: number;
+  /** The most bytes of one batch. At least `maxOpBytes`. */
+  maxBatchBytes?: number;
   defaultLaneId?: string;
   now?: () => number;
   hooks?: OpPipelineHooks;
@@ -174,6 +178,23 @@ async function findForeignCreate(
   }
   return null;
 }
+
+/**
+ * What a client hears when it creates a record under an id that cannot be used. It does not say
+ * that the id is in use elsewhere, which would tell a former member that a record still exists.
+ */
+const UNUSABLE_CREATE: PipelineRejection = { code: 'invalid', message: 'The server could not accept this operation' };
+
+/**
+ * PostgreSQL's class 22, "data exception": a value in the write cannot be stored, however often it
+ * is sent. It is answered, so the sender sets it aside instead of sending it again for ever.
+ */
+function isDataError(err: unknown): boolean {
+  const code = err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined;
+  return typeof code === 'string' && /^22[0-9A-Z]{3}$/.test(code);
+}
+
+const UNSTORABLE_WRITE: PipelineRejection = { code: 'invalid', message: 'The server could not store this operation' };
 
 function measureBytes(raw: unknown, provided?: number): number {
   if (provided !== undefined) return provided;
@@ -451,6 +472,7 @@ export class OpPipeline {
   private readonly db: Kysely<Database>;
   private readonly broadcaster: Broadcaster;
   private readonly maxOpBytes: number;
+  private readonly maxBatchBytes: number;
   private readonly defaultLaneId: string;
   private readonly now: () => number;
   private readonly hooks: OpPipelineHooks;
@@ -459,6 +481,7 @@ export class OpPipeline {
     this.db = options.db;
     this.broadcaster = options.broadcaster;
     this.maxOpBytes = options.maxOpBytes;
+    this.maxBatchBytes = Math.max(options.maxBatchBytes ?? MAX_BATCH_BYTES, options.maxOpBytes);
     this.defaultLaneId = options.defaultLaneId ?? 'default';
     this.now = options.now ?? (() => Date.now());
     this.hooks = options.hooks ?? {};
@@ -510,7 +533,7 @@ export class OpPipeline {
 
     const payloadHash = hashOperationPayload(op);
 
-    const txOutcome = await this.runTransaction(async (trx) => {
+    const write = async (trx: Transaction<Database>) => {
       const seqByStream = await lockStreams(trx, [op.streamId]);
 
       const existing = await trx
@@ -540,22 +563,24 @@ export class OpPipeline {
         const refused: OpAck = { ok: false, opId: op.opId, rejection: guard.rejection };
         return { ack: refused, events: [] as StreamEvent[] };
       }
-      const { write } = guard;
+      const { write: document } = guard;
 
       const foreign = await findForeignCreate(trx, op.streamId, [op]);
       let applied: { ok: true; state: OpsState; changes: Change[] } | { ok: false; rejection: PipelineRejection };
       let version: ItemVersion | null = null;
-      if (foreign) {
+      if (foreign && !document) {
         applied = { ok: false, rejection: { code: 'exists', kind: foreign.kind, id: foreign.id } };
       } else {
         const state = await loadStateForOps(trx, op.streamId, [op]);
-        const ctx: ApplyContext = { actor, laneId: write?.access.laneId ?? this.defaultLaneId, now: nowMs };
+        const ctx: ApplyContext = { actor, laneId: document?.access.laneId ?? this.defaultLaneId, now: nowMs };
         let refused: PipelineRejection | null = null;
-        if (write) {
-          write.rows = await loadItemRows(trx, op.streamId, Object.keys(state.markups));
-          const evaluation = await evaluateDocumentWrite(trx, write, state, [op], ctx);
+        if (document) {
+          document.rows = await loadItemRows(trx, op.streamId, Object.keys(state.markups));
+          const evaluation = await evaluateDocumentWrite(trx, document, state, [op], ctx);
           if (evaluation.ok) version = evaluation.versions[0] ?? null;
           else refused = evaluation.rejection;
+          // Asked after permission, so someone who may not create hears the same for any id.
+          if (foreign) refused ??= UNUSABLE_CREATE;
         }
         applied = refused ? { ok: false, rejection: refused } : applyOp(state, op, ctx);
       }
@@ -588,13 +613,13 @@ export class OpPipeline {
         .set({
           seq: String(nextSeq),
           updated_at: receivedAtDate,
-          ...(write ? { project_id: write.access.projectId } : {}),
+          ...(document ? { project_id: document.access.projectId } : {}),
         })
         .where('id', '=', op.streamId)
         .execute();
 
-      await persistChanges(trx, op.streamId, applied.state, applied.changes, write);
-      if (write && version) await writeItemVersion(trx, write.access, op, version, receivedAtDate);
+      await persistChanges(trx, op.streamId, applied.state, applied.changes, document);
+      if (document && version) await writeItemVersion(trx, document.access, op, version, receivedAtDate);
 
       await trx
         .insertInto('events')
@@ -647,6 +672,10 @@ export class OpPipeline {
         receivedAt,
       };
       return { ack: acceptedAck, events: [event] };
+    };
+    const txOutcome = await this.runTransaction<{ ack: OpAck; events: StreamEvent[] }>(write).catch((err: unknown) => {
+      if (!isDataError(err)) throw err;
+      return { ack: { ok: false as const, opId: op.opId, rejection: UNSTORABLE_WRITE }, events: [] };
     });
 
     if (txOutcome.events.length > 0) {
@@ -675,12 +704,21 @@ export class OpPipeline {
       return { ok: false, index: 0, opId: null, rejection: { code: 'invalid', message: 'The batch is empty' } };
     }
     const bytes = measureBytes(rawInputs, rawByteLength);
-    if (bytes > this.maxOpBytes) {
+    if (bytes > this.maxBatchBytes) {
       return {
         ok: false,
         index: 0,
         opId: extractRawOpId(rawInputs[0]),
-        rejection: { code: 'payload_too_large', message: `Batch exceeds maximum size of ${this.maxOpBytes} bytes` },
+        rejection: { code: 'payload_too_large', message: `Batch exceeds maximum size of ${this.maxBatchBytes} bytes` },
+      };
+    }
+    const oversized = rawInputs.findIndex((raw) => measureBytes(raw) > this.maxOpBytes);
+    if (oversized >= 0) {
+      return {
+        ok: false,
+        index: oversized,
+        opId: extractRawOpId(rawInputs[oversized]),
+        rejection: { code: 'payload_too_large', message: `Operation exceeds maximum size of ${this.maxOpBytes} bytes` },
       };
     }
 
@@ -725,7 +763,7 @@ export class OpPipeline {
       }
     }
 
-    const txOutcome = await this.runTransaction(async (trx) => {
+    const write = async (trx: Transaction<Database>): Promise<{ ack: BatchAck; events: StreamEvent[] }> => {
       const seqByStream = await lockStreams(trx, [streamId]);
 
       const existingRows = await trx
@@ -777,10 +815,10 @@ export class OpPipeline {
         const ack: BatchAck = { ok: false, index: 0, opId: ops[0]!.opId, rejection: guard.rejection };
         return { ack, events: [] as StreamEvent[] };
       }
-      const { write } = guard;
+      const { write: document } = guard;
 
       const foreign = await findForeignCreate(trx, streamId, ops);
-      if (foreign) {
+      if (foreign && !document) {
         const ack: BatchAck = {
           ok: false,
           index: foreign.index,
@@ -792,11 +830,11 @@ export class OpPipeline {
 
       const state = await loadStateForOps(trx, streamId, ops);
       const nowMs = this.now();
-      const ctx: ApplyContext = { actor, laneId: write?.access.laneId ?? this.defaultLaneId, now: nowMs };
+      const ctx: ApplyContext = { actor, laneId: document?.access.laneId ?? this.defaultLaneId, now: nowMs };
       let versions: (ItemVersion | null)[] = [];
-      if (write) {
-        write.rows = await loadItemRows(trx, streamId, Object.keys(state.markups));
-        const evaluation = await evaluateDocumentWrite(trx, write, state, ops, ctx);
+      if (document) {
+        document.rows = await loadItemRows(trx, streamId, Object.keys(state.markups));
+        const evaluation = await evaluateDocumentWrite(trx, document, state, ops, ctx);
         if (!evaluation.ok) {
           const ack: BatchAck = {
             ok: false,
@@ -807,6 +845,10 @@ export class OpPipeline {
           return { ack, events: [] as StreamEvent[] };
         }
         versions = evaluation.versions;
+      }
+      if (foreign) {
+        const ack: BatchAck = { ok: false, index: foreign.index, opId: ops[foreign.index]!.opId, rejection: UNUSABLE_CREATE };
+        return { ack, events: [] as StreamEvent[] };
       }
       const applied = applyBatch(state, ops, ctx);
 
@@ -884,16 +926,16 @@ export class OpPipeline {
         .set({
           seq: String(seq),
           updated_at: receivedAtDate,
-          ...(write ? { project_id: write.access.projectId } : {}),
+          ...(document ? { project_id: document.access.projectId } : {}),
         })
         .where('id', '=', streamId)
         .execute();
 
-      await persistChanges(trx, streamId, applied.state, applied.changes, write);
-      if (write) {
+      await persistChanges(trx, streamId, applied.state, applied.changes, document);
+      if (document) {
         for (const [i, op] of ops.entries()) {
           const version = versions[i];
-          if (version) await writeItemVersion(trx, write.access, op, version, receivedAtDate);
+          if (version) await writeItemVersion(trx, document.access, op, version, receivedAtDate);
         }
       }
 
@@ -903,6 +945,10 @@ export class OpPipeline {
 
       const ack: BatchAck = { ok: true, streamId, results };
       return { ack, events };
+    };
+    const txOutcome = await this.runTransaction(write).catch((err: unknown): { ack: BatchAck; events: StreamEvent[] } => {
+      if (!isDataError(err)) throw err;
+      return { ack: { ok: false, index: 0, opId: ops[0]!.opId, rejection: UNSTORABLE_WRITE }, events: [] };
     });
 
     if (txOutcome.events.length > 0) {

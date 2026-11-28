@@ -65,7 +65,7 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
   const wss = new WebSocketServer({
     noServer: true,
     // Room for the largest operation or batch with its frame, and always for a full open frame.
-    maxPayload: Math.max(config.maxOpBytes + 16_384, MAX_OPEN_PENDING_IDS * 64),
+    maxPayload: Math.max(config.maxOpBytes + 16_384, config.maxBatchBytes + 16_384, MAX_OPEN_PENDING_IDS * 64),
   });
 
   const alive = new WeakMap<WebSocket, boolean>();
@@ -123,6 +123,7 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
       send: (frame) => {
         if (!conn.ended) sendJson(ws, frame);
       },
+      close: () => ws.close(1011, 'internal_error'),
     });
     let negotiatedVersion: number | null = null;
 
@@ -179,6 +180,7 @@ export function attachWebSocketServer(options: WsServerOptions): WsHandle {
           user: session.user,
           connectionId,
           maxOpBytes: config.maxOpBytes,
+          maxBatchBytes: config.maxBatchBytes,
         });
         return;
       }

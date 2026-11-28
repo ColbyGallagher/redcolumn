@@ -27,12 +27,16 @@ export interface SyncHubOptions {
   broadcaster: Broadcaster;
   logger: Logger;
   cursors?: CursorSealer;
+  /** How a stream is read. Defaults to `readFeed`; tests use it to delay or fail a read. */
+  feedReader?: typeof readFeed;
 }
 
 export interface SyncConnection {
   id: string;
   user: { id: string; name: string };
   send: (frame: ServerFrame) => void;
+  /** Ends the connection in a way the client takes as "connect again". */
+  close: () => void;
 }
 
 interface Subscription {
@@ -117,8 +121,8 @@ export class SyncHub {
   }
 
   /** @internal */
-  get deps(): SyncHubOptions & { cursors: CursorSealer } {
-    return { ...this.options, cursors: this.cursors };
+  get deps(): SyncHubOptions & { cursors: CursorSealer; feedReader: typeof readFeed } {
+    return { ...this.options, cursors: this.cursors, feedReader: this.options.feedReader ?? readFeed };
   }
 
   /** @internal */
@@ -170,19 +174,38 @@ export class SyncSession {
     this.connection = connection;
   }
 
-  /** Adds `task` to a stream's queue. A failed task is logged and ends that stream's subscription. */
+  /**
+   * Adds `task` to a stream's queue. A task still running when its subscription ends must send
+   * nothing and register nothing: it asks `gone` after each wait. A failed task ends the
+   * connection (`fail`).
+   */
   private enqueue(sub: Subscription, task: () => Promise<void>): Promise<void> {
     sub.queue = sub.queue.then(async () => {
-      if (sub.closed) return;
+      if (this.gone(sub)) return;
       try {
         await task();
       } catch (err) {
         this.hub.deps.logger.error({ err, streamId: sub.streamId, userId: this.connection.user.id }, 'Sync stream failed');
-        this.drop(sub);
-        this.connection.send({ type: 'error', code: 'internal_error', streamId: sub.streamId });
+        if (!this.gone(sub)) this.fail(sub.streamId);
       }
     });
     return this.hub.track(sub.queue);
+  }
+
+  /** Whether the subscription ended: the stream or the socket closed, or access went. */
+  private gone(sub: Subscription): boolean {
+    return sub.closed || this.disposed;
+  }
+
+  /**
+   * For a stream that can no longer be kept up to date, such as after a failed read. Leaving the
+   * socket open would show the client as synced while it received nothing, so the connection ends:
+   * the client shows it is not synced, connects again and resends what was not answered.
+   */
+  private fail(streamId: string): void {
+    this.connection.send({ type: 'error', code: 'internal_error', streamId });
+    this.dispose();
+    this.connection.close();
   }
 
   private message(sub: Subscription, message: ServerMessage): void {
@@ -244,7 +267,9 @@ export class SyncSession {
 
     await this.enqueue(sub, async () => {
       const after = cursor === null ? null : cursors.open(cursor, streamId, userId);
-      const feed = await readFeed(db, userId, streamId, after, pendingOpIds);
+      const feed = await this.hub.deps.feedReader(db, userId, streamId, after, pendingOpIds);
+      // A large document takes a while: by now the socket may have closed, or access gone.
+      if (this.gone(sub)) return;
       if (feed.kind === 'denied') {
         this.revoke(sub);
         return;
@@ -296,7 +321,8 @@ export class SyncSession {
   /** Delivers what is new on the stream: an `ack` for this connection's own operations, an `event` otherwise. */
   private async pump(sub: Subscription): Promise<void> {
     const { db } = this.hub.deps;
-    const feed = await readFeed(db, this.connection.user.id, sub.streamId, sub.lastSeq);
+    const feed = await this.hub.deps.feedReader(db, this.connection.user.id, sub.streamId, sub.lastSeq);
+    if (this.gone(sub)) return;
     if (feed.kind === 'denied') {
       this.revoke(sub);
       return;
@@ -374,12 +400,16 @@ export class SyncSession {
 
     await this.enqueue(sub, async () => {
       // A write refused because access went is reported as that, not as a rejected edit.
-      if (refused?.rejection.code === 'forbidden' && !(await resolveDocumentAccess(db, userId, streamId))) {
-        this.revoke(sub);
-        return;
+      if (refused?.rejection.code === 'forbidden') {
+        const access = await resolveDocumentAccess(db, userId, streamId);
+        if (this.gone(sub)) return;
+        if (!access) {
+          this.revoke(sub);
+          return;
+        }
       }
       await this.pump(sub);
-      if (sub.closed) return;
+      if (this.gone(sub)) return;
       if (refused) {
         for (const id of opIds) sub.awaiting.delete(id);
         this.message(sub, {
@@ -435,6 +465,11 @@ export class SyncSession {
         }
       } catch (err) {
         logger.warn({ err, streamId: sub.streamId }, 'Failed to re-check document access');
+        // Access that cannot be confirmed ends the connection too: this may be a removed member.
+        if (!this.gone(sub)) {
+          this.fail(sub.streamId);
+          return;
+        }
       }
     }
   }
