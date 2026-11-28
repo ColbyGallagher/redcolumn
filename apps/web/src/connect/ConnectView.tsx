@@ -221,9 +221,10 @@ export function ConnectView({
     setSubmitting(true);
     try {
       if (!user && invitePreview.hasAccount) {
-        await client.login(invitePreview.email, password);
-        const acceptedUser = await client.acceptInvite(inviteToken);
+        const signedIn = await client.login(invitePreview.email, password);
+        updateUser(signedIn);
         setPassword('');
+        const acceptedUser = await client.acceptInvite(inviteToken);
         setConfirmPassword('');
         updateUser(acceptedUser);
         dismissInvite();

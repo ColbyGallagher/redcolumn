@@ -978,6 +978,60 @@ describe('server integration (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_U
       });
       assert.equal(otherSessionsRes.status, 200);
       assert.deepEqual(await otherSessionsRes.json(), { projects: [], sessions: [] });
+
+      // Bogus or expired invites return 404/410 even with a short password (pre-checked before password validation/hashing)
+      const bogusAccept = await fetch(`${baseUrl}/api/invites/not-a-real-token/accept`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: baseUrl },
+        body: JSON.stringify({ name: 'Ghost', password: 'short' }),
+      });
+      assert.equal(bogusAccept.status, 404);
+      assert.deepEqual(await bogusAccept.json(), { error: 'invite_not_found' });
+
+      const expiredInvite = await createInvite(dbHandle.db, {
+        email: 'expired@northbridge.example',
+        name: 'Expired Guest',
+        projectId: 'prj-1',
+        createdBy: admin.id,
+        ttlMs: -1000,
+      });
+      const expiredAccept = await fetch(`${baseUrl}/api/invites/${encodeURIComponent(expiredInvite.token)}/accept`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', origin: baseUrl },
+        body: JSON.stringify({ name: 'Expired Guest', password: 'short' }),
+      });
+      assert.equal(expiredAccept.status, 410);
+      assert.deepEqual(await expiredAccept.json(), { error: 'invite_expired' });
+
+      // Concurrent acceptance of two distinct invites for the same email returns 200 and 409 account_exists (never 500)
+      const raceInviteA = await createInvite(dbHandle.db, {
+        email: 'race@northbridge.example',
+        name: 'Race Guest',
+        projectId: 'prj-1',
+        createdBy: admin.id,
+      });
+      const raceInviteB = await createInvite(dbHandle.db, {
+        email: 'race@northbridge.example',
+        name: 'Race Guest',
+        projectId: 'prj-2',
+        createdBy: admin.id,
+      });
+      const [raceResA, raceResB] = await Promise.all([
+        fetch(`${baseUrl}/api/invites/${encodeURIComponent(raceInviteA.token)}/accept`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: baseUrl },
+          body: JSON.stringify({ name: 'Race Guest', password: 'fictional-race-pass-1' }),
+        }),
+        fetch(`${baseUrl}/api/invites/${encodeURIComponent(raceInviteB.token)}/accept`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: baseUrl },
+          body: JSON.stringify({ name: 'Race Guest', password: 'fictional-race-pass-2' }),
+        }),
+      ]);
+      const statuses = [raceResA.status, raceResB.status].sort((a, b) => a - b);
+      assert.deepEqual(statuses, [200, 409]);
+      const loserBody = (raceResA.status === 409 ? await raceResA.json() : await raceResB.json()) as { error: string };
+      assert.equal(loserBody.error, 'account_exists');
     } finally {
       await server.app.close();
     }

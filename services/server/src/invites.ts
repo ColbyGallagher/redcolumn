@@ -168,10 +168,33 @@ export async function acceptInvite(
 
   const tokenHash = hashSessionToken(token);
 
+  // Pre-check invite existence, expiry, acceptance, and existing account before hashing
+  // so bogus/expired/used tokens never trigger argon2id work or return 400 invalid_password.
+  const precheckNow = new Date();
+  const precheckInvite = await db
+    .selectFrom('invites')
+    .select(['email_lower', 'expires_at', 'accepted_at'])
+    .where('token_hash', '=', tokenHash)
+    .executeTakeFirst();
+
+  if (!precheckInvite) return { ok: false, status: 404, code: 'invite_not_found' };
+  if (precheckInvite.accepted_at !== null) return { ok: false, status: 409, code: 'invite_already_accepted' };
+  if (precheckInvite.expires_at.getTime() <= precheckNow.getTime()) {
+    return { ok: false, status: 410, code: 'invite_expired' };
+  }
+
   // Hash the password before opening the transaction so we don't hold a DB row lock during argon2id.
   let preparedPasswordHash: string | null = null;
-  if (!options.signedInUser && typeof options.password === 'string') {
-    if (options.password.length < 8) {
+  if (!options.signedInUser) {
+    const existingPrecheck = await db
+      .selectFrom('users')
+      .select('id')
+      .where('email_lower', '=', precheckInvite.email_lower)
+      .executeTakeFirst();
+    if (existingPrecheck) {
+      return { ok: false, status: 409, code: 'account_exists' };
+    }
+    if (typeof options.password !== 'string' || options.password.length < 8) {
       return { ok: false, status: 400, code: 'invalid_password' };
     }
     preparedPasswordHash = await hashPassword(options.password);
@@ -229,7 +252,7 @@ export async function acceptInvite(
 
       const id = randomUUID();
       const isAdmin = invite.role === 'admin';
-      await trx
+      const inserted = await trx
         .insertInto('users')
         .values({
           id,
@@ -241,7 +264,13 @@ export async function acceptInvite(
           is_admin: isAdmin,
           disabled_at: null,
         })
-        .execute();
+        .onConflict((oc) => oc.column('email_lower').doNothing())
+        .returning('id')
+        .executeTakeFirst();
+
+      if (!inserted) {
+        return { ok: false, status: 409, code: 'account_exists' };
+      }
 
       user = {
         id,

@@ -68,15 +68,20 @@ describe('loadAppConfig', () => {
 });
 
 describe('parseInviteToken', () => {
-  it('extracts tokens from hash routes and query strings', () => {
+  it('extracts tokens from hash routes, pathnames, and query strings', () => {
     assert.equal(parseInviteToken({ hash: '#/invite/tok_abc12345', search: '' }), 'tok_abc12345');
     assert.equal(parseInviteToken({ hash: '#invite/tok_abc12345', search: '' }), 'tok_abc12345');
+    assert.equal(parseInviteToken({ pathname: '/invite/tok_path1234', hash: '', search: '' }), 'tok_path1234');
     assert.equal(parseInviteToken({ hash: '', search: '?invite=tok_xyz98765' }), 'tok_xyz98765');
-    assert.equal(parseInviteToken({ hash: '#/invite/tok_hash1234', search: '?invite=tok_query1234' }), 'tok_hash1234');
+    assert.equal(parseInviteToken({ pathname: '/invite/tok_path1234', hash: '#/invite/tok_hash1234', search: '?invite=tok_query1234' }), 'tok_hash1234');
+    assert.equal(parseInviteToken({ pathname: '/invite/tok_path1234', hash: '', search: '?invite=tok_query1234' }), 'tok_path1234');
   });
 
   it('returns null for missing, short, or malformed invite tokens', () => {
     assert.equal(parseInviteToken({ hash: '', search: '' }), null);
+    assert.equal(parseInviteToken({ pathname: '/invite/short', hash: '', search: '' }), null);
+    assert.equal(parseInviteToken({ pathname: '/invite/bad%20token', hash: '', search: '' }), null);
+    assert.equal(parseInviteToken({ pathname: '/other/tok_abc12345', hash: '', search: '' }), null);
     assert.equal(parseInviteToken({ hash: '#/invite/short', search: '' }), null);
     assert.equal(parseInviteToken({ hash: '#/invite/bad%20token%20space', search: '' }), null);
     assert.equal(parseInviteToken({ hash: '#/other/tok_abc12345', search: '' }), null);

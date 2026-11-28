@@ -63,15 +63,26 @@ export async function loadAppConfig(fetchImpl: FetchLike = fetch): Promise<AppCo
 const SAFE_INVITE_TOKEN_RE = /^[A-Za-z0-9_.-]{8,256}$/;
 
 /**
- * Extracts an invitation token from `#/invite/<token>`, `#invite/<token>`, or `?invite=<token>`.
- * Returns `null` when absent or malformed.
+ * Extracts an invitation token from `#/invite/<token>`, `#invite/<token>`, `/invite/<token>`,
+ * or `?invite=<token>`. Returns `null` when absent or malformed.
  */
-export function parseInviteToken(locationLike: { hash: string; search: string }): string | null {
+export function parseInviteToken(locationLike: { hash: string; search: string; pathname?: string }): string | null {
   const hash = locationLike.hash ?? '';
   const hashMatch = /^#\/?invite\/([^/?#]+)/i.exec(hash);
   if (hashMatch?.[1]) {
     try {
       const decoded = decodeURIComponent(hashMatch[1]).trim();
+      if (SAFE_INVITE_TOKEN_RE.test(decoded)) return decoded;
+    } catch {
+      return null;
+    }
+  }
+
+  const pathname = locationLike.pathname ?? '';
+  const pathMatch = /^\/invite\/([^/?#]+)/i.exec(pathname);
+  if (pathMatch?.[1]) {
+    try {
+      const decoded = decodeURIComponent(pathMatch[1]).trim();
       if (SAFE_INVITE_TOKEN_RE.test(decoded)) return decoded;
     } catch {
       return null;
@@ -92,7 +103,7 @@ export function parseInviteToken(locationLike: { hash: string; search: string })
   return null;
 }
 
-/** Removes any `#/invite/...` hash or `?invite=...` query parameter from the browser URL without reloading. */
+/** Removes any `#/invite/...` hash, `/invite/...` path, or `?invite=...` query parameter from the browser URL without reloading. */
 export function clearInviteFromUrl(): void {
   if (typeof window === 'undefined' || !window.history?.replaceState) return;
   try {
@@ -100,6 +111,9 @@ export function clearInviteFromUrl(): void {
     url.searchParams.delete('invite');
     if (/^#\/?invite\//i.test(url.hash)) {
       url.hash = '';
+    }
+    if (/^\/invite\//i.test(url.pathname)) {
+      url.pathname = '/';
     }
     window.history.replaceState(null, '', url.pathname + url.search + url.hash);
   } catch {
