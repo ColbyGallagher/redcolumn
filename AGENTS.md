@@ -42,12 +42,13 @@ pnpm test                # every package's unit tests (node --test)
 pnpm check:tests         # every *.test.* file is reached by some package's test script
 pnpm build && pnpm check:bundle
 pnpm e2e:web             # Playwright, web (see e2e/README.md for first-run setup)
-pnpm verify:fast         # client-data + typecheck + test
+pnpm verify:fast         # client-data + check:tests + typecheck + test
 pnpm verify              # everything, including both e2e projects
 ```
 
 Package test scripts list their files with globs. `src/*.test.ts` is **not recursive**: a test in
-`src/sub/x.test.ts` never runs unless the glob is `src/**/*.test.ts` or the file is listed.
+`src/sub/x.test.ts` never runs unless the file is listed or the glob is `"src/**/*.test.ts"`, in double
+quotes (unquoted, the Linux shell does not recurse).
 `pnpm check:tests` (in CI) fails if a test file is not reached.
 
 ## Rules that CI enforces
@@ -60,7 +61,8 @@ Package test scripts list their files with globs. `src/*.test.ts` is **not recur
   ([packages/i18n/AGENTS.md](packages/i18n/AGENTS.md)).
 - **Commands need tests.** Every command in `apps/web/src/commands/appCommands.ts` has an entry in
   `e2e/coverage.ts`. A new command gets `{ spec: '<file>' }` with a test that runs it, or
-  `{ skip: '<reason>' }` if it cannot run unattended. Not `'todo'`.
+  `{ skip: '<reason>' }` if it cannot run unattended. Not `'todo'`. The end-to-end suite checks this;
+  CI does not run it yet, so run it yourself.
 
 ## When a test is required
 

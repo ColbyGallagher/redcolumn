@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { testPatterns, unrunTestFiles } from './check-test-files.mjs';
+import { testPatterns, unrunTestFiles, unsafeGlobs } from './check-test-files.mjs';
 
 test('reads the file globs out of a test script', () => {
   assert.deepEqual(
@@ -41,4 +41,10 @@ test('a recursive glob reaches it', () => {
 test('a package with tests but no test script is reported', () => {
   const missed = unrunTestFiles(FILES, [{ dir: 'packages/a', script: 'node --test "src/**/*.test.ts"' }, { dir: 'packages/b' }], expand);
   assert.deepEqual(missed, ['packages/b/src/z.test.ts']);
+});
+
+test('a ** glob outside double quotes is reported, because sh would not recurse', () => {
+  assert.deepEqual(unsafeGlobs('node --test src/**/*.test.ts'), ['src/**/*.test.ts']);
+  assert.deepEqual(unsafeGlobs("node --test 'src/**/*.test.ts'"), ["'src/**/*.test.ts'"]);
+  assert.deepEqual(unsafeGlobs('node --test "src/**/*.test.ts" src/*.test.ts'), []);
 });

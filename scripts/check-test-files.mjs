@@ -28,6 +28,16 @@ export function words(script) {
   return [...script.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((m) => m[1] ?? m[2] ?? m[3]);
 }
 
+/**
+ * The `**` globs in a script that are not in double quotes. pnpm runs scripts through `sh` on
+ * Linux, which has no globstar: unquoted, a recursive glob reaches exactly one folder down and
+ * silently drops the rest, while fs.globSync (and so this check) would count them all. Single quotes
+ * are no better: cmd on Windows passes them through as part of the name.
+ */
+export function unsafeGlobs(script) {
+  return script.replace(/"[^"]*"/g, ' ').split(/\s+/).filter((w) => w.includes('**'));
+}
+
 /** The words of a test script that name test files: globs, or paths to a test file. */
 export function testPatterns(script) {
   return words(script).filter((w) => !w.startsWith('-') && (w.includes('*') || TEST_FILE.test(w)));
@@ -72,12 +82,19 @@ function expandFromRepo(dir, pattern) {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const tracked = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' }).split('\0');
   const tests = tracked.filter((f) => TEST_FILE.test(f) && !f.startsWith('e2e/') && !f.includes('node_modules/'));
-  const missed = unrunTestFiles(tests, workspacePackages(), expandFromRepo);
+  const packages = workspacePackages();
+  const unsafe = packages.flatMap(({ dir, script }) => unsafeGlobs(script ?? '').map((glob) => `${dir}: ${glob}`));
+  if (unsafe.length) {
+    console.error('Test globs using ** must be in double quotes, or the shell on Linux skips test files:');
+    for (const u of unsafe) console.error(`  ${u}`);
+    process.exit(1);
+  }
+  const missed = unrunTestFiles(tests, packages, expandFromRepo);
   if (missed.length) {
     console.error(`${missed.length} test file(s) that \`pnpm test\` never runs:`);
     for (const f of missed) console.error(`  ${f}`);
     console.error(
-      '\nAdd them to the package\'s "test" script. Globs such as src/*.test.ts are not recursive: use src/**/*.test.ts, or list the file.',
+      '\nAdd them to the package\'s "test" script. Globs such as src/*.test.ts are not recursive: use "src/**/*.test.ts" (with the double quotes), or list the file.',
     );
     process.exit(1);
   }
