@@ -178,6 +178,7 @@ async function consumeReadableSequential(
   await new Promise<void>((resolvePromise, rejectPromise) => {
     let settled = false;
     let ended = false;
+    let closed = false;
     let processing = false;
 
     const cleanup = () => {
@@ -216,6 +217,8 @@ async function consumeReadableSequential(
           if (settled) return;
           if (ended) {
             finish();
+          } else if (closed || stream.destroyed) {
+            fail(new Error('Upload stream closed prematurely'));
           } else {
             stream.resume();
           }
@@ -237,6 +240,7 @@ async function consumeReadableSequential(
     };
 
     const onClose = () => {
+      closed = true;
       if (!settled && !ended && !processing) {
         fail(new Error('Upload stream closed prematurely'));
       }
