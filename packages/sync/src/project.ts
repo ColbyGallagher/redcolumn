@@ -15,6 +15,7 @@ import {
   type OpsState,
   type Placement,
   type Response as OpsResponse,
+  type StatusDef,
   type StatusEvent,
 } from '@nb/ops';
 
@@ -23,6 +24,8 @@ export interface ProjectOptions {
   pages: readonly string[];
   laneId: string;
   resolveAuthor: (actor: OpsActor) => string;
+  /** The project's statuses, so the history names them as they read. Without them it shows ids. */
+  statuses?: readonly StatusDef[];
 }
 
 export interface ProjectedView {
@@ -51,20 +54,26 @@ export function deepEqual(a: unknown, b: unknown): boolean {
   return true;
 }
 
-/** Projects `OpsState` for one immutable revision into the flat `Markup[]` shape the viewer expects. */
-export function projectMarkups(state: OpsState, options: ProjectOptions): ProjectedView {
-  const { revisionId, pages, laneId, resolveAuthor } = options;
-  const pageIndexById = new Map<string, number>();
-  for (let i = 0; i < pages.length; i++) pageIndexById.set(pages[i]!, i);
-
-  // Index issues by linked markupId (first non-deleted issue linked to each markup).
-  const issueByMarkup = new Map<string, Issue>();
+/** The issue each linked markup shows: the first live one linking it, by markup id. */
+export function issuesByMarkup(state: OpsState): Map<string, Issue> {
+  const out = new Map<string, Issue>();
   for (const issue of Object.values(state.issues)) {
     if (issue.deleted) continue;
     for (const markupId of issue.markupIds) {
-      if (!issueByMarkup.has(markupId)) issueByMarkup.set(markupId, issue);
+      if (!out.has(markupId)) out.set(markupId, issue);
     }
   }
+  return out;
+}
+
+/** Projects `OpsState` for one immutable revision into the flat `Markup[]` shape the viewer expects. */
+export function projectMarkups(state: OpsState, options: ProjectOptions): ProjectedView {
+  const { revisionId, pages, laneId, resolveAuthor, statuses } = options;
+  const statusName = (id: string) => statuses?.find((s) => s.id === id)?.name ?? id;
+  const pageIndexById = new Map<string, number>();
+  for (let i = 0; i < pages.length; i++) pageIndexById.set(pages[i]!, i);
+
+  const issueByMarkup = issuesByMarkup(state);
 
   // Index non-deleted responses by markupId (direct or via linked issue).
   const responsesByMarkup = new Map<string, OpsResponse[]>();
@@ -136,18 +145,24 @@ export function projectMarkups(state: OpsState, options: ProjectOptions): Projec
     }
 
     if (issue) {
-      const evs = eventsByIssue.get(issue.id);
-      if (evs?.length) {
-        evs.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
-        projected.statusHistory = evs.map(
-          (e): StatusChange => ({
-            state: e.to,
-            model: 'Review',
-            author: resolveAuthor(e.actor),
-            at: e.at,
-          }),
-        );
+      const evs = eventsByIssue.get(issue.id) ?? [];
+      evs.sort((a, b) => a.at - b.at || a.id.localeCompare(b.id));
+      const history = evs.map(
+        (e): StatusChange => ({
+          state: statusName(e.to),
+          model: 'Review',
+          author: resolveAuthor(e.actor),
+          at: e.at,
+        }),
+      );
+      // The status an issue is raised with has no event. It is history too, unless the issue was
+      // raised only to make a change in the same batch, which has the same time.
+      const first = evs[0];
+      const initial = first ? first.from : laneStatus?.status;
+      if (initial && first?.at !== issue.createdAt) {
+        history.unshift({ state: statusName(initial), model: 'Review', author: resolveAuthor(issue.owner), at: issue.createdAt });
       }
+      if (history.length) projected.statusHistory = history;
     }
 
     const markup = projected as unknown as Markup;

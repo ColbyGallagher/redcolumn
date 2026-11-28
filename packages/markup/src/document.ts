@@ -45,7 +45,11 @@ export interface EditorContext<D = MarkupDocument> {
  * What an undo or redo did. `nothing`: there was no step to take. `forbidden`: the document does
  * not take edits now. `changed`: the step's target changed since. `offline`: it could not be sent.
  */
-export type UndoResult = { ok: true } | { ok: false; reason: 'changed' | 'forbidden' | 'offline' | 'nothing' };
+/**
+ * `permanent`: the step is one that is never undone (a status change on a server document). It is
+ * taken off the stack and nothing changes, so the next undo reaches the change before it.
+ */
+export type UndoResult = { ok: true } | { ok: false; reason: 'changed' | 'forbidden' | 'offline' | 'nothing' | 'permanent' };
 
 /** Scales, viewports, sheet numbers and titles, and the custom columns and statuses: read by every view, written when allowed. */
 export interface DocumentSetup {

@@ -15,6 +15,7 @@ import {
   versionOf,
   type Actor as OpsActor,
   type ApplyContext,
+  type Issue,
   type Operation,
   type OpsState,
   type Placement,
@@ -24,7 +25,7 @@ import {
 } from '@nb/ops';
 import { SOURCE_RANK, type SheetInfo } from '@nb/sheets';
 import { defaultSyncPersistence, type SyncPersistence } from './persistence.ts';
-import { diffMarkup, projectMarkups, splitMarkup } from './project.ts';
+import { diffMarkup, issuesByMarkup, projectMarkups, splitMarkup } from './project.ts';
 import { baseForGroup, buildRetryOps, groupPendingUnits, rebasePending } from './rebase.ts';
 import type {
   ConnectionState,
@@ -41,11 +42,17 @@ import type {
   SyncTransport,
   TransportState,
   UndoGroupCheck,
+  UndoKind,
   UndoOpSpec,
   UndoStep,
 } from './types.ts';
 
 const DEFAULT_COLUMN_SET: ColumnSet = { columns: [], statuses: DEFAULT_STATUSES };
+
+/** The status an issue is raised with when the document was given no project statuses. */
+const FALLBACK_STATUS = 'open';
+/** An issue's title is taken from what its markup says, no longer than this. */
+const MAX_ISSUE_TITLE = 200;
 
 let fallbackIdCounter = 0;
 function defaultNewId(): string {
@@ -77,6 +84,8 @@ function describeOps(ops: readonly Operation[]): string {
     const n = ops.filter((o) => o.type === 'markup.patch').length;
     return n === 1 ? 'Edit markup' : `Edit ${n} markups`;
   }
+  if (types.has('issue.patch')) return 'Check markup';
+  if (types.has('status.transition') || types.has('issue.create') || types.has('issue.link')) return 'Set status';
   return 'Edit';
 }
 
@@ -100,8 +109,8 @@ function applyUnits(
   return { ok: true, state: next };
 }
 
-function opKind(type: string): 'markup' | 'placement' {
-  return type.startsWith('markup.') ? 'markup' : 'placement';
+function opKind(type: string): UndoKind {
+  return type.slice(0, type.indexOf('.')) as UndoKind;
 }
 
 interface DeferredUndo {
@@ -124,6 +133,8 @@ interface PendingBatchDraft {
   forwardChecks: ForwardCheck[];
   addedMarkups: string[];
   label: string | null;
+  /** A status was set: Undo keeps it, and says so. */
+  statusSet: boolean;
 }
 
 export interface SyncDocumentOptions {
@@ -199,6 +210,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
   private undoStack: UndoStep[] = [];
   private redoStack: UndoStep[] = [];
 
+  private issueIndex: { issues: OpsState['issues']; byMarkup: ReadonlyMap<string, Issue> } | null = null;
   private projectedList: Markup[] = [];
   private projectedMap = new Map<string, Markup>();
   private placementByMarkup = new Map<string, Placement>();
@@ -590,26 +602,144 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     });
   }
 
+  /**
+   * `status` and `checked` belong to the markup's issue, which is raised the first time either is
+   * set. The history is made from the status events, so a `statusHistory` in a patch is ignored.
+   */
   update(id: string, patch: Partial<Omit<Markup, 'id'>>): void {
     if (this.readOnly) return;
     const before = this.projectedMap.get(id);
     if (!before) return;
+    const { status, statusHistory: _history, ...rest } = patch;
+    const tick = 'checked' in rest ? !!rest.checked : null;
+    delete rest.checked;
 
     this.runEdit((draft) => {
-      const plan = planUpdate(this.projectedMap, id, patch, {
-        actor: this.context.actor.name,
-        now: this.clock(),
-        statuses: this.columnSet().statuses,
-        mayEdit: (m) => this.mayEdit(m),
-        hasConnectors: this.hasConnectors,
-      });
-      if (!plan.put.length) return;
-      for (let i = 0; i < plan.put.length; i++) {
-        const next = plan.put[i]!;
-        const prev = i === 0 ? before : this.projectedMap.get(next.id);
-        if (prev) this.emitDiffIntoDraft(draft, prev, next, i === 0 ? 'Edit markup' : null);
+      if (Object.keys(rest).length) {
+        const plan = planUpdate(this.projectedMap, id, rest, {
+          actor: this.context.actor.name,
+          now: this.clock(),
+          statuses: this.columnSet().statuses,
+          mayEdit: (m) => this.mayEdit(m),
+          hasConnectors: this.hasConnectors,
+        });
+        for (let i = 0; i < plan.put.length; i++) {
+          const next = plan.put[i]!;
+          const prev = i === 0 ? before : this.projectedMap.get(next.id);
+          if (prev) this.emitDiffIntoDraft(draft, prev, next, i === 0 ? 'Edit markup' : null);
+        }
       }
+      // As on a file on this device, whoever may change the document may set these on any markup.
+      if (status !== undefined && status !== before.status) this.emitStatus(draft, id, status);
+      if (tick !== null && tick !== !!before.checked) this.emitTick(draft, id, tick);
     });
+  }
+
+  // ---- Issues -----------------------------------------------------------------------------
+
+  /** The issue a markup shows, as this device sees it now. */
+  issueFor(markupId: string): Issue | undefined {
+    return this.linkedIssues().get(markupId);
+  }
+
+  /** The issue of each linked markup, worked out again only when the issues change. */
+  private linkedIssues(): ReadonlyMap<string, Issue> {
+    if (this.issueIndex?.issues !== this.view.issues) {
+      this.issueIndex = { issues: this.view.issues, byMarkup: issuesByMarkup(this.view) };
+    }
+    return this.issueIndex.byMarkup;
+  }
+
+  private envelope<T extends Operation['type']>(
+    type: T,
+    entityId: string,
+    payload: Extract<Operation, { type: T }>['payload'],
+    basedOn?: Record<string, number | string>,
+  ): Operation {
+    return {
+      opId: this.newId(),
+      schemaVersion: PROTOCOL_VERSION,
+      streamId: this.streamId,
+      type,
+      entityId,
+      payload,
+      ...(basedOn ? { basedOn } : {}),
+      clientTime: this.clock(),
+    } as Operation;
+  }
+
+  /**
+   * The markup's issue, raised in the draft if it has none. Markups grouped together are one
+   * comment, so a markup without an issue uses the one another member of its group has, and is
+   * linked to it where this person may change that issue (they raised it, or have no edit rule).
+   */
+  private ensureIssue(draft: PendingBatchDraft, markupId: string): { issue: Issue; changed: boolean } | null {
+    const markup = this.projectedMap.get(markupId);
+    if (!markup) return null;
+    const issues = this.linkedIssues();
+    const existing = issues.get(markupId);
+    if (existing) return { issue: existing, changed: false };
+
+    const sibling = markup.groupId
+      ? this.projectedList.find((m) => m.groupId === markup.groupId && issues.has(m.id))
+      : undefined;
+    if (sibling) {
+      const shared = issues.get(sibling.id)!;
+      if (this.editRule && shared.owner.userId !== this.actor.userId) return { issue: shared, changed: false };
+      this.applyDraftOps(draft, [this.envelope('issue.link', shared.id, { markupId })]);
+      return { issue: this.view.issues[shared.id]!, changed: true };
+    }
+
+    const issueId = this.newId();
+    const initial = this.statuses?.find((s) => s.category === 'open') ?? this.statuses?.[0];
+    const title = (markup.comment || markup.text || markup.subject || '').trim().slice(0, MAX_ISSUE_TITLE);
+    this.applyDraftOps(draft, [
+      this.envelope('issue.create', issueId, {
+        scopeId: this.scopeId,
+        title,
+        status: initial?.id ?? FALLBACK_STATUS,
+        markupIds: [markupId],
+      }),
+    ]);
+    return { issue: this.view.issues[issueId]!, changed: true };
+  }
+
+  private emitStatus(draft: PendingBatchDraft, markupId: string, to: string): void {
+    // An issue cannot go back to having no status, and only the project's statuses exist.
+    if (to === 'none' || (this.statuses && !this.statuses.some((s) => s.id === to))) return;
+    const ensured = this.ensureIssue(draft, markupId);
+    if (!ensured) return;
+    const issueId = ensured.issue.id;
+    const from = this.view.laneStatus[issueId]?.[this.laneId]?.status ?? null;
+    if (from !== to) {
+      // The revision in front is the one that was checked; closing requires naming it.
+      this.applyDraftOps(draft, [
+        this.envelope('status.transition', this.newId(), { issueId, from, to, revisionSeenId: this.revisionId }),
+      ]);
+    } else if (!ensured.changed) {
+      return;
+    }
+    draft.statusSet = true;
+    draft.label ??= 'Set status';
+  }
+
+  private emitTick(draft: PendingBatchDraft, markupId: string, checked: boolean): void {
+    if (!checked && !this.issueFor(markupId)) return;
+    const issue = this.ensureIssue(draft, markupId)?.issue;
+    if (!issue || issue.checked === checked) return;
+    const preOpId = versionOf(issue, 'checked').op;
+    const op = this.envelope(
+      'issue.patch',
+      issue.id,
+      { checked },
+      { checked: baseForGroup(own(this.confirmed.issues, issue.id), issue, 'checked') },
+    );
+    this.applyDraftOps(draft, [op]);
+    this.recordGroupCheck(draft, { kind: 'issue', entityId: issue.id, group: 'checked', expectedOpId: op.opId, preOpId });
+    draft.inverse.unshift({ type: 'issue.patch', entityId: issue.id, payload: { checked: !checked }, groups: ['checked'] });
+    draft.forward.push({ type: 'issue.patch', entityId: issue.id, payload: { checked }, groups: ['checked'] });
+    draft.forwardChecks.push({ kind: 'issue', entityId: issue.id, group: 'checked' });
+    draft.label ??= checked ? 'Check markup' : 'Uncheck markup';
   }
 
   remove(ids: Iterable<string>): void {
@@ -814,7 +944,8 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     if (this.readOnly) return;
     for (let i = 0; i < steps && this.undoStack.length; i++) {
       const res = await this.undo();
-      if (!res.ok) break;
+      // A step that is never undone counts as a step: carry on past it.
+      if (!res.ok && res.reason !== 'permanent') break;
     }
   }
 
@@ -1018,7 +1149,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
   // ---- Draft / batch editing helpers ------------------------------------------------------
 
   private emptyDraft(): PendingBatchDraft {
-    return { ops: [], checks: [], inverse: [], forward: [], forwardChecks: [], addedMarkups: [], label: null };
+    return { ops: [], checks: [], inverse: [], forward: [], forwardChecks: [], addedMarkups: [], label: null, statusSet: false };
   }
 
   private runEdit(fn: (draft: PendingBatchDraft) => void): void {
@@ -1247,20 +1378,36 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     this._editCount += 1;
 
     // Push discrete undo step and clear redo stack.
+    const steps: UndoStep[] = [];
+    const sourceOpIds = stamped.map((o) => o.opId);
     if (draft.inverse.length > 0) {
-      this.undoStack = [
-        ...this.undoStack,
-        {
-          id: this.newId(),
-          label: draft.label ?? describeOps(stamped),
-          at: this.clock(),
-          checks: draft.checks,
-          inverse: draft.inverse,
-          forward: draft.forward,
-          forwardChecks: draft.forwardChecks,
-          sourceOpIds: stamped.map((o) => o.opId),
-        },
-      ];
+      steps.push({
+        id: this.newId(),
+        label: draft.label ?? describeOps(stamped),
+        at: this.clock(),
+        checks: draft.checks,
+        inverse: draft.inverse,
+        forward: draft.forward,
+        forwardChecks: draft.forwardChecks,
+        sourceOpIds,
+      });
+    }
+    // A status change goes on top, so the next undo says it is kept before undoing anything else.
+    if (draft.statusSet) {
+      steps.push({
+        id: this.newId(),
+        label: 'Set status (cannot be undone)',
+        at: this.clock(),
+        checks: [],
+        inverse: [],
+        forward: [],
+        forwardChecks: [],
+        sourceOpIds,
+        permanent: true,
+      });
+    }
+    if (steps.length) {
+      this.undoStack = [...this.undoStack, ...steps];
       this.redoStack = [];
       this.historyEpoch += 1;
     }
@@ -1304,6 +1451,12 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
     const stack = kind === 'undo' ? this.undoStack : this.redoStack;
     const step = stack[stack.length - 1];
     if (!step) return { ok: false, reason: 'nothing' };
+    if (step.permanent) {
+      this.undoStack = this.undoStack.slice(0, -1);
+      this.schedulePersist();
+      this.notifyAll();
+      return { ok: false, reason: 'permanent' };
+    }
 
     // 1. Permission UI hint check on all touched markups.
     for (const check of step.checks) {
@@ -1376,8 +1529,11 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
   }
 
   private allChecksMatch(checks: readonly UndoGroupCheck[]): boolean {
-    const recordOf = (check: UndoGroupCheck): VersionedRecord | undefined =>
-      check.kind === 'markup' ? own(this.view.markups, check.entityId) : own(this.view.placements, check.entityId);
+    const recordOf = (check: UndoGroupCheck): VersionedRecord | undefined => {
+      const records: Readonly<Record<string, VersionedRecord>> =
+        check.kind === 'markup' ? this.view.markups : check.kind === 'placement' ? this.view.placements : this.view.issues;
+      return own(records, check.entityId);
+    };
     // Records this same step deleted: their other group checks still apply (undo restores first).
     const deletedByStep = new Set<string>();
     for (const check of checks) {
@@ -1431,6 +1587,12 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
         const confRec = own(this.confirmed.placements, spec.entityId);
         basedOn = {};
         for (const g of spec.groups) basedOn[g] = baseForGroup(confRec, viewRec, g);
+      } else if (spec.type === 'issue.patch') {
+        const viewRec = own(simView.issues, spec.entityId);
+        if (!viewRec || viewRec.deleted) return null;
+        const confRec = own(this.confirmed.issues, spec.entityId);
+        basedOn = {};
+        for (const g of spec.groups) basedOn[g] = baseForGroup(confRec, viewRec, g);
       }
 
       const op = {
@@ -1472,7 +1634,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       for (let i = 0; i < deferred.step.inverse.length; i++) {
         const spec = deferred.step.inverse[i]!;
         const op = deferred.emittedOps[i]!;
-        const kind = spec.type.startsWith('markup.') ? 'markup' : 'placement';
+        const kind = opKind(spec.type);
         for (const g of spec.groups) emittedByGroup.set(`${kind}:${spec.entityId}:${g}`, op.opId);
       }
 
@@ -1959,6 +2121,7 @@ export class SyncDocument implements MarkupDocument, SyncFacet {
       pages: this.pages,
       laneId: this.laneId,
       resolveAuthor: this.resolveAuthor,
+      statuses: this.statuses,
     });
     this.projectedList = projected.markups;
     this.projectedMap = projected.byId;
