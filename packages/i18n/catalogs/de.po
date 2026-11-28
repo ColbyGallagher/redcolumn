@@ -21001,7 +21001,7 @@ msgid "Accepting…"
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
-msgid "An account with this email already exists. Sign in first to accept the invitation."
+msgid "An account with this email already exists. Sign in to accept the invitation."
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
@@ -21029,6 +21029,10 @@ msgid "Could not reach the server. Check your connection and try again."
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
+msgid "Create a new account instead"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
 msgid "Create account & accept"
 msgstr ""
 
@@ -21046,6 +21050,10 @@ msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
 msgid "Hide members"
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "I already have an account"
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
@@ -21161,6 +21169,10 @@ msgid "Signing in…"
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
+msgid "This invitation does not say which side of the review to join. Ask an administrator."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx apps/web/src/review/ProjectMembersPanel.tsx
 msgid "This invitation has already been accepted."
 msgstr ""
 
@@ -21173,7 +21185,15 @@ msgid "This invitation link is invalid or no longer available."
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
+msgid "This invitation was withdrawn. Ask an administrator for a new link."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
 msgid "Too many attempts. Please wait a moment and try again."
+msgstr ""
+
+#: apps/web/src/connect/ConnectView.tsx
+msgid "You are already a member of this project. Your role has not changed."
 msgstr ""
 
 #: apps/web/src/connect/ConnectView.tsx
@@ -22975,6 +22995,14 @@ msgid "Reviewer"
 msgstr ""
 
 #: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Revoke"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Revoke invitation for {name}"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
 msgid "Role"
 msgstr ""
 
@@ -22984,6 +23012,10 @@ msgstr ""
 
 #: apps/web/src/review/ProjectMembersPanel.tsx
 msgid "Shareable single-use invite link"
+msgstr ""
+
+#: apps/web/src/review/ProjectMembersPanel.tsx
+msgid "This invitation is no longer pending."
 msgstr ""
 
 #: apps/web/src/review/ProjectMembersPanel.tsx

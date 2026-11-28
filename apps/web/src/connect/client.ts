@@ -116,6 +116,7 @@ export interface ServerClient {
   getProject(projectId: string): Promise<{ project: ServerProjectSummary; role: ProjectRole }>;
   listProjectMembers(projectId: string): Promise<ProjectMembersResponse>;
   createProjectInvite(projectId: string, input: CreateProjectInviteInput): Promise<CreateProjectInviteResponse>;
+  revokeProjectInvite(projectId: string, inviteId: string): Promise<void>;
   updateProjectMemberRole(projectId: string, userId: string, role: ProjectRole): Promise<ProjectMember>;
   removeProjectMember(projectId: string, userId: string): Promise<void>;
 }
@@ -255,6 +256,15 @@ export function createServerClient(fetchImpl: FetchLike = fetch): ServerClient {
         {
           method: 'POST',
           body: JSON.stringify(input),
+        },
+      );
+    },
+
+    async revokeProjectInvite(projectId: string, inviteId: string): Promise<void> {
+      await requestJson<{ ok: boolean; inviteId: string }>(
+        `/api/projects/${encodeURIComponent(projectId)}/invites/${encodeURIComponent(inviteId)}`,
+        {
+          method: 'DELETE',
         },
       );
     },

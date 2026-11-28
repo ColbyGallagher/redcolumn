@@ -1,5 +1,5 @@
 import { msg } from '@nb/i18n';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   ServerClientError,
   type PendingProjectInvite,
@@ -16,7 +16,8 @@ export interface ProjectMembersPanelProps {
   currentUserId: string;
   serverOrigin: string;
   onClose?: () => void;
-  onProjectAccessLost?: () => void;
+  /** `message` explains why, unless the viewer left the project themselves. */
+  onProjectAccessLost?: (message?: string) => void;
 }
 
 export function projectRoleLabel(role: ProjectRole): string {
@@ -45,6 +46,10 @@ function describeMemberError(err: unknown): string {
         return msg('This member is no longer on the project.');
       case 'not_found':
         return msg('Project not found or you no longer have access.');
+      case 'invite_already_accepted':
+        return msg('This invitation has already been accepted.');
+      case 'invite_not_found':
+        return msg('This invitation is no longer pending.');
       default:
         return msg('Request failed ({code}).', { code: err.code });
     }
@@ -78,12 +83,20 @@ export function ProjectMembersPanel({
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<ProjectRole>('reviewer');
   const [inviting, setInviting] = useState(false);
-  const [generatedLink, setGeneratedLink] = useState<string | null>(null);
+  // The server keeps only a hash of the token, so this is the one copy of a new link. Nothing but
+  // revoking that invitation clears it; mount the panel with `key={project.id}`.
+  const [generatedLink, setGeneratedLink] = useState<{ inviteId: string; url: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [busyInviteId, setBusyInviteId] = useState<string | null>(null);
 
-  const loadMembers = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // Held in a ref so a parent passing a new callback on each render does not reload the panel.
+  const accessLostRef = useRef(onProjectAccessLost);
+  useEffect(() => {
+    accessLostRef.current = onProjectAccessLost;
+  });
+
+  /** Fetches members and pending invitations, leaving what is on screen until they arrive. */
+  const refreshMembers = useCallback(async () => {
     try {
       const data = await client.listProjectMembers(project.id);
       setCallerRole(data.role);
@@ -91,19 +104,17 @@ export function ProjectMembersPanel({
       setInvites(data.invites);
     } catch (err) {
       if (err instanceof ServerClientError && err.status === 404) {
-        onProjectAccessLost?.();
+        accessLostRef.current?.(describeMemberError(err));
       }
       setError(describeMemberError(err));
-    } finally {
-      setLoading(false);
     }
-  }, [client, project.id, onProjectAccessLost]);
+  }, [client, project.id]);
 
   useEffect(() => {
-    setGeneratedLink(null);
-    setCopied(false);
-    void loadMembers();
-  }, [loadMembers]);
+    setLoading(true);
+    setError(null);
+    void refreshMembers().finally(() => setLoading(false));
+  }, [refreshMembers]);
 
   const isAdmin = callerRole === 'project_admin';
 
@@ -116,6 +127,8 @@ export function ProjectMembersPanel({
       if (userId === currentUserId) {
         setCallerRole(updated.role);
       }
+      // A demotion also withdraws the invitations that member had made.
+      await refreshMembers();
     } catch (err) {
       setError(describeMemberError(err));
     } finally {
@@ -129,10 +142,12 @@ export function ProjectMembersPanel({
     try {
       await client.removeProjectMember(project.id, userId);
       if (userId === currentUserId) {
-        onProjectAccessLost?.();
+        accessLostRef.current?.();
         return;
       }
       setMembers((prev) => prev.filter((m) => m.userId !== userId));
+      // Removal also withdraws pending invitations made by or sent to that member.
+      await refreshMembers();
     } catch (err) {
       setError(describeMemberError(err));
     } finally {
@@ -150,7 +165,7 @@ export function ProjectMembersPanel({
         email: inviteEmail.trim() || null,
         role: inviteRole,
       });
-      setGeneratedLink(buildFullInviteUrl(serverOrigin, res.inviteUrl));
+      setGeneratedLink({ inviteId: res.invite.id, url: buildFullInviteUrl(serverOrigin, res.inviteUrl) });
       setInviteEmail('');
       setInvites((prev) => [res.invite, ...prev]);
     } catch (err) {
@@ -160,10 +175,25 @@ export function ProjectMembersPanel({
     }
   };
 
+  const handleRevoke = async (inviteId: string) => {
+    setBusyInviteId(inviteId);
+    setError(null);
+    try {
+      await client.revokeProjectInvite(project.id, inviteId);
+      setInvites((prev) => prev.filter((i) => i.id !== inviteId));
+      setGeneratedLink((link) => (link?.inviteId === inviteId ? null : link));
+    } catch (err) {
+      setError(describeMemberError(err));
+      await refreshMembers();
+    } finally {
+      setBusyInviteId(null);
+    }
+  };
+
   const handleCopyLink = async () => {
     if (!generatedLink) return;
     try {
-      await navigator.clipboard.writeText(generatedLink);
+      await navigator.clipboard.writeText(generatedLink.url);
       setCopied(true);
     } catch {
       setCopied(false);
@@ -278,7 +308,7 @@ export function ProjectMembersPanel({
                     <input
                       type="text"
                       readOnly
-                      value={generatedLink}
+                      value={generatedLink.url}
                       onFocus={(e) => e.currentTarget.select()}
                     />
                   </label>
@@ -290,7 +320,7 @@ export function ProjectMembersPanel({
             </div>
           )}
 
-          {invites.length > 0 && (
+          {isAdmin && invites.length > 0 && (
             <div className="review-subsection">
               <h4>{msg('Pending invitations ({count})', { count: String(invites.length) })}</h4>
               <ul className="connect-list">
@@ -302,7 +332,20 @@ export function ProjectMembersPanel({
                         {msg('Expires {date}', { date: new Date(inv.expiresAt).toLocaleDateString() })}
                       </span>
                     </div>
-                    <span className="connect-pill">{projectRoleLabel(inv.role)}</span>
+                    <div className="review-member-controls">
+                      <span className="connect-pill">{projectRoleLabel(inv.role)}</span>
+                      <button
+                        type="button"
+                        className="btn"
+                        aria-label={msg('Revoke invitation for {name}', {
+                          name: inv.email ?? msg('Link-only invitation'),
+                        })}
+                        disabled={busyInviteId === inv.id}
+                        onClick={() => void handleRevoke(inv.id)}
+                      >
+                        {msg('Revoke')}
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>

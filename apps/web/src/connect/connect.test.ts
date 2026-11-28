@@ -263,7 +263,7 @@ describe('createServerClient', () => {
               createdAt: '2026-11-10T00:00:00.000Z',
             },
             token: 'tok_invite1234',
-            inviteUrl: '/invite/tok_invite1234',
+            inviteUrl: '/#/invite/tok_invite1234',
           },
           201,
         );
@@ -282,6 +282,9 @@ describe('createServerClient', () => {
       }
       if (url === '/api/projects/p-2/members/u-1' && method === 'PATCH') {
         return jsonResponse({ error: 'last_admin' }, 409);
+      }
+      if (url === '/api/projects/p-2/invites/inv-1' && method === 'DELETE') {
+        return jsonResponse({ ok: true, inviteId: 'inv-1' });
       }
       if (url === '/api/projects/p-2/members/u-2' && method === 'DELETE') {
         return jsonResponse({ ok: true, userId: 'u-2' });
@@ -307,7 +310,10 @@ describe('createServerClient', () => {
       email: 'ben@northbridge.example',
       role: 'reviewer',
     });
-    assert.equal(invited.inviteUrl, '/invite/tok_invite1234');
+    assert.equal(invited.inviteUrl, '/#/invite/tok_invite1234');
+    // The path the server returns is one the app reads the token back out of.
+    const link = new URL(invited.inviteUrl, 'https://review.northbridge.example');
+    assert.equal(parseInviteToken(link), 'tok_invite1234');
 
     const updated = await client.updateProjectMemberRole('p-2', 'u-2', 'viewer');
     assert.equal(updated.role, 'viewer');
@@ -319,7 +325,13 @@ describe('createServerClient', () => {
 
     await client.removeProjectMember('p-2', 'u-2');
 
-    assert.equal(calls.length, 7);
+    await client.revokeProjectInvite('p-2', invited.invite.id);
+    assert.deepEqual(
+      calls.at(-1),
+      { url: '/api/projects/p-2/invites/inv-1', method: 'DELETE', credentials: 'same-origin', body: undefined },
+    );
+
+    assert.equal(calls.length, 8);
     for (const call of calls) {
       assert.equal(call.credentials, 'same-origin');
     }

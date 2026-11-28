@@ -46,10 +46,16 @@ function describeAuthError(err: unknown): string {
         return msg('This invitation has expired. Ask an administrator for a new link.');
       case 'invite_already_accepted':
         return msg('This invitation has already been accepted.');
+      case 'invite_revoked':
+        return msg('This invitation was withdrawn. Ask an administrator for a new link.');
+      case 'already_member':
+        return msg('You are already a member of this project. Your role has not changed.');
+      case 'lane_unresolved':
+        return msg('This invitation does not say which side of the review to join. Ask an administrator.');
       case 'email_mismatch':
         return msg('You are signed in with a different email address than this invitation.');
       case 'account_exists':
-        return msg('An account with this email already exists. Sign in first to accept the invitation.');
+        return msg('An account with this email already exists. Sign in to accept the invitation.');
       case 'invalid_password':
         return msg('Password must be at least 8 characters long.');
       case 'invalid_email':
@@ -93,6 +99,8 @@ export function ConnectView({
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  /** Set when someone opening a link invite says they already have an account. */
+  const [existingAccount, setExistingAccount] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -101,6 +109,7 @@ export function ConnectView({
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [accessError, setAccessError] = useState<string | null>(null);
 
   const updateUser = useCallback(
     (next: ServerUser | null) => {
@@ -191,7 +200,19 @@ export function ConnectView({
     setInvitePreview(null);
     setInviteError(null);
     setFormError(null);
+    setPassword('');
+    setConfirmPassword('');
+    setExistingAccount(false);
     clearInviteFromUrl();
+  };
+
+  // A signed-out viewer with an account signs in here, keeping the invitation, then accepts it.
+  const signInToAccept = !user && (existingAccount || invitePreview?.hasAccount === true);
+
+  const switchInviteAccountMode = (signIn: boolean) => {
+    setExistingAccount(signIn);
+    setPassword('');
+    setConfirmPassword('');
   };
 
   const handleLoginSubmit = async (e: FormEvent) => {
@@ -214,7 +235,7 @@ export function ConnectView({
     if (!inviteToken || !invitePreview) return;
     setFormError(null);
 
-    if (!user && !invitePreview.hasAccount) {
+    if (!user && !signInToAccept) {
       if (password.length < 8) {
         setFormError(msg('Password must be at least 8 characters long.'));
         return;
@@ -227,8 +248,8 @@ export function ConnectView({
 
     setSubmitting(true);
     try {
-      if (!user && invitePreview.hasAccount && invitePreview.email) {
-        const signedIn = await client.login(invitePreview.email, password);
+      if (signInToAccept) {
+        const signedIn = await client.login(invitePreview.email ?? email.trim(), password);
         updateUser(signedIn);
         setPassword('');
         const acceptedUser = await client.acceptInvite(inviteToken);
@@ -250,6 +271,9 @@ export function ConnectView({
       updateUser(acceptedUser);
       dismissInvite();
     } catch (err) {
+      if (err instanceof ServerClientError && err.code === 'account_exists') {
+        switchInviteAccountMode(true);
+      }
       setFormError(describeAuthError(err));
     } finally {
       setSubmitting(false);
@@ -263,6 +287,8 @@ export function ConnectView({
     } finally {
       setSubmitting(false);
       setSessionsData({ projects: [], sessions: [] });
+      setSelectedProjectId(null);
+      setAccessError(null);
       updateUser(null);
     }
   };
@@ -332,11 +358,23 @@ export function ConnectView({
                 <p className="connect-muted">
                   {msg('Signed in as {name} ({email}).', { name: user.name, email: user.email })}
                 </p>
-              ) : invitePreview.hasAccount ? (
+              ) : signInToAccept ? (
                 <>
                   <p className="connect-muted">
                     {msg('Sign in with your existing password to accept this invitation.')}
                   </p>
+                  {!invitePreview.email && (
+                    <label className="connect-field">
+                      <span>{msg('Email')}</span>
+                      <input
+                        type="email"
+                        autoComplete="username"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                      />
+                    </label>
+                  )}
                   <label className="connect-field">
                     <span>{msg('Password')}</span>
                     <input
@@ -397,6 +435,20 @@ export function ConnectView({
                 </>
               )}
 
+              {!user && !invitePreview.email && (
+                <button
+                  type="button"
+                  className="btn"
+                  disabled={submitting}
+                  onClick={() => {
+                    setFormError(null);
+                    switchInviteAccountMode(!existingAccount);
+                  }}
+                >
+                  {existingAccount ? msg('Create a new account instead') : msg('I already have an account')}
+                </button>
+              )}
+
               {formError && (
                 <div className="connect-error" role="alert">
                   {formError}
@@ -407,7 +459,7 @@ export function ConnectView({
                 <button type="submit" className="btn primary" disabled={submitting}>
                   {submitting
                     ? msg('Accepting…')
-                    : user || invitePreview.hasAccount
+                    : user || signInToAccept
                       ? msg('Accept invitation')
                       : msg('Create account & accept')}
                 </button>
@@ -507,7 +559,15 @@ export function ConnectView({
             </p>
           </div>
           <div className="connect-header-actions">
-            <button type="button" className="btn" onClick={() => void loadSessions()} disabled={sessionsLoading}>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setAccessError(null);
+                void loadSessions();
+              }}
+              disabled={sessionsLoading}
+            >
               {msg('Refresh')}
             </button>
             <button type="button" className="btn" onClick={() => void handleLogout()} disabled={submitting}>
@@ -519,6 +579,12 @@ export function ConnectView({
         {sessionsError && (
           <div className="connect-error" role="alert">
             {sessionsError}
+          </div>
+        )}
+
+        {accessError && (
+          <div className="connect-error" role="alert">
+            {accessError}
           </div>
         )}
 
@@ -588,13 +654,19 @@ export function ConnectView({
                           </div>
                           <div className="connect-actions">
                             {p.role && <span className="connect-pill">{projectRoleLabel(p.role)}</span>}
-                            <button
-                              type="button"
-                              className="btn"
-                              onClick={() => setSelectedProjectId(isSelected ? null : p.id)}
-                            >
-                              {isSelected ? msg('Hide members') : msg('Members')}
-                            </button>
+                            {/* A server admin is listed projects they are not on; those have no member pages. */}
+                            {p.role && (
+                              <button
+                                type="button"
+                                className="btn"
+                                onClick={() => {
+                                  setAccessError(null);
+                                  setSelectedProjectId(isSelected ? null : p.id);
+                                }}
+                              >
+                                {isSelected ? msg('Hide members') : msg('Members')}
+                              </button>
+                            )}
                           </div>
                         </li>
                       );
@@ -611,13 +683,15 @@ export function ConnectView({
           if (!selectedProject) return null;
           return (
             <ProjectMembersPanel
+              key={selectedProject.id}
               client={client}
               project={selectedProject}
               currentUserId={user.id}
               serverOrigin={config.origin}
               onClose={() => setSelectedProjectId(null)}
-              onProjectAccessLost={() => {
+              onProjectAccessLost={(message) => {
                 setSelectedProjectId(null);
+                setAccessError(message ?? null);
                 void loadSessions();
               }}
             />
