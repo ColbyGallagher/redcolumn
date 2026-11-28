@@ -8,7 +8,22 @@ import type { ServerConfig } from './config.ts';
 import type { Database } from './db.ts';
 import type { ReviewEvent, ReviewStore, SeedProjectFixture } from './reviewStore.ts';
 
-const VALID_ITEM_KINDS = new Set<string>(['markup', 'placement', 'issue', 'response', 'statusEvent']);
+function parseItemKind(raw: unknown): ItemKind | null {
+  switch (raw) {
+    case 'markup':
+      return 'markup';
+    case 'placement':
+      return 'placement';
+    case 'issue':
+      return 'issue';
+    case 'response':
+      return 'response';
+    case 'statusEvent':
+      return 'statusEvent';
+    default:
+      return null;
+  }
+}
 
 export interface RegisterReviewRoutesOptions {
   app: FastifyInstance<HttpServer, IncomingMessage, ServerResponse, Logger>;
@@ -95,9 +110,10 @@ export function registerReviewRoutes(options: RegisterReviewRoutesOptions): void
     const session = await requireSession(request, reply);
     if (!session) return;
     const body = request.body;
+    const itemKind = body ? parseItemKind(body.itemKind) : null;
     if (
       !body ||
-      !VALID_ITEM_KINDS.has(body.itemKind) ||
+      itemKind === null ||
       typeof body.itemId !== 'string' ||
       typeof body.filename !== 'string' ||
       typeof body.mediaType !== 'string' ||
@@ -105,7 +121,13 @@ export function registerReviewRoutes(options: RegisterReviewRoutesOptions): void
     ) {
       return reply.code(400).send({ error: 'invalid_request' });
     }
-    const outcome = await reviewStore.uploadAsset(request.params.scopeId, session.user.id, body);
+    const outcome = await reviewStore.uploadAsset(request.params.scopeId, session.user.id, {
+      itemKind,
+      itemId: body.itemId,
+      filename: body.filename,
+      mediaType: body.mediaType,
+      contentBase64: body.contentBase64,
+    });
     if (!outcome.ok) {
       if (outcome.status === 404) return reply.code(404).send(UNIFORM_NOT_FOUND);
       return reply.code(outcome.status).send({ error: outcome.error });
@@ -138,13 +160,14 @@ export function registerReviewRoutes(options: RegisterReviewRoutesOptions): void
     async (request, reply) => {
       const session = await requireSession(request, reply);
       if (!session) return;
-      if (!VALID_ITEM_KINDS.has(request.params.kind)) {
+      const itemKind = parseItemKind(request.params.kind);
+      if (itemKind === null) {
         return reply.code(404).send(UNIFORM_NOT_FOUND);
       }
       const item = await reviewStore.getItem(
         request.params.scopeId,
         session.user.id,
-        request.params.kind as ItemKind,
+        itemKind,
         request.params.id,
       );
       if (!item) {

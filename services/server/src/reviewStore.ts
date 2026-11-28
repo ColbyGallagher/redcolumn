@@ -1598,7 +1598,59 @@ export class ReviewStore {
         return { ok: false, status: 404, error: 'not_found', code: 'not_found' };
       }
 
-      if (input.itemKind === 'statusEvent') {
+      let authOp: AnyOperation | null;
+      switch (input.itemKind) {
+        case 'issue':
+          authOp = {
+            opId: `asset-auth-${randomUUID()}`,
+            schemaVersion: PROTOCOL_VERSION,
+            streamId: scopeEntry.projectStreamId,
+            type: 'issue.patch',
+            entityId: input.itemId,
+            basedOn: {},
+            payload: {},
+          };
+          break;
+        case 'markup':
+          authOp = {
+            opId: `asset-auth-${randomUUID()}`,
+            schemaVersion: PROTOCOL_VERSION,
+            streamId: scopeEntry.documentStreamId,
+            type: 'markup.patch',
+            entityId: input.itemId,
+            basedOn: {},
+            payload: {},
+          };
+          break;
+        case 'placement':
+          authOp = {
+            opId: `asset-auth-${randomUUID()}`,
+            schemaVersion: PROTOCOL_VERSION,
+            streamId: scopeEntry.documentStreamId,
+            type: 'placement.patch',
+            entityId: input.itemId,
+            basedOn: {},
+            payload: {},
+          };
+          break;
+        case 'response':
+          authOp = {
+            opId: `asset-auth-${randomUUID()}`,
+            schemaVersion: PROTOCOL_VERSION,
+            streamId: scopeEntry.projectStreamId,
+            type: 'response.patch',
+            entityId: input.itemId,
+            basedOn: {},
+            payload: { body: '' },
+          };
+          break;
+        case 'statusEvent':
+        default:
+          authOp = null;
+          break;
+      }
+
+      if (!authOp) {
         await client.query('ROLLBACK');
         return { ok: false, status: 403, error: 'forbidden', code: 'forbidden' };
       }
@@ -1610,47 +1662,6 @@ export class ReviewStore {
         process: proc,
         state: scopeEntry.state,
       };
-
-      const authOp: AnyOperation =
-        input.itemKind === 'issue'
-          ? {
-              opId: `asset-auth-${randomUUID()}`,
-              schemaVersion: PROTOCOL_VERSION,
-              streamId: scopeEntry.projectStreamId,
-              type: 'issue.patch',
-              entityId: input.itemId,
-              basedOn: {},
-              payload: {},
-            }
-          : input.itemKind === 'markup'
-            ? {
-                opId: `asset-auth-${randomUUID()}`,
-                schemaVersion: PROTOCOL_VERSION,
-                streamId: scopeEntry.documentStreamId,
-                type: 'markup.patch',
-                entityId: input.itemId,
-                basedOn: {},
-                payload: {},
-              }
-            : input.itemKind === 'placement'
-              ? {
-                  opId: `asset-auth-${randomUUID()}`,
-                  schemaVersion: PROTOCOL_VERSION,
-                  streamId: scopeEntry.documentStreamId,
-                  type: 'placement.patch',
-                  entityId: input.itemId,
-                  basedOn: {},
-                  payload: {},
-                }
-              : {
-                  opId: `asset-auth-${randomUUID()}`,
-                  schemaVersion: PROTOCOL_VERSION,
-                  streamId: scopeEntry.projectStreamId,
-                  type: 'response.patch',
-                  entityId: input.itemId,
-                  basedOn: {},
-                  payload: { body: '' },
-                };
 
       const decision = authorizeOp(authOp, policyCtx);
       if (!decision.ok) {
