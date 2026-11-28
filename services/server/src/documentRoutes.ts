@@ -4,7 +4,7 @@ import { extractSessionToken, lookupSession, type UserProfile } from './auth.ts'
 import type { BlobStore } from './blobStore.ts';
 import type { ServerConfig } from './config.ts';
 import type { Database } from './db.ts';
-import { resolveDocumentAccess } from './documentAccess.ts';
+import { loadProjectStatuses, resolveDocumentAccess, statusRules } from './documentAccess.ts';
 import { getProjectForMember } from './projects.ts';
 
 export interface DocumentRoutesOptions {
@@ -156,6 +156,8 @@ export function registerDocumentRoutes(app: FastifyInstance, options: DocumentRo
         scopeId: access.scopeId,
         laneId: access.laneId,
         role: access.role,
+        statuses: await loadProjectStatuses(db, access.projectId),
+        rules: statusRules(access),
         user: { id: user.id, name: user.name },
         members,
       });

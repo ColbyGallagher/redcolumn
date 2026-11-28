@@ -1,35 +1,47 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   applyBatch,
   applyOp,
   dependencies,
   emptyState,
   parseOperation,
+  PROTOCOL_VERSION,
   type Actor,
+  type AnyOperation,
   type ApplyContext,
   type Change,
+  type Issue,
+  type LaneStatus,
   type MarkupRecord,
   type Operation,
   type OpsState,
   type Placement,
+  type RecordKind,
   type Rejection,
+  type StatusDef,
+  type StatusEvent,
 } from '@nb/ops';
 import { sql, type Kysely, type Transaction } from 'kysely';
 import type { Broadcaster, StreamEvent } from './broadcaster.ts';
 import type { Database } from './db.ts';
+import { statusEventFromRow } from './issueRows.ts';
 import {
   addsSecondPlacement,
   authorizeDocumentOp,
   documentOfStream,
+  emptyItemRows,
   findForeignPage,
-  loadItemRows,
+  issueLinkProblem,
+  loadIssueRows,
+  loadMarkupRows,
+  loadProjectStatuses,
   newItemRow,
   resolveDocumentAccess,
   versionAfter,
   writeItemVersion,
   type DocumentAccess,
+  type ItemRows,
   type ItemVersion,
-  type StoredItemRow,
 } from './documentAccess.ts';
 
 export type PipelineRejection =
@@ -80,7 +92,16 @@ const SUPPORTED_DOCUMENT_OPS = new Set<Operation['type']>([
   'placement.patch',
   'placement.delete',
   'placement.restore',
+  'issue.create',
+  'issue.patch',
+  'issue.link',
+  'status.transition',
 ]);
+
+/** Operations on issues, which only a document's stream takes: they need its project's rules. */
+const isIssueOp = (op: Operation): boolean => op.type.startsWith('issue.') || op.type === 'status.transition';
+
+const NOT_A_DOCUMENT: PipelineRejection = { code: 'unsupported_operation', message: 'Issues need a document stream' };
 
 /** Deterministic JSON representation with recursively sorted object keys. */
 export function canonicalizeJson(value: unknown): string {
@@ -110,15 +131,18 @@ function extractRawOpId(raw: unknown): string | null {
 
 const OP_ID_CONFLICT_MESSAGE = 'Operation id was already used for a different operation';
 
+type ForeignKind = 'markup' | 'placement' | 'issue' | 'statusEvent';
+
 /**
- * Markup and placement ids are global, but each row belongs to one stream. A write that would
- * land on a row owned by another stream is refused; this error is thrown when a concurrent
- * transaction on another stream claimed the id after our pre-check, so the write is retried.
+ * Record ids are global, but each row belongs to one stream (an issue to the stream of the markups
+ * it is raised for). A write that would land on a row owned by another stream is refused; this
+ * error is thrown when a concurrent transaction on another stream claimed the id after our
+ * pre-check, so the write is retried.
  */
 class ForeignEntityError extends Error {
-  readonly kind: 'markup' | 'placement';
+  readonly kind: ForeignKind;
   readonly id: string;
-  constructor(kind: 'markup' | 'placement', id: string) {
+  constructor(kind: ForeignKind, id: string) {
     super(`${kind} "${id}" belongs to another stream`);
     this.name = 'ForeignEntityError';
     this.kind = kind;
@@ -126,14 +150,23 @@ class ForeignEntityError extends Error {
   }
 }
 
-/** Unique indexes on op ids. Two streams racing on one opId fail on one of these. */
-const OP_ID_UNIQUE_CONSTRAINTS = new Set(['op_results_pkey', 'events_op_id_key']);
+/** Unique indexes on ids. Two streams racing on one op, issue or status event id fail on one of these. */
+const RACED_UNIQUE_CONSTRAINTS = new Set(['op_results_pkey', 'events_op_id_key', 'issues_pkey', 'status_events_pkey']);
 
 function isRetryableTxError(err: unknown): boolean {
   if (err instanceof ForeignEntityError) return true;
   if (!err || typeof err !== 'object') return false;
   const { code, constraint } = err as { code?: unknown; constraint?: unknown };
-  return code === '23505' && typeof constraint === 'string' && OP_ID_UNIQUE_CONSTRAINTS.has(constraint);
+  return code === '23505' && typeof constraint === 'string' && RACED_UNIQUE_CONSTRAINTS.has(constraint);
+}
+
+/** The ids of the issues raised for a stream's markups, as a subquery. */
+function issuesOfStream(trx: Transaction<Database>, streamId: string) {
+  return trx
+    .selectFrom('issue_links')
+    .innerJoin('markups', 'markups.id', 'issue_links.markup_id')
+    .select('issue_links.issue_id')
+    .where('markups.stream_id', '=', streamId);
 }
 
 /**
@@ -144,7 +177,17 @@ async function findForeignCreate(
   trx: Transaction<Database>,
   streamId: string,
   ops: readonly Operation[],
-): Promise<{ index: number; kind: 'markup' | 'placement'; id: string } | null> {
+): Promise<{ index: number; kind: ForeignKind; id: string } | null> {
+  const createdKind = (op: Operation): ForeignKind | null =>
+    op.type === 'markup.create'
+      ? 'markup'
+      : op.type === 'placement.create'
+        ? 'placement'
+        : op.type === 'issue.create'
+          ? 'issue'
+          : op.type === 'status.transition'
+            ? 'statusEvent'
+            : null;
   const markupIds = ops.filter((op) => op.type === 'markup.create').map((op) => op.entityId);
   const placementIds = ops.filter((op) => op.type === 'placement.create').map((op) => op.entityId);
   const foreign = new Set<string>();
@@ -166,10 +209,30 @@ async function findForeignCreate(
       .execute();
     for (const row of rows) foreign.add(`placement:${row.id}`);
   }
+  const issueIds = ops.filter((op) => op.type === 'issue.create').map((op) => op.entityId);
+  if (issueIds.length > 0) {
+    const rows = await trx
+      .selectFrom('issues')
+      .select('id')
+      .where('id', 'in', issueIds)
+      .where('id', 'not in', issuesOfStream(trx, streamId))
+      .execute();
+    for (const row of rows) foreign.add(`issue:${row.id}`);
+  }
+  const eventIds = ops.filter((op) => op.type === 'status.transition').map((op) => op.entityId);
+  if (eventIds.length > 0) {
+    const rows = await trx
+      .selectFrom('status_events')
+      .select('id')
+      .where('id', 'in', eventIds)
+      .where('issue_id', 'not in', issuesOfStream(trx, streamId))
+      .execute();
+    for (const row of rows) foreign.add(`statusEvent:${row.id}`);
+  }
   if (foreign.size === 0) return null;
   for (let index = 0; index < ops.length; index++) {
     const op = ops[index]!;
-    const kind = op.type === 'markup.create' ? 'markup' : op.type === 'placement.create' ? 'placement' : null;
+    const kind = createdKind(op);
     if (kind && foreign.has(`${kind}:${op.entityId}`)) return { index, kind, id: op.entityId };
   }
   return null;
@@ -184,10 +247,11 @@ function measureBytes(raw: unknown, provided?: number): number {
   }
 }
 
-/** What a document stream's rules need for one write: who is writing, and the stored items' sharing state. */
+/** What a document stream's rules need for one write: who is writing, the project's statuses, and the stored items' sharing state. */
 interface DocumentWrite {
   access: DocumentAccess;
-  rows: Map<string, StoredItemRow>;
+  statuses: readonly StatusDef[];
+  rows: ItemRows;
 }
 
 type GuardResult = { ok: true; write: DocumentWrite | null } | { ok: false; rejection: PipelineRejection };
@@ -205,7 +269,8 @@ async function guardStream(
   }
   const access = await resolveDocumentAccess(trx, actor.userId, streamId);
   if (!access) return { ok: false, rejection: { code: 'forbidden' } };
-  return { ok: true, write: { access, rows: new Map() } };
+  const statuses = await loadProjectStatuses(trx, access.projectId);
+  return { ok: true, write: { access, statuses, rows: emptyItemRows() } };
 }
 
 type Evaluation =
@@ -229,7 +294,7 @@ async function evaluateDocumentWrite(
   const versions: (ItemVersion | null)[] = [];
   let next = state;
   for (const [index, op] of ops.entries()) {
-    const decision = authorizeDocumentOp(access, op, next, rows);
+    const decision = authorizeDocumentOp(access, write.statuses, op, next, rows);
     if (!decision.ok) {
       const { reason } = decision;
       let rejection: PipelineRejection = { code: 'forbidden', message: reason.code };
@@ -237,10 +302,14 @@ async function evaluateDocumentWrite(
         rejection =
           reason.kind === 'scope'
             ? { code: 'invalid', message: 'Unknown review scope' }
-            : { code: 'not_found', kind: reason.kind as 'markup' | 'placement', id: reason.id };
+            : { code: 'not_found', kind: reason.kind as RecordKind, id: reason.id };
+      } else if (reason.code === 'invalid_state') {
+        rejection = { code: 'invalid', message: reason.detail };
       }
       return { ok: false, index, rejection };
     }
+    const linkProblem = issueLinkProblem(op, next);
+    if (linkProblem) return { ok: false, index, rejection: linkProblem };
     if (index === foreignPage) {
       return { ok: false, index, rejection: { code: 'invalid', message: 'Unknown revision or page' } };
     }
@@ -250,10 +319,69 @@ async function evaluateDocumentWrite(
     const applied = applyOp(next, op, ctx);
     if (!applied.ok) return { ok: false, index, rejection: applied.rejection };
     next = applied.state;
-    if (op.type === 'markup.create') rows.set(op.entityId, newItemRow(access));
+    if (op.type === 'markup.create') rows.markups.set(op.entityId, newItemRow(access));
+    if (op.type === 'issue.create') rows.issues.set(op.entityId, newItemRow(access));
     versions.push(versionAfter(access, op, next, rows));
   }
   return { ok: true, versions };
+}
+
+async function loadWriteRows(trx: Transaction<Database>, streamId: string, write: DocumentWrite, state: OpsState): Promise<void> {
+  write.rows = {
+    markups: await loadMarkupRows(trx, streamId, Object.keys(state.markups)),
+    issues: await loadIssueRows(trx, write.access, Object.keys(state.issues)),
+  };
+}
+
+/** An accepted operation with the item version it made: a client's, or one the server added. */
+interface AcceptedOp {
+  op: AnyOperation;
+  version: ItemVersion | null;
+}
+
+/**
+ * Gives each issue the operations raised its number, where the scope numbers issues as they are
+ * made. Numbers run across the whole project and are never given twice: the project's numbering is
+ * locked until this transaction ends, and issues are only ever marked deleted.
+ */
+async function numberNewIssues(
+  trx: Transaction<Database>,
+  streamId: string,
+  write: DocumentWrite,
+  state: OpsState,
+  ops: readonly Operation[],
+  ctx: ApplyContext,
+): Promise<{ state: OpsState; changes: Change[]; numbered: AcceptedOp[] }> {
+  const raised = ops.filter((op) => op.type === 'issue.create').map((op) => op.entityId);
+  if (!raised.length || write.access.numberingMode !== 'on_create') return { state, changes: [], numbered: [] };
+  const { projectId } = write.access;
+  await sql`SELECT pg_advisory_xact_lock(hashtextextended(${`redcolumn.issue-number:${projectId}`}, 0))`.execute(trx);
+  const row = await trx
+    .selectFrom('issues')
+    .select(sql<number | null>`max(number)`.as('last'))
+    .where('project_id', '=', projectId)
+    .executeTakeFirst();
+  let number = Number(row?.last ?? 0);
+  let next = state;
+  const changes: Change[] = [];
+  const numbered: AcceptedOp[] = [];
+  for (const entityId of raised) {
+    number += 1;
+    const op: AnyOperation = {
+      opId: randomUUID(),
+      schemaVersion: PROTOCOL_VERSION,
+      streamId,
+      type: 'issue.number',
+      entityId,
+      payload: { number },
+    };
+    const applied = applyOp(next, op, ctx);
+    if (!applied.ok) throw new Error(`Could not number issue "${entityId}": ${applied.rejection.code}`);
+    next = applied.state;
+    changes.push(...applied.changes);
+    numbered.push({ op, version: versionAfter(write.access, op, next, write.rows) });
+  }
+  return { state: next, changes, numbered };
 }
 
 /** The columns an event row has for the sync feed: which item version it produced, in which lane. */
@@ -263,6 +391,63 @@ function eventAudience(version: ItemVersion | null | undefined) {
     version_rev: version?.record.rev ?? null,
     lane_id: version?.row.originLaneId ?? null,
   };
+}
+
+/**
+ * Appends one event per accepted operation, stores each item version it made, and moves the stream
+ * on. An operation the server added is not part of the client's batch, so it reaches the sender as
+ * an event of its own.
+ */
+async function appendEvents(
+  trx: Transaction<Database>,
+  streamId: string,
+  lastSeq: number,
+  actor: Actor,
+  accepted: readonly AcceptedOp[],
+  write: DocumentWrite | null,
+  receivedAt: Date,
+): Promise<StreamEvent[]> {
+  const events: StreamEvent[] = [];
+  let seq = lastSeq;
+  for (const { op, version } of accepted) {
+    seq += 1;
+    if (write && version) await writeItemVersion(trx, write.access, op, version, receivedAt);
+    await trx
+      .insertInto('events')
+      .values({
+        stream_id: streamId,
+        seq: String(seq),
+        op_id: op.opId,
+        actor_id: actor.userId,
+        op_type: op.type,
+        entity_id: op.entityId,
+        payload_json: sql`${JSON.stringify(op)}::jsonb`,
+        received_at: receivedAt,
+        client_time: op.clientTime === undefined ? null : new Date(op.clientTime),
+        ...eventAudience(version),
+      })
+      .execute();
+    events.push({
+      streamId,
+      seq,
+      opId: op.opId,
+      actorId: actor.userId,
+      opType: op.type,
+      entityId: op.entityId,
+      op,
+      receivedAt: receivedAt.toISOString(),
+    });
+  }
+  await trx
+    .updateTable('streams')
+    .set({
+      seq: String(seq),
+      updated_at: receivedAt,
+      ...(write ? { project_id: write.access.projectId } : {}),
+    })
+    .where('id', '=', streamId)
+    .execute();
+  return events;
 }
 
 async function lockStreams(trx: Transaction<Database>, streamIds: readonly string[]): Promise<Map<string, number>> {
@@ -296,13 +481,22 @@ async function loadStateForOps(
 ): Promise<OpsState> {
   const markupIds = new Set<string>();
   const placementIds = new Set<string>();
+  const issueIds = new Set<string>();
+  const eventIds = new Set<string>();
+  // Markups an operation raises an issue for: what is already raised for them has to be seen too.
+  const linkedMarkups = new Set<string>();
 
   for (const op of ops) {
     for (const dep of dependencies(op)) {
       if (dep.kind === 'markup') markupIds.add(dep.id);
       if (dep.kind === 'placement') placementIds.add(dep.id);
+      if (dep.kind === 'issue' || dep.kind === 'laneStatus') issueIds.add(dep.id);
+      if (dep.kind === 'statusEvent') eventIds.add(dep.id);
     }
+    if (op.type === 'issue.create') for (const id of op.payload.markupIds ?? []) linkedMarkups.add(id);
+    if (op.type === 'issue.link') linkedMarkups.add(op.payload.markupId);
   }
+  for (const id of linkedMarkups) markupIds.add(id);
 
   const placements: Record<string, Placement> = {};
   if (placementIds.size > 0) {
@@ -351,24 +545,172 @@ async function loadStateForOps(
     }
   }
 
+  if (linkedMarkups.size > 0) {
+    const rows = await trx
+      .selectFrom('issue_links')
+      .select('issue_id')
+      .where('markup_id', 'in', [...linkedMarkups])
+      .execute();
+    for (const row of rows) issueIds.add(row.issue_id);
+  }
+
+  const issues: Record<string, Issue> = {};
+  const laneStatus: Record<string, Record<string, LaneStatus>> = {};
+  if (issueIds.size > 0) {
+    const rows = await trx
+      .selectFrom('issues')
+      .select(['id', 'record_json'])
+      .where('id', 'in', [...issueIds])
+      .where('id', 'in', issuesOfStream(trx, streamId))
+      .execute();
+    for (const row of rows) issues[row.id] = row.record_json as Issue;
+    if (rows.length > 0) {
+      const lanes = await trx
+        .selectFrom('issue_lane_state')
+        .select(['issue_id', 'lane_id', 'status', 'status_event_id'])
+        .where('issue_id', 'in', rows.map((r) => r.id))
+        .execute();
+      for (const row of lanes) {
+        (laneStatus[row.issue_id] ??= {})[row.lane_id] = { status: row.status, eventId: row.status_event_id };
+      }
+    }
+  }
+
+  const statusEvents: Record<string, StatusEvent> = {};
+  if (eventIds.size > 0) {
+    const rows = await trx
+      .selectFrom('status_events')
+      .selectAll()
+      .where('id', 'in', [...eventIds])
+      .where('issue_id', 'in', issuesOfStream(trx, streamId))
+      .execute();
+    for (const row of rows) statusEvents[row.id] = statusEventFromRow(row);
+  }
+
   return {
     ...emptyState(),
     markups,
     placements,
+    issues,
+    laneStatus,
+    statusEvents,
   };
 }
 
+/** The order records are written in, so each one's foreign keys already exist. */
+const WRITE_ORDER: Readonly<Record<Change['kind'], number>> = {
+  markup: 0,
+  placement: 1,
+  issue: 2,
+  statusEvent: 3,
+  laneStatus: 4,
+  response: 5,
+  release: 6,
+};
+
+async function persistIssue(
+  trx: Transaction<Database>,
+  write: DocumentWrite,
+  record: Issue,
+  isNew: boolean,
+  nowDate: Date,
+): Promise<void> {
+  const current = {
+    number: record.number,
+    title: record.title,
+    rev: record.rev,
+    deleted: record.deleted,
+    ticked: record.checked,
+    record_json: sql`${JSON.stringify(record)}::jsonb`,
+    updated_at: nowDate,
+  };
+  if (isNew) {
+    await trx
+      .insertInto('issues')
+      .values({
+        ...current,
+        id: record.id,
+        project_id: write.access.projectId,
+        scope_id: record.scopeId,
+        origin_lane_id: write.rows.issues.get(record.id)?.originLaneId ?? write.access.laneId,
+        owner_user_id: record.owner.userId,
+        owner_party_id: record.owner.partyId,
+        owner_group_id: record.owner.groupId,
+        client_time: record.clientTime === null ? null : new Date(record.clientTime),
+      })
+      .execute();
+  } else {
+    // Only an issue loaded for this stream can be here, so no other stream's row is touched.
+    await trx.updateTable('issues').set(current).where('id', '=', record.id).execute();
+  }
+  for (const markupId of record.markupIds) {
+    await trx
+      .insertInto('issue_links')
+      .values({ issue_id: record.id, markup_id: markupId })
+      .onConflict((oc) => oc.doNothing())
+      .execute();
+  }
+}
+
+/** Writes what a change left in `state`. `before` is what was loaded, to tell new records from changed ones. */
 async function persistChanges(
   trx: Transaction<Database>,
   streamId: string,
+  before: OpsState,
   state: OpsState,
   changes: readonly Change[],
   write: DocumentWrite | null,
 ): Promise<void> {
   const nowDate = new Date();
   const asDate = (ms: number | null) => (ms === null ? null : new Date(ms));
-  for (const change of changes) {
-    if (change.kind === 'markup') {
+  const unique = new Map(changes.map((c) => [`${c.kind}:${c.id}`, c]));
+  const ordered = [...unique.values()].sort((a, b) => WRITE_ORDER[a.kind] - WRITE_ORDER[b.kind]);
+  for (const change of ordered) {
+    if (change.kind === 'issue') {
+      const record = state.issues[change.id];
+      if (record && write) await persistIssue(trx, write, record, !Object.hasOwn(before.issues, record.id), nowDate);
+    } else if (change.kind === 'statusEvent') {
+      const event = state.statusEvents[change.id];
+      const issue = event && state.issues[event.issueId];
+      if (!event || !issue || !write) continue;
+      await trx
+        .insertInto('status_events')
+        .values({
+          id: event.id,
+          project_id: write.access.projectId,
+          scope_id: issue.scopeId,
+          origin_lane_id: event.laneId,
+          issue_id: event.issueId,
+          from_status: event.from,
+          to_status: event.to,
+          actor_user_id: event.actor.userId,
+          actor_party_id: event.actor.partyId,
+          note: event.note,
+          revision_seen_id: event.revisionSeenId,
+          rev: event.rev,
+          client_time: asDate(event.clientTime),
+          received_at: new Date(event.at),
+        })
+        .execute();
+    } else if (change.kind === 'laneStatus') {
+      if (!write) continue;
+      for (const [laneId, lane] of Object.entries(state.laneStatus[change.id] ?? {})) {
+        const was = before.laneStatus[change.id]?.[laneId];
+        if (was && was.status === lane.status && was.eventId === lane.eventId) continue;
+        await trx
+          .insertInto('issue_lane_state')
+          .values({ issue_id: change.id, lane_id: laneId, status: lane.status, status_event_id: lane.eventId, updated_at: nowDate })
+          .onConflict((oc) =>
+            oc.columns(['issue_id', 'lane_id']).doUpdateSet({
+              status: lane.status,
+              status_event_id: lane.eventId,
+              version: sql<number>`issue_lane_state.version + 1`,
+              updated_at: nowDate,
+            }),
+          )
+          .execute();
+      }
+    } else if (change.kind === 'markup') {
       const record = state.markups[change.id];
       if (!record) continue;
       const result = await trx
@@ -385,11 +727,11 @@ async function persistChanges(
           owner_group_id: record.owner.groupId,
           record_json: sql`${JSON.stringify(record)}::jsonb`,
           project_id: write?.access.projectId ?? null,
-          origin_lane_id: write?.rows.get(record.id)?.originLaneId ?? null,
-          ...(write?.rows.has(record.id)
+          origin_lane_id: write?.rows.markups.get(record.id)?.originLaneId ?? null,
+          ...(write?.rows.markups.has(record.id)
             ? {
-                draft_visibility: write.rows.get(record.id)!.draftVisibility,
-                checking_state: write.rows.get(record.id)!.released ? ('released' as const) : ('draft' as const),
+                draft_visibility: write.rows.markups.get(record.id)!.draftVisibility,
+                checking_state: write.rows.markups.get(record.id)!.released ? ('released' as const) : ('draft' as const),
               }
             : {}),
           client_time: asDate(record.clientTime),
@@ -423,7 +765,7 @@ async function persistChanges(
           deleted: record.deleted,
           record_json: sql`${JSON.stringify(record)}::jsonb`,
           scope_id: write ? (state.markups[record.markupId]?.scopeId ?? null) : null,
-          origin_lane_id: write?.rows.get(record.markupId)?.originLaneId ?? null,
+          origin_lane_id: write?.rows.markups.get(record.markupId)?.originLaneId ?? null,
           owner_party_id: state.markups[record.markupId]?.owner.partyId ?? null,
           // The column has no 'ai' value; the record keeps the exact method.
           method: record.method === 'ai' ? 'suggested' : record.method,
@@ -545,19 +887,27 @@ export class OpPipeline {
       const foreign = await findForeignCreate(trx, op.streamId, [op]);
       let applied: { ok: true; state: OpsState; changes: Change[] } | { ok: false; rejection: PipelineRejection };
       let version: ItemVersion | null = null;
-      if (foreign) {
+      let before = emptyState();
+      const ctx: ApplyContext = {
+        actor,
+        laneId: write?.access.laneId ?? this.defaultLaneId,
+        now: nowMs,
+        ...(write ? { statuses: write.statuses } : {}),
+      };
+      if (!write && isIssueOp(op)) {
+        applied = { ok: false, rejection: NOT_A_DOCUMENT };
+      } else if (foreign) {
         applied = { ok: false, rejection: { code: 'exists', kind: foreign.kind, id: foreign.id } };
       } else {
-        const state = await loadStateForOps(trx, op.streamId, [op]);
-        const ctx: ApplyContext = { actor, laneId: write?.access.laneId ?? this.defaultLaneId, now: nowMs };
+        before = await loadStateForOps(trx, op.streamId, [op]);
         let refused: PipelineRejection | null = null;
         if (write) {
-          write.rows = await loadItemRows(trx, op.streamId, Object.keys(state.markups));
-          const evaluation = await evaluateDocumentWrite(trx, write, state, [op], ctx);
+          await loadWriteRows(trx, op.streamId, write, before);
+          const evaluation = await evaluateDocumentWrite(trx, write, before, [op], ctx);
           if (evaluation.ok) version = evaluation.versions[0] ?? null;
           else refused = evaluation.rejection;
         }
-        applied = refused ? { ok: false, rejection: refused } : applyOp(state, op, ctx);
+        applied = refused ? { ok: false, rejection: refused } : applyOp(before, op, ctx);
       }
 
       if (!applied.ok) {
@@ -579,38 +929,16 @@ export class OpPipeline {
         return { ack: rejectionAck, events: [] as StreamEvent[] };
       }
 
-      const nextSeq = (seqByStream.get(op.streamId) ?? 0) + 1;
       const receivedAtDate = new Date(nowMs);
       const receivedAt = receivedAtDate.toISOString();
+      const { state, changes, numbered } = write
+        ? await numberNewIssues(trx, op.streamId, write, applied.state, [op], ctx)
+        : { state: applied.state, changes: [], numbered: [] };
+      const accepted: AcceptedOp[] = [{ op, version }, ...numbered];
 
-      await trx
-        .updateTable('streams')
-        .set({
-          seq: String(nextSeq),
-          updated_at: receivedAtDate,
-          ...(write ? { project_id: write.access.projectId } : {}),
-        })
-        .where('id', '=', op.streamId)
-        .execute();
-
-      await persistChanges(trx, op.streamId, applied.state, applied.changes, write);
-      if (write && version) await writeItemVersion(trx, write.access, op, version, receivedAtDate);
-
-      await trx
-        .insertInto('events')
-        .values({
-          stream_id: op.streamId,
-          seq: String(nextSeq),
-          op_id: op.opId,
-          actor_id: actor.userId,
-          op_type: op.type,
-          entity_id: op.entityId,
-          payload_json: sql`${JSON.stringify(op)}::jsonb`,
-          received_at: receivedAtDate,
-          client_time: op.clientTime === undefined ? null : new Date(op.clientTime),
-          ...eventAudience(version),
-        })
-        .execute();
+      await persistChanges(trx, op.streamId, before, state, [...applied.changes, ...changes], write);
+      const events = await appendEvents(trx, op.streamId, seqByStream.get(op.streamId) ?? 0, actor, accepted, write, receivedAtDate);
+      const nextSeq = events[0]!.seq;
 
       const acceptedAck: Extract<OpAck, { ok: true }> = {
         ok: true,
@@ -636,17 +964,7 @@ export class OpPipeline {
         await this.hooks.onBeforeCommit({ opIds: [op.opId], streamId: op.streamId });
       }
 
-      const event: StreamEvent = {
-        streamId: op.streamId,
-        seq: nextSeq,
-        opId: op.opId,
-        actorId: actor.userId,
-        opType: op.type,
-        entityId: op.entityId,
-        op,
-        receivedAt,
-      };
-      return { ack: acceptedAck, events: [event] };
+      return { ack: acceptedAck, events };
     });
 
     if (txOutcome.events.length > 0) {
@@ -779,6 +1097,12 @@ export class OpPipeline {
       }
       const { write } = guard;
 
+      const issueAt = write ? -1 : ops.findIndex(isIssueOp);
+      if (issueAt >= 0) {
+        const ack: BatchAck = { ok: false, index: issueAt, opId: ops[issueAt]!.opId, rejection: NOT_A_DOCUMENT };
+        return { ack, events: [] as StreamEvent[] };
+      }
+
       const foreign = await findForeignCreate(trx, streamId, ops);
       if (foreign) {
         const ack: BatchAck = {
@@ -792,10 +1116,15 @@ export class OpPipeline {
 
       const state = await loadStateForOps(trx, streamId, ops);
       const nowMs = this.now();
-      const ctx: ApplyContext = { actor, laneId: write?.access.laneId ?? this.defaultLaneId, now: nowMs };
+      const ctx: ApplyContext = {
+        actor,
+        laneId: write?.access.laneId ?? this.defaultLaneId,
+        now: nowMs,
+        ...(write ? { statuses: write.statuses } : {}),
+      };
       let versions: (ItemVersion | null)[] = [];
       if (write) {
-        write.rows = await loadItemRows(trx, streamId, Object.keys(state.markups));
+        await loadWriteRows(trx, streamId, write, state);
         const evaluation = await evaluateDocumentWrite(trx, write, state, ops, ctx);
         if (!evaluation.ok) {
           const ack: BatchAck = {
@@ -821,36 +1150,24 @@ export class OpPipeline {
         return { ack, events: [] as StreamEvent[] };
       }
 
-      let seq = seqByStream.get(streamId) ?? 0;
       const receivedAtDate = new Date(nowMs);
       const receivedAt = receivedAtDate.toISOString();
+      const numbering = write
+        ? await numberNewIssues(trx, streamId, write, applied.state, ops, ctx)
+        : { state: applied.state, changes: [], numbered: [] };
+
+      await persistChanges(trx, streamId, state, numbering.state, [...applied.changes, ...numbering.changes], write);
+      const accepted: AcceptedOp[] = [...ops.map((op, i) => ({ op, version: versions[i] ?? null })), ...numbering.numbered];
+      const events = await appendEvents(trx, streamId, seqByStream.get(streamId) ?? 0, actor, accepted, write, receivedAtDate);
+
+      // Results are kept for what the client sent: a retry is answered from them.
       const results: Extract<OpAck, { ok: true }>[] = [];
-      const events: StreamEvent[] = [];
-
-      for (let i = 0; i < ops.length; i++) {
-        const op = ops[i]!;
-        seq += 1;
-        await trx
-          .insertInto('events')
-          .values({
-            stream_id: streamId,
-            seq: String(seq),
-            op_id: op.opId,
-            actor_id: actor.userId,
-            op_type: op.type,
-            entity_id: op.entityId,
-            payload_json: sql`${JSON.stringify(op)}::jsonb`,
-            received_at: receivedAtDate,
-            client_time: op.clientTime === undefined ? null : new Date(op.clientTime),
-            ...eventAudience(versions[i]),
-          })
-          .execute();
-
+      for (const [i, op] of ops.entries()) {
         const opAck: Extract<OpAck, { ok: true }> = {
           ok: true,
           opId: op.opId,
           streamId,
-          seq,
+          seq: events[i]!.seq,
           receivedAt,
         };
         results.push(opAck);
@@ -866,35 +1183,6 @@ export class OpPipeline {
             result_json: sql`${JSON.stringify(opAck)}::jsonb`,
           })
           .execute();
-
-        events.push({
-          streamId,
-          seq,
-          opId: op.opId,
-          actorId: actor.userId,
-          opType: op.type,
-          entityId: op.entityId,
-          op,
-          receivedAt,
-        });
-      }
-
-      await trx
-        .updateTable('streams')
-        .set({
-          seq: String(seq),
-          updated_at: receivedAtDate,
-          ...(write ? { project_id: write.access.projectId } : {}),
-        })
-        .where('id', '=', streamId)
-        .execute();
-
-      await persistChanges(trx, streamId, applied.state, applied.changes, write);
-      if (write) {
-        for (const [i, op] of ops.entries()) {
-          const version = versions[i];
-          if (version) await writeItemVersion(trx, write.access, op, version, receivedAtDate);
-        }
       }
 
       if (this.hooks.onBeforeCommit) {

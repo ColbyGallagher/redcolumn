@@ -1,10 +1,25 @@
 import { randomUUID } from 'node:crypto';
-import { kindOf, type ItemKind, type MarkupRecord, type Operation, type OpsState, type Placement } from '@nb/ops';
+import {
+  kindOf,
+  type Actor,
+  type AnyOperation,
+  type Issue,
+  type ItemKind,
+  type MarkupRecord,
+  type Operation,
+  type OpsState,
+  type Placement,
+  type Rejection,
+  type StatusDef,
+  type StatusEvent,
+} from '@nb/ops';
 import {
   authorizeOp,
+  canMemberCloseIssue,
   computeItemAudiences,
   DEFAULT_STATUSES,
   itemKey,
+  type ClosingConfig,
   type DraftVisibility,
   type Grant,
   type ItemMeta,
@@ -14,14 +29,16 @@ import {
   type ProjectConfig,
   type RoleAssignment,
 } from '@nb/policy';
+import type { StatusRules } from '@nb/sync';
 import { sql, type Kysely, type Transaction } from 'kysely';
 import type { Database, ProjectRole } from './db.ts';
 
 /*
  * Who may use a document's stream, and what each accepted change makes visible.
  *
- * A document's stream has the document's id. Its markups belong to the project's first review
- * scope, and everyone on the project works in that scope's first lane. Permission is decided by
+ * A document's stream has the document's id. Its markups, and the issues raised for them with their
+ * status changes, belong to the project's first review scope, and everyone on the project works in
+ * that scope's first lane. Permission is decided by
  * `@nb/policy` from the rows in force at the time, and every accepted version of an item is given
  * explicit audience rows, which the row-level security policies check when the item is read back.
  */
@@ -42,9 +59,33 @@ export interface DocumentAccess {
   tickClosesIssue: boolean;
   allowAmendmentWhileOpen: boolean;
   sessionState: 'open' | 'locked' | 'closed' | null;
+  /** Who may move an issue into a closed status. */
+  closing: ClosingConfig;
+}
+
+/** Who may close an issue in a project that has not said: its admins. */
+export const DEFAULT_CLOSING: ClosingConfig = { allowedClosers: [{ kind: 'role', role: 'project_admin' }] };
+
+/** A scope's stored closing rules. An empty list would leave nobody able to close, so it is the default. */
+function closingOf(stored: unknown): ClosingConfig {
+  const closing = stored as Partial<ClosingConfig> | null;
+  if (!Array.isArray(closing?.allowedClosers) || !closing.allowedClosers.length) return DEFAULT_CLOSING;
+  return { allowedClosers: closing.allowedClosers, closerNotResponder: closing.closerNotResponder === true };
 }
 
 type Db = Kysely<Database> | Transaction<Database>;
+
+/** The project's statuses, in their order. */
+export async function loadProjectStatuses(db: Db, projectId: string): Promise<readonly StatusDef[]> {
+  const rows = await db
+    .selectFrom('statuses')
+    .select(['id', 'name', 'category'])
+    .where('project_id', '=', projectId)
+    .orderBy('position', 'asc')
+    .orderBy('id', 'asc')
+    .execute();
+  return rows.length ? rows : DEFAULT_STATUSES;
+}
 
 /** The document a stream belongs to, or null for a stream that is not a document's. */
 export async function documentOfStream(db: Db, streamId: string): Promise<{ documentId: string; projectId: string } | null> {
@@ -86,6 +127,7 @@ export async function resolveDocumentAccess(db: Db, userId: string, streamId: st
       'scopes.tick_closes_issue as tick_closes_issue',
       'scopes.allow_amendment_while_open as allow_amendment_while_open',
       'scopes.session_state as session_state',
+      'scopes.closing_json as closing_json',
       'lanes.id as lane_id',
       'lanes.name as lane_name',
       'lanes.default_draft_visibility as lane_draft_visibility',
@@ -115,16 +157,23 @@ export async function resolveDocumentAccess(db: Db, userId: string, streamId: st
     tickClosesIssue: lane.tick_closes_issue,
     allowAmendmentWhileOpen: lane.allow_amendment_while_open,
     sessionState: lane.session_state,
+    closing: closingOf(lane.closing_json),
   };
 }
 
 /**
  * The project and review rules, as `@nb/policy` reads them, for one member. Reviewers change their
- * own markups; project admins also change and delete anyone's; viewers change nothing.
+ * own markups, and set statuses and ticks on anyone's; project admins also change and delete
+ * anyone's; viewers change nothing. Moving an issue into a closed status is for the closing list.
  */
-function policyConfig(access: DocumentAccess): { project: ProjectConfig; process: ProcessConfig } {
+function policyConfig(access: DocumentAccess, statuses: readonly StatusDef[]): { project: ProjectConfig; process: ProcessConfig } {
   const subject = { kind: 'user', id: access.userId } as const;
-  const assign = (role: RoleAssignment['role']): RoleAssignment => ({ subject, role, level: 'project' });
+  const assign = (role: RoleAssignment['role']): RoleAssignment => ({
+    subject,
+    role,
+    level: 'project',
+    ...(role === 'reviewer' ? { transitions: '*' as const } : {}),
+  });
   const roles: RoleAssignment[] =
     access.role === 'project_admin'
       ? [assign('project_admin'), assign('reviewer')]
@@ -142,8 +191,8 @@ function policyConfig(access: DocumentAccess): { project: ProjectConfig; process
     parties: [],
     groups: [],
     members: [{ userId: access.userId, partyId: null, groupIds: [], state: 'active' }],
-    statuses: DEFAULT_STATUSES,
-    defaultClosing: { allowedClosers: [] },
+    statuses,
+    defaultClosing: access.closing,
     grants,
     roles,
   };
@@ -157,7 +206,7 @@ function policyConfig(access: DocumentAccess): { project: ProjectConfig; process
     numberingMode: access.numberingMode,
     tickClosesIssue: access.tickClosesIssue,
     allowAmendmentWhileOpen: access.allowAmendmentWhileOpen,
-    closing: { allowedClosers: [] },
+    closing: access.closing,
     ...(access.sessionState ? { sessionState: access.sessionState } : {}),
   };
   return { project, process };
@@ -170,8 +219,16 @@ export interface StoredItemRow {
   released: boolean;
 }
 
+/** The sharing state of the items an operation touches, by id. */
+export interface ItemRows {
+  markups: Map<string, StoredItemRow>;
+  issues: Map<string, StoredItemRow>;
+}
+
+export const emptyItemRows = (): ItemRows => ({ markups: new Map(), issues: new Map() });
+
 /** The stored sharing state of the markups loaded for an operation, by markup id. */
-export async function loadItemRows(db: Db, streamId: string, markupIds: readonly string[]): Promise<Map<string, StoredItemRow>> {
+export async function loadMarkupRows(db: Db, streamId: string, markupIds: readonly string[]): Promise<Map<string, StoredItemRow>> {
   const out = new Map<string, StoredItemRow>();
   if (!markupIds.length) return out;
   const rows = await db
@@ -192,45 +249,88 @@ export async function loadItemRows(db: Db, streamId: string, markupIds: readonly
   return out;
 }
 
-function metaFor(
-  access: DocumentAccess,
-  kind: 'markup' | 'placement',
-  record: MarkupRecord | Placement,
-  markup: MarkupRecord,
-  row: StoredItemRow,
-): ItemMeta {
+/** The same for issues, which keep no sharing state of their own: they follow the scope's rules. */
+export async function loadIssueRows(db: Db, access: DocumentAccess, issueIds: readonly string[]): Promise<Map<string, StoredItemRow>> {
+  const out = new Map<string, StoredItemRow>();
+  if (!issueIds.length) return out;
+  const rows = await db.selectFrom('issues').select(['id', 'origin_lane_id']).where('id', 'in', [...issueIds]).execute();
+  for (const row of rows) {
+    out.set(row.id, { originLaneId: row.origin_lane_id, draftVisibility: access.draftVisibility, released: access.autoRelease });
+  }
+  return out;
+}
+
+/** What of a record the policy needs to say who may see and change it. */
+interface ItemSource {
+  kind: ItemKind;
+  id: string;
+  rev: number;
+  scopeId: string;
+  owner: Actor;
+  modifiedAt: number;
+}
+
+function metaFor(access: DocumentAccess, item: ItemSource, row: StoredItemRow): ItemMeta {
   return {
-    kind,
-    id: record.id,
-    scopeId: markup.scopeId,
+    kind: item.kind,
+    id: item.id,
+    scopeId: item.scopeId,
     originLaneId: row.originLaneId,
-    owner: markup.owner,
+    owner: item.owner,
     draftVisibility: row.draftVisibility,
     checkingState: row.released ? 'released' : 'draft',
     assignedCheckers: [],
     releasesByLane: row.released
       ? {
           [row.originLaneId]: [
-            { releaseId: 'current', rev: record.rev, fromLaneId: row.originLaneId, gateId: null, at: record.modifiedAt, by: markup.owner },
+            { releaseId: 'current', rev: item.rev, fromLaneId: row.originLaneId, gateId: null, at: item.modifiedAt, by: item.owner },
           ],
         }
       : {},
-    latestRev: record.rev,
+    latestRev: item.rev,
     documentId: access.documentId,
     history: [],
   };
 }
 
-function policyState(access: DocumentAccess, state: OpsState, rows: ReadonlyMap<string, StoredItemRow>): PolicyState {
+const markupSource = (markup: MarkupRecord): ItemSource => ({ ...markup, kind: 'markup' });
+/** A placement is shared as the markup it places. */
+const placementSource = (placement: Placement, markup: MarkupRecord): ItemSource => ({
+  kind: 'placement',
+  id: placement.id,
+  rev: placement.rev,
+  modifiedAt: placement.modifiedAt,
+  scopeId: markup.scopeId,
+  owner: markup.owner,
+});
+const issueSource = (issue: Issue): ItemSource => ({ ...issue, kind: 'issue' });
+const statusEventSource = (event: StatusEvent, issue: Issue): ItemSource => ({
+  kind: 'statusEvent',
+  id: event.id,
+  rev: event.rev,
+  modifiedAt: event.at,
+  scopeId: issue.scopeId,
+  owner: event.actor,
+});
+
+function policyState(access: DocumentAccess, state: OpsState, rows: ItemRows): PolicyState {
   const meta: Record<string, ItemMeta> = {};
   for (const markup of Object.values(state.markups)) {
-    const row = rows.get(markup.id);
-    if (row) meta[itemKey('markup', markup.id)] = metaFor(access, 'markup', markup, markup, row);
+    const row = rows.markups.get(markup.id);
+    if (row) meta[itemKey('markup', markup.id)] = metaFor(access, markupSource(markup), row);
   }
   for (const placement of Object.values(state.placements)) {
     const markup = Object.hasOwn(state.markups, placement.markupId) ? state.markups[placement.markupId] : undefined;
-    const row = rows.get(placement.markupId);
-    if (markup && row) meta[itemKey('placement', placement.id)] = metaFor(access, 'placement', placement, markup, row);
+    const row = rows.markups.get(placement.markupId);
+    if (markup && row) meta[itemKey('placement', placement.id)] = metaFor(access, placementSource(placement, markup), row);
+  }
+  for (const issue of Object.values(state.issues)) {
+    const row = rows.issues.get(issue.id);
+    if (!row) continue;
+    meta[itemKey('issue', issue.id)] = {
+      ...metaFor(access, issueSource(issue), row),
+      initialStatus: state.laneStatus[issue.id]?.[access.laneId]?.status ?? null,
+    };
   }
   return { ops: state, meta, versions: {}, nextIssueNumber: 1 };
 }
@@ -238,50 +338,97 @@ function policyState(access: DocumentAccess, state: OpsState, rows: ReadonlyMap<
 /** Whether `op` is allowed against `state` under the rules in force now; the reason when it is not. */
 export function authorizeDocumentOp(
   access: DocumentAccess,
+  statuses: readonly StatusDef[],
   op: Operation,
   state: OpsState,
-  rows: ReadonlyMap<string, StoredItemRow>,
+  rows: ItemRows,
 ): { ok: true } | { ok: false; reason: PolicyDenyReason } {
-  const { project, process } = policyConfig(access);
-  return authorizeOp(op, {
+  const { project, process } = policyConfig(access, statuses);
+  const decision = authorizeOp(op, {
     actorUserId: access.userId,
     actorLaneId: access.laneId,
     project,
     process,
     state: policyState(access, state, rows),
   });
+  // A closing list can name someone through what they raised. A viewer still changes nothing; they
+  // are told so only for what they may see, so a hidden record stays "not found".
+  if (decision.ok && access.role === 'viewer') return { ok: false, reason: { code: 'forbidden', action: op.type } };
+  return decision;
 }
 
-/** The sharing state a markup made now by this member starts with. */
+/** What this member may do with statuses and ticks, for the interface to show. */
+export function statusRules(access: DocumentAccess): StatusRules {
+  const writes = access.role !== 'viewer' && access.sessionState !== 'locked' && access.sessionState !== 'closed';
+  if (!writes) return { changeStatus: false, tick: false, close: 'none' };
+  const { project, process } = policyConfig(access, DEFAULT_STATUSES);
+  const member = project.members[0]!;
+  const mayCloseIssueOf = (userId: string) =>
+    canMemberCloseIssue(
+      member,
+      [access.laneId],
+      project,
+      process,
+      metaFor(
+        access,
+        { kind: 'issue', id: '', rev: 1, scopeId: access.scopeId, owner: { userId, partyId: null, groupId: null }, modifiedAt: 0 },
+        newItemRow(access),
+      ),
+    ).allowed;
+  // No user has an empty id, so this asks about an issue someone else raised.
+  const close = mayCloseIssueOf('') ? 'any' : mayCloseIssueOf(access.userId) ? 'own' : 'none';
+  return { changeStatus: true, tick: true, close };
+}
+
+/** The sharing state an item made now by this member starts with. */
 export const newItemRow = (access: DocumentAccess): StoredItemRow => ({
   originLaneId: access.laneId,
   draftVisibility: access.draftVisibility,
   released: access.autoRelease,
 });
 
+/** The records a document stream keeps versions of. */
+export type VersionedKind = 'markup' | 'placement' | 'issue' | 'statusEvent';
+
 /** One accepted version of an item, made or changed by one operation. */
 export interface ItemVersion {
-  kind: 'markup' | 'placement';
-  record: MarkupRecord | Placement;
-  markup: MarkupRecord;
+  kind: VersionedKind;
+  record: MarkupRecord | Placement | Issue | StatusEvent;
+  source: ItemSource;
   row: StoredItemRow;
 }
 
 /** The version `op` produced or left in place, read from the state right after it. */
-export function versionAfter(
-  access: DocumentAccess,
-  op: Operation,
-  state: OpsState,
-  rows: ReadonlyMap<string, StoredItemRow>,
-): ItemVersion | null {
-  const kind: ItemKind | 'release' = kindOf(op);
-  if (kind !== 'markup' && kind !== 'placement') return null;
-  const record = kind === 'markup' ? state.markups[op.entityId] : state.placements[op.entityId];
-  if (!record) return null;
-  const markupId = kind === 'markup' ? record.id : (record as Placement).markupId;
-  const markup = state.markups[markupId];
-  if (!markup) return null;
-  return { kind, record, markup, row: rows.get(markupId) ?? newItemRow(access) };
+export function versionAfter(access: DocumentAccess, op: AnyOperation, state: OpsState, rows: ItemRows): ItemVersion | null {
+  const own = <T>(map: Readonly<Record<string, T>>, id: string): T | undefined => (Object.hasOwn(map, id) ? map[id] : undefined);
+  const version = (record: ItemVersion['record'], source: ItemSource, row: StoredItemRow | undefined): ItemVersion => ({
+    kind: source.kind as VersionedKind,
+    record,
+    source,
+    row: row ?? newItemRow(access),
+  });
+  switch (kindOf(op)) {
+    case 'markup': {
+      const markup = own(state.markups, op.entityId);
+      return markup ? version(markup, markupSource(markup), rows.markups.get(markup.id)) : null;
+    }
+    case 'placement': {
+      const placement = own(state.placements, op.entityId);
+      const markup = placement && own(state.markups, placement.markupId);
+      return placement && markup ? version(placement, placementSource(placement, markup), rows.markups.get(markup.id)) : null;
+    }
+    case 'issue': {
+      const issue = own(state.issues, op.entityId);
+      return issue ? version(issue, issueSource(issue), rows.issues.get(issue.id)) : null;
+    }
+    case 'statusEvent': {
+      const event = own(state.statusEvents, op.entityId);
+      const issue = event && own(state.issues, event.issueId);
+      return event && issue ? version(event, statusEventSource(event, issue), rows.issues.get(issue.id)) : null;
+    }
+    default:
+      return null;
+  }
 }
 
 /**
@@ -291,11 +438,11 @@ export function versionAfter(
 export async function writeItemVersion(
   trx: Transaction<Database>,
   access: DocumentAccess,
-  op: Operation,
+  op: AnyOperation,
   version: ItemVersion,
   receivedAt: Date,
 ): Promise<void> {
-  const { kind, record, markup, row } = version;
+  const { kind, record, source, row } = version;
   const inserted = await trx
     .insertInto('item_versions')
     .values({
@@ -303,7 +450,7 @@ export async function writeItemVersion(
       item_id: record.id,
       version_rev: record.rev,
       project_id: access.projectId,
-      scope_id: markup.scopeId,
+      scope_id: source.scopeId,
       origin_lane_id: row.originLaneId,
       edited_in_lane_id: null,
       author_user_id: access.userId,
@@ -317,7 +464,7 @@ export async function writeItemVersion(
     .executeTakeFirst();
   if (!inserted.numInsertedOrUpdatedRows) return;
 
-  const audiences = computeItemAudiences(metaFor(access, kind, record, markup, row));
+  const audiences = computeItemAudiences(metaFor(access, source, row));
   for (const rowAccess of audiences.access) {
     if (rowAccess.versionRev !== record.rev) continue;
     await trx
@@ -354,7 +501,7 @@ export async function writeItemVersion(
       .values({
         id: randomUUID(),
         project_id: access.projectId,
-        scope_id: markup.scopeId,
+        scope_id: source.scopeId,
         batch_id: op.batchId ?? null,
         gate_id: null,
         from_lane_id: row.originLaneId,
@@ -369,23 +516,36 @@ export async function writeItemVersion(
   }
 }
 
-/** The first operation whose revision or page is not part of this document, if any. */
+/**
+ * The first operation naming a revision or page that is not part of this document, if any: where a
+ * placement goes, or the revision a status change says was checked.
+ */
 export async function findForeignPage(
   db: Db,
   documentId: string,
   ops: readonly Operation[],
 ): Promise<number | null> {
-  const creates = ops.flatMap((op, index) => (op.type === 'placement.create' ? [{ index, ...op.payload }] : []));
-  if (!creates.length) return null;
+  const named = ops.flatMap((op, index): { index: number; revisionId: string; pageId: string | null }[] => {
+    if (op.type === 'placement.create') return [{ index, revisionId: op.payload.revisionId, pageId: op.payload.pageId }];
+    if (op.type === 'status.transition' && op.payload.revisionSeenId != null) {
+      return [{ index, revisionId: op.payload.revisionSeenId, pageId: null }];
+    }
+    return [];
+  });
+  if (!named.length) return null;
   const rows = await db
-    .selectFrom('pages')
-    .innerJoin('revisions', 'revisions.id', 'pages.revision_id')
+    .selectFrom('revisions')
+    .leftJoin('pages', 'pages.revision_id', 'revisions.id')
     .select(['pages.id as page_id', 'revisions.id as revision_id'])
     .where('revisions.document_id', '=', documentId)
-    .where('pages.id', 'in', [...new Set(creates.map((c) => c.pageId))])
+    .where('revisions.id', 'in', [...new Set(named.map((n) => n.revisionId))])
     .execute();
-  const known = new Set(rows.map((r) => `${r.revision_id}:${r.page_id}`));
-  return creates.find((c) => !known.has(`${c.revisionId}:${c.pageId}`))?.index ?? null;
+  const revisions = new Set(rows.map((r) => r.revision_id));
+  const pages = new Set(rows.map((r) => `${r.revision_id}:${r.page_id}`));
+  return (
+    named.find((n) => (n.pageId === null ? !revisions.has(n.revisionId) : !pages.has(`${n.revisionId}:${n.pageId}`)))
+      ?.index ?? null
+  );
 }
 
 /** Whether `op` would give a markup a second live placement on one revision. */
@@ -404,4 +564,25 @@ export function addsSecondPlacement(op: Operation, state: OpsState): boolean {
   return Object.values(state.placements).some(
     (p) => !p.deleted && p.id !== op.entityId && p.markupId === markupId && p.revisionId === revisionId,
   );
+}
+
+/**
+ * Why an operation may not link its issue to its markups, or null when it may. On a document an
+ * issue is raised for at least one of its markups, and a markup has one live issue: whoever raises
+ * it second is told the status moved, to look again and decide.
+ */
+export function issueLinkProblem(op: Operation, state: OpsState): Rejection | null {
+  if (op.type !== 'issue.create' && op.type !== 'issue.link') return null;
+  const markupIds = op.type === 'issue.link' ? [op.payload.markupId] : (op.payload.markupIds ?? []);
+  if (!markupIds.length) return { code: 'invalid', message: 'An issue on a document is raised for one of its markups' };
+  for (const markupId of markupIds) {
+    if (Object.hasOwn(state.markups, markupId) && state.markups[markupId]!.deleted) {
+      return { code: 'deleted', kind: 'markup', id: markupId };
+    }
+    const other = Object.values(state.issues).find(
+      (issue) => !issue.deleted && issue.id !== op.entityId && issue.markupIds.includes(markupId),
+    );
+    if (other) return { code: 'conflict', conflicts: [{ kind: 'issue', id: other.id, groups: ['status'] }] };
+  }
+  return null;
 }

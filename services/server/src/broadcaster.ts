@@ -1,13 +1,13 @@
-import type { Operation } from '@nb/ops';
+import type { AnyOperation } from '@nb/ops';
 
 export interface StreamEvent {
   streamId: string;
   seq: number;
   opId: string;
   actorId: string;
-  opType: Operation['type'];
+  opType: AnyOperation['type'];
   entityId: string;
-  op: Operation;
+  op: AnyOperation;
   receivedAt: string;
 }
 
