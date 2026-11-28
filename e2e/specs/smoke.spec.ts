@@ -70,7 +70,7 @@ test('Preferences › Show Menu Bar toggles between the classic menu bar and the
   const toggle = app.page.getByLabel('Show Menu Bar');
   await expect(toggle).not.toBeChecked();
   await toggle.check();
-  await app.page.getByRole('button', { name: 'Save' }).click();
+  await app.page.getByRole('button', { name: 'Save', exact: true }).click();
 
   // Menus now sit across the top bar and the ribbon's tabs sit below it.
   await expect(app.page.locator('.menubar button.brand-mark')).toHaveCount(0);
@@ -93,7 +93,7 @@ test('Preferences › Show Menu Bar toggles between the classic menu bar and the
   await app.page.getByRole('tab', { name: 'Interface' }).click();
   await app.page.getByRole('tab', { name: 'Display' }).click();
   await app.page.getByLabel('Show Menu Bar').uncheck();
-  await app.page.getByRole('button', { name: 'Save' }).click();
+  await app.page.getByRole('button', { name: 'Save', exact: true }).click();
 
   await expect(app.page.locator('.menubar .menu-title')).toHaveCount(0);
   await expect(app.page.locator('.menubar button.brand-mark')).toBeVisible();

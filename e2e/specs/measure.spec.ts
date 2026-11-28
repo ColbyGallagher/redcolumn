@@ -234,7 +234,8 @@ test.describe('assemblies', () => {
 
   test('tools.takeoffReview: an AI proposal waits for a person, who edits and approves it; undo makes it wait again', async ({ app }) => {
     const { page } = app;
-    // A wall assembly and a 20 ft run (as an AI client would find them through the assistant).
+    // A wall assembly and a 21 ft run (as an AI client would find them through the assistant). Not 20 ft:
+    // 20 / 2 + 1 is exactly 11, so a click a hair off the point rounds up to 12 or not.
     await page.evaluate(() => {
       const store = (window.__nb.tools as unknown as { store: { setAssemblies(a: unknown[]): void } }).store;
       store.setAssemblies([{ id: 'wall', name: 'Stud wall', variables: [{ name: 'Spacing', value: 2 }], items: [{ id: 'studs', name: 'Studs', unit: 'ea', formula: '[Length] / [Spacing] + 1', roundUp: true }] }]);
@@ -242,7 +243,7 @@ test.describe('assemblies', () => {
     await app.tool('length');
     await app.clicks([
       [300, 450],
-      [500, 450],
+      [510, 450],
     ]);
     const [run] = await app.raw();
     expect(run!.assemblyId).toBeUndefined();
@@ -257,7 +258,7 @@ test.describe('assemblies', () => {
     await expect(proposal.locator('.ar-conf')).toHaveText('⚑ ?');
     await proposal.locator('.tp-measure').click();
     await expect(proposal).toContainText('A partition run.');
-    // 22 ft at 2 ft spacing: 12 studs, where the AI expected 11 (flagged).
+    // 21 ft at 2 ft spacing: 11.5, rounded up to 12 studs, where the AI expected 11 (flagged).
     await expect(proposal.locator('td.num').nth(1)).toHaveText('12.00');
     await expect(proposal.locator('td.num').nth(2)).toHaveText('11.00 ⚠');
     expect((await app.raw())[0]!.assemblyId).toBeUndefined();

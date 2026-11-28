@@ -104,7 +104,8 @@ test.describe('markup format tab follows the selection', () => {
     await expect(ribbon(app).getByRole('tab', { name: 'Markup Format' })).toHaveAttribute('aria-selected', 'true');
     await expect(ribbon(app).getByRole('button', { name: 'Line color' })).toBeVisible();
     await expect(ribbon(app).getByRole('button', { name: 'Fill color' })).toBeVisible();
-    await expect(ribbon(app).getByRole('textbox', { name: 'Opacity', exact: true })).toBeVisible();
+    // Neither type takes one whole opacity (WHOLE_OPACITY_TYPES), so the line's opacity has its own box.
+    await expect(ribbon(app).getByRole('textbox', { name: 'Line opacity', exact: true })).toBeVisible();
     // An area hatches and dashes; a count does neither.
     await expect(ribbon(app).getByRole('button', { name: /Hatch/ })).toHaveCount(0);
     await expect(ribbon(app).getByTitle('Line style')).toHaveCount(0);

@@ -13,6 +13,9 @@ const URL = `http://127.0.0.1:${PORT}/`;
 export default defineConfig({
   testDir: './specs',
   outputDir: './test-results',
+  // Loads the dev server once before the tests, so Vite's first-load dependency bundling doesn't
+  // land inside a test (support/warm-up.ts).
+  globalSetup: './support/warm-up.ts',
   fullyParallel: true,
   forbidOnly: true,
   retries: 0,
