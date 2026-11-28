@@ -557,6 +557,7 @@ export interface InvitesTable {
   scope_id: string | null;
   role: 'user' | 'admin';
   project_role: ProjectRole | null;
+  revoked_at: Date | null;
   created_by: string | null;
   expires_at: Date;
   accepted_at: Date | null;

@@ -9,6 +9,7 @@ import {
   getProjectForMember,
   listProjectMembers,
   removeProjectMember,
+  revokeProjectInvite,
   updateProjectMemberRole,
 } from './projects.ts';
 
@@ -131,6 +132,20 @@ export function registerProjectRoutes(
         token: result.token,
         inviteUrl: result.inviteUrl,
       });
+    },
+  );
+
+  app.delete<{ Params: { projectId: string; inviteId: string } }>(
+    '/api/projects/:projectId/invites/:inviteId',
+    async (request, reply) => {
+      const user = await authenticateRequest(request, reply, db, config);
+      if (!user) return;
+
+      const result = await revokeProjectInvite(db, request.params.projectId, user.id, request.params.inviteId);
+      if (!result.ok) {
+        return reply.code(result.status).send({ error: result.code });
+      }
+      return reply.code(200).send({ ok: true, inviteId: result.inviteId });
     },
   );
 

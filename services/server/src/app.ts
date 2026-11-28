@@ -223,7 +223,11 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
         const result = await previewInvite(db, request.params.token);
         if (!result.ok) {
           const status =
-            result.code === 'invite_expired' ? 410 : result.code === 'invite_already_accepted' ? 409 : 404;
+            result.code === 'invite_expired' || result.code === 'invite_revoked'
+              ? 410
+              : result.code === 'invite_already_accepted'
+                ? 409
+                : 404;
           return reply.code(status).send({ error: result.code });
         }
         return reply.code(200).send({ invite: result.invite });

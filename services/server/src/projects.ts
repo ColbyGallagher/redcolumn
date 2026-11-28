@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { Kysely } from 'kysely';
+import type { Kysely, Transaction } from 'kysely';
 import type { UserProfile } from './auth.ts';
 import type { Database, ProjectRole } from './db.ts';
 import { createInvite, isValidEmail } from './invites.ts';
+import { lockProject } from './projectLock.ts';
 
 export const PROJECT_ROLES: readonly ProjectRole[] = ['project_admin', 'reviewer', 'viewer'] as const;
 
@@ -56,6 +57,8 @@ export type ProjectError = {
     | 'not_found'
     | 'forbidden'
     | 'member_not_found'
+    | 'invite_not_found'
+    | 'invite_already_accepted'
     | 'last_admin';
 };
 
@@ -101,6 +104,14 @@ export type CreateProjectInviteResult =
 
 export type UpdateMemberRoleResult = { ok: true; member: ProjectMemberRecord } | ProjectError;
 export type RemoveMemberResult = { ok: true; userId: string } | ProjectError;
+export type RevokeProjectInviteResult = { ok: true; inviteId: string } | ProjectError;
+
+/**
+ * Who may close issues in a new project's scope. The schema's default names nobody, which
+ * @nb/policy reads as "no one may close", so project admins are the closers until a process says
+ * otherwise.
+ */
+const DEFAULT_CLOSING_RULES = { allowedClosers: [{ kind: 'role', role: 'project_admin' }] };
 
 const MAX_NAME_LENGTH = 200;
 const MAX_NUMBER_LENGTH = 64;
@@ -134,44 +145,26 @@ export async function createProject(
   const now = new Date();
 
   const created = await db.transaction().execute(async (trx) => {
-    // Reuse a workspace the actor belongs to, or the first workspace on the server,
-    // or create a default workspace when starting from an empty database.
-    let workspaceRow = await trx
+    // The project goes in a workspace the actor already belongs to, otherwise in a new one of
+    // their own. Nobody is ever added to a workspace that someone else set up. The lock on the
+    // actor's row stops two concurrent first projects from making two workspaces.
+    await trx.selectFrom('users').select('id').where('id', '=', actor.id).forNoKeyUpdate().execute();
+
+    const membership = await trx
       .selectFrom('workspace_members')
-      .select('workspace_id as id')
+      .select('workspace_id')
       .where('user_id', '=', actor.id)
       .orderBy('created_at', 'asc')
       .executeTakeFirst();
 
-    if (!workspaceRow) {
-      workspaceRow = await trx
-        .selectFrom('workspaces')
-        .select('id')
-        .orderBy('created_at', 'asc')
-        .executeTakeFirst();
-    }
-
-    let workspaceId: string;
-    if (workspaceRow) {
-      workspaceId = workspaceRow.id;
-    } else {
-      workspaceId = 'default';
+    const workspaceId = membership?.workspace_id ?? randomUUID();
+    if (!membership) {
+      await trx.insertInto('workspaces').values({ id: workspaceId, name: actor.name }).execute();
       await trx
-        .insertInto('workspaces')
-        .values({ id: workspaceId, name: 'Default Workspace' })
-        .onConflict((oc) => oc.column('id').doNothing())
+        .insertInto('workspace_members')
+        .values({ workspace_id: workspaceId, user_id: actor.id, role: 'admin' })
         .execute();
     }
-
-    await trx
-      .insertInto('workspace_members')
-      .values({
-        workspace_id: workspaceId,
-        user_id: actor.id,
-        role: actor.isAdmin ? 'admin' : 'member',
-      })
-      .onConflict((oc) => oc.doNothing())
-      .execute();
 
     const projectRow = await trx
       .insertInto('projects')
@@ -199,6 +192,7 @@ export async function createProject(
         numbering_mode: 'on_create',
         tick_closes_issue: false,
         allow_amendment_while_open: true,
+        closing_json: JSON.stringify(DEFAULT_CLOSING_RULES),
         session_state: 'open',
       })
       .returning(['id', 'project_id', 'kind', 'name', 'session_state', 'created_at'])
@@ -327,6 +321,8 @@ export async function listProjectMembers(
 ): Promise<ListProjectMembersResult> {
   const membership = await getProjectForMember(db, projectId, actorId);
   if (!membership.ok) return membership;
+  // Only admins act on pending invitations, so only they see who has been invited.
+  const isAdmin = membership.role === 'project_admin';
 
   const memberRows = await db
     .selectFrom('project_members')
@@ -340,19 +336,21 @@ export async function listProjectMembers(
       'project_members.created_at as created_at',
     ])
     .where('project_members.project_id', '=', projectId)
-    .where('project_members.state', 'in', ['active', 'invited'])
+    .where('project_members.state', 'in', isAdmin ? ['active', 'invited'] : ['active'])
     .orderBy('project_members.created_at', 'asc')
     .execute();
 
-  const now = new Date();
-  const inviteRows = await db
-    .selectFrom('invites')
-    .select(['id', 'email', 'name', 'project_role', 'expires_at', 'created_at'])
-    .where('project_id', '=', projectId)
-    .where('accepted_at', 'is', null)
-    .where('expires_at', '>', now)
-    .orderBy('created_at', 'desc')
-    .execute();
+  const inviteRows = isAdmin
+    ? await db
+        .selectFrom('invites')
+        .select(['id', 'email', 'name', 'project_role', 'expires_at', 'created_at'])
+        .where('project_id', '=', projectId)
+        .where('accepted_at', 'is', null)
+        .where('revoked_at', 'is', null)
+        .where('expires_at', '>', new Date())
+        .orderBy('created_at', 'desc')
+        .execute()
+    : [];
 
   const members: ProjectMemberRecord[] = memberRows.map((row) => ({
     userId: row.user_id,
@@ -392,12 +390,21 @@ export async function createProjectInvite(
     ttlMs?: number;
   },
 ): Promise<CreateProjectInviteResult> {
-  const membership = await getProjectForMember(db, projectId, actorId);
-  if (!membership.ok) return membership;
-  if (membership.role !== 'project_admin') {
-    return { ok: false, status: 403, code: 'forbidden' };
-  }
+  // The role check and the insert share the project lock, so an admin who is being demoted or
+  // removed cannot leave a new invite behind.
+  return db.transaction().execute(async (trx): Promise<CreateProjectInviteResult> => {
+    const admin = await lockProjectForAdmin(trx, projectId, actorId);
+    if (!admin.ok) return admin;
+    return insertProjectInvite(trx, projectId, actorId, input);
+  });
+}
 
+async function insertProjectInvite(
+  trx: Transaction<Database>,
+  projectId: string,
+  actorId: string,
+  input: Parameters<typeof createProjectInvite>[3],
+): Promise<CreateProjectInviteResult> {
   const projectRole: ProjectRole = input.role === undefined ? 'reviewer' : isProjectRole(input.role) ? input.role : ('' as ProjectRole);
   if (!isProjectRole(projectRole)) {
     return { ok: false, status: 400, code: 'invalid_role' };
@@ -411,7 +418,7 @@ export async function createProjectInvite(
 
   let scopeId: string | null = input.scopeId ?? null;
   if (scopeId !== null) {
-    const scopeRow = await db
+    const scopeRow = await trx
       .selectFrom('scopes')
       .select('id')
       .where('id', '=', scopeId)
@@ -421,16 +428,17 @@ export async function createProjectInvite(
       return { ok: false, status: 400, code: 'invalid_scope' };
     }
   } else {
-    const defaultScope = await db
+    const defaultScope = await trx
       .selectFrom('scopes')
       .select('id')
       .where('project_id', '=', projectId)
       .orderBy('created_at', 'asc')
+      .orderBy('id', 'asc')
       .executeTakeFirst();
     scopeId = defaultScope?.id ?? null;
   }
 
-  const created = await createInvite(db, {
+  const created = await createInvite(trx, {
     email,
     name: input.name,
     projectId,
@@ -452,8 +460,99 @@ export async function createProjectInvite(
       createdAt: created.createdAt.toISOString(),
     },
     token: created.token,
-    inviteUrl: `/invite/${created.token}`,
+    // In the fragment, which the browser does not send, so opening the link puts no token in
+    // server or proxy request logs.
+    inviteUrl: `/#/invite/${created.token}`,
   };
+}
+
+export async function revokeProjectInvite(
+  db: Kysely<Database>,
+  projectId: string,
+  actorId: string,
+  inviteId: string,
+): Promise<RevokeProjectInviteResult> {
+  return db.transaction().execute(async (trx): Promise<RevokeProjectInviteResult> => {
+    const admin = await lockProjectForAdmin(trx, projectId, actorId);
+    if (!admin.ok) return admin;
+
+    const invite = await trx
+      .selectFrom('invites')
+      .select(['accepted_at', 'revoked_at'])
+      .where('id', '=', inviteId)
+      .where('project_id', '=', projectId)
+      .forUpdate()
+      .executeTakeFirst();
+    if (!invite) {
+      return { ok: false, status: 404, code: 'invite_not_found' };
+    }
+    if (invite.accepted_at !== null) {
+      return { ok: false, status: 409, code: 'invite_already_accepted' };
+    }
+    if (invite.revoked_at === null) {
+      await trx.updateTable('invites').set({ revoked_at: new Date() }).where('id', '=', inviteId).execute();
+    }
+    return { ok: true, inviteId };
+  });
+}
+
+interface MembershipRow {
+  user_id: string;
+  role: ProjectRole;
+  state: 'invited' | 'active' | 'removed';
+  created_at: Date;
+}
+
+/** Locks the project, then checks under the lock that the caller is still one of its admins. */
+async function lockProjectForAdmin(
+  trx: Transaction<Database>,
+  projectId: string,
+  actorId: string,
+): Promise<{ ok: true; members: MembershipRow[] } | ProjectError> {
+  const project = await lockProject(trx, projectId);
+  if (!project || project.archived_at !== null) {
+    return { ok: false, status: 404, code: 'not_found' };
+  }
+  const members = await trx
+    .selectFrom('project_members')
+    .select(['user_id', 'role', 'state', 'created_at'])
+    .where('project_id', '=', projectId)
+    .execute();
+  const caller = members.find((m) => m.user_id === actorId && m.state === 'active');
+  if (!caller) {
+    return { ok: false, status: 404, code: 'not_found' };
+  }
+  if (caller.role !== 'project_admin') {
+    return { ok: false, status: 403, code: 'forbidden' };
+  }
+  return { ok: true, members };
+}
+
+function isLastActiveAdmin(members: readonly MembershipRow[], target: MembershipRow): boolean {
+  if (target.state !== 'active' || target.role !== 'project_admin') return false;
+  return members.filter((m) => m.state === 'active' && m.role === 'project_admin').length <= 1;
+}
+
+/**
+ * Withdraws the project's unused invites that could hand authority back to someone who is losing
+ * it: those `createdBy` made and, when `sentTo` is given, those addressed to that email.
+ */
+async function revokePendingInvites(
+  trx: Transaction<Database>,
+  projectId: string,
+  { createdBy, sentTo }: { createdBy: string; sentTo?: string },
+  now: Date,
+): Promise<void> {
+  await trx
+    .updateTable('invites')
+    .set({ revoked_at: now })
+    .where('project_id', '=', projectId)
+    .where('accepted_at', 'is', null)
+    .where('revoked_at', 'is', null)
+    .where((eb) =>
+      eb.or([eb('created_by', '=', createdBy), ...(sentTo === undefined ? [] : [eb('email_lower', '=', sentTo)])]),
+    )
+    .execute();
 }
 
 export async function updateProjectMemberRole(
@@ -470,46 +569,20 @@ export async function updateProjectMemberRole(
   const now = new Date();
 
   return db.transaction().execute(async (trx): Promise<UpdateMemberRoleResult> => {
-    const project = await trx
-      .selectFrom('projects')
-      .select('id')
-      .where('id', '=', projectId)
-      .where('archived_at', 'is', null)
-      .executeTakeFirst();
-    if (!project) {
-      return { ok: false, status: 404, code: 'not_found' };
-    }
+    // The project lock keeps concurrent changes from racing past the last-active-admin invariant.
+    const admin = await lockProjectForAdmin(trx, projectId, actorId);
+    if (!admin.ok) return admin;
 
-    // Lock all membership rows for this project so concurrent role changes cannot
-    // race past the last-active-admin invariant.
-    const lockedMembers = await trx
-      .selectFrom('project_members')
-      .select(['user_id', 'role', 'state', 'created_at'])
-      .where('project_id', '=', projectId)
-      .orderBy('user_id', 'asc')
-      .forUpdate()
-      .execute();
-
-    const caller = lockedMembers.find((m) => m.user_id === actorId && m.state === 'active');
-    if (!caller) {
-      return { ok: false, status: 404, code: 'not_found' };
-    }
-    if (caller.role !== 'project_admin') {
-      return { ok: false, status: 403, code: 'forbidden' };
-    }
-
-    const target = lockedMembers.find((m) => m.user_id === targetUserId && m.state !== 'removed');
+    const target = admin.members.find((m) => m.user_id === targetUserId && m.state !== 'removed');
     if (!target) {
       return { ok: false, status: 404, code: 'member_not_found' };
     }
 
-    if (target.state === 'active' && target.role === 'project_admin' && nextRole !== 'project_admin') {
-      const activeAdminCount = lockedMembers.filter(
-        (m) => m.state === 'active' && m.role === 'project_admin',
-      ).length;
-      if (activeAdminCount <= 1) {
+    if (nextRole !== 'project_admin') {
+      if (isLastActiveAdmin(admin.members, target)) {
         return { ok: false, status: 409, code: 'last_admin' };
       }
+      await revokePendingInvites(trx, projectId, { createdBy: targetUserId }, now);
     }
 
     await trx
@@ -548,45 +621,24 @@ export async function removeProjectMember(
   const now = new Date();
 
   return db.transaction().execute(async (trx): Promise<RemoveMemberResult> => {
-    const project = await trx
-      .selectFrom('projects')
-      .select('id')
-      .where('id', '=', projectId)
-      .where('archived_at', 'is', null)
-      .executeTakeFirst();
-    if (!project) {
-      return { ok: false, status: 404, code: 'not_found' };
-    }
+    const admin = await lockProjectForAdmin(trx, projectId, actorId);
+    if (!admin.ok) return admin;
 
-    const lockedMembers = await trx
-      .selectFrom('project_members')
-      .select(['user_id', 'role', 'state'])
-      .where('project_id', '=', projectId)
-      .orderBy('user_id', 'asc')
-      .forUpdate()
-      .execute();
-
-    const caller = lockedMembers.find((m) => m.user_id === actorId && m.state === 'active');
-    if (!caller) {
-      return { ok: false, status: 404, code: 'not_found' };
-    }
-    if (caller.role !== 'project_admin') {
-      return { ok: false, status: 403, code: 'forbidden' };
-    }
-
-    const target = lockedMembers.find((m) => m.user_id === targetUserId && m.state !== 'removed');
+    const target = admin.members.find((m) => m.user_id === targetUserId && m.state !== 'removed');
     if (!target) {
       return { ok: false, status: 404, code: 'member_not_found' };
     }
 
-    if (target.state === 'active' && target.role === 'project_admin') {
-      const activeAdminCount = lockedMembers.filter(
-        (m) => m.state === 'active' && m.role === 'project_admin',
-      ).length;
-      if (activeAdminCount <= 1) {
-        return { ok: false, status: 409, code: 'last_admin' };
-      }
+    if (isLastActiveAdmin(admin.members, target)) {
+      return { ok: false, status: 409, code: 'last_admin' };
     }
+
+    const { email_lower: targetEmail } = await trx
+      .selectFrom('users')
+      .select('email_lower')
+      .where('id', '=', targetUserId)
+      .executeTakeFirstOrThrow();
+    await revokePendingInvites(trx, projectId, { createdBy: targetUserId, sentTo: targetEmail }, now);
 
     await trx
       .updateTable('project_members')

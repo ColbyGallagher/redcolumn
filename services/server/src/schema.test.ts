@@ -1,9 +1,12 @@
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
+import { copyFile, mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 import pg from 'pg';
 import { runCli } from './cli.ts';
-import { checkMigrations, runMigrations } from './migrate.ts';
+import { checkMigrations, DEFAULT_MIGRATIONS_DIR, listMigrationFiles, runMigrations } from './migrate.ts';
 import { RLS_TABLES } from './schema.ts';
 
 // Schema v1 checks against a real Postgres 17. Each run creates its own empty database and a
@@ -153,6 +156,68 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
     });
     assert.equal(code, 0, stderr.join('\n'));
     assert.deepEqual(stderr, []);
+  });
+
+  it('gives every existing project an admin when migrating to project roles', async () => {
+    const name = `rc_roles_${suffix}`;
+    await admin.query(`CREATE DATABASE ${name}`);
+    const url = new URL(DATABASE_URL!);
+    url.pathname = `/${name}`;
+    const old = new pg.Pool({ connectionString: url.toString() });
+    const earlier = await mkdtemp(join(tmpdir(), 'rc-migrations-'));
+    try {
+      for (const file of listMigrationFiles().filter((f) => f.version < '0004')) {
+        await copyFile(join(DEFAULT_MIGRATIONS_DIR, file.filename), join(earlier, file.filename));
+      }
+      await runMigrations(old, earlier);
+
+      await old.query(`
+        INSERT INTO users (id, email, email_lower, name, password_hash, role, is_admin, disabled_at)
+        SELECT id, id || '@northbridge.example', id || '@northbridge.example', id, 'x',
+               CASE WHEN is_admin THEN 'admin' ELSE 'user' END, is_admin, disabled_at
+        FROM (VALUES
+          ('server-admin', TRUE, NULL::timestamptz), ('ws-admin', FALSE, NULL), ('early', FALSE, NULL),
+          ('late', FALSE, NULL), ('gone', TRUE, NULL), ('disabled', TRUE, NOW())
+        ) AS u(id, is_admin, disabled_at)`);
+      await old.query(`INSERT INTO workspaces (id, name) VALUES ('ws', 'Northbridge')`);
+      await old.query(`INSERT INTO workspace_members (workspace_id, user_id, role) VALUES ('ws', 'ws-admin', 'admin')`);
+      await old.query(`
+        INSERT INTO projects (id, workspace_id, name)
+        VALUES ('with-admins', 'ws', 'A'), ('without-admins', 'ws', 'B'), ('empty', 'ws', 'C')`);
+      await old.query(`
+        INSERT INTO project_members (project_id, user_id, state, created_at) VALUES
+          ('with-admins', 'early', 'active', '2026-01-01'),
+          ('with-admins', 'server-admin', 'active', '2026-01-02'),
+          ('with-admins', 'ws-admin', 'active', '2026-01-03'),
+          ('without-admins', 'gone', 'removed', '2026-01-01'),
+          ('without-admins', 'disabled', 'active', '2026-01-02'),
+          ('without-admins', 'late', 'active', '2026-01-04'),
+          ('without-admins', 'early', 'active', '2026-01-03'),
+          ('empty', 'gone', 'removed', '2026-01-01')`);
+      await old.query(`
+        INSERT INTO invites (id, token_hash, email, email_lower, project_id, expires_at)
+        VALUES ('pending', 'h', 'new@northbridge.example', 'new@northbridge.example', 'with-admins', NOW())`);
+
+      assert.deepEqual((await runMigrations(old)).appliedNow, ['0004_project_roles.sql']);
+
+      const admins = await old.query<{ k: string }>(
+        `SELECT project_id || '/' || user_id AS k FROM project_members WHERE role = 'project_admin' ORDER BY 1`,
+      );
+      assert.deepEqual(
+        admins.rows.map((r) => r.k),
+        ['with-admins/server-admin', 'with-admins/ws-admin', 'without-admins/early'],
+      );
+      const others = await old.query(`SELECT DISTINCT role FROM project_members WHERE role <> 'project_admin'`);
+      assert.deepEqual(others.rows, [{ role: 'reviewer' }]);
+      const pending = await old.query(`SELECT project_role, revoked_at FROM invites`);
+      assert.deepEqual(pending.rows, [{ project_role: null, revoked_at: null }]);
+      const index = await old.query(`SELECT 1 FROM pg_indexes WHERE indexname = 'invites_project_id_idx'`);
+      assert.equal(index.rowCount, 1);
+    } finally {
+      await old.end();
+      await admin.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+      await rm(earlier, { recursive: true, force: true });
+    }
   });
 
   it('enables and forces row-level security on exactly the content tables', async () => {
