@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -15,6 +15,7 @@ import {
   MemoryBlobStore,
   UploadHashMismatchError,
   UploadOffsetMismatchError,
+  UploadSizeExceededError,
   UploadSizeMismatchError,
   type BlobStore,
 } from './blobStore.ts';
@@ -334,9 +335,59 @@ describe('BlobStore unit tests', () => {
           UploadHashMismatchError,
         );
         assert.equal(await store.statUpload('proj-1', 'up-bad-hash'), null);
+
+        // Large overlap retry (> 64 KiB) uses bounded slice comparison and verifies accurately.
+        const largeOverlap = Buffer.alloc(160 * 1024, 0x41);
+        largeOverlap[100_000] = 0x42;
+        await store.createUpload('proj-1', 'up-large-overlap');
+        await store.appendChunk('proj-1', 'up-large-overlap', 0, largeOverlap);
+        assert.deepEqual(await store.appendChunk('proj-1', 'up-large-overlap', 0, largeOverlap), {
+          receivedBytes: largeOverlap.byteLength,
+        });
+        const tampered = Buffer.from(largeOverlap);
+        tampered[100_000] = 0x43;
+        await assert.rejects(
+          () => store.appendChunk('proj-1', 'up-large-overlap', 0, tampered),
+          UploadOffsetMismatchError,
+        );
+
+        // Incremental streaming limits reject immediately without consuming unbounded bytes.
+        await store.createUpload('proj-1', 'up-stream-limit');
+        let chunksYielded = 0;
+        const hugeStream = Readable.from(
+          (async function* () {
+            for (let i = 0; i < 10; i++) {
+              chunksYielded += 1;
+              yield Buffer.alloc(1024, 0x5a);
+            }
+          })(),
+        );
+        await assert.rejects(
+          () => store.appendChunk('proj-1', 'up-stream-limit', 0, hugeStream, { maxTotalBytes: 2500 }),
+          UploadSizeExceededError,
+        );
+        assert.ok(chunksYielded <= 4, `expected stream to stop early, yielded ${chunksYielded} chunks`);
       });
     });
   }
+
+  it('rejects symlinks inside LocalDiskBlobStore rootDir', async () => {
+    const storeRoot = join(tmpDir, 'symlink-store');
+    const outsideDir = join(tmpDir, 'outside-secret');
+    await mkdir(join(storeRoot, 'projects'), { recursive: true });
+    await mkdir(outsideDir, { recursive: true });
+    const fakeHash = 'b'.repeat(64);
+    await writeFile(join(outsideDir, fakeHash), 'outside-data');
+
+    // Directory junction works without elevated privileges on Windows and as a symlink on POSIX.
+    await symlink(outsideDir, join(storeRoot, 'projects', 'proj-link'), 'junction');
+
+    const store = new LocalDiskBlobStore(storeRoot);
+    await assert.rejects(() => store.stat('proj-link', fakeHash), BlobValidationError);
+    await assert.rejects(() => store.get('proj-link', fakeHash), BlobValidationError);
+    await assert.rejects(() => store.delete('proj-link', fakeHash), BlobValidationError);
+    await assert.rejects(() => store.put('proj-link', Buffer.from('x')), BlobValidationError);
+  });
 });
 
 describe('sheet suggestion validation & PDFium inspection unit tests', () => {
@@ -844,5 +895,397 @@ describe('document uploads & PDF inspection (Postgres 17)', { skip: !DATABASE_UR
       { position: 0, width: 612, height: 792, rotation: 0 },
       { position: 1, width: 1191, height: 842, rotation: 0 },
     ]);
+  });
+
+  it('enforces authentication (401), project membership (404), and CSRF origin checks (403)', async () => {
+    const pdf = buildPdfBytes([{ width: 612, height: 792 }]);
+    const sha256 = sha256Hex(pdf);
+
+    // Create an upload and a completed revision as the authorized project member.
+    const startRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie, origin: baseUrl },
+      body: JSON.stringify({
+        filename: 'auth-check.pdf',
+        totalBytes: pdf.byteLength,
+        expectedSha256: sha256,
+        documentNumber: 'AUTH-01',
+      }),
+    });
+    assert.equal(startRes.status, 201);
+    const { uploadId } = (await startRes.json()) as { uploadId: string };
+
+    // Unauthenticated requests must receive 401 across all upload & revision endpoints.
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', origin: baseUrl },
+          body: JSON.stringify({ filename: 'x.pdf', totalBytes: pdf.byteLength, expectedSha256: sha256 }),
+        })
+      ).status,
+      401,
+    );
+    assert.equal((await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}`)).status, 401);
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/chunks`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/octet-stream', 'x-upload-offset': '0', origin: baseUrl },
+          body: toBody(pdf),
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/complete`, {
+          method: 'POST',
+          headers: { origin: baseUrl },
+        })
+      ).status,
+      401,
+    );
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}`, {
+          method: 'DELETE',
+          headers: { origin: baseUrl },
+        })
+      ).status,
+      401,
+    );
+
+    // Disallowed Origin header on state-changing routes must receive 403.
+    const badOrigin = 'https://untrusted.example';
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', cookie, origin: badOrigin },
+          body: JSON.stringify({ filename: 'csrf.pdf', totalBytes: pdf.byteLength, expectedSha256: sha256 }),
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/chunks`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/octet-stream', 'x-upload-offset': '0', cookie, origin: badOrigin },
+          body: toBody(pdf),
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/complete`, {
+          method: 'POST',
+          headers: { cookie, origin: badOrigin },
+        })
+      ).status,
+      403,
+    );
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}`, {
+          method: 'DELETE',
+          headers: { cookie, origin: badOrigin },
+        })
+      ).status,
+      403,
+    );
+
+    // Finish the upload as the authorized member so we also have a document/revision to test.
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/chunks`, {
+          method: 'PUT',
+          headers: { 'content-type': 'application/octet-stream', 'x-upload-offset': '0', cookie, origin: baseUrl },
+          body: toBody(pdf),
+        })
+      ).status,
+      200,
+    );
+    const doneRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/complete`, {
+      method: 'POST',
+      headers: { cookie, origin: baseUrl },
+    });
+    assert.equal(doneRes.status, 201);
+    const { documentId, revisionId } = (await doneRes.json()) as { documentId: string; revisionId: string };
+    await server.jobRunner.drain();
+
+    // Unauthenticated revision GET must return 401.
+    assert.equal(
+      (await fetch(`${baseUrl}/api/projects/${projectId}/documents/${documentId}/revisions/${revisionId}`)).status,
+      401,
+    );
+
+    // A second user who is NOT a member of projectId must receive 404 across all endpoints.
+    await createLocalUser(dbHandle.db, {
+      email: 'outsider@harbour.example',
+      name: 'Taylor Brooks',
+      password: 'fictional-password-99',
+      role: 'user',
+    });
+    const outsiderCookie = await login(baseUrl, 'outsider@harbour.example', 'fictional-password-99');
+
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', cookie: outsiderCookie, origin: baseUrl },
+          body: JSON.stringify({ filename: 'x.pdf', totalBytes: pdf.byteLength, expectedSha256: sha256 }),
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}`, { headers: { cookie: outsiderCookie } }))
+        .status,
+      404,
+    );
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/chunks`, {
+          method: 'PUT',
+          headers: {
+            'content-type': 'application/octet-stream',
+            'x-upload-offset': '0',
+            cookie: outsiderCookie,
+            origin: baseUrl,
+          },
+          body: toBody(pdf),
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/complete`, {
+          method: 'POST',
+          headers: { cookie: outsiderCookie, origin: baseUrl },
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}`, {
+          method: 'DELETE',
+          headers: { cookie: outsiderCookie, origin: baseUrl },
+        })
+      ).status,
+      404,
+    );
+    assert.equal(
+      (
+        await fetch(`${baseUrl}/api/projects/${projectId}/documents/${documentId}/revisions/${revisionId}`, {
+          headers: { cookie: outsiderCookie },
+        })
+      ).status,
+      404,
+    );
+  });
+
+  it('aborts an active upload via DELETE and removes the staging file', async () => {
+    const pdf = buildPdfBytes([{ width: 612, height: 792 }]);
+    const startRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie, origin: baseUrl },
+      body: JSON.stringify({
+        filename: 'abort-me.pdf',
+        totalBytes: pdf.byteLength,
+        expectedSha256: sha256Hex(pdf),
+      }),
+    });
+    assert.equal(startRes.status, 201);
+    const { uploadId } = (await startRes.json()) as { uploadId: string };
+
+    // Upload a partial chunk so staging file has bytes on disk.
+    const partRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/chunks`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/octet-stream', 'x-upload-offset': '0', cookie, origin: baseUrl },
+      body: toBody(pdf.subarray(0, 32)),
+    });
+    assert.equal(partRes.status, 200);
+    assert.deepEqual(await server.blobStore.statUpload(projectId, uploadId), { receivedBytes: 32 });
+
+    // DELETE aborts the upload and deletes the staging file.
+    const delRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}`, {
+      method: 'DELETE',
+      headers: { cookie, origin: baseUrl },
+    });
+    assert.equal(delRes.status, 200);
+    assert.deepEqual(await delRes.json(), { uploadId, state: 'aborted' });
+    assert.equal(await server.blobStore.statUpload(projectId, uploadId), null);
+
+    // Subsequent chunk appends must be refused with 409.
+    const afterRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/chunks`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/octet-stream', 'x-upload-offset': '32', cookie, origin: baseUrl },
+      body: toBody(pdf.subarray(32)),
+    });
+    assert.equal(afterRes.status, 409);
+  });
+
+  it('enforces upload_size_exceeded both via Content-Length and incrementally while streaming', async () => {
+    const pdf = buildPdfBytes([{ width: 612, height: 792 }]);
+    const startRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie, origin: baseUrl },
+      body: JSON.stringify({
+        filename: 'size-cap.pdf',
+        totalBytes: 100,
+        expectedSha256: sha256Hex(pdf),
+      }),
+    });
+    assert.equal(startRes.status, 201);
+    const { uploadId } = (await startRes.json()) as { uploadId: string };
+
+    // 1. Oversized Content-Length is rejected immediately with 400.
+    const clRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/chunks`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/octet-stream', 'x-upload-offset': '0', cookie, origin: baseUrl },
+      body: toBody(Buffer.alloc(150, 0x41)),
+    });
+    assert.equal(clRes.status, 400);
+    assert.equal(((await clRes.json()) as { error: string }).error, 'upload_size_exceeded');
+
+    // 2. Transfer-Encoding: chunked (no Content-Length) exceeding totalBytes aborts mid-stream.
+    const streamBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array(60).fill(0x41));
+        controller.enqueue(new Uint8Array(60).fill(0x42));
+        controller.close();
+      },
+    });
+    const streamedRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/chunks`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/octet-stream', 'x-upload-offset': '0', cookie, origin: baseUrl },
+      body: streamBody,
+      // @ts-expect-error Node fetch requires duplex: 'half' for ReadableStream request bodies.
+      duplex: 'half',
+    });
+    assert.equal(streamedRes.status, 400);
+    assert.equal(((await streamedRes.json()) as { error: string }).error, 'upload_size_exceeded');
+    assert.equal(await server.blobStore.statUpload(projectId, uploadId), null);
+
+    const statusRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}`, {
+      headers: { cookie },
+    });
+    assert.equal(statusRes.status, 200);
+    assert.equal(((await statusRes.json()) as { state: string }).state, 'failed');
+  });
+
+  it('handles concurrent double-complete idempotently and returns 409 on duplicate document numbers or revision labels', async () => {
+    const pdf = buildPdfBytes([{ width: 612, height: 792 }]);
+    const sha256 = sha256Hex(pdf);
+
+    const startRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie, origin: baseUrl },
+      body: JSON.stringify({
+        filename: 'race-test.pdf',
+        totalBytes: pdf.byteLength,
+        expectedSha256: sha256,
+        documentNumber: 'RACE-01',
+        revisionLabel: '1',
+      }),
+    });
+    assert.equal(startRes.status, 201);
+    const { uploadId } = (await startRes.json()) as { uploadId: string };
+
+    const chunkRes = await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/chunks`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/octet-stream', 'x-upload-offset': '0', cookie, origin: baseUrl },
+      body: toBody(pdf),
+    });
+    assert.equal(chunkRes.status, 200);
+
+    // Fire two concurrent POST .../complete requests for the same uploadId.
+    const [resA, resB] = await Promise.all([
+      fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/complete`, {
+        method: 'POST',
+        headers: { cookie, origin: baseUrl },
+      }),
+      fetch(`${baseUrl}/api/projects/${projectId}/uploads/${uploadId}/complete`, {
+        method: 'POST',
+        headers: { cookie, origin: baseUrl },
+      }),
+    ]);
+    const statuses = [resA.status, resB.status].sort((a, b) => a - b);
+    assert.deepEqual(statuses, [200, 201]);
+    const bodyA = (await resA.json()) as { documentId: string; revisionId: string };
+    const bodyB = (await resB.json()) as { documentId: string; revisionId: string };
+    assert.equal(bodyA.documentId, bodyB.documentId);
+    assert.equal(bodyA.revisionId, bodyB.revisionId);
+
+    await server.jobRunner.drain();
+
+    // Only one document and one revision row should exist.
+    const docCount = await dbHandle.pool.query('SELECT count(*)::int AS n FROM documents');
+    const revCount = await dbHandle.pool.query('SELECT count(*)::int AS n FROM revisions');
+    assert.equal(docCount.rows[0]!.n, 1);
+    assert.equal(revCount.rows[0]!.n, 1);
+
+    // Duplicate documentNumber in the same project must return 409 and mark upload failed.
+    const dupDocStart = await fetch(`${baseUrl}/api/projects/${projectId}/uploads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie, origin: baseUrl },
+      body: JSON.stringify({
+        filename: 'dup-doc.pdf',
+        totalBytes: pdf.byteLength,
+        expectedSha256: sha256,
+        documentNumber: 'RACE-01',
+        revisionLabel: '1',
+      }),
+    });
+    assert.equal(dupDocStart.status, 201);
+    const { uploadId: dupDocUploadId } = (await dupDocStart.json()) as { uploadId: string };
+    await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${dupDocUploadId}/chunks`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/octet-stream', 'x-upload-offset': '0', cookie, origin: baseUrl },
+      body: toBody(pdf),
+    });
+    const dupDocComplete = await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${dupDocUploadId}/complete`, {
+      method: 'POST',
+      headers: { cookie, origin: baseUrl },
+    });
+    assert.equal(dupDocComplete.status, 409);
+    const dupDocStatus = (await (
+      await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${dupDocUploadId}`, { headers: { cookie } })
+    ).json()) as { state: string };
+    assert.equal(dupDocStatus.state, 'failed');
+
+    // Duplicate revisionLabel on an existing documentId must return 409 and mark upload failed.
+    const dupRevStart = await fetch(`${baseUrl}/api/projects/${projectId}/uploads`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', cookie, origin: baseUrl },
+      body: JSON.stringify({
+        filename: 'dup-rev.pdf',
+        totalBytes: pdf.byteLength,
+        expectedSha256: sha256,
+        documentId: bodyA.documentId,
+        revisionLabel: '1',
+      }),
+    });
+    assert.equal(dupRevStart.status, 201);
+    const { uploadId: dupRevUploadId } = (await dupRevStart.json()) as { uploadId: string };
+    await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${dupRevUploadId}/chunks`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/octet-stream', 'x-upload-offset': '0', cookie, origin: baseUrl },
+      body: toBody(pdf),
+    });
+    const dupRevComplete = await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${dupRevUploadId}/complete`, {
+      method: 'POST',
+      headers: { cookie, origin: baseUrl },
+    });
+    assert.equal(dupRevComplete.status, 409);
+    const dupRevStatus = (await (
+      await fetch(`${baseUrl}/api/projects/${projectId}/uploads/${dupRevUploadId}`, { headers: { cookie } })
+    ).json()) as { state: string };
+    assert.equal(dupRevStatus.state, 'failed');
   });
 });

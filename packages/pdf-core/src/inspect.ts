@@ -87,11 +87,16 @@ export async function inspectPdfPages(
     return 1;
   }, 'iiiii');
 
-  const access = malloc(12);
+  let access = 0;
   let handle = 0;
   let sizePtr = 0;
+  let aborted = false;
 
   try {
+    access = malloc(12);
+    if (!access) {
+      throw new Error('PDFium failed to allocate file access struct');
+    }
     m.pdfium.HEAPU32.set([source.byteLength, getBlock, 0], access >> 2);
     handle = m.FPDF_LoadCustomDocument(access, password);
     if (!handle) {
@@ -108,6 +113,9 @@ export async function inspectPdfPages(
     }
 
     sizePtr = malloc(8);
+    if (!sizePtr) {
+      throw new Error('PDFium failed to allocate page size buffer');
+    }
     const pages: PdfPageMetadata[] = [];
     for (let i = 0; i < count; i++) {
       const ok = m.FPDF_GetPageSizeByIndexF(handle, i, sizePtr);
@@ -128,8 +136,20 @@ export async function inspectPdfPages(
       let rotation: PageRotation;
       try {
         rotation = normalizeRotation(m.FPDFPage_GetRotation(page));
+      } catch (pageErr) {
+        if (isWasmAbort(pageErr)) {
+          aborted = true;
+          modulePromise = null;
+        }
+        throw pageErr;
       } finally {
-        m.FPDF_ClosePage(page);
+        if (!aborted) {
+          try {
+            m.FPDF_ClosePage(page);
+          } catch {
+            // Never mask the root error during page cleanup.
+          }
+        }
       }
 
       pages.push({ position: i, width, height, rotation });
@@ -138,14 +158,33 @@ export async function inspectPdfPages(
     return pages;
   } catch (err) {
     if (isWasmAbort(err)) {
+      aborted = true;
       modulePromise = null;
     }
     throw err;
   } finally {
-    if (sizePtr) free(sizePtr);
-    if (handle) m.FPDF_CloseDocument(handle);
-    m.pdfium.removeFunction(getBlock);
-    free(access);
+    if (!aborted) {
+      try {
+        if (sizePtr) free(sizePtr);
+      } catch {
+        // Ignore cleanup errors to avoid masking the root error.
+      }
+      try {
+        if (handle) m.FPDF_CloseDocument(handle);
+      } catch {
+        // Ignore cleanup errors to avoid masking the root error.
+      }
+      try {
+        m.pdfium.removeFunction(getBlock);
+      } catch {
+        // Ignore cleanup errors to avoid masking the root error.
+      }
+      try {
+        if (access) free(access);
+      } catch {
+        // Ignore cleanup errors to avoid masking the root error.
+      }
+    }
   }
 }
 

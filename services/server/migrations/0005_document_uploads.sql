@@ -27,7 +27,7 @@ BEGIN
      AND NEW.issued_by IS NOT DISTINCT FROM OLD.issued_by
      AND NEW.issued_at IS NOT DISTINCT FROM OLD.issued_at
      AND NEW.created_at = OLD.created_at
-     AND (NEW.processing_status <> 'processing' OR NEW.page_count = OLD.page_count)
+     AND (NEW.processing_status = 'ready' OR NEW.page_count = OLD.page_count)
   THEN
     RETURN NEW;
   END IF;
@@ -50,7 +50,7 @@ CREATE TABLE document_uploads (
   received_bytes BIGINT NOT NULL DEFAULT 0 CHECK (received_bytes >= 0 AND received_bytes <= total_bytes),
   chunk_size INTEGER NOT NULL CHECK (chunk_size > 0),
   sheet_suggestions_json JSONB NOT NULL DEFAULT '[]'::jsonb,
-  state TEXT NOT NULL DEFAULT 'uploading' CHECK (state IN ('uploading', 'completed', 'aborted', 'failed')),
+  state TEXT NOT NULL DEFAULT 'uploading' CHECK (state IN ('uploading', 'completing', 'completed', 'aborted', 'failed')),
   revision_id TEXT REFERENCES revisions(id) ON DELETE SET NULL,
   error_message TEXT,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),

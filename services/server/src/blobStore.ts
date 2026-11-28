@@ -1,16 +1,24 @@
 import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, open, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { lstat, mkdir, open, realpath, rename, rm, writeFile, type FileHandle } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { Readable } from 'node:stream';
 
 const SAFE_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SHA256_RE = /^[0-9a-f]{64}$/;
+const COMPARE_CHUNK_BYTES = 64 * 1024;
 
 export interface BlobStat {
   sha256: string;
   sizeBytes: number;
   storageKey: string;
+}
+
+export interface UploadAppendOptions {
+  /** Maximum number of bytes accepted in a single chunk request. */
+  maxChunkBytes?: number;
+  /** Maximum total staged file size (offset + bytes written). */
+  maxTotalBytes?: number;
 }
 
 export interface UploadAppendResult {
@@ -40,6 +48,22 @@ export class UploadOffsetMismatchError extends Error {
     this.name = 'UploadOffsetMismatchError';
     this.expectedOffset = expectedOffset;
     this.receivedOffset = receivedOffset;
+  }
+}
+
+export class UploadSizeExceededError extends Error {
+  readonly kind: 'chunk' | 'total';
+  readonly limitBytes: number;
+
+  constructor(kind: 'chunk' | 'total', limitBytes: number) {
+    super(
+      kind === 'chunk'
+        ? `Chunk size exceeds limit of ${limitBytes} bytes`
+        : `Upload size exceeds total limit of ${limitBytes} bytes`,
+    );
+    this.name = 'UploadSizeExceededError';
+    this.kind = kind;
+    this.limitBytes = limitBytes;
   }
 }
 
@@ -80,6 +104,7 @@ export interface BlobStore {
     uploadId: string,
     offset: number,
     data: Uint8Array | Readable,
+    options?: UploadAppendOptions,
   ): Promise<UploadAppendResult>;
   statUpload(projectId: string, uploadId: string): Promise<{ receivedBytes: number } | null>;
   finalizeUpload(
@@ -140,16 +165,89 @@ async function readStreamToBuffer(stream: Readable): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-async function hashFileSha256(filePath: string): Promise<{ sha256: string; sizeBytes: number }> {
-  const hash = createHash('sha256');
-  let sizeBytes = 0;
-  const stream = createReadStream(filePath, { highWaterMark: 256 * 1024 });
-  for await (const chunk of stream) {
-    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
-    sizeBytes += buf.byteLength;
-    hash.update(buf);
-  }
-  return { sha256: hash.digest('hex'), sizeBytes };
+/**
+ * Consumes a Readable stream sequentially with backpressure. On error, pauses the stream
+ * immediately so no further bytes are read; destroys non-HTTP streams while leaving HTTP
+ * `IncomingMessage` sockets intact long enough for the server to flush an error response
+ * with `Connection: close`.
+ */
+async function consumeReadableSequential(
+  stream: Readable,
+  onChunk: (buf: Buffer) => Promise<void>,
+): Promise<void> {
+  await new Promise<void>((resolvePromise, rejectPromise) => {
+    let settled = false;
+    let ended = false;
+    let processing = false;
+
+    const cleanup = () => {
+      stream.off('data', onData);
+      stream.off('end', onEnd);
+      stream.off('error', onError);
+      stream.off('close', onClose);
+    };
+
+    const fail = (err: unknown) => {
+      if (settled) return;
+      settled = true;
+      stream.pause();
+      cleanup();
+      if (!('socket' in stream)) {
+        stream.destroy();
+      }
+      rejectPromise(err);
+    };
+
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      resolvePromise();
+    };
+
+    const onData = (chunk: unknown) => {
+      if (settled) return;
+      stream.pause();
+      processing = true;
+      const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+      void onChunk(buf).then(
+        () => {
+          processing = false;
+          if (settled) return;
+          if (ended) {
+            finish();
+          } else {
+            stream.resume();
+          }
+        },
+        (err) => {
+          processing = false;
+          fail(err);
+        },
+      );
+    };
+
+    const onEnd = () => {
+      ended = true;
+      if (!processing) finish();
+    };
+
+    const onError = (err: unknown) => {
+      fail(err);
+    };
+
+    const onClose = () => {
+      if (!settled && !ended && !processing) {
+        fail(new Error('Upload stream closed prematurely'));
+      }
+    };
+
+    stream.on('data', onData);
+    stream.on('end', onEnd);
+    stream.on('error', onError);
+    stream.on('close', onClose);
+    stream.resume();
+  });
 }
 
 /**
@@ -178,6 +276,46 @@ export class LocalDiskBlobStore implements BlobStore {
     return candidate;
   }
 
+  /**
+   * Verifies that no path component inside `rootDir` is a symbolic link and that the deepest
+   * existing component's `realpath` stays contained within `realpath(rootDir)`.
+   */
+  private async assertNoSymlinks(targetPath: string): Promise<void> {
+    const rel = relative(this.rootDir, targetPath);
+    if (!rel || rel.startsWith('..') || isAbsolute(rel)) {
+      throw new BlobValidationError('Resolved path escapes blob storage root');
+    }
+
+    const segments = rel.split(/[/\\]+/).filter(Boolean);
+    let current = this.rootDir;
+    let deepestExisting: string | null = null;
+
+    for (const seg of segments) {
+      current = join(current, seg);
+      try {
+        const info = await lstat(current);
+        if (info.isSymbolicLink()) {
+          throw new BlobValidationError('Symlink detected inside blob storage root');
+        }
+        deepestExisting = current;
+      } catch (err) {
+        if (isEnoent(err)) break;
+        throw err;
+      }
+    }
+
+    if (deepestExisting) {
+      const [canonicalRoot, canonicalTarget] = await Promise.all([
+        realpath(this.rootDir),
+        realpath(deepestExisting),
+      ]);
+      const canonicalRel = relative(canonicalRoot, canonicalTarget);
+      if (!canonicalRel || canonicalRel.startsWith('..') || isAbsolute(canonicalRel)) {
+        throw new BlobValidationError('Resolved path escapes blob storage root');
+      }
+    }
+  }
+
   private blobPath(projectId: string, sha256: string): string {
     const safeProject = validateProjectId(projectId);
     const safeHash = validateSha256(sha256);
@@ -198,6 +336,7 @@ export class LocalDiskBlobStore implements BlobStore {
     const safeProject = validateProjectId(projectId);
     const tmpName = `put-${Date.now()}-${Math.random().toString(16).slice(2)}.tmp`;
     const tmpPath = this.safeJoin('uploads', safeProject, tmpName);
+    await this.assertNoSymlinks(tmpPath);
     await mkdir(dirname(tmpPath), { recursive: true });
 
     const hash = createHash('sha256');
@@ -234,6 +373,7 @@ export class LocalDiskBlobStore implements BlobStore {
 
       const sha256 = hash.digest('hex');
       const finalPath = this.blobPath(safeProject, sha256);
+      await this.assertNoSymlinks(finalPath);
       await mkdir(dirname(finalPath), { recursive: true });
       await this.moveIntoPlace(tmpPath, finalPath);
       return { sha256, sizeBytes, storageKey: blobStorageKey(safeProject, sha256) };
@@ -245,13 +385,25 @@ export class LocalDiskBlobStore implements BlobStore {
 
   async get(projectId: string, sha256: string): Promise<Readable | null> {
     const target = this.blobPath(projectId, sha256);
+    await this.assertNoSymlinks(target);
+    let fh: FileHandle;
     try {
-      await stat(target);
+      fh = await open(target, 'r');
     } catch (err) {
       if (isEnoent(err)) return null;
       throw err;
     }
-    return createReadStream(target);
+    try {
+      const info = await fh.stat();
+      if (!info.isFile()) {
+        await fh.close();
+        return null;
+      }
+      return fh.createReadStream();
+    } catch (err) {
+      await fh.close();
+      throw err;
+    }
   }
 
   async has(projectId: string, sha256: string): Promise<boolean> {
@@ -260,8 +412,12 @@ export class LocalDiskBlobStore implements BlobStore {
 
   async stat(projectId: string, sha256: string): Promise<BlobStat | null> {
     const target = this.blobPath(projectId, sha256);
+    await this.assertNoSymlinks(target);
     try {
-      const info = await stat(target);
+      const info = await lstat(target);
+      if (info.isSymbolicLink()) {
+        throw new BlobValidationError('Symlink detected inside blob storage root');
+      }
       if (!info.isFile()) return null;
       return {
         sha256,
@@ -276,6 +432,7 @@ export class LocalDiskBlobStore implements BlobStore {
 
   async delete(projectId: string, sha256: string): Promise<boolean> {
     const target = this.blobPath(projectId, sha256);
+    await this.assertNoSymlinks(target);
     try {
       await rm(target);
       return true;
@@ -287,6 +444,7 @@ export class LocalDiskBlobStore implements BlobStore {
 
   async createUpload(projectId: string, uploadId: string): Promise<void> {
     const partPath = this.uploadPath(projectId, uploadId);
+    await this.assertNoSymlinks(partPath);
     await mkdir(dirname(partPath), { recursive: true });
     const fh = await open(partPath, 'w');
     await fh.close();
@@ -294,8 +452,12 @@ export class LocalDiskBlobStore implements BlobStore {
 
   async statUpload(projectId: string, uploadId: string): Promise<{ receivedBytes: number } | null> {
     const partPath = this.uploadPath(projectId, uploadId);
+    await this.assertNoSymlinks(partPath);
     try {
-      const info = await stat(partPath);
+      const info = await lstat(partPath);
+      if (info.isSymbolicLink()) {
+        throw new BlobValidationError('Symlink detected inside blob storage root');
+      }
       if (!info.isFile()) return null;
       return { receivedBytes: info.size };
     } catch (err) {
@@ -309,45 +471,82 @@ export class LocalDiskBlobStore implements BlobStore {
     uploadId: string,
     offset: number,
     data: Uint8Array | Readable,
+    options?: UploadAppendOptions,
   ): Promise<UploadAppendResult> {
     assertSafeOffset(offset);
-    const partPath = this.uploadPath(projectId, uploadId);
+    if (options?.maxTotalBytes !== undefined && offset > options.maxTotalBytes) {
+      if (!(data instanceof Uint8Array)) {
+        data.pause();
+        if (!('socket' in data)) data.destroy();
+      }
+      throw new UploadSizeExceededError('total', options.maxTotalBytes);
+    }
 
-    let currentSize: number;
+    const partPath = this.uploadPath(projectId, uploadId);
+    await this.assertNoSymlinks(partPath);
+
+    let fh: FileHandle;
     try {
-      const info = await stat(partPath);
-      currentSize = info.size;
+      fh = await open(partPath, 'r+');
     } catch (err) {
-      if (isEnoent(err)) throw new UploadNotFoundError(uploadId);
+      if (isEnoent(err)) {
+        if (!(data instanceof Uint8Array)) data.resume();
+        throw new UploadNotFoundError(uploadId);
+      }
       throw err;
     }
 
-    if (offset > currentSize) {
-      // Drain incoming stream to avoid hanging HTTP sockets before rejecting.
-      if (!(data instanceof Uint8Array)) data.resume();
-      throw new UploadOffsetMismatchError(currentSize, offset);
-    }
-
-    const fh = await open(partPath, 'r+');
     try {
+      const info = await fh.stat();
+      let currentSize = info.size;
+
+      if (offset > currentSize) {
+        // Drain incoming stream to avoid hanging HTTP sockets before rejecting.
+        if (!(data instanceof Uint8Array)) data.resume();
+        throw new UploadOffsetMismatchError(currentSize, offset);
+      }
+
       let writePos = offset;
+      let chunkBytesRead = 0;
+      let compareBuf: Buffer | null = null;
 
       const processBuffer = async (buf: Buffer): Promise<void> => {
         if (buf.byteLength === 0) return;
 
+        chunkBytesRead += buf.byteLength;
+        if (options?.maxChunkBytes !== undefined && chunkBytesRead > options.maxChunkBytes) {
+          throw new UploadSizeExceededError('chunk', options.maxChunkBytes);
+        }
+        if (options?.maxTotalBytes !== undefined && writePos + buf.byteLength > options.maxTotalBytes) {
+          throw new UploadSizeExceededError('total', options.maxTotalBytes);
+        }
+
         // If the client retried an earlier offset (e.g. after a dropped response), verify any
-        // overlapping bytes match what is already on disk, then append only bytes past currentSize.
+        // overlapping bytes in bounded slices, then append only bytes past currentSize.
         if (writePos < currentSize) {
           const overlapLen = Math.min(buf.byteLength, currentSize - writePos);
-          const existing = Buffer.allocUnsafe(overlapLen);
-          let readTotal = 0;
-          while (readTotal < overlapLen) {
-            const res = await fh.read(existing, readTotal, overlapLen - readTotal, writePos + readTotal);
-            if (res.bytesRead === 0) break;
-            readTotal += res.bytesRead;
-          }
-          if (readTotal !== overlapLen || !existing.equals(buf.subarray(0, overlapLen))) {
-            throw new UploadOffsetMismatchError(currentSize, offset);
+          compareBuf ??= Buffer.allocUnsafe(COMPARE_CHUNK_BYTES);
+          let checked = 0;
+          while (checked < overlapLen) {
+            const sliceLen = Math.min(overlapLen - checked, COMPARE_CHUNK_BYTES);
+            let readTotal = 0;
+            while (readTotal < sliceLen) {
+              const res = await fh.read(
+                compareBuf,
+                readTotal,
+                sliceLen - readTotal,
+                writePos + checked + readTotal,
+              );
+              if (res.bytesRead === 0) break;
+              readTotal += res.bytesRead;
+            }
+            if (
+              readTotal !== sliceLen ||
+              !compareBuf.subarray(0, sliceLen).equals(buf.subarray(checked, checked + sliceLen))
+            ) {
+              throw new UploadOffsetMismatchError(currentSize, offset);
+            }
+            checked += sliceLen;
           }
           writePos += overlapLen;
           if (overlapLen === buf.byteLength) return;
@@ -368,10 +567,7 @@ export class LocalDiskBlobStore implements BlobStore {
       if (data instanceof Uint8Array) {
         await processBuffer(Buffer.isBuffer(data) ? data : Buffer.from(data.buffer, data.byteOffset, data.byteLength));
       } else {
-        for await (const chunk of data) {
-          const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
-          await processBuffer(buf);
-        }
+        await consumeReadableSequential(data, processBuffer);
       }
 
       return { receivedBytes: currentSize };
@@ -389,27 +585,47 @@ export class LocalDiskBlobStore implements BlobStore {
     const safeProject = validateProjectId(projectId);
     const safeHash = validateSha256(expectedSha256);
     const partPath = this.uploadPath(safeProject, uploadId);
+    await this.assertNoSymlinks(partPath);
 
-    let fileSize: number;
+    let fh: FileHandle;
     try {
-      const info = await stat(partPath);
-      fileSize = info.size;
+      fh = await open(partPath, 'r');
     } catch (err) {
       if (isEnoent(err)) throw new UploadNotFoundError(uploadId);
       throw err;
     }
 
-    if (expectedBytes !== undefined && fileSize !== expectedBytes) {
-      throw new UploadSizeMismatchError(expectedBytes, fileSize);
+    let actualSha256: string;
+    let sizeBytes = 0;
+    try {
+      const info = await fh.stat();
+      if (expectedBytes !== undefined && info.size !== expectedBytes) {
+        throw new UploadSizeMismatchError(expectedBytes, info.size);
+      }
+
+      const hash = createHash('sha256');
+      const stream = fh.createReadStream({ highWaterMark: 256 * 1024, autoClose: false });
+      for await (const chunk of stream) {
+        const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+        sizeBytes += buf.byteLength;
+        hash.update(buf);
+      }
+      actualSha256 = hash.digest('hex');
+    } finally {
+      await fh.close();
     }
 
-    const { sha256: actualSha256, sizeBytes } = await hashFileSha256(partPath);
+    if (expectedBytes !== undefined && sizeBytes !== expectedBytes) {
+      throw new UploadSizeMismatchError(expectedBytes, sizeBytes);
+    }
+
     if (actualSha256 !== safeHash) {
       await rm(partPath, { force: true });
       throw new UploadHashMismatchError(safeHash, actualSha256);
     }
 
     const finalPath = this.blobPath(safeProject, actualSha256);
+    await this.assertNoSymlinks(finalPath);
     await mkdir(dirname(finalPath), { recursive: true });
     await this.moveIntoPlace(partPath, finalPath);
 
@@ -422,6 +638,7 @@ export class LocalDiskBlobStore implements BlobStore {
 
   async abortUpload(projectId: string, uploadId: string): Promise<void> {
     const partPath = this.uploadPath(projectId, uploadId);
+    await this.assertNoSymlinks(partPath);
     await rm(partPath, { force: true });
   }
 
@@ -429,16 +646,19 @@ export class LocalDiskBlobStore implements BlobStore {
     try {
       await rename(srcPath, destPath);
     } catch (err) {
+      const code = err && typeof err === 'object' && 'code' in err ? (err as { code?: string }).code : undefined;
       // On Windows, renaming over an existing identical content-addressed blob can throw
-      // EEXIST or EPERM. If the destination already exists, keep it and discard the temp file.
-      try {
-        const existing = await stat(destPath);
-        if (existing.isFile()) {
-          await rm(srcPath, { force: true });
-          return;
+      // EEXIST or EPERM. Never swallow ENOENT on srcPath.
+      if (code === 'EEXIST' || code === 'EPERM') {
+        try {
+          const existing = await lstat(destPath);
+          if (existing.isFile() && !existing.isSymbolicLink()) {
+            await rm(srcPath, { force: true });
+            return;
+          }
+        } catch {
+          // Destination does not exist; rethrow original rename error.
         }
-      } catch {
-        // Destination does not exist; rethrow original rename error.
       }
       throw err;
     }
@@ -504,8 +724,16 @@ export class MemoryBlobStore implements BlobStore {
     uploadId: string,
     offset: number,
     data: Uint8Array | Readable,
+    options?: UploadAppendOptions,
   ): Promise<UploadAppendResult> {
     assertSafeOffset(offset);
+    if (options?.maxTotalBytes !== undefined && offset > options.maxTotalBytes) {
+      if (!(data instanceof Uint8Array)) {
+        data.pause();
+        if (!('socket' in data)) data.destroy();
+      }
+      throw new UploadSizeExceededError('total', options.maxTotalBytes);
+    }
     const key = this.uploadKey(projectId, uploadId);
     const existing = this.uploads.get(key);
     if (!existing) {
@@ -517,7 +745,32 @@ export class MemoryBlobStore implements BlobStore {
       throw new UploadOffsetMismatchError(existing.byteLength, offset);
     }
 
-    const incoming = data instanceof Uint8Array ? Buffer.from(data) : await readStreamToBuffer(data);
+    let incoming: Buffer;
+    if (data instanceof Uint8Array) {
+      const buf = Buffer.from(data);
+      if (options?.maxChunkBytes !== undefined && buf.byteLength > options.maxChunkBytes) {
+        throw new UploadSizeExceededError('chunk', options.maxChunkBytes);
+      }
+      if (options?.maxTotalBytes !== undefined && offset + buf.byteLength > options.maxTotalBytes) {
+        throw new UploadSizeExceededError('total', options.maxTotalBytes);
+      }
+      incoming = buf;
+    } else {
+      const chunks: Buffer[] = [];
+      let totalRead = 0;
+      await consumeReadableSequential(data, async (buf) => {
+        totalRead += buf.byteLength;
+        if (options?.maxChunkBytes !== undefined && totalRead > options.maxChunkBytes) {
+          throw new UploadSizeExceededError('chunk', options.maxChunkBytes);
+        }
+        if (options?.maxTotalBytes !== undefined && offset + totalRead > options.maxTotalBytes) {
+          throw new UploadSizeExceededError('total', options.maxTotalBytes);
+        }
+        chunks.push(buf);
+      });
+      incoming = Buffer.concat(chunks);
+    }
+
     const overlapLen = Math.min(incoming.byteLength, existing.byteLength - offset);
     if (overlapLen > 0) {
       if (!existing.subarray(offset, offset + overlapLen).equals(incoming.subarray(0, overlapLen))) {
