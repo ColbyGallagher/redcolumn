@@ -3,6 +3,7 @@ import { markupName } from '../i18n/names';
 import { keyed } from '../i18n/keyed';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+  arrangeUnits,
   BLEND_MODES,
   CELL_STYLE_KEYS,
   DEFAULT_STYLES,
@@ -389,6 +390,7 @@ export function PropertiesPanel({ markups, selected, store, scales, tools, tools
 
 /** Rotation, flip and alignment of the selected markups, as buttons and a value. */
 function ArrangeSection({ chosen, tools }: { chosen: Markup[]; tools: MarkupTools }) {
+  const unitCount = arrangeUnits(chosen).length;
   const rotatable = chosen.every((c) => ROTATABLE.has(c.type));
   const angle = chosen[0]!.rotation ?? 0;
   const sameAngle = chosen.every((c) => (c.rotation ?? 0) === angle);
@@ -421,7 +423,7 @@ function ArrangeSection({ chosen, tools }: { chosen: Markup[]; tools: MarkupTool
           {msg('⥮ Vertical')}
         </button>
       </Row>
-      {chosen.length > 1 && (
+      {unitCount > 1 && (
         <>
           <Row label={msg('Align')} title={msg('Line the selection up along its combined bounds')}>
             <span className="seg">
@@ -432,7 +434,7 @@ function ArrangeSection({ chosen, tools }: { chosen: Markup[]; tools: MarkupTool
               ))}
             </span>
           </Row>
-          {chosen.length > 2 && (
+          {unitCount > 2 && (
             <Row label={msg('Distribute')} title={msg('Space the selection evenly between its outermost markups')}>
               <button className="btn" title={msg('Even gaps left to right')} onClick={() => tools.distributeSelected('horizontal')}>
                 {msg('⇹ Horizontal')}

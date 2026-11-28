@@ -300,6 +300,7 @@ export interface CommandState {
   /** Copies may be saved (downloaded, exported, printed); a collaboration host can forbid it for attendees. */
   canSaveCopy: boolean;
   selectionCount: number;
+  selectionUnitCount: number;
   /** PDF text is selected (not a markup), so Copy applies to it. */
   textSelected?: boolean;
   /** Markups in the document that are hidden. */
@@ -508,18 +509,18 @@ export function buildCommands(a: CommandActions, s: CommandState): Command[] {
     cmd('edit.nudgeRightLarge', 'Edit', msg('Nudge Right (Large)'), () => a.nudge(1, 0, true), nudgeable),
     cmd('edit.nudgeUpLarge', 'Edit', msg('Nudge Up (Large)'), () => a.nudge(0, -1, true), nudgeable),
     cmd('edit.nudgeDownLarge', 'Edit', msg('Nudge Down (Large)'), () => a.nudge(0, 1, true), nudgeable),
-    cmd('edit.alignLeft', 'Edit', msg('Align Left'), () => a.align('left'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
-    cmd('edit.alignCenter', 'Edit', msg('Align Center'), () => a.align('center'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
-    cmd('edit.alignRight', 'Edit', msg('Align Right'), () => a.align('right'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
-    cmd('edit.alignTop', 'Edit', msg('Align Top'), () => a.align('top'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
-    cmd('edit.alignMiddle', 'Edit', msg('Align Middle'), () => a.align('middle'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
-    cmd('edit.alignBottom', 'Edit', msg('Align Bottom'), () => a.align('bottom'), s.selectionCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.alignLeft', 'Edit', msg('Align Left'), () => a.align('left'), s.selectionUnitCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.alignCenter', 'Edit', msg('Align Center'), () => a.align('center'), s.selectionUnitCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.alignRight', 'Edit', msg('Align Right'), () => a.align('right'), s.selectionUnitCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.alignTop', 'Edit', msg('Align Top'), () => a.align('top'), s.selectionUnitCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.alignMiddle', 'Edit', msg('Align Middle'), () => a.align('middle'), s.selectionUnitCount > 1 && s.editable && !s.selectionLocked),
+    cmd('edit.alignBottom', 'Edit', msg('Align Bottom'), () => a.align('bottom'), s.selectionUnitCount > 1 && s.editable && !s.selectionLocked),
     cmd('edit.centerInDocument', 'Edit', msg('Center in Document'), a.centerOnPage, sel && s.editable && !s.selectionLocked),
-    cmd('edit.sameWidth', 'Edit', msg('Same Width'), () => a.matchSize('width'), s.selectionCount > 1 && s.editable),
-    cmd('edit.sameHeight', 'Edit', msg('Same Height'), () => a.matchSize('height'), s.selectionCount > 1 && s.editable),
-    cmd('edit.sameSize', 'Edit', msg('Same Size'), () => a.matchSize('both'), s.selectionCount > 1 && s.editable),
-    cmd('edit.distributeHorizontal', 'Edit', msg('Distribute Horizontally'), () => a.distribute('horizontal'), s.selectionCount > 2 && s.editable && !s.selectionLocked),
-    cmd('edit.distributeVertical', 'Edit', msg('Distribute Vertically'), () => a.distribute('vertical'), s.selectionCount > 2 && s.editable && !s.selectionLocked),
+    cmd('edit.sameWidth', 'Edit', msg('Same Width'), () => a.matchSize('width'), s.selectionUnitCount > 1 && s.editable),
+    cmd('edit.sameHeight', 'Edit', msg('Same Height'), () => a.matchSize('height'), s.selectionUnitCount > 1 && s.editable),
+    cmd('edit.sameSize', 'Edit', msg('Same Size'), () => a.matchSize('both'), s.selectionUnitCount > 1 && s.editable),
+    cmd('edit.distributeHorizontal', 'Edit', msg('Distribute Horizontally'), () => a.distribute('horizontal'), s.selectionUnitCount > 2 && s.editable && !s.selectionLocked),
+    cmd('edit.distributeVertical', 'Edit', msg('Distribute Vertically'), () => a.distribute('vertical'), s.selectionUnitCount > 2 && s.editable && !s.selectionLocked),
     cmd('edit.flipHorizontal', 'Edit', msg('Flip Horizontal'), () => a.flip('horizontal'), sel && s.editable && !s.selectionLocked),
     cmd('edit.flipVertical', 'Edit', msg('Flip Vertical'), () => a.flip('vertical'), sel && s.editable && !s.selectionLocked),
     cmd('edit.createViewport', 'Edit', msg('Create Viewport'), () => a.setTool('viewport'), doc && s.editable, s.tool === 'viewport'),

@@ -5,7 +5,7 @@ import { useMemo, useCallback, useEffect, useReducer, useRef, useState, useSyncE
 import { flushSync } from 'react-dom';
 import * as Y from 'yjs';
 import { NEEDS_PASSWORD, PdfEngine, type OutlineItem, type PageOp, type PageRegion, type PdfDocument } from '@nb/pdf-core';
-import { IMPORT_VERSION, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canBeCountSymbol, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds, symbolFromMarkups } from '@nb/markup';
+import { IMPORT_VERSION, arrangeUnits, bytesToBase64, markupBounds, type VectorPicture, autoSizedPoints, pointInPolygon, canBeCountSymbol, canConnect, canOffset, bluebeamColumnId, markupDigest, canAutoSize, cropOf, canRoundCorners, cssFont, defaultCornerRadius, markupColours, recolouredStyle, shapeBounds, symbolFromMarkups } from '@nb/markup';
 import { deleteTableColumn, deleteTableRow, insertTableColumn, insertTableRow, MAX_TABLE_LINES, tableCellAt, tableOf, type PageClip, type Point, type TableEdit, viewportRectFromCorners } from '@nb/markup';
 import { actionTarget, turnedTo, boundsOf, isAiDraft, measureKindOf, cloudRadius, DEFAULT_STYLES, drawMarkup, ROTATABLE, canCloud, canExplode, canJoin, canReverse, flattenBookmarks, insertBookmark, nameBookmarksByPage, formStamp, refillStamp, resolveStamp, stampAspect, stampColor, withFieldValues, type Bookmark, type LinkAction, type StampDef, isImageType, isMeasureKind, isTextType, MARKUP_LABELS, MarkupStore, DEFAULT_STATUSES, measureProps, moved, planPageOps, scaleOfMarkup, translated, viewportAt, type ColumnSet, type Markup, type StoredLink, type StoredMatchLine, type StoredStitchGroup } from '@nb/markup';
 import { DEFAULT_SCALE, formatLatLon, formatMeasure, geoAt, measureValue, METERS_PER_UNIT, parseScaleText, regionCrs, SnapIndex, type MeasureKind, type Scale } from '@nb/measure';
@@ -7712,6 +7712,7 @@ export function App() {
     if (!first) return [];
     const ro = store.readOnly;
     const one = ms.length === 1;
+    const unitCount = arrangeUnits(ms).length;
     // Selecting one list row selects its whole group (a Cloud+ is a cloud and a callout). That is still one comment.
     const oneGroup = !!first.groupId && ms.every((m) => m.groupId === first.groupId);
     const replyMarkup = oneGroup ? (ms.find((m) => isTextType(m.type)) ?? first) : first;
@@ -7900,20 +7901,20 @@ export function App() {
         label: msg('Alignment'),
         disabled: ro || allLocked,
         items: [
-          { label: msg('Align Left'), shortcut: shortcutLabel('edit.alignLeft'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignLeft')?.run() },
-          { label: msg('Align Center'), shortcut: shortcutLabel('edit.alignCenter'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignCenter')?.run() },
-          { label: msg('Align Right'), shortcut: shortcutLabel('edit.alignRight'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignRight')?.run() },
-          { label: msg('Align Top'), shortcut: shortcutLabel('edit.alignTop'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignTop')?.run() },
-          { label: msg('Align Middle'), shortcut: shortcutLabel('edit.alignMiddle'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignMiddle')?.run() },
-          { label: msg('Align Bottom'), shortcut: shortcutLabel('edit.alignBottom'), disabled: one || anyLocked, onClick: () => commandsRef.current.get('edit.alignBottom')?.run() },
+          { label: msg('Align Left'), shortcut: shortcutLabel('edit.alignLeft'), disabled: unitCount < 2 || anyLocked, onClick: () => commandsRef.current.get('edit.alignLeft')?.run() },
+          { label: msg('Align Center'), shortcut: shortcutLabel('edit.alignCenter'), disabled: unitCount < 2 || anyLocked, onClick: () => commandsRef.current.get('edit.alignCenter')?.run() },
+          { label: msg('Align Right'), shortcut: shortcutLabel('edit.alignRight'), disabled: unitCount < 2 || anyLocked, onClick: () => commandsRef.current.get('edit.alignRight')?.run() },
+          { label: msg('Align Top'), shortcut: shortcutLabel('edit.alignTop'), disabled: unitCount < 2 || anyLocked, onClick: () => commandsRef.current.get('edit.alignTop')?.run() },
+          { label: msg('Align Middle'), shortcut: shortcutLabel('edit.alignMiddle'), disabled: unitCount < 2 || anyLocked, onClick: () => commandsRef.current.get('edit.alignMiddle')?.run() },
+          { label: msg('Align Bottom'), shortcut: shortcutLabel('edit.alignBottom'), disabled: unitCount < 2 || anyLocked, onClick: () => commandsRef.current.get('edit.alignBottom')?.run() },
           { label: msg('Center in Document'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.centerInDocument')?.run() },
           SEP,
-          { label: msg('Distribute Horizontally'), disabled: ms.length < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeHorizontal')?.run() },
-          { label: msg('Distribute Vertically'), disabled: ms.length < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeVertical')?.run() },
+          { label: msg('Distribute Horizontally'), disabled: unitCount < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeHorizontal')?.run() },
+          { label: msg('Distribute Vertically'), disabled: unitCount < 3 || anyLocked, onClick: () => commandsRef.current.get('edit.distributeVertical')?.run() },
           SEP,
-          { label: msg('Same Width'), disabled: one, onClick: () => commandsRef.current.get('edit.sameWidth')?.run() },
-          { label: msg('Same Height'), disabled: one, onClick: () => commandsRef.current.get('edit.sameHeight')?.run() },
-          { label: msg('Same Size'), disabled: one, onClick: () => commandsRef.current.get('edit.sameSize')?.run() },
+          { label: msg('Same Width'), disabled: unitCount < 2, onClick: () => commandsRef.current.get('edit.sameWidth')?.run() },
+          { label: msg('Same Height'), disabled: unitCount < 2, onClick: () => commandsRef.current.get('edit.sameHeight')?.run() },
+          { label: msg('Same Size'), disabled: unitCount < 2, onClick: () => commandsRef.current.get('edit.sameSize')?.run() },
           SEP,
           { label: msg('Flip Horizontal'), shortcut: shortcutLabel('edit.flipHorizontal'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipHorizontal')?.run() },
           { label: msg('Flip Vertical'), shortcut: shortcutLabel('edit.flipVertical'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipVertical')?.run() },
@@ -9966,6 +9967,7 @@ export function App() {
       return !snap || snap.isHost || allows(snap.meta, 'saveCopy');
     })(),
     selectionCount: toolsState.selected.size,
+    selectionUnitCount: arrangeUnits(selectedMarkups).length,
     textSelected: !!toolsState.textSelection,
     hiddenCount: markups.filter((m) => m.hidden).length,
     selectionLocked: selectedMarkups.some((m) => m.locked),

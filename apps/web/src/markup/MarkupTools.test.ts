@@ -2239,3 +2239,50 @@ test('two-click callout placement commits on pointerUp so TextEditor is not blur
   assert.deepEqual(edited, [h.store.all()[0]!.id]);
   await h.store.destroy();
 });
+
+/** Draws the page's overlay and returns every rectangle outlined, as [x, y, w, h]. */
+function outlined(t: Tools): number[][] {
+  const rects: number[][] = [];
+  const ctx: unknown = new Proxy({} as Record<string | symbol, unknown>, {
+    get: (o, k) => (k === 'strokeRect' ? (...r: number[]) => rects.push(r.map(Math.round)) : k in o ? o[k] : k === 'measureText' ? () => ({ width: 10 }) : () => ctx),
+  });
+  t.draw(ctx as CanvasRenderingContext2D, 0, 1);
+  return rects;
+}
+
+/** Two groups of two boxes each, with no stroke so their bounds are their points. */
+async function twoGroups() {
+  const h = await setup();
+  const add = (id: string, x: number, y: number, groupId: string) =>
+    h.store.add({ id, type: 'rect', pageIndex: 0, points: [[x, y], [x + 20, y + 20]], style: { ...DEFAULT_STYLES.rect, width: 0 }, status: 'none', author: 'Tester', createdAt: 1, modifiedAt: 1, groupId });
+  add('a1', 100, 100, 'a');
+  add('a2', 140, 140, 'a');
+  add('b1', 300, 300, 'b');
+  add('b2', 340, 340, 'b');
+  h.tools.setTool('select');
+  return h;
+}
+
+const has = (rects: number[][], want: number[]) => rects.some((r) => r.join() === want.join());
+
+test('several selected groups each show one box and no member handles', async () => {
+  const h = await twoGroups();
+  h.tools.select(['a1', 'a2', 'b1', 'b2']);
+  const rects = outlined(h.tools);
+  assert.ok(has(rects, [100, 100, 60, 60]), 'box around the first group');
+  assert.ok(has(rects, [300, 300, 60, 60]), 'box around the second group');
+  assert.ok(rects.every((r) => r[2]! > 6), 'no handle squares');
+  await h.store.destroy();
+});
+
+test('the box of a selected group travels with it while dragging', async () => {
+  const h = await twoGroups();
+  h.tools.select(['a1', 'a2']);
+  press(h.tools, [100, 110]);
+  move(h.tools, [150, 130]);
+  const rects = outlined(h.tools);
+  assert.ok(has(rects, [150, 120, 60, 60]), 'box drawn where the members now are');
+  assert.equal(rects.filter((r) => r[2] === 60).length, 1);
+  release(h.tools, [150, 130]);
+  await h.store.destroy();
+});
