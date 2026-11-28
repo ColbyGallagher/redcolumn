@@ -82,6 +82,10 @@ msgid "A document"
 msgstr "Un document"
 
 #: apps/web/src/App.tsx
+msgid "A document on a server cannot be added to a Live Session."
+msgstr ""
+
+#: apps/web/src/App.tsx
 msgid "A match line needs two different ends: the line was left as it was."
 msgstr "Une ligne de raccord a besoin de deux extrémités distinctes : la ligne a été laissée telle quelle."
 
@@ -334,6 +338,10 @@ msgid "Changed the colours of {count, plural, one {# page} other {# pages}}."
 msgstr "Couleurs modifiées pour {count, plural, one {# page} other {# pages}}."
 
 #: apps/web/src/App.tsx
+msgid "Changes are saved on the server as you make them."
+msgstr ""
+
+#: apps/web/src/App.tsx
 msgid "Changing the field"
 msgstr "Modification du champ"
 
@@ -377,7 +385,7 @@ msgstr "Sens horaire"
 msgid "Clockwise 90°"
 msgstr "Sens horaire 90°"
 
-#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/ApplyStitchingDialog.tsx apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/CadReportBar.tsx apps/web/src/components/CloseOutDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CommentsTableDialog.tsx apps/web/src/components/CompareResultsPanel.tsx apps/web/src/components/CountSymbolsDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/DocumentPropertiesDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/GeospatialPanel.tsx apps/web/src/components/InstallDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LibraryDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/ProductListsDialog.tsx apps/web/src/components/QuantitiesDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/RevisionsDialog.tsx apps/web/src/components/ScaleRegionsPanel.tsx apps/web/src/components/ScriptsDialog.tsx apps/web/src/components/SheetScaleReview.tsx apps/web/src/components/SheetSyncDialog.tsx apps/web/src/components/SpellCheckDialog.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/components/TemplatesDialog.tsx apps/web/src/components/UndoHistoryDialog.tsx apps/web/src/components/VisualSearchPanel.tsx apps/web/src/components/WhatsNewDialog.tsx apps/web/src/components/sessions/InviteDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx apps/web/src/review/ProjectMembersPanel.tsx apps/web/src/takeoff/PortalDialog.tsx
+#: apps/web/src/App.tsx apps/web/src/commands/appCommands.ts apps/web/src/components/ApplyStitchingDialog.tsx apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/CadReportBar.tsx apps/web/src/components/CloseOutDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CommentsTableDialog.tsx apps/web/src/components/CompareResultsPanel.tsx apps/web/src/components/CountSymbolsDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/DocumentPropertiesDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/GeospatialPanel.tsx apps/web/src/components/InstallDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LibraryDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/ProductListsDialog.tsx apps/web/src/components/QuantitiesDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/RevisionsDialog.tsx apps/web/src/components/ScaleRegionsPanel.tsx apps/web/src/components/ScriptsDialog.tsx apps/web/src/components/SheetScaleReview.tsx apps/web/src/components/SheetSyncDialog.tsx apps/web/src/components/SpellCheckDialog.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/components/TemplatesDialog.tsx apps/web/src/components/UndoHistoryDialog.tsx apps/web/src/components/VisualSearchPanel.tsx apps/web/src/components/WhatsNewDialog.tsx apps/web/src/components/sessions/InviteDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx apps/web/src/review/ProjectDocumentsPanel.tsx apps/web/src/review/ProjectMembersPanel.tsx apps/web/src/takeoff/PortalDialog.tsx
 msgid "Close"
 msgstr "Fermer"
 
@@ -621,7 +629,7 @@ msgstr "Suppression du champ"
 msgid "Dimension Text"
 msgstr "Texte de cote"
 
-#: apps/web/src/App.tsx apps/web/src/components/ReviewFindings.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx
+#: apps/web/src/App.tsx apps/web/src/components/ReviewFindings.tsx apps/web/src/components/standardsWizard/StandardsWizard.tsx apps/web/src/review/SyncStatusBar.tsx
 msgid "Dismiss"
 msgstr "Ignorer"
 
@@ -661,7 +669,7 @@ msgstr "Ancrer {panel} à droite"
 msgid "Document"
 msgstr "Document"
 
-#: apps/web/src/App.tsx apps/web/src/components/CompareDialog.tsx
+#: apps/web/src/App.tsx apps/web/src/components/CompareDialog.tsx apps/web/src/connect/ConnectView.tsx
 msgid "Documents"
 msgstr "Documents"
 
@@ -1286,7 +1294,7 @@ msgstr "Hors ligne : votre copie de {name} (révision {rev}) a été ouverte ;
 msgid "OneDrive, Apps/redcolumn/{folder}"
 msgstr "OneDrive, Apps/redcolumn/{folder}"
 
-#: apps/web/src/App.tsx apps/web/src/components/CloseOutDialog.tsx apps/web/src/components/Library.tsx apps/web/src/components/LinkPreview.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/RevisionsDialog.tsx apps/web/src/connect/ConnectView.tsx apps/web/src/desktop/mainStrings.ts
+#: apps/web/src/App.tsx apps/web/src/components/CloseOutDialog.tsx apps/web/src/components/Library.tsx apps/web/src/components/LinkPreview.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/RevisionsDialog.tsx apps/web/src/connect/ConnectView.tsx apps/web/src/desktop/mainStrings.ts apps/web/src/review/ProjectDocumentsPanel.tsx
 msgid "Open"
 msgstr "Ouvrir"
 
@@ -1389,6 +1397,10 @@ msgstr "Page {number} : rendu"
 #: apps/web/src/App.tsx
 msgid "Pages of a Live Session document cannot be changed: everyone in the session shares the same file."
 msgstr "Les pages d’un document en session en direct ne peuvent pas être modifiées : tous les participants partagent le même fichier."
+
+#: apps/web/src/App.tsx
+msgid "Pages of a document on a server cannot be changed here."
+msgstr ""
 
 #: apps/web/src/App.tsx
 msgid "Pages to copy the selection onto, at the same place: for example 1-3, 5, 8- (each markup’s own page is skipped)."
@@ -2290,6 +2302,10 @@ msgstr "Mot de passe incorrect"
 #: apps/web/src/App.tsx
 msgid "XFDF {dir} failed: {value}"
 msgstr "{dir} XFDF a échoué : {value}"
+
+#: apps/web/src/App.tsx
+msgid "You can view this document but not change it."
+msgstr ""
 
 #: apps/web/src/App.tsx
 msgid "You have the latest version ({current})."
@@ -3900,7 +3916,7 @@ msgstr "Ajuste l’image sélectionnée. Annuler la rétablit."
 msgid "Applies to the {count} selected pictures; the first is shown."
 msgstr "S’applique aux {count} images sélectionnées ; la première est affichée."
 
-#: apps/web/src/components/AdjustImageDialog.tsx apps/web/src/components/ApplyRedactionsDialog.tsx apps/web/src/components/ApplyStitchingDialog.tsx apps/web/src/components/AskText.tsx apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/AssemblyInputs.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/BulkInsertDialog.tsx apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/CalibrateDialog.tsx apps/web/src/components/CameraDialog.tsx apps/web/src/components/ChangeColoursDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CombineDialog.tsx apps/web/src/components/CommentDialog.tsx apps/web/src/components/CompareDialog.tsx apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/CountToolDialog.tsx apps/web/src/components/DeletePagesDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/DocumentPropertiesDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/FilterBuilderDialog.tsx apps/web/src/components/HeaderFooterDialog.tsx apps/web/src/components/HyperlinkDialog.tsx apps/web/src/components/ImportExcelDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/JobsBar.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/ManualQuantityDialog.tsx apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/MultiplyDialog.tsx apps/web/src/components/NewPdfDialog.tsx apps/web/src/components/OcrDialog.tsx apps/web/src/components/PageToolsDialog.tsx apps/web/src/components/PictureColoursDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/PrintDialog.tsx apps/web/src/components/ProcessDialog.tsx apps/web/src/components/ProductListsDialog.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/PublishDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/ReportsDialog.tsx apps/web/src/components/RevuMigrationDialog.tsx apps/web/src/components/ScaleRegionsPanel.tsx apps/web/src/components/ScaleRequiredDialog.tsx apps/web/src/components/ScaleToLengthDialog.tsx apps/web/src/components/SecurityDialog.tsx apps/web/src/components/SetScaleDialog.tsx apps/web/src/components/SetsPanel.tsx apps/web/src/components/SheetSyncDialog.tsx apps/web/src/components/SignaturesPanel.tsx apps/web/src/components/SlipSheetDialog.tsx apps/web/src/components/SoundDialog.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/components/StepUpDialog.tsx apps/web/src/components/TableDialog.tsx apps/web/src/components/TakeoffReview.tsx apps/web/src/components/TemplatesDialog.tsx apps/web/src/components/ToolLibraryReview.tsx apps/web/src/components/UnsavedChangesDialog.tsx apps/web/src/components/sessions/InviteDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/connect/ConnectView.tsx apps/web/src/review/CreateProjectForm.tsx apps/web/src/takeoff/PortalDialog.tsx
+#: apps/web/src/components/AdjustImageDialog.tsx apps/web/src/components/ApplyRedactionsDialog.tsx apps/web/src/components/ApplyStitchingDialog.tsx apps/web/src/components/AskText.tsx apps/web/src/components/AssembliesDialog.tsx apps/web/src/components/AssemblyInputs.tsx apps/web/src/components/BatchDialog.tsx apps/web/src/components/BulkInsertDialog.tsx apps/web/src/components/CadConvertDialog.tsx apps/web/src/components/CalibrateDialog.tsx apps/web/src/components/CameraDialog.tsx apps/web/src/components/ChangeColoursDialog.tsx apps/web/src/components/ColumnsDialog.tsx apps/web/src/components/CombineDialog.tsx apps/web/src/components/CommentDialog.tsx apps/web/src/components/CompareDialog.tsx apps/web/src/components/ComparePagePicker.tsx apps/web/src/components/CountToolDialog.tsx apps/web/src/components/DeletePagesDialog.tsx apps/web/src/components/DigitalSignatures.tsx apps/web/src/components/DocumentPropertiesDialog.tsx apps/web/src/components/EraseRegionsPanel.tsx apps/web/src/components/ExportDialog.tsx apps/web/src/components/FilterBuilderDialog.tsx apps/web/src/components/HeaderFooterDialog.tsx apps/web/src/components/HyperlinkDialog.tsx apps/web/src/components/ImportExcelDialog.tsx apps/web/src/components/ItemsDialog.tsx apps/web/src/components/JobsBar.tsx apps/web/src/components/LabelRegionsPanel.tsx apps/web/src/components/LineStylesDialog.tsx apps/web/src/components/ManualQuantityDialog.tsx apps/web/src/components/MeasurementsPanel.tsx apps/web/src/components/MultiplyDialog.tsx apps/web/src/components/NewPdfDialog.tsx apps/web/src/components/OcrDialog.tsx apps/web/src/components/PageToolsDialog.tsx apps/web/src/components/PictureColoursDialog.tsx apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/PrintDialog.tsx apps/web/src/components/ProcessDialog.tsx apps/web/src/components/ProductListsDialog.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/PublishDialog.tsx apps/web/src/components/RegisterDialogs.tsx apps/web/src/components/ReportsDialog.tsx apps/web/src/components/RevuMigrationDialog.tsx apps/web/src/components/ScaleRegionsPanel.tsx apps/web/src/components/ScaleRequiredDialog.tsx apps/web/src/components/ScaleToLengthDialog.tsx apps/web/src/components/SecurityDialog.tsx apps/web/src/components/SetScaleDialog.tsx apps/web/src/components/SetsPanel.tsx apps/web/src/components/SheetSyncDialog.tsx apps/web/src/components/SignaturesPanel.tsx apps/web/src/components/SlipSheetDialog.tsx apps/web/src/components/SoundDialog.tsx apps/web/src/components/StampsDialog.tsx apps/web/src/components/StepUpDialog.tsx apps/web/src/components/TableDialog.tsx apps/web/src/components/TakeoffReview.tsx apps/web/src/components/TemplatesDialog.tsx apps/web/src/components/ToolLibraryReview.tsx apps/web/src/components/UnsavedChangesDialog.tsx apps/web/src/components/sessions/InviteDialog.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/connect/ConnectView.tsx apps/web/src/review/CreateProjectForm.tsx apps/web/src/review/ProjectDocumentsPanel.tsx apps/web/src/takeoff/PortalDialog.tsx
 msgid "Cancel"
 msgstr "Annuler"
 
@@ -6338,7 +6354,7 @@ msgstr "Aligner"
 msgid "Lines that moved less than this are not a change"
 msgstr "Les lignes déplacées de moins que cette valeur ne sont pas une modification"
 
-#: apps/web/src/components/CompareDialog.tsx apps/web/src/components/LinkPreview.tsx apps/web/src/components/McpPrefs.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/connect/ConnectView.tsx
+#: apps/web/src/components/CompareDialog.tsx apps/web/src/components/LinkPreview.tsx apps/web/src/components/McpPrefs.tsx apps/web/src/components/ProjectsPanel.tsx apps/web/src/connect/ConnectView.tsx apps/web/src/review/ProjectDocumentsPanel.tsx
 msgid "Loading…"
 msgstr "Chargement…"
 
@@ -12138,7 +12154,7 @@ msgstr "Format des nombres"
 msgid "Object snap tracking follows every polar angle from acquired points, not only straight across and up and down"
 msgstr "Le suivi d’accrochage aux objets suit chaque angle polaire à partir des points acquis, et pas seulement à l’horizontale et à la verticale"
 
-#: apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/StatusBar.tsx
+#: apps/web/src/components/PreferencesDialog.tsx apps/web/src/components/StatusBar.tsx apps/web/src/review/syncText.ts
 msgid "Offline"
 msgstr "Hors ligne"
 
@@ -13278,7 +13294,7 @@ msgstr "Supprimer le dossier {name} ? Il contient {files, plural, one {# fichie
 msgid "Delete {name}? {count, plural, one {Its # revision stays} other {Its # revisions stay}} in the OneDrive folder."
 msgstr "Supprimer {name} ? {count, plural, one {Sa # révision reste} other {Ses # révisions restent}} dans le dossier OneDrive."
 
-#: apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/RecoveredMarkupsBar.tsx
+#: apps/web/src/components/ProjectsPanel.tsx apps/web/src/components/RecoveredMarkupsBar.tsx apps/web/src/review/SyncStatusBar.tsx
 msgid "Discard"
 msgstr "Abandonner"
 
@@ -16250,7 +16266,7 @@ msgstr "Se termine le {date}"
 msgid "Connected"
 msgstr "Connecté"
 
-#: apps/web/src/components/SessionsPanel.tsx
+#: apps/web/src/components/SessionsPanel.tsx apps/web/src/review/syncText.ts
 msgid "Connecting…"
 msgstr "Connexion…"
 
@@ -16338,7 +16354,7 @@ msgstr "Nouvelle session"
 msgid "No deleted sessions."
 msgstr "Aucune session supprimée."
 
-#: apps/web/src/components/SessionsPanel.tsx apps/web/src/components/sessions/SessionDialogs.tsx
+#: apps/web/src/components/SessionsPanel.tsx apps/web/src/components/sessions/SessionDialogs.tsx apps/web/src/review/ProjectDocumentsPanel.tsx
 msgid "No documents yet."
 msgstr "Aucun document pour l’instant."
 
@@ -16390,7 +16406,7 @@ msgstr "Le partage OneDrive est désactivé dans cette copie de l’application�
 msgid "Online ({count})"
 msgstr "En ligne ({count})"
 
-#: apps/web/src/components/SessionsPanel.tsx
+#: apps/web/src/components/SessionsPanel.tsx apps/web/src/review/SyncStatusBar.tsx
 msgid "Reconnect"
 msgstr "Se reconnecter"
 
@@ -21024,7 +21040,7 @@ msgstr ""
 msgid "Continue to sign in"
 msgstr ""
 
-#: apps/web/src/connect/ConnectView.tsx apps/web/src/review/CreateProjectForm.tsx apps/web/src/review/ProjectMembersPanel.tsx
+#: apps/web/src/connect/ConnectView.tsx apps/web/src/review/CreateProjectForm.tsx apps/web/src/review/ProjectDocumentsPanel.tsx apps/web/src/review/ProjectMembersPanel.tsx
 msgid "Could not reach the server. Check your connection and try again."
 msgstr ""
 
@@ -21124,7 +21140,7 @@ msgstr ""
 msgid "Projects and sessions assigned to your account will appear here."
 msgstr ""
 
-#: apps/web/src/connect/ConnectView.tsx apps/web/src/review/ProjectMembersPanel.tsx
+#: apps/web/src/connect/ConnectView.tsx apps/web/src/review/ProjectDocumentsPanel.tsx apps/web/src/review/ProjectMembersPanel.tsx
 msgid "Request failed ({code})."
 msgstr ""
 
@@ -22914,7 +22930,7 @@ msgstr ""
 msgid "Project number (optional)"
 msgstr ""
 
-#: apps/web/src/review/CreateProjectForm.tsx
+#: apps/web/src/review/CreateProjectForm.tsx apps/web/src/review/ProjectDocumentsPanel.tsx apps/web/src/review/openRevision.ts
 msgid "Your session has expired. Please sign in again."
 msgstr ""
 
@@ -22924,6 +22940,62 @@ msgstr ""
 
 #: apps/web/src/review/CreateProjectForm.tsx
 msgid "e.g. NB-104"
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "Add PDF…"
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "Documents in {name}"
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "Opening…"
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "Project documents"
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx apps/web/src/review/ProjectMembersPanel.tsx
+msgid "Project not found or you no longer have access."
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "Resume upload"
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "Revision {label}"
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "The file changed or was damaged on the way. Add it again."
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "The file is empty or larger than the server accepts."
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "The server could not read this PDF."
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "The server is reading the PDF…"
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "This project already has a document with that file name."
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "Uploading {name}"
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "{count, plural, one {# page} other {# pages}}"
 msgstr ""
 
 #: apps/web/src/review/ProjectMembersPanel.tsx
@@ -22987,10 +23059,6 @@ msgid "Project members"
 msgstr ""
 
 #: apps/web/src/review/ProjectMembersPanel.tsx
-msgid "Project not found or you no longer have access."
-msgstr ""
-
-#: apps/web/src/review/ProjectMembersPanel.tsx
 msgid "Reviewer"
 msgstr ""
 
@@ -23033,6 +23101,170 @@ msgstr ""
 #: apps/web/src/review/ProjectMembersPanel.tsx apps/web/src/studio/projects/Project.ts
 msgid "you"
 msgstr "vous"
+
+#: apps/web/src/review/ReviewDocument.ts
+msgid "Nothing was undone: it has been changed since."
+msgstr ""
+
+#: apps/web/src/review/ReviewDocument.ts
+msgid "Scales, page labels and custom columns are not shared on a server yet, so they cannot be changed here."
+msgstr ""
+
+#: apps/web/src/review/ReviewDocument.ts
+msgid "Statuses, ticks and replies are not available for documents on a server yet, so they were not saved."
+msgstr ""
+
+#: apps/web/src/review/ReviewDocument.ts
+msgid "That is not available for documents on a server yet."
+msgstr ""
+
+#: apps/web/src/review/ReviewDocument.ts
+msgid "Undo needs a connection to the server."
+msgstr ""
+
+#: apps/web/src/review/ReviewDocument.ts
+msgid "You cannot undo that change here."
+msgstr ""
+
+#: apps/web/src/review/SyncStatusBar.tsx
+msgid "Also viewing this document"
+msgstr ""
+
+#: apps/web/src/review/SyncStatusBar.tsx
+msgid "Changes that were not saved"
+msgstr ""
+
+#: apps/web/src/review/SyncStatusBar.tsx
+msgid "Reload"
+msgstr ""
+
+#: apps/web/src/review/SyncStatusBar.tsx
+msgid "That change can no longer be made."
+msgstr ""
+
+#: apps/web/src/review/SyncStatusBar.tsx
+msgid "Try again"
+msgstr ""
+
+#: apps/web/src/review/SyncStatusBar.tsx
+msgid "{count, plural, one {# change not saved} other {# changes not saved}}"
+msgstr ""
+
+#: apps/web/src/review/SyncStatusBar.tsx
+msgid "{name} · page {page}"
+msgstr ""
+
+#: apps/web/src/review/facetUi.ts
+msgid "Not available for documents on a server yet"
+msgstr ""
+
+#: apps/web/src/review/openRevision.ts
+msgid "Changes kept on this device could not be read. New changes are only kept until the tab closes."
+msgstr ""
+
+#: apps/web/src/review/openRevision.ts
+msgid "Could not open the document ({code})."
+msgstr ""
+
+#: apps/web/src/review/openRevision.ts
+msgid "Could not open the document."
+msgstr ""
+
+#: apps/web/src/review/openRevision.ts
+msgid "Could not open the document: {value}"
+msgstr ""
+
+#: apps/web/src/review/openRevision.ts
+msgid "The file from the server does not match what was uploaded."
+msgstr ""
+
+#: apps/web/src/review/openRevision.ts
+msgid "The server is still reading this PDF. Try again in a moment."
+msgstr ""
+
+#: apps/web/src/review/openRevision.ts
+msgid "This document is not available. You may no longer have access to it."
+msgstr ""
+
+#: apps/web/src/review/openRevision.ts
+msgid "Unknown user"
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Change to a markup."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Change."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Connecting… {count} pending"
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Delete."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "It depended on another change that was not saved."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "It is too large to send."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Move or reshape."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "New markup."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Offline · {count} pending"
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Restore."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Signed out. Reload to sign in again."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Someone else changed the same thing first."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Synced"
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "The markup is no longer there."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "The server could not accept it."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "The server was updated. Reload to carry on."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "You do not have permission to make this change."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "Your access to this document was removed."
+msgstr ""
+
+#: apps/web/src/review/syncText.ts
+msgid "{count} pending"
+msgstr ""
 
 #: apps/web/src/sheets/standardsWizard.ts
 msgid "Drag a box around the current revision (the letter or number in the revision box, not the revision table)."

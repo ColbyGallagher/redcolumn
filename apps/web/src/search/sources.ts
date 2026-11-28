@@ -6,6 +6,7 @@ import { loadPageTexts, readForSearch } from '../sheets/indexer';
 import { readFile, type StoredFile } from '../storage/fileStore';
 import { searchIndex } from './index/client';
 import { editorContext } from '../markup/editorContext';
+import { isSynced } from '../review/facets';
 
 /** A piece of text on a page that is not the page's own text: a form field value or a markup's text. */
 export interface Labelled {
@@ -78,15 +79,17 @@ async function formOf(bytes: () => Promise<ArrayBuffer>): Promise<FormModel | nu
 /** A document open in a tab: its live markups, its form as last read, and its cached text. */
 export function openSource(o: { file: StoredFile; doc: PdfDocument; store: MarkupDocument }, form: FormModel | undefined, page?: number): SearchSource {
   const bytes = () => readFile(o.file.hash);
+  // A server document's text is not written to the search index on this device.
+  const indexed = !isSynced(o.store);
   return {
     id: o.file.id,
     name: o.file.name,
     ...(page !== undefined ? { page } : {}),
     // Kept by the hash of the contents read, as for a library document: an edit makes a new hash.
-    indexKey: o.file.hash,
+    ...(indexed ? { indexKey: o.file.hash } : {}),
     text: async (report) => {
       const pages = await loadPageTexts(bytes, o.store, (p) => report(p.done, p.total));
-      void searchIndex.put(o.file.hash, pages);
+      if (indexed) void searchIndex.put(o.file.hash, pages);
       return pages;
     },
     properties: async () => propertiesOf(await o.doc.info()),

@@ -117,3 +117,129 @@
 .connect-list-item.is-selected {
   border-color: var(--accent);
 }
+
+/* Project documents: revisions and uploads. */
+.review-document {
+  align-items: flex-start;
+}
+
+.review-revisions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.review-revision {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.review-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.review-upload progress {
+  width: 100%;
+}
+
+/* The sync status of a server document, over the bottom left of the drawing. */
+.sync-status {
+  position: absolute;
+  inset-inline-start: 12px;
+  bottom: 12px;
+  z-index: 5;
+  max-width: min(420px, calc(100% - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+}
+
+.sync-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sync-status-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+}
+
+.sync-status[data-sync-state='synced'] .sync-dot {
+  background: #2e9e4f;
+}
+
+.sync-status[data-sync-state='pending'] .sync-dot,
+.sync-status[data-sync-state='connecting'] .sync-dot {
+  background: #d99a00;
+}
+
+.sync-status[data-sync-state='offline'] .sync-dot,
+.sync-status[data-sync-state='revoked'] .sync-dot,
+.sync-status[data-sync-state='signed-out'] .sync-dot,
+.sync-status[data-sync-state='update'] .sync-dot {
+  background: #d0453a;
+}
+
+.sync-presence {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.sync-presence li {
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.sync-rejected {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sync-rejected li,
+.sync-problem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sync-rejected-actions {
+  display: inline-flex;
+  gap: 4px;
+  flex-shrink: 0;
+}

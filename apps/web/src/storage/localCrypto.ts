@@ -203,9 +203,8 @@ export async function installLocalEncryption(rewriteLibrary: () => Promise<void>
   } catch (err) {
     console.error('Local encryption: could not convert stored data:', err);
   }
-  // TODO: when the app opens synced documents (`@nb/sync`), install their store here as well:
-  // `setSyncPersistence(() => new IndexedDbSyncPersistence({ sealer: on ? { seal: sealLocal, open: openLocal } : null }))`.
-  // Until then they stay in memory and never write unsealed content to disk.
+  // Synced documents (`@nb/sync`) seal their own store with sealLocal and openLocal when they are
+  // opened (review/openRevision.ts).
   if (on) setMarkupPersistence((name, doc) => new SealedMarkupPersistence(name, doc));
 }
 
