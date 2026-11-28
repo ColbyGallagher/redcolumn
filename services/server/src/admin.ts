@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
+import { constants as fsConstants, createReadStream } from 'node:fs';
 import { copyFile, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -256,17 +256,80 @@ export async function verifyBackupDirectory(dir: string): Promise<BackupVerifyRe
   return { ok: errors.length === 0, manifest, errors };
 }
 
+export function buildPgToolEnv(databaseUrl: string, baseEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  let parsed: URL;
+  try {
+    parsed = new URL(databaseUrl);
+  } catch {
+    throw new Error('Invalid DATABASE_URL: could not parse connection URL');
+  }
+  if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+    throw new Error(`Invalid DATABASE_URL protocol: ${parsed.protocol}`);
+  }
+
+  const env: NodeJS.ProcessEnv = { ...baseEnv };
+  delete env.PGHOST;
+  delete env.PGPORT;
+  delete env.PGUSER;
+  delete env.PGPASSWORD;
+  delete env.PGDATABASE;
+  delete env.PGSSLMODE;
+
+  if (parsed.hostname) {
+    const rawHost = decodeURIComponent(parsed.hostname);
+    env.PGHOST = rawHost.startsWith('[') && rawHost.endsWith(']') ? rawHost.slice(1, -1) : rawHost;
+  } else {
+    const hostParam = parsed.searchParams.get('host');
+    if (hostParam) env.PGHOST = hostParam;
+  }
+  if (parsed.port) {
+    env.PGPORT = parsed.port;
+  }
+  if (parsed.username) {
+    env.PGUSER = decodeURIComponent(parsed.username);
+  }
+  if (parsed.password) {
+    env.PGPASSWORD = decodeURIComponent(parsed.password);
+  }
+  const dbName = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
+  if (dbName) {
+    env.PGDATABASE = dbName;
+  }
+  const sslmode = parsed.searchParams.get('sslmode');
+  if (sslmode) {
+    env.PGSSLMODE = sslmode;
+  }
+
+  return env;
+}
+
 export async function defaultExecPgDump(databaseUrl: string, outFile: string): Promise<void> {
-  await execFileAsync('pg_dump', ['-Fc', '--no-owner', '--no-acl', '-f', outFile, databaseUrl], {
+  const env = buildPgToolEnv(databaseUrl);
+  await execFileAsync('pg_dump', ['-Fc', '--no-owner', '--no-acl', '-f', outFile], {
+    env,
     maxBuffer: 10 * 1024 * 1024,
   });
 }
 
 export async function defaultExecPgRestore(databaseUrl: string, dumpFile: string): Promise<void> {
+  const env = buildPgToolEnv(databaseUrl);
+  if (!env.PGDATABASE) {
+    throw new Error('DATABASE_URL must specify a database name for pg_restore');
+  }
   await execFileAsync(
     'pg_restore',
-    ['--clean', '--if-exists', '--no-owner', '--no-acl', '-d', databaseUrl, dumpFile],
-    { maxBuffer: 10 * 1024 * 1024 },
+    [
+      '--clean',
+      '--if-exists',
+      '--no-owner',
+      '--no-acl',
+      '--single-transaction',
+      '--exit-on-error',
+      '-d',
+      env.PGDATABASE,
+      dumpFile,
+    ],
+    { env, maxBuffer: 10 * 1024 * 1024 },
   );
 }
 
@@ -310,7 +373,7 @@ export async function runBackup(options: {
     const src = safeResolveUnder(blobDir, relPath);
     const dst = safeResolveUnder(blobsRoot, relPath);
     await mkdir(dirname(dst), { recursive: true });
-    await copyFile(src, dst);
+    await copyFile(src, dst, fsConstants.COPYFILE_EXCL);
     const digest = await hashFileSha256(dst);
     blobs.push({ path: relPath, sha256: digest.sha256, sizeBytes: digest.sizeBytes });
   }
@@ -328,7 +391,10 @@ export async function runBackup(options: {
     blobs,
   };
 
-  await writeFile(join(outDir, MANIFEST_FILENAME), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  await writeFile(join(outDir, MANIFEST_FILENAME), `${JSON.stringify(manifest, null, 2)}\n`, {
+    encoding: 'utf8',
+    flag: 'wx',
+  });
   return manifest;
 }
 
@@ -489,7 +555,7 @@ export async function runVerify(options: {
     for (const s of streamRows.rows) {
       streamsChecked += 1;
       const seqRows = await pool.query<{ seq: string }>(
-        'SELECT seq::text FROM events WHERE stream_id = $1 ORDER BY received_at ASC, seq ASC',
+        'SELECT seq::text FROM events WHERE stream_id = $1 ORDER BY seq ASC',
         [s.stream_id],
       );
       let prev = 0n;

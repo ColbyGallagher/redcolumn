@@ -31,7 +31,7 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Generate a strong database password (for example with `openssl rand -base64 32`) and edit `.env`:
+Generate a strong URL-safe database password (for example with `openssl rand -hex 24`) and edit `.env`:
 
 ```dotenv
 REDCOLUMN_DOMAIN=review.northbridge.example

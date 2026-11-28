@@ -11,6 +11,7 @@ import {
   BACKUP_MANIFEST_VERSION,
   DATABASE_DUMP_FILENAME,
   MANIFEST_FILENAME,
+  buildPgToolEnv,
   defaultExecPgDump,
   defaultExecPgRestore,
   hashFileSha256,
@@ -179,13 +180,57 @@ describe('backup manifest and checksum verification', () => {
       /Invalid manifest blob path/,
     );
   });
+  it('parses DATABASE_URL into PG* env vars without leaking credentials to argv', () => {
+    const env = buildPgToolEnv('postgres://redcolumn:p%40ss%2Fword@db.internal:5433/reviewdb?sslmode=require', {
+      PATH: '/usr/bin',
+      PGPASSWORD: 'stale-password',
+    });
+    assert.equal(env.PGHOST, 'db.internal');
+    assert.equal(env.PGPORT, '5433');
+    assert.equal(env.PGUSER, 'redcolumn');
+    assert.equal(env.PGPASSWORD, 'p@ss/word');
+    assert.equal(env.PGDATABASE, 'reviewdb');
+    assert.equal(env.PGSSLMODE, 'require');
+    assert.equal(env.PATH, '/usr/bin');
+
+    const noPassEnv = buildPgToolEnv('postgresql://localhost/reviewdb', { PGPASSWORD: 'stale-password' });
+    assert.equal(noPassEnv.PGHOST, 'localhost');
+    assert.equal(noPassEnv.PGDATABASE, 'reviewdb');
+    assert.equal(noPassEnv.PGPASSWORD, undefined);
+
+    assert.throws(() => buildPgToolEnv('http://localhost/reviewdb'), /protocol/);
+  });
 });
 
 describe('deploy bundle sanity checks', () => {
-  it('has a valid multi-stage Dockerfile on node:24-slim with non-root user and healthcheck', async () => {
+  it('has a valid multi-stage Dockerfile on node:24-trixie-slim with all workspace deps, PG 17 client, non-root user, and healthcheck', async () => {
     const dockerfile = await readFile(join(DEPLOY_DIR, 'Dockerfile'), 'utf8');
-    assert.match(dockerfile, /FROM node:24-slim/);
-    assert.match(dockerfile, /postgresql-client/);
+    assert.match(dockerfile, /FROM node:24-trixie-slim AS base/);
+    assert.match(dockerfile, /FROM node:24-trixie-slim AS runtime/);
+    assert.match(dockerfile, /postgresql-client-17/);
+    for (const pkg of [
+      'apps/desktop/package.json',
+      'apps/web/package.json',
+      'e2e/package.json',
+      'packages/i18n/package.json',
+      'packages/markup/package.json',
+      'packages/measure/package.json',
+      'packages/ops/package.json',
+      'packages/sheets/package.json',
+      'services/server/package.json',
+    ]) {
+      assert.ok(dockerfile.includes(pkg), `Expected ${pkg} in Dockerfile`);
+    }
+    for (const srcDir of [
+      'packages/i18n/src',
+      'packages/sheets/src',
+      'packages/measure/src',
+      'packages/markup/src',
+      'packages/ops/src',
+      'services/server/src',
+    ]) {
+      assert.ok(dockerfile.includes(srcDir), `Expected ${srcDir} in Dockerfile runtime stage`);
+    }
     assert.match(dockerfile, /USER redcolumn/);
     assert.match(dockerfile, /EXPOSE 3000/);
     assert.match(dockerfile, /HEALTHCHECK[\s\S]*\/healthz/);
@@ -229,11 +274,17 @@ describe('deploy bundle sanity checks', () => {
     for (const key of ['COOKIE_SECURE=true', 'BLOB_DIR=', 'DATABASE_URL=', 'ALLOWED_ORIGINS=', 'CADDY_MODE=']) {
       assert.ok(envExample.includes(key), `Expected ${key} in .env.example`);
     }
+    assert.match(envExample, /openssl rand -hex 24/);
     const backupSh = await readFile(join(DEPLOY_DIR, 'backup.sh'), 'utf8');
     const restoreSh = await readFile(join(DEPLOY_DIR, 'restore.sh'), 'utf8');
     assert.match(backupSh, /redcolumn-admin backup/);
+    assert.match(backupSh, /mktemp -d/);
+    assert.doesNotMatch(backupSh, /\$\$/);
     assert.match(restoreSh, /redcolumn-admin restore/);
     assert.match(restoreSh, /redcolumn-admin verify/);
+    assert.match(restoreSh, /mktemp -d/);
+    assert.match(restoreSh, /tar -xf - -C/);
+    assert.doesNotMatch(restoreSh, /\$\$/);
   });
 });
 
@@ -343,9 +394,9 @@ describe('admin lifecycle integration (Postgres)', { skip: !DATABASE_URL }, () =
       projId,
     ]);
     await handle.pool.query(
-      `INSERT INTO events (stream_id, seq, op_id, actor_id, op_type, entity_id, payload_json)
-       VALUES ($1, 1, $2, 'user-1', 'markup.create', 'm-1', '{}'::jsonb),
-              ($1, 2, $3, 'user-1', 'markup.patch', 'm-1', '{}'::jsonb)`,
+      `INSERT INTO events (stream_id, seq, op_id, actor_id, op_type, entity_id, payload_json, received_at)
+       VALUES ($1, 1, $2, 'user-1', 'markup.create', 'm-1', '{}'::jsonb, '2026-11-28T00:00:05Z'),
+              ($1, 2, $3, 'user-1', 'markup.patch', 'm-1', '{}'::jsonb, '2026-11-28T00:00:01Z')`,
       [streamId, randomUUID(), randomUUID()],
     );
 
