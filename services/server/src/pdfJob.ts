@@ -305,27 +305,29 @@ export async function runPdfInspectJob(deps: PdfJobDeps, payload: PdfInspectJobP
       for (const suggestion of suggestionByPage.values()) {
         if (sheetIdByNumber.has(suggestion.sheetNumber)) continue;
 
-        const existing = await trx
-          .selectFrom('sheets')
-          .select(['id'])
-          .where('document_id', '=', payload.documentId)
-          .where('sheet_number', '=', suggestion.sheetNumber)
+        const sheetId = randomUUID();
+        const inserted = await trx
+          .insertInto('sheets')
+          .values({
+            id: sheetId,
+            document_id: payload.documentId,
+            sheet_number: suggestion.sheetNumber,
+            title: suggestion.title,
+          })
+          .onConflict((oc) => oc.columns(['document_id', 'sheet_number']).doNothing())
+          .returning('id')
           .executeTakeFirst();
 
-        if (existing) {
-          sheetIdByNumber.set(suggestion.sheetNumber, existing.id);
+        if (inserted) {
+          sheetIdByNumber.set(suggestion.sheetNumber, inserted.id);
         } else {
-          const sheetId = randomUUID();
-          await trx
-            .insertInto('sheets')
-            .values({
-              id: sheetId,
-              document_id: payload.documentId,
-              sheet_number: suggestion.sheetNumber,
-              title: suggestion.title,
-            })
-            .execute();
-          sheetIdByNumber.set(suggestion.sheetNumber, sheetId);
+          const existing = await trx
+            .selectFrom('sheets')
+            .select(['id'])
+            .where('document_id', '=', payload.documentId)
+            .where('sheet_number', '=', suggestion.sheetNumber)
+            .executeTakeFirstOrThrow();
+          sheetIdByNumber.set(suggestion.sheetNumber, existing.id);
         }
       }
 

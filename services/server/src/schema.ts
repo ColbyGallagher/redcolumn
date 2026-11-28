@@ -222,7 +222,7 @@ export interface DocumentsTable {
 }
 
 export type RevisionProcessingStatus = 'pending' | 'processing' | 'ready' | 'failed';
-export type UploadState = 'uploading' | 'completed' | 'aborted' | 'failed';
+export type UploadState = 'uploading' | 'completing' | 'completed' | 'aborted' | 'failed';
 
 export interface RevisionsTable {
   id: string;

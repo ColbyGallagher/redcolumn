@@ -8,6 +8,7 @@ import {
   UploadHashMismatchError,
   UploadNotFoundError,
   UploadOffsetMismatchError,
+  UploadSizeExceededError,
   UploadSizeMismatchError,
   validateProjectId,
   validateSha256,
@@ -75,6 +76,15 @@ function deriveDocumentNumber(filename: string, fallbackId: string): string {
   return cleaned || `DOC-${fallbackId.slice(0, 8)}`;
 }
 
+function getPgErrorInfo(err: unknown): { code?: string; constraint?: string } {
+  if (!err || typeof err !== 'object') return {};
+  const rec = err as { code?: unknown; constraint?: unknown };
+  return {
+    code: typeof rec.code === 'string' ? rec.code : undefined,
+    constraint: typeof rec.constraint === 'string' ? rec.constraint : undefined,
+  };
+}
+
 async function requireAuthenticatedProjectAccess(
   db: Kysely<Database>,
   config: ServerConfig,
@@ -132,6 +142,28 @@ export async function registerUploadRoutes(
   options: UploadRoutesOptions,
 ): Promise<void> {
   const { config, db, blobStore, jobRunner } = options;
+
+  // Serialize per-uploadId mutations (chunk appends, complete, abort) within this process.
+  const uploadLocks = new Map<string, Promise<unknown>>();
+  async function withUploadLock<T>(projectId: string, uploadId: string, fn: () => Promise<T>): Promise<T> {
+    const key = `${projectId}:${uploadId}`;
+    const prev = uploadLocks.get(key) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const chain = prev.then(() => gate);
+    uploadLocks.set(key, chain);
+    await prev;
+    try {
+      return await fn();
+    } finally {
+      release();
+      if (uploadLocks.get(key) === chain) {
+        uploadLocks.delete(key);
+      }
+    }
+  }
 
   // Stream raw binary chunks straight to BlobStore without buffering the body in Fastify.
   app.addContentTypeParser('application/octet-stream', (_request, payload: IncomingMessage, done) => {
@@ -335,6 +367,11 @@ export async function registerUploadRoutes(
     },
   );
 
+  const maxChunkBytes = Math.max(config.uploadChunkBytes * 2, 64 * 1024 * 1024);
+  const chunkRouteOpts = {
+    bodyLimit: maxChunkBytes,
+  };
+
   // 3. Append a chunk (supports both PUT and PATCH for resumable clients).
   const handleChunkUpload = async (
     request: FastifyRequest<{ Params: { projectId: string; uploadId: string } }>,
@@ -355,85 +392,105 @@ export async function registerUploadRoutes(
       return reply.code(400).send({ error: offsetParsed.error });
     }
 
-    const upload = await db
-      .selectFrom('document_uploads')
-      .select(['id', 'project_id', 'total_bytes', 'state'])
-      .where('id', '=', uploadId)
-      .where('project_id', '=', projectId)
-      .executeTakeFirst();
-
-    if (!upload) {
-      return reply.code(404).send({ error: 'upload_not_found' });
-    }
-    if (upload.state !== 'uploading') {
-      return reply.code(409).send({ error: 'upload_not_active', state: upload.state });
-    }
-
-    const totalBytes = Number(upload.total_bytes);
-    const contentLengthHeader = request.headers['content-length'];
-    if (contentLengthHeader !== undefined && /^\d+$/.test(String(contentLengthHeader))) {
-      const contentLength = Number(contentLengthHeader);
-      if (offsetParsed.offset + contentLength > totalBytes) {
-        return reply.code(400).send({ error: 'upload_size_exceeded', totalBytes });
-      }
-    }
-
     const body = request.body;
     if (!body || (!(body instanceof Uint8Array) && typeof (body as IncomingMessage).on !== 'function')) {
       return reply.code(415).send({ error: 'expected_octet_stream' });
     }
 
-    try {
-      const result = await blobStore.appendChunk(
-        projectId,
-        uploadId,
-        offsetParsed.offset,
-        body as Uint8Array | IncomingMessage,
-      );
-
-      if (result.receivedBytes > totalBytes) {
-        await blobStore.abortUpload(projectId, uploadId);
-        await db
-          .updateTable('document_uploads')
-          .set({ state: 'failed', error_message: 'upload_size_exceeded', updated_at: new Date() })
-          .where('id', '=', uploadId)
-          .execute();
-        return reply.code(400).send({ error: 'upload_size_exceeded', totalBytes });
-      }
-
-      await db
-        .updateTable('document_uploads')
-        .set({ received_bytes: result.receivedBytes, updated_at: new Date() })
+    return withUploadLock(projectId, uploadId, async () => {
+      const upload = await db
+        .selectFrom('document_uploads')
+        .select(['id', 'project_id', 'total_bytes', 'state'])
         .where('id', '=', uploadId)
-        .execute();
+        .where('project_id', '=', projectId)
+        .executeTakeFirst();
 
-      return reply.code(200).send({
-        uploadId,
-        receivedBytes: result.receivedBytes,
-        totalBytes,
-        complete: result.receivedBytes === totalBytes,
-      });
-    } catch (err) {
-      if (err instanceof UploadOffsetMismatchError) {
-        return reply.code(409).send({
-          error: 'offset_mismatch',
-          expectedOffset: err.expectedOffset,
-          receivedOffset: err.receivedOffset,
-        });
-      }
-      if (err instanceof UploadNotFoundError) {
+      if (!upload) {
+        if (!(body instanceof Uint8Array)) (body as IncomingMessage).resume();
         return reply.code(404).send({ error: 'upload_not_found' });
       }
-      if (err instanceof BlobValidationError) {
-        return reply.code(400).send({ error: 'invalid_upload_request' });
+      if (upload.state !== 'uploading') {
+        if (!(body instanceof Uint8Array)) (body as IncomingMessage).resume();
+        return reply.code(409).send({ error: 'upload_not_active', state: upload.state });
       }
-      throw err;
-    }
+
+      const totalBytes = Number(upload.total_bytes);
+      const contentLengthHeader = request.headers['content-length'];
+      if (contentLengthHeader !== undefined && /^\d+$/.test(String(contentLengthHeader))) {
+        const contentLength = Number(contentLengthHeader);
+        if (contentLength > maxChunkBytes) {
+          if (!(body instanceof Uint8Array)) (body as IncomingMessage).pause();
+          return reply.code(413).header('connection', 'close').send({ error: 'chunk_too_large', maxChunkBytes });
+        }
+        if (offsetParsed.offset + contentLength > totalBytes) {
+          if (!(body instanceof Uint8Array)) (body as IncomingMessage).pause();
+          return reply.code(400).header('connection', 'close').send({ error: 'upload_size_exceeded', totalBytes });
+        }
+      }
+
+      try {
+        const result = await blobStore.appendChunk(
+          projectId,
+          uploadId,
+          offsetParsed.offset,
+          body as Uint8Array | IncomingMessage,
+          { maxChunkBytes, maxTotalBytes: totalBytes },
+        );
+
+        const updated = await db
+          .updateTable('document_uploads')
+          .set({ received_bytes: result.receivedBytes, updated_at: new Date() })
+          .where('id', '=', uploadId)
+          .where('project_id', '=', projectId)
+          .where('state', '=', 'uploading')
+          .returning('id')
+          .executeTakeFirst();
+
+        if (!updated) {
+          return reply.code(409).send({ error: 'upload_not_active' });
+        }
+
+        return reply.code(200).send({
+          uploadId,
+          receivedBytes: result.receivedBytes,
+          totalBytes,
+          complete: result.receivedBytes === totalBytes,
+        });
+      } catch (err) {
+        if (err instanceof UploadSizeExceededError) {
+          if (err.kind === 'chunk') {
+            return reply
+              .code(413)
+              .header('connection', 'close')
+              .send({ error: 'chunk_too_large', maxChunkBytes: err.limitBytes });
+          }
+          await blobStore.abortUpload(projectId, uploadId);
+          await db
+            .updateTable('document_uploads')
+            .set({ state: 'failed', error_message: 'upload_size_exceeded', updated_at: new Date() })
+            .where('id', '=', uploadId)
+            .where('state', '=', 'uploading')
+            .execute();
+          return reply.code(400).header('connection', 'close').send({ error: 'upload_size_exceeded', totalBytes });
+        }
+        if (err instanceof UploadOffsetMismatchError) {
+          return reply.code(409).send({
+            error: 'offset_mismatch',
+            expectedOffset: err.expectedOffset,
+            receivedOffset: err.receivedOffset,
+          });
+        }
+        if (err instanceof UploadNotFoundError) {
+          return reply.code(404).send({ error: 'upload_not_found' });
+        }
+        if (err instanceof BlobValidationError) {
+          return reply.code(400).send({ error: 'invalid_upload_request' });
+        }
+        throw err;
+      }
+    });
   };
 
-  const chunkRouteOpts = {
-    bodyLimit: Math.max(config.uploadChunkBytes * 2, 64 * 1024 * 1024),
-  };
   app.put('/api/projects/:projectId/uploads/:uploadId/chunks', chunkRouteOpts, handleChunkUpload);
   app.patch('/api/projects/:projectId/uploads/:uploadId/chunks', chunkRouteOpts, handleChunkUpload);
 
@@ -451,159 +508,245 @@ export async function registerUploadRoutes(
         return reply.code(400).send({ error: 'invalid_upload_id' });
       }
 
-      const upload = await db
-        .selectFrom('document_uploads')
-        .selectAll()
-        .where('id', '=', uploadId)
-        .where('project_id', '=', projectId)
-        .executeTakeFirst();
-
-      if (!upload) {
-        return reply.code(404).send({ error: 'upload_not_found' });
-      }
-
-      if (upload.state === 'completed' && upload.revision_id && upload.document_id) {
+      const sendIdempotentCompleted = async (completedUploadId: string, revisionId: string) => {
         const rev = await db
           .selectFrom('revisions')
           .select(['id', 'document_id', 'file_sha256', 'file_size', 'page_count', 'processing_status', 'processing_error'])
-          .where('id', '=', upload.revision_id)
+          .where('id', '=', revisionId)
           .executeTakeFirst();
-        if (rev) {
-          return reply.code(200).send({
-            uploadId: upload.id,
-            documentId: rev.document_id,
-            revisionId: rev.id,
-            fileSha256: rev.file_sha256,
-            fileSize: Number(rev.file_size),
-            pageCount: rev.page_count,
-            processingStatus: rev.processing_status,
-            processingError: rev.processing_error,
-          });
+        if (!rev) return null;
+        return reply.code(200).send({
+          uploadId: completedUploadId,
+          documentId: rev.document_id,
+          revisionId: rev.id,
+          fileSha256: rev.file_sha256,
+          fileSize: Number(rev.file_size),
+          pageCount: rev.page_count,
+          processingStatus: rev.processing_status,
+          processingError: rev.processing_error,
+        });
+      };
+
+      return withUploadLock(projectId, uploadId, async () => {
+        const upload = await db
+          .selectFrom('document_uploads')
+          .selectAll()
+          .where('id', '=', uploadId)
+          .where('project_id', '=', projectId)
+          .executeTakeFirst();
+
+        if (!upload) {
+          return reply.code(404).send({ error: 'upload_not_found' });
         }
-      }
 
-      if (upload.state !== 'uploading') {
-        return reply.code(409).send({ error: 'upload_not_active', state: upload.state });
-      }
-
-      const totalBytes = Number(upload.total_bytes);
-
-      let committed;
-      try {
-        committed = await blobStore.finalizeUpload(projectId, uploadId, upload.expected_sha256, totalBytes);
-      } catch (err) {
-        if (err instanceof UploadSizeMismatchError) {
-          return reply.code(400).send({
-            error: 'upload_incomplete',
-            expectedBytes: err.expectedBytes,
-            actualBytes: err.actualBytes,
-          });
+        if (upload.state === 'completed' && upload.revision_id && upload.document_id) {
+          const sent = await sendIdempotentCompleted(upload.id, upload.revision_id);
+          if (sent) return sent;
         }
-        if (err instanceof UploadHashMismatchError) {
+
+        if (upload.state !== 'uploading') {
+          return reply.code(409).send({ error: 'upload_not_active', state: upload.state });
+        }
+
+        // Atomically claim the upload for completion so concurrent callers across processes cannot race.
+        const claimed = await db
+          .updateTable('document_uploads')
+          .set({ state: 'completing', updated_at: new Date() })
+          .where('id', '=', uploadId)
+          .where('project_id', '=', projectId)
+          .where('state', '=', 'uploading')
+          .returningAll()
+          .executeTakeFirst();
+
+        if (!claimed) {
+          const latest = await db
+            .selectFrom('document_uploads')
+            .select(['id', 'state', 'revision_id', 'document_id'])
+            .where('id', '=', uploadId)
+            .where('project_id', '=', projectId)
+            .executeTakeFirst();
+          if (latest?.state === 'completed' && latest.revision_id && latest.document_id) {
+            const sent = await sendIdempotentCompleted(latest.id, latest.revision_id);
+            if (sent) return sent;
+          }
+          return reply.code(409).send({ error: 'upload_not_active', state: latest?.state ?? 'unknown' });
+        }
+
+        const totalBytes = Number(claimed.total_bytes);
+
+        let committed;
+        try {
+          committed = await blobStore.finalizeUpload(projectId, uploadId, claimed.expected_sha256, totalBytes);
+        } catch (err) {
+          if (err instanceof UploadSizeMismatchError) {
+            // Revert to uploading so the client can finish sending remaining chunks and retry complete.
+            await db
+              .updateTable('document_uploads')
+              .set({ state: 'uploading', updated_at: new Date() })
+              .where('id', '=', uploadId)
+              .where('state', '=', 'completing')
+              .execute();
+            return reply.code(400).send({
+              error: 'upload_incomplete',
+              expectedBytes: err.expectedBytes,
+              actualBytes: err.actualBytes,
+            });
+          }
+          if (err instanceof UploadHashMismatchError) {
+            await db
+              .updateTable('document_uploads')
+              .set({
+                state: 'failed',
+                error_message: 'hash_mismatch',
+                updated_at: new Date(),
+              })
+              .where('id', '=', uploadId)
+              .where('state', '=', 'completing')
+              .execute();
+            return reply.code(400).send({
+              error: 'hash_mismatch',
+              expectedSha256: err.expectedSha256,
+              actualSha256: err.actualSha256,
+            });
+          }
+          if (err instanceof UploadNotFoundError) {
+            await db
+              .updateTable('document_uploads')
+              .set({
+                state: 'failed',
+                error_message: 'upload_not_found',
+                updated_at: new Date(),
+              })
+              .where('id', '=', uploadId)
+              .where('state', '=', 'completing')
+              .execute();
+            return reply.code(404).send({ error: 'upload_not_found' });
+          }
+          await db
+            .updateTable('document_uploads')
+            .set({ state: 'uploading', updated_at: new Date() })
+            .where('id', '=', uploadId)
+            .where('state', '=', 'completing')
+            .execute();
+          throw err;
+        }
+
+        const revisionId = randomUUID();
+        let documentId = claimed.document_id;
+
+        try {
+          await db.transaction().execute(async (trx) => {
+            if (!documentId) {
+              documentId = randomUUID();
+              const docNumber = claimed.document_number ?? deriveDocumentNumber(claimed.filename, documentId);
+              const docTitle = claimed.document_title || claimed.filename;
+              await trx
+                .insertInto('documents')
+                .values({
+                  id: documentId,
+                  project_id: projectId,
+                  number: docNumber,
+                  title: docTitle,
+                  discipline: claimed.discipline,
+                })
+                .execute();
+            }
+
+            await trx
+              .insertInto('assets')
+              .values({
+                project_id: projectId,
+                sha256: committed.sha256,
+                size_bytes: committed.sizeBytes,
+                media_type: 'application/pdf',
+                storage_key: committed.storageKey,
+              })
+              .onConflict((oc) => oc.columns(['project_id', 'sha256']).doNothing())
+              .execute();
+
+            await trx
+              .insertInto('revisions')
+              .values({
+                id: revisionId,
+                document_id: documentId,
+                label: claimed.revision_label,
+                file_sha256: committed.sha256,
+                file_size: committed.sizeBytes,
+                page_count: 0,
+                processing_status: 'pending',
+                processing_error: null,
+                issued_by: session.user.id,
+                issued_at: new Date(),
+              })
+              .execute();
+
+            await trx
+              .updateTable('document_uploads')
+              .set({
+                state: 'completed',
+                received_bytes: committed.sizeBytes,
+                document_id: documentId,
+                revision_id: revisionId,
+                error_message: null,
+                updated_at: new Date(),
+              })
+              .where('id', '=', uploadId)
+              .where('state', '=', 'completing')
+              .execute();
+          });
+        } catch (err) {
+          const pgErr = getPgErrorInfo(err);
+          if (pgErr.code === '23505') {
+            const conflictError = pgErr.constraint?.includes('documents')
+              ? 'document_number_conflict'
+              : 'revision_label_conflict';
+            await db
+              .updateTable('document_uploads')
+              .set({
+                state: 'failed',
+                error_message: conflictError,
+                updated_at: new Date(),
+              })
+              .where('id', '=', uploadId)
+              .where('state', '=', 'completing')
+              .execute();
+            return reply.code(409).send({ error: conflictError });
+          }
           await db
             .updateTable('document_uploads')
             .set({
               state: 'failed',
-              error_message: 'hash_mismatch',
+              error_message: 'commit_failed',
               updated_at: new Date(),
             })
             .where('id', '=', uploadId)
+            .where('state', '=', 'completing')
             .execute();
-          return reply.code(400).send({
-            error: 'hash_mismatch',
-            expectedSha256: err.expectedSha256,
-            actualSha256: err.actualSha256,
-          });
-        }
-        if (err instanceof UploadNotFoundError) {
-          return reply.code(404).send({ error: 'upload_not_found' });
-        }
-        throw err;
-      }
-
-      const revisionId = randomUUID();
-      let documentId = upload.document_id;
-
-      await db.transaction().execute(async (trx) => {
-        if (!documentId) {
-          documentId = randomUUID();
-          const docNumber = upload.document_number ?? deriveDocumentNumber(upload.filename, documentId);
-          const docTitle = upload.document_title || upload.filename;
-          await trx
-            .insertInto('documents')
-            .values({
-              id: documentId,
-              project_id: projectId,
-              number: docNumber,
-              title: docTitle,
-              discipline: upload.discipline,
-            })
-            .execute();
+          throw err;
         }
 
-        await trx
-          .insertInto('assets')
-          .values({
-            project_id: projectId,
-            sha256: committed.sha256,
-            size_bytes: committed.sizeBytes,
-            media_type: 'application/pdf',
-            storage_key: committed.storageKey,
-          })
-          .onConflict((oc) => oc.columns(['project_id', 'sha256']).doNothing())
-          .execute();
+        const rawSuggestions = Array.isArray(claimed.sheet_suggestions_json)
+          ? (claimed.sheet_suggestions_json as SheetSuggestion[])
+          : [];
 
-        await trx
-          .insertInto('revisions')
-          .values({
-            id: revisionId,
-            document_id: documentId,
-            label: upload.revision_label,
-            file_sha256: committed.sha256,
-            file_size: committed.sizeBytes,
-            page_count: 0,
-            processing_status: 'pending',
-            processing_error: null,
-            issued_by: session.user.id,
-            issued_at: new Date(),
-          })
-          .execute();
+        const jobPayload: PdfInspectJobPayload = {
+          projectId,
+          documentId: documentId!,
+          revisionId,
+          sha256: committed.sha256,
+          sheetSuggestions: rawSuggestions,
+        };
+        await jobRunner.enqueue(PDF_INSPECT_JOB, jobPayload);
 
-        await trx
-          .updateTable('document_uploads')
-          .set({
-            state: 'completed',
-            received_bytes: committed.sizeBytes,
-            document_id: documentId,
-            revision_id: revisionId,
-            error_message: null,
-            updated_at: new Date(),
-          })
-          .where('id', '=', uploadId)
-          .execute();
-      });
-
-      const rawSuggestions = Array.isArray(upload.sheet_suggestions_json)
-        ? (upload.sheet_suggestions_json as SheetSuggestion[])
-        : [];
-
-      const jobPayload: PdfInspectJobPayload = {
-        projectId,
-        documentId: documentId!,
-        revisionId,
-        sha256: committed.sha256,
-        sheetSuggestions: rawSuggestions,
-      };
-      await jobRunner.enqueue(PDF_INSPECT_JOB, jobPayload);
-
-      return reply.code(201).send({
-        uploadId,
-        documentId: documentId!,
-        revisionId,
-        fileSha256: committed.sha256,
-        fileSize: committed.sizeBytes,
-        storageKey: committed.storageKey,
-        processingStatus: 'pending',
+        return reply.code(201).send({
+          uploadId,
+          documentId: documentId!,
+          revisionId,
+          fileSha256: committed.sha256,
+          fileSize: committed.sizeBytes,
+          storageKey: committed.storageKey,
+          processingStatus: 'pending',
+        });
       });
     },
   );
@@ -622,28 +765,32 @@ export async function registerUploadRoutes(
         return reply.code(400).send({ error: 'invalid_upload_id' });
       }
 
-      const upload = await db
-        .selectFrom('document_uploads')
-        .select(['id', 'state'])
-        .where('id', '=', uploadId)
-        .where('project_id', '=', projectId)
-        .executeTakeFirst();
+      return withUploadLock(projectId, uploadId, async () => {
+        const upload = await db
+          .selectFrom('document_uploads')
+          .select(['id', 'state'])
+          .where('id', '=', uploadId)
+          .where('project_id', '=', projectId)
+          .executeTakeFirst();
 
-      if (!upload) {
-        return reply.code(404).send({ error: 'upload_not_found' });
-      }
-      if (upload.state === 'completed') {
-        return reply.code(409).send({ error: 'upload_already_completed' });
-      }
+        if (!upload) {
+          return reply.code(404).send({ error: 'upload_not_found' });
+        }
+        if (upload.state === 'completed' || upload.state === 'completing') {
+          return reply.code(409).send({ error: 'upload_already_completed', state: upload.state });
+        }
 
-      await blobStore.abortUpload(projectId, uploadId);
-      await db
-        .updateTable('document_uploads')
-        .set({ state: 'aborted', updated_at: new Date() })
-        .where('id', '=', uploadId)
-        .execute();
+        await blobStore.abortUpload(projectId, uploadId);
+        await db
+          .updateTable('document_uploads')
+          .set({ state: 'aborted', updated_at: new Date() })
+          .where('id', '=', uploadId)
+          .where('project_id', '=', projectId)
+          .where('state', 'in', ['uploading', 'failed', 'aborted'])
+          .execute();
 
-      return reply.code(200).send({ uploadId, state: 'aborted' });
+        return reply.code(200).send({ uploadId, state: 'aborted' });
+      });
     },
   );
 
