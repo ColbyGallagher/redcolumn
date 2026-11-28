@@ -117,6 +117,18 @@ Expected output:
 
 If you are using `CADDY_MODE=internal-ca`, install Caddy's root certificate on the client first — see [TLS configuration](tls.md#mode-3-caddy-internal-ca-for-lan-trials).
 
+## 6. Work on a document together
+
+1. Sign in at your server's address, choose **New project**, and invite people with **Members**. Admins can change anyone's markups, reviewers their own, and viewers none.
+2. Choose **Documents** on the project, then **Add PDF…**. The upload resumes if the connection drops. The server reads the pages, then **Open** appears.
+3. Open the document. It uses the same viewer and markup tools as a local file. The status at the bottom left shows whether your changes are saved, who else has the document open and on which page, and any change the server refused.
+
+Documents on a server do not yet offer changes to the file (page operations, crop, flatten, redaction, OCR, forms and signing), takeoff and measuring, AI review, portals, sheet links, bookmarks, stitching, geospatial tools, importing markups, shared scales or custom columns, statuses and replies, or Live Sessions. The app leaves those commands out. Files opened from your computer are unchanged.
+
+### Database roles
+
+The server reads document content through a database role, `redcolumn_reader`, that row-level security applies to. At each start it creates the role if needed and grants it read access to the protected tables only. The user in `DATABASE_URL` therefore needs to be a superuser, as in the bundled Postgres, or to have `BYPASSRLS` and `CREATEROLE`.
+
 ## Routine administration
 
 - **Check migration status:**
