@@ -1,5 +1,5 @@
-import { boundsOf, rotatePoint, rotationCentre, type FlowShapeKind, type ManualRoute, type Markup, type Point, type Rect, type Side } from './model';
-import { TYPE_INFO } from './types';
+import { boundsOf, rotatePoint, rotationCentre, type FlowShapeKind, type ManualRoute, type Markup, type Point, type Rect, type Side } from './model.ts';
+import { TYPE_INFO } from './types.ts';
 
 /** The flowchart shapes in palette order, with what each means and the size a click places it at (points). */
 export const FLOW_SHAPES: readonly { kind: FlowShapeKind; label: string; hint: string; size: readonly [w: number, h: number] }[] = [

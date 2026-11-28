@@ -11,7 +11,7 @@ import type { Portal } from './portals';
 import type { AiReviewData } from './aiReview';
 import type { Estimating } from './estimating';
 import type { Markup, MarkupStyle, Point, Rect } from './model';
-import { MAX_FONT_STRING, familyFromPdfName, findLengths, trimQuotesAndSpace, type FontFamily } from './fonts';
+import { MAX_FONT_STRING, familyFromPdfName, findLengths, trimQuotesAndSpace, type FontFamily } from './fonts.ts';
 import type { LineEnding, TextAlign, VerticalAlign } from './style';
 import type { Viewport } from './viewports';
 

@@ -281,6 +281,28 @@ importers:
         specifier: 5.9.3
         version: 5.9.3
 
+  packages/sync:
+    dependencies:
+      '@nb/markup':
+        specifier: workspace:*
+        version: link:../markup
+      '@nb/measure':
+        specifier: workspace:*
+        version: link:../measure
+      '@nb/ops':
+        specifier: workspace:*
+        version: link:../ops
+      '@nb/sheets':
+        specifier: workspace:*
+        version: link:../sheets
+    devDependencies:
+      '@types/node':
+        specifier: ^26.6.1
+        version: 26.6.1
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
   services/server:
     dependencies:
       '@fastify/rate-limit':

@@ -1,8 +1,8 @@
-import { DEFAULT_STATUSES, type MarkupStatusDef } from './columns';
-import { gluedTo, routeConnector } from './flowchart';
-import type { Markup, Point } from './model';
-import { openPatch, type EditRule } from './ownership';
-import { shiftSpans } from './textSpans';
+import { DEFAULT_STATUSES, type MarkupStatusDef } from './columns.ts';
+import { gluedTo, routeConnector } from './flowchart.ts';
+import type { Markup, Point } from './model.ts';
+import { openPatch, type EditRule } from './ownership.ts';
+import { shiftSpans } from './textSpans.ts';
 
 /**
  * Pure editing rules for markups: what adding, updating or removing markups writes to the store.

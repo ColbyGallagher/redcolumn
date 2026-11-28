@@ -3,8 +3,8 @@
  * in a Live Session sees the same columns), each markup keeping its values in `Markup.fields`.
  */
 
-import { bluebeamColumnId } from './bluebeam';
-import { parseXml, type XmlElement } from './xml';
+import { bluebeamColumnId } from './bluebeam.ts';
+import { parseXml, type XmlElement } from './xml.ts';
 
 export type ColumnType ='text' | 'multiline' | 'choice' | 'number' | 'date' | 'checkmark' | 'formula';
 

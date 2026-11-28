@@ -542,6 +542,7 @@ contents in `toc.js`. Its screenshots are taken by `scripts/help` from sample dr
 | `packages/policy` | Review permissions, audience-based visibility, settings validator, presets and scenario runner |
 | `packages/sheets` | Sheet number detection and sheet links |
 | `packages/stitch` | Stitching sheets along match lines |
+| `packages/sync` | Client sync engine: confirmed state, pending queue, rejected inbox, version-checked undo, persistence and transport adapters |
 | `services/server` | Self-hosted review server: HTTP/WebSocket API, Postgres migrations, local auth, operation pipeline, admin CLI, and Docker Compose deployment bundle |
 
 ### Releasing the desktop app
