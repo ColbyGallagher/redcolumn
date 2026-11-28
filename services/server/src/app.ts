@@ -15,14 +15,17 @@ import {
   lookupSession,
   revokeSession,
 } from './auth.ts';
+import { LocalDiskBlobStore, type BlobStore } from './blobStore.ts';
 import { InProcessBroadcaster, type Broadcaster } from './broadcaster.ts';
 import { isOriginAllowed, type ServerConfig } from './config.ts';
 import { checkDbConnection, type Database } from './db.ts';
 import { acceptInvite, listAccessibleSessions, previewInvite } from './invites.ts';
 import { createLogger } from './logger.ts';
+import { InProcessJobRunner, registerPdfJobs, type JobRunner } from './pdfJob.ts';
 import { OpPipeline, type OpPipelineHooks } from './pipeline.ts';
 import { registerProjectRoutes } from './projectRoutes.ts';
 import { registerStaticWebApp } from './static.ts';
+import { registerUploadRoutes } from './uploadRoutes.ts';
 import { attachWebSocketServer, type WsHandle } from './ws.ts';
 
 const SERVER_VERSION: string = (() => {
@@ -51,6 +54,8 @@ export interface BuildServerOptions {
   logger?: Logger;
   broadcaster?: Broadcaster;
   pipelineHooks?: OpPipelineHooks;
+  blobStore?: BlobStore;
+  jobRunner?: JobRunner;
 }
 
 export interface ServerInstance {
@@ -58,6 +63,8 @@ export interface ServerInstance {
   broadcaster: Broadcaster;
   pipeline: OpPipeline;
   ws: WsHandle;
+  blobStore: BlobStore;
+  jobRunner: JobRunner;
 }
 
 const STATE_CHANGING_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
@@ -77,6 +84,14 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
     maxOpBytes: config.maxOpBytes,
     hooks: options.pipelineHooks,
   });
+
+  const blobStore = options.blobStore ?? new LocalDiskBlobStore(config.blobDir);
+  const jobRunner =
+    options.jobRunner ??
+    new InProcessJobRunner({
+      onError: (err, job) => logger.error({ err, jobId: job.id, jobName: job.name }, 'Background job failed'),
+    });
+  registerPdfJobs(jobRunner, { db, blobStore, logger });
 
   const app = Fastify({
     loggerInstance: logger,
@@ -308,10 +323,14 @@ export function buildServer(options: BuildServerOptions): ServerInstance {
       logger.warn({ webDistDir: config.webDistDir }, 'WEB_DIST_DIR does not exist or is not a directory; skipping static web serving');
     }
   }
+  app.register(async (uploads) => {
+    await registerUploadRoutes(uploads, { config, db, blobStore, jobRunner });
+  });
 
   app.addHook('onClose', async () => {
+    await jobRunner.close();
     await ws.close();
   });
 
-  return { app, broadcaster, pipeline, ws };
+  return { app, broadcaster, pipeline, ws, blobStore, jobRunner };
 }

@@ -38,7 +38,7 @@ const FILE_HASH = 'c'.repeat(64);
 const READER_DENIED_TABLES = [
   'users', 'sessions', 'invites', 'identities', 'identity_providers', 'workspace_members', 'project_members',
   'groups', 'group_members', 'lane_members', 'party_visibility', 'item_access', 'item_draft_access',
-  'documents', 'revisions', 'sheets', 'pages', 'document_sets', 'document_set_members', 'document_set_documents',
+  'documents', 'revisions', 'document_uploads', 'sheets', 'pages', 'document_sets', 'document_set_members', 'document_set_documents',
   'projects', 'lanes', 'scopes', 'gates', 'gate_checkers',
 ] as const;
 
@@ -134,13 +134,14 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
       '0002_schema_v1.sql',
       '0003_invites.sql',
       '0004_project_roles.sql',
+      '0005_document_uploads.sql',
     ]);
     const second = await runMigrations(pool);
     assert.deepEqual(second.appliedNow, []);
 
     const status = await checkMigrations(pool);
     assert.deepEqual(status, {
-      applied: ['0001_skeleton.sql', '0002_schema_v1.sql', '0003_invites.sql', '0004_project_roles.sql'],
+      applied: ['0001_skeleton.sql', '0002_schema_v1.sql', '0003_invites.sql', '0004_project_roles.sql', '0005_document_uploads.sql'],
       pending: [],
       mismatched: [],
       unknown: [],
@@ -198,7 +199,7 @@ describe('schema v1 (Postgres 17)', { skip: !DATABASE_URL ? 'DATABASE_URL is not
         INSERT INTO invites (id, token_hash, email, email_lower, project_id, expires_at)
         VALUES ('pending', 'h', 'new@northbridge.example', 'new@northbridge.example', 'with-admins', NOW())`);
 
-      assert.deepEqual((await runMigrations(old)).appliedNow, ['0004_project_roles.sql']);
+      assert.deepEqual((await runMigrations(old)).appliedNow, ['0004_project_roles.sql', '0005_document_uploads.sql']);
 
       const admins = await old.query<{ k: string }>(
         `SELECT project_id || '/' || user_id AS k FROM project_members WHERE role = 'project_admin' ORDER BY 1`,

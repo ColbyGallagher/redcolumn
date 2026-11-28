@@ -221,6 +221,9 @@ export interface DocumentsTable {
   created_at: Generated<Date>;
 }
 
+export type RevisionProcessingStatus = 'pending' | 'processing' | 'ready' | 'failed';
+export type UploadState = 'uploading' | 'completing' | 'completed' | 'aborted' | 'failed';
+
 export interface RevisionsTable {
   id: string;
   document_id: string;
@@ -228,9 +231,33 @@ export interface RevisionsTable {
   file_sha256: string;
   file_size: string | number;
   page_count: number;
+  processing_status: Generated<RevisionProcessingStatus>;
+  processing_error: string | null;
   issued_by: string | null;
   issued_at: Date | null;
   created_at: Generated<Date>;
+}
+
+export interface DocumentUploadsTable {
+  id: string;
+  project_id: string;
+  created_by: string;
+  document_id: string | null;
+  document_number: string | null;
+  document_title: Generated<string>;
+  discipline: string | null;
+  revision_label: Generated<string>;
+  filename: string;
+  total_bytes: string | number;
+  expected_sha256: string;
+  received_bytes: Generated<string | number>;
+  chunk_size: number;
+  sheet_suggestions_json: Generated<unknown>;
+  state: Generated<UploadState>;
+  revision_id: string | null;
+  error_message: string | null;
+  created_at: Generated<Date>;
+  updated_at: Generated<Date>;
 }
 
 export interface SheetsTable {
@@ -587,6 +614,7 @@ export interface Database {
   group_members: GroupMembersTable;
   documents: DocumentsTable;
   revisions: RevisionsTable;
+  document_uploads: DocumentUploadsTable;
   sheets: SheetsTable;
   pages: PagesTable;
   document_sets: DocumentSetsTable;
