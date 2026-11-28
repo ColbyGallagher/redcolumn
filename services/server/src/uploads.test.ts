@@ -368,6 +368,46 @@ describe('BlobStore unit tests', () => {
         );
         assert.ok(chunksYielded <= 4, `expected stream to stop early, yielded ${chunksYielded} chunks`);
       });
+
+      it('rejects cleanly without hanging if the upload stream closes mid-chunk', async () => {
+        const store = makeStore();
+        await store.createUpload('proj-1', 'up-premature-close');
+
+        let pushed = false;
+        const abruptStream = new Readable({
+          read() {
+            if (!pushed) {
+              pushed = true;
+              this.push(Buffer.alloc(64 * 1024, 0x61));
+            }
+          },
+        });
+        // Destroy the stream as soon as consumeReadableSequential pauses it for async chunk I/O,
+        // so 'close' fires while processing === true (before 'end' is ever emitted).
+        abruptStream.once('pause', () => {
+          abruptStream.destroy();
+        });
+
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        try {
+          await assert.rejects(
+            () =>
+              Promise.race([
+                store.appendChunk('proj-1', 'up-premature-close', 0, abruptStream),
+                new Promise<never>((_, reject) => {
+                  timer = setTimeout(() => reject(new Error('appendChunk hung after premature stream close')), 2000);
+                }),
+              ]),
+            /Upload stream closed prematurely/,
+          );
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+
+        // Upload staging handle must be closed so the upload can be cleanly aborted afterward.
+        await store.abortUpload('proj-1', 'up-premature-close');
+        assert.equal(await store.statUpload('proj-1', 'up-premature-close'), null);
+      });
     });
   }
 
