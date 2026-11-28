@@ -11,6 +11,25 @@ export interface ChangelogEntry {
 
 export const CHANGELOG: readonly ChangelogEntry[] = [
   {
+    version: '0.1.24',
+    date: '2026-11-28',
+    items: [
+      '3D viewer (Experimental): open one or more IFC models, with a model tree, sections, measuring, saved views, version compare, quantities and walk mode',
+      '3D and drawings (Experimental): link elements to sheets, show registered sheets and models on each other, raise issues as markups and sync the view with a sheet',
+      'French interface translation (preview)',
+      'View: page layout buttons, zoom presets, cover page option and default zoom for book-style reading',
+      'View: Fit Width keeps the page in view, Fit Page shows all of it, and each document keeps its own rotation',
+      'Split View of one document: the panes work independently, and the right pane has its own tab',
+      'Takeoff: option to round up each measurement before totalling, and a Depth box for selected volumes',
+      'Rotate callouts and legends, and keep the turn of Bluebeam markups on rotated sheets',
+      'Combine and Bulk Insert: drag to reorder files, select several at once and read long names',
+      'Search: option to turn Zoom to Search Results on or off',
+      'Tabs and bookmarks: Reopen Closed Tab (Ctrl+Shift+T), show a file in its folder (desktop) and filter bookmarks',
+      'MCP: optional compact tool list that uses fewer tokens',
+      'Fixes: Escape keeps the progress of a markup being drawn, and Disable Line Weights now draws and prints thin, solid lines',
+    ],
+  },
+  {
     version: '0.1.23',
     date: '2026-11-24',
     items: [
