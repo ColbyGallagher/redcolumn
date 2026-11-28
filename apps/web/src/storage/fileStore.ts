@@ -234,7 +234,26 @@ export async function cacheFile(bytes: ArrayBuffer): Promise<string> {
   return hash;
 }
 
+/** Contents kept only in memory, for files that must not be written to this device's storage. */
+const inMemory = new Map<string, { bytes: ArrayBuffer; holders: number }>();
+
+/** Makes `readFile(hash)` answer from memory until the returned function is called. */
+export function holdInMemory(hash: string, bytes: ArrayBuffer): () => void {
+  const entry = inMemory.get(hash) ?? { bytes, holders: 0 };
+  entry.holders += 1;
+  inMemory.set(hash, entry);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    entry.holders -= 1;
+    if (!entry.holders) inMemory.delete(hash);
+  };
+}
+
 export async function readFile(hash: string): Promise<ArrayBuffer> {
+  const held = inMemory.get(hash);
+  if (held) return held.bytes.slice(0);
   const handle = await (await filesDir()).getFileHandle(`${hash}.pdf`);
   return (await openLocal(new Uint8Array(await (await handle.getFile()).arrayBuffer()))).slice().buffer;
 }

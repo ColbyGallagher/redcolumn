@@ -1,6 +1,8 @@
 import { msg } from '@nb/i18n';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { CreateProjectForm } from '../review/CreateProjectForm';
+import type { RevisionTarget } from '../review/documentsApi';
+import { ProjectDocumentsPanel } from '../review/ProjectDocumentsPanel';
 import { ProjectMembersPanel, projectRoleLabel } from '../review/ProjectMembersPanel';
 import {
   createServerClient,
@@ -20,6 +22,8 @@ export interface ConnectViewProps {
   client?: ServerClient;
   onOpenLocal: () => void;
   onNewLocal: () => void;
+  /** Opens a server document's revision in the viewer. */
+  onOpenRevision: (target: RevisionTarget) => Promise<void> | void;
   onUserChange?: (user: ServerUser | null) => void;
 }
 
@@ -76,6 +80,7 @@ export function ConnectView({
   client: providedClient,
   onOpenLocal,
   onNewLocal,
+  onOpenRevision,
   onUserChange,
 }: ConnectViewProps) {
   const client = useMemo(() => providedClient ?? createServerClient(), [providedClient]);
@@ -101,6 +106,7 @@ export function ConnectView({
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   const [showCreateProject, setShowCreateProject] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [documentsProjectId, setDocumentsProjectId] = useState<string | null>(null);
 
   const updateUser = useCallback(
     (next: ServerUser | null) => {
@@ -263,6 +269,7 @@ export function ConnectView({
     } finally {
       setSubmitting(false);
       setSessionsData({ projects: [], sessions: [] });
+      setDocumentsProjectId(null);
       updateUser(null);
     }
   };
@@ -588,6 +595,16 @@ export function ConnectView({
                           </div>
                           <div className="connect-actions">
                             {p.role && <span className="connect-pill">{projectRoleLabel(p.role)}</span>}
+                            {p.role && (
+                              <button
+                                type="button"
+                                className="btn primary"
+                                aria-expanded={documentsProjectId === p.id}
+                                onClick={() => setDocumentsProjectId(documentsProjectId === p.id ? null : p.id)}
+                              >
+                                {msg('Documents')}
+                              </button>
+                            )}
                             <button
                               type="button"
                               className="btn"
@@ -605,6 +622,19 @@ export function ConnectView({
             </div>
           )}
         </section>
+
+        {(() => {
+          const documentsProject = sessionsData.projects.find((p) => p.id === documentsProjectId);
+          if (!documentsProject) return null;
+          return (
+            <ProjectDocumentsPanel
+              key={documentsProject.id}
+              project={documentsProject}
+              onOpenRevision={onOpenRevision}
+              onClose={() => setDocumentsProjectId(null)}
+            />
+          );
+        })()}
 
         {selectedProjectId && (() => {
           const selectedProject = sessionsData.projects.find((p) => p.id === selectedProjectId);

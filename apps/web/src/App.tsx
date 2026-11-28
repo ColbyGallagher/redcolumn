@@ -258,6 +258,11 @@ import { installAssistant } from './desktop/installAssistant';
 import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
 import { UnsavedChangesDialog, askSaveChanges } from './components/UnsavedChangesDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
+import { hasFacet, hasYjs, isSynced, type AppDocument } from './review/facets';
+import { applyFacetPolicy, facetOfCommand, hiddenRibbonTabs, panelUnavailable, toolsFor } from './review/facetUi';
+import type { RevisionTarget } from './review/documentsApi';
+import type { ReviewDocument } from './review/ReviewDocument';
+import { SyncStatusBar } from './review/SyncStatusBar';
 import { assistantCall, beginComparison, type AssistantDocument, type AssistantStitching } from './desktop/assistant';
 import type { AssistantStandards } from './desktop/assistantStandards';
 import { apply as applyAffine, compose as composeAffine, invert as invertStitch, scaleOf as affineScale, visiblePolygon, type Affine } from '@nb/stitch';
@@ -276,18 +281,19 @@ interface Controllers {
 interface OpenFile {
   file: StoredFile;
   doc: PdfDocument;
-  store: MarkupStore;
+  /** A `MarkupStore` for a file on this device; a server document offers fewer facets (review/facets.ts). */
+  store: AppDocument;
 }
 
 /** What each open document looked like when it was opened or last saved, to tell if it has unsaved changes. */
-const savedState = new WeakMap<MarkupStore, { edits: number; hash: string; undo?: number }>();
+const savedState = new WeakMap<AppDocument, { edits: number; hash: string; undo?: number }>();
 /** File contents an open document's undo history can bring back, kept stored until it closes. */
-const heldContents = new WeakMap<MarkupStore, string[]>();
-function holdFor(store: MarkupStore, hashes: string[]) {
+const heldContents = new WeakMap<AppDocument, string[]>();
+function holdFor(store: AppDocument, hashes: string[]) {
   holdContents(hashes);
   heldContents.set(store, [...(heldContents.get(store) ?? []), ...hashes]);
 }
-function releaseFor(store: MarkupStore) {
+function releaseFor(store: AppDocument) {
   const hashes = heldContents.get(store);
   heldContents.delete(store);
   if (hashes) void releaseContents(hashes);
@@ -329,6 +335,7 @@ const recoveredKept = new Set<string>();
 /** Documents that arrived from another window with changes not yet saved to their file. */
 const movedDirty = new Set<string>();
 function hasUnsavedChanges(t: OpenFile) {
+  if (isSynced(t.store)) return false;
   let base = savedState.get(t.store);
   if (!base) {
     if (movedDirty.has(t.file.id)) savedState.set(t.store, { edits: -1, hash: t.file.hash });
@@ -470,7 +477,7 @@ function openAttachment(m: Markup) {
 }
 
 /** Turns markups by `degrees` (or to it, with `absolute`), locked ones excepted, as one undo step. */
-function turnMarkups(store: MarkupStore, ms: readonly Markup[], degrees: number, absolute = false) {
+function turnMarkups(store: AppDocument, ms: readonly Markup[], degrees: number, absolute = false) {
   store.checkpoint();
   store.batch(() => {
     for (const m of ms) {
@@ -485,7 +492,7 @@ function turnMarkups(store: MarkupStore, ms: readonly Markup[], degrees: number,
 const MARKUP_CLIP = 'redcolumn markups';
 
 /** The drawing standard a document is read with, from this profile (none when it has none, or it was deleted here). */
-function standardOf(store: MarkupStore): DrawingStandard | null {
+function standardOf(store: AppDocument): DrawingStandard | null {
   const chosen = store.drawingStandard();
   const found = chosen ? profiles.active().state.drawingStandards.find((s) => s.id === chosen.id) : undefined;
   return found ? withDefaults(found) : null;
@@ -511,7 +518,7 @@ function indexEntry(s: SheetInfo | undefined): SheetIndex['sheets'][number] {
   return { ...(s.number ? { number: s.number } : {}), ...(s.title ? { title: s.title } : {}), ...(s.fields ? { fields: s.fields } : {}) };
 }
 
-function marksFor(store: MarkupStore): TaughtMark[] {
+function marksFor(store: AppDocument): TaughtMark[] {
   return [...profiles.active().state.taughtMarks, ...(standardOf(store)?.marks ?? [])];
 }
 
@@ -553,7 +560,7 @@ function anchorDownload(name: string, blob: Blob) {
 }
 
 /** Stops PDFium drawing annotations that were imported as editable markups. */
-async function hideImported(doc: PdfDocument, store: MarkupStore) {
+async function hideImported(doc: PdfDocument, store: AppDocument) {
   await Promise.all(Object.entries(store.importedAnnotations()).map(([page, indices]) => doc.hideAnnotations(Number(page), indices)));
 }
 
@@ -580,14 +587,14 @@ function rememberStudioHash(fileId: string, hash: string) {
 const noSubscribe = () => () => {};
 
 /** Values new markups start with in the document's custom columns. */
-function defaultFieldsFor(store: MarkupStore | undefined): Record<string, string> | undefined {
+function defaultFieldsFor(store: AppDocument | undefined): Record<string, string> | undefined {
   const cols = store?.columnSet().columns ?? [];
   const fields = cols.filter((c) => c.defaultValue && c.type !== 'formula').map((c) => [c.id, c.defaultValue!] as const);
   return fields.length ? Object.fromEntries(fields) : undefined;
 }
 
 /** A markup, with the rest of its group, saved as a Tool Library tool: its look, and the markups themselves so the tool can place exact copies. */
-function toolChestItemOf(group: Markup | readonly Markup[], store?: MarkupStore | null): Omit<ToolChestItem, 'id'> {
+function toolChestItemOf(group: Markup | readonly Markup[], store?: AppDocument | null): Omit<ToolChestItem, 'id'> {
   const ms = Array.isArray(group) ? [...(group as readonly Markup[])] : [group as Markup];
   ms.sort((x, y) => x.createdAt - y.createdAt);
   const m = ms[0]!;
@@ -612,7 +619,7 @@ function toolChestItemOf(group: Markup | readonly Markup[], store?: MarkupStore 
 }
 
 /** Markups as Tool Library tools: the members of a group (a Cloud+, say) become one tool, not one each. */
-function toolChestItemsOf(ms: readonly Markup[], store?: MarkupStore | null): Omit<ToolChestItem, 'id'>[] {
+function toolChestItemsOf(ms: readonly Markup[], store?: AppDocument | null): Omit<ToolChestItem, 'id'>[] {
   const groups = new Map<string, Markup[]>();
   const items: Omit<ToolChestItem, 'id'>[] = [];
   const order: (Markup | string)[] = [];
@@ -915,7 +922,11 @@ const noSignIn = async () => {};
 /** Whether Live Sessions can live in a shared folder on this computer (the desktop app only). */
 const folderSessionsAvailable = () => !!desktop()?.folder;
 
+/** A server document, by its status members (its class loads only when one is opened). */
+const isReviewDocument = (store: AppDocument): store is ReviewDocument => isSynced(store) && 'subscribeStatus' in store;
+
 function readOnlyReason(o: OpenFile, snaps: readonly StudioSnapshot[]): string {
+  if (isSynced(o.store)) return msg('You can view this document but not change it.');
   const doc = studioDocOf(o.file.id);
   const snap = doc ? snaps.find((s) => s.meta.id === doc.sessionId) : undefined;
   if (!doc || !snap) return 'Read-only: join its Live Session to markup this document.';
@@ -1898,9 +1909,12 @@ export function App() {
     releaseFor(o.store);
   };
 
-  /** Opens bytes already in the library (or just added to it) in a new tab; `target` is the split pane. */
+  /**
+   * Opens bytes already in the library (or just added to it) in a new tab; `target` is the split
+   * pane. `openStore` opens the markups when they are not in a file on this device.
+   */
   const openStored = useCallback(
-    async (file: StoredFile, bytes: ArrayBuffer, target: Pane = 'a') => {
+    async (file: StoredFile, bytes: ArrayBuffer, target: Pane = 'a', openStore?: () => Promise<AppDocument>) => {
       if (!ctl) return;
       const inA = tabsARef.current.find((t) => t.file.id === file.id);
       if (inA) {
@@ -1914,11 +1928,18 @@ export function App() {
       }
       const pane: Pane = target === 'b' && ctlB ? 'b' : 'a';
       setError(null);
-      const [doc, store] = await Promise.all([ctl.engine.open(bytes), MarkupStore.open(file.id, { context: editorContext })]);
+      const opening = openStore ? openStore() : MarkupStore.open(file.id, { context: editorContext });
+      const [doc, store] = await Promise.all([
+        ctl.engine.open(bytes).catch((err: unknown) => {
+          void opening.then((s) => s.destroy()).catch(() => undefined);
+          throw err;
+        }),
+        opening,
+      ]);
       // Session documents sync their markups with everyone else in their session.
       const sessionDoc = studioDocOf(file.id);
       const session = sessionDoc ? sessionsRef.current.find((s) => s.id === sessionDoc.sessionId) : null;
-      if (sessionDoc && session) {
+      if (sessionDoc && session && store instanceof MarkupStore) {
         await session.attach(sessionDoc.docId, store);
         const seed = studioSeeds.current.get(file.id);
         if (seed) {
@@ -1931,12 +1952,12 @@ export function App() {
         // A Project file's markups are shared live with everyone who has it open.
         const link = linkOf(file.id);
         const project = link ? projectById(link.projectId) : null;
-        if (link && project) await project.attachMarkups(link.fileId, store).catch((err: unknown) => console.warn('Project markups:', err));
+        if (link && project && store instanceof MarkupStore) await project.attachMarkups(link.fileId, store).catch((err: unknown) => console.warn('Project markups:', err));
       }
       // Documents without their own custom columns start with the profile's.
       const template = profiles.active().state.columnTemplate;
       // Not shared documents: one person's profile would become everyone's.
-      if (template && !sessionDoc && !linkOf(file.id) && !store.readOnly && !store.hasColumnSet()) store.setColumnSet(template);
+      if (template && !sessionDoc && !linkOf(file.id) && !store.readOnly && !store.hasColumnSet() && hasFacet(store, 'setup')) store.setColumnSet(template);
       await hideImported(doc, store);
       const packed = { file, doc, store };
       // The new tab goes just after the one in front.
@@ -1953,6 +1974,20 @@ export function App() {
       }
     },
     [ctl, ctlB, activateTab, setTabs],
+  );
+
+  /** Opens a server document's revision in a tab: its markups sync with the server (review/openRevision.ts). */
+  const openServerRevision = useCallback(
+    async (target: RevisionTarget) => {
+      const { describeOpenError, openRevision } = await import('./review/openRevision');
+      try {
+        const opened = await openRevision(target, { onAdded: (store: ReviewDocument, markup) => editorContext.onAdded?.(store, markup) });
+        await openStored(opened.file, opened.bytes, 'a', opened.createStore);
+      } catch (err) {
+        setError(describeOpenError(err));
+      }
+    },
+    [openStored],
   );
 
   /**
@@ -1997,6 +2032,8 @@ export function App() {
         const stale = !!standard && cur.store.drawingStandard()?.hash !== standardHash(standard) && !cur.store.readOnly;
         if (stale) cur.store.setDrawingStandard({ id: standard.id, hash: standardHash(standard) });
         if (stale || Object.keys(cur.store.allSheets()).length === 0) await indexFromText(await fresh(), cur.store, report, signal, standard ?? undefined);
+        // The rest fills facets a server document does not have; the PDF's own annotations stay as the page shows them.
+        if (!hasFacet(cur.store, 'links')) return;
         if (!cur.store.annotationsImported()) {
           // A Project file whose markups are already shared takes them from there, not from its PDF.
           const link = linkOf(cur.file.id);
@@ -2314,7 +2351,7 @@ export function App() {
   useEffect(() => {
     if (!restoredTabs.current) return;
     try {
-      const ids = (tabs: OpenFile[]) => tabs.filter((t) => !studioDocOf(t.file.id)).map((t) => t.file.id);
+      const ids = (tabs: OpenFile[]) => tabs.filter((t) => !studioDocOf(t.file.id) && !isSynced(t.store)).map((t) => t.file.id);
       localStorage.setItem('nb.openTabs', JSON.stringify({ a: ids(tabsA), b: ids(tabsB) }));
     } catch {
       // Not remembered.
@@ -2619,9 +2656,9 @@ export function App() {
    * `hash` again and the tab reopens on them. Steps in quick succession (Undo History) settle on the
    * last one.
    */
-  const fileWanted = useRef(new Map<MarkupStore, string>());
+  const fileWanted = useRef(new Map<AppDocument, string>());
   const restoreFile = useCallback(
-    async (store: MarkupStore, hash: string) => {
+    async (store: AppDocument, hash: string) => {
       const wanted = fileWanted.current;
       const busy = wanted.has(store);
       wanted.set(store, hash);
@@ -2692,12 +2729,16 @@ export function App() {
 
   /** `attach` adds to the markups' remap, in the same undo step (pasted pages' own markups). */
   const applyPageOps = useCallback(
-    async (ops: PageOp[], inserts: ArrayBuffer[] = [], attach?: (store: MarkupStore) => void) => {
+    async (ops: PageOp[], inserts: ArrayBuffer[] = [], attach?: (store: AppDocument) => void) => {
       const intoB = activePaneRef.current === 'b';
       const cur = intoB ? openBRef.current : openRef.current;
       const tools = intoB ? ctlB?.tools : ctl?.tools;
       const viewer = intoB ? ctlB?.viewer : ctl?.viewer;
       if (!cur || !ctl || !tools || !viewer) return;
+      if (!hasFacet(cur.store, 'fileSteps')) {
+        setError(msg('Pages of a document on a server cannot be changed here.'));
+        return;
+      }
       if (studioDocOf(cur.file.id)) {
         setError(msg('Pages of a Live Session document cannot be changed: everyone in the session shares the same file.'));
         return;
@@ -3522,7 +3563,7 @@ export function App() {
       [open, sheetsA],
       [openB, sheetsB],
     ] as const)
-      if (o && !studioDocOf(o.file.id)) drawingSets.setIndex(o.file.id, { pageCount: o.doc.pages.length, sheets: o.doc.pages.map((_, i) => (indexEntry(sheets[i]))) });
+      if (o && !studioDocOf(o.file.id) && !isSynced(o.store)) drawingSets.setIndex(o.file.id, { pageCount: o.doc.pages.length, sheets: o.doc.pages.map((_, i) => (indexEntry(sheets[i]))) });
   }, [open, openB, sheetsA, sheetsB]);
 
   /** Sets: reads the sheet numbers of files that have not been opened (from their text if never detected). */
@@ -4503,6 +4544,10 @@ export function App() {
     const cur = target?.t ?? (intoB ? openBRef.current : openRef.current);
     if (!cur) return false;
     const pane: Pane = intoB ? 'b' : 'a';
+    if (isSynced(cur.store) && !saveAs) {
+      if (!silent) setNotice(msg('Changes are saved on the server as you make them.'));
+      return false;
+    }
     // Marks the document saved and gives its tab the name of the file it was saved to.
     const saved = async (fileName: string) => {
       markSaved(cur);
@@ -4597,7 +4642,8 @@ export function App() {
       if (idx < 0) return;
       const closing = tabs[idx]!;
       const front = pane === 'b' ? openBRef.current : openRef.current;
-      if (recordClosed) {
+      // A server document is opened again from its project.
+      if (recordClosed && !isSynced(closing.store)) {
         const desktopToken = fileLocationToken(closing.file.id);
         const isBlankUnsaved = closing.file.name === 'Untitled.pdf' && !desktopToken && !hasFileLocation(closing.file.id);
         if (!studioDocOf(closing.file.id) && !isBlankUnsaved && (desktopToken || (closing.file.id && closing.file.hash))) {
@@ -5042,7 +5088,10 @@ export function App() {
     async (d: DocumentSource): Promise<{ bytes: ArrayBuffer; seed: Uint8Array | null }> => {
       if (d.kind === 'upload') return { bytes: await d.file.arrayBuffer(), seed: null };
       const open = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === d.fileId);
-      if (open) return { bytes: await readFile(open.file.hash), seed: open.store.yjs.encodeState() };
+      if (open) {
+        if (!hasYjs(open.store)) throw new Error(msg('A document on a server cannot be added to a Live Session.'));
+        return { bytes: await readFile(open.file.hash), seed: open.store.yjs.encodeState() };
+      }
       const stored = library.find((f) => f.id === d.fileId);
       if (!stored) throw new Error(msg('{name} is no longer in the library.', { name: d.name }));
       const store = await MarkupStore.open(stored.id, { context: editorContext });
@@ -5153,7 +5202,7 @@ export function App() {
   const withSessionMarkups = useCallback(async <T,>(session: CollabSession, docId: string, use: (store: MarkupStore) => T): Promise<Awaited<T>> => {
     const fileId = studioFileId(session.id, docId);
     const tab = [...tabsARef.current, ...tabsBRef.current].find((t) => t.file.id === fileId);
-    if (tab) return await use(tab.store);
+    if (tab && tab.store instanceof MarkupStore) return await use(tab.store);
     const store = await MarkupStore.open(fileId, { context: editorContext });
     try {
       await session.attach(docId, store);
@@ -5541,7 +5590,7 @@ export function App() {
       onProjectOpened((project) => {
         for (const tab of [...tabsARef.current, ...tabsBRef.current]) {
           const link = linkOf(tab.file.id);
-          if (link?.projectId === project.id) void project.attachMarkups(link.fileId, tab.store).catch((err: unknown) => console.warn('Project markups:', err));
+          if (link?.projectId === project.id && tab.store instanceof MarkupStore) void project.attachMarkups(link.fileId, tab.store).catch((err: unknown) => console.warn('Project markups:', err));
         }
         setProjectsOpened((n) => n + 1);
       }),
@@ -6335,6 +6384,11 @@ export function App() {
     }
   };
   const activeTools = paneB && ctlB ? ctlB.tools : ctl?.tools;
+  // A tool the document cannot use (a measuring tool picked in another tab, say) gives way to Select.
+  useEffect(() => {
+    const facet = facetOfCommand(`tool.${toolsState.tool}`);
+    if (activeOpen && activeTools && facet && !hasFacet(activeOpen.store, facet)) activeTools.setTool('select');
+  }, [activeOpen, activeTools, toolsState.tool]);
   const assistantHost = useRef<() => AssistantDocument[]>(() => []);
   assistantHost.current = () => {
     const pageFor = (t: OpenFile) => {
@@ -6918,7 +6972,7 @@ export function App() {
   /** The markups a register lists: those that say something (a comment, text, or a reply), or every markup. Spaces are never comments. */
   const registerMarkups = (scope: RegisterScope) => markups.filter((m) => m.type !== 'space' && (scope === 'all' || isComment(m)));
   /** The register template that says what closed means for this document: the one picked in Close-out, else the client's. */
-  const closeOutTemplateOf = (store: MarkupStore) => (closeOutTemplate === null ? templateFor(registerTemplates, store.drawingStandard()?.id) : registerTemplates.find((t) => t.id === closeOutTemplate));
+  const closeOutTemplateOf = (store: AppDocument) => (closeOutTemplate === null ? templateFor(registerTemplates, store.drawingStandard()?.id) : registerTemplates.find((t) => t.id === closeOutTemplate));
   // A followed link: once its document is in front and has its markups, go to the comment.
   useEffect(() => {
     if (!pendingLink || activeOpen?.file.id !== pendingLink.fileId) return;
@@ -7169,7 +7223,7 @@ export function App() {
     } catch {
       // Storage unavailable: ask once per session.
     }
-    const waiting: { store: MarkupStore; id: string }[] = [];
+    const waiting: { store: AppDocument; id: string }[] = [];
     let asking = false;
     editorContext.onAdded = (store, m) => {
       if (named || m.author !== authorRef.current) return;
@@ -7473,7 +7527,7 @@ export function App() {
     });
 
   /** Right-click › Auto-size Text Box: each selected text box fitted to its text. */
-  const autoSizeTextBoxes = (store: MarkupStore, ms: readonly Markup[]) => {
+  const autoSizeTextBoxes = (store: AppDocument, ms: readonly Markup[]) => {
     const g = document.createElement('canvas').getContext('2d');
     if (!g) return;
     const sized = ms.flatMap((m) => {
@@ -7489,7 +7543,7 @@ export function App() {
   };
 
   /** Right-click › Round All Corners: rounds (or, when all are rounded, squares) rectangles', polygons' and polylines' corners. */
-  const roundCorners = (store: MarkupStore, ms: readonly Markup[], round: boolean) => {
+  const roundCorners = (store: AppDocument, ms: readonly Markup[], round: boolean) => {
     const targets = ms.filter((m) => canRoundCorners(m) && !m.locked && store.mayEdit(m));
     if (!targets.length) return;
     store.checkpoint();
@@ -7585,6 +7639,8 @@ export function App() {
     const first = ms[0];
     if (!first) return [];
     const ro = store.readOnly;
+    // Replies, statuses and ticks are not written to a server yet.
+    const noComments = ro || isSynced(store);
     const one = ms.length === 1;
     // Selecting one list row selects its whole group (a Cloud+ is a cloud and a callout). That is still one comment.
     const oneGroup = !!first.groupId && ms.every((m) => m.groupId === first.groupId);
@@ -7792,7 +7848,7 @@ export function App() {
           { label: msg('Flip Horizontal'), shortcut: shortcutLabel('edit.flipHorizontal'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipHorizontal')?.run() },
           { label: msg('Flip Vertical'), shortcut: shortcutLabel('edit.flipVertical'), disabled: anyLocked, onClick: () => commandsRef.current.get('edit.flipVertical')?.run() },
           SEP,
-          { label: msg('Scale to Length…'), onClick: () => c.tools.setTool('scaleLength') },
+          { label: msg('Scale to Length…'), disabled: !hasFacet(store, 'setup'), onClick: () => c.tools.setTool('scaleLength') },
         ],
       },
       // Any markup can carry an action (a flag that opens a detail, a cloud that opens an RFI page).
@@ -7810,7 +7866,7 @@ export function App() {
           { label: msg('Remove Capture'), disabled: theirs || !ms.some((m) => m.capture), onClick: () => setAll(() => ({ capture: undefined })) },
         ],
       },
-      { label: msg('Flatten'), icon: MENU_ICONS.flatten, disabled: ro || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space') || commandPolicy('document.flatten').disabledReason !== null, onClick: commandPolicy('document.flatten').run(() => void flattenSelected(pane, ms)) },
+      { label: msg('Flatten'), icon: MENU_ICONS.flatten, disabled: ro || !hasFacet(store, 'fileSteps') || allLocked || !!session || ms.every((m) => m.type === 'hyperlink' || m.type === 'space') || commandPolicy('document.flatten').disabledReason !== null, onClick: commandPolicy('document.flatten').run(() => void flattenSelected(pane, ms)) },
       grouped
         ? { label: msg('Ungroup'), shortcut: shortcutLabel('edit.ungroup'), disabled: ro || allLocked, onClick: () => c.tools.ungroup() }
         : { label: msg('Group'), shortcut: shortcutLabel('edit.group'), disabled: ro || one || allLocked, onClick: () => c.tools.group() },
@@ -7853,10 +7909,10 @@ export function App() {
         ],
       },
       SEP,
-      { label: msg('Reply'), icon: MENU_ICONS.reply, disabled: ro || !(one || oneGroup), onClick: () => setReplyTo({ pane, id: replyMarkup.id }) },
+      { label: msg('Reply'), icon: MENU_ICONS.reply, disabled: noComments || !(one || oneGroup), onClick: () => setReplyTo({ pane, id: replyMarkup.id }) },
       {
         label: msg('Set Status'),
-        disabled: ro,
+        disabled: noComments,
         items: store.columnSet().statuses.map((s) => ({
           label: s.id === 'none' ? msg('None') : s.name,
           checked: status === s.id,
@@ -7866,7 +7922,7 @@ export function App() {
       {
         label: msg('Check'),
         checked: ms.every((m) => m.checked),
-        disabled: ro,
+        disabled: noComments,
         onClick: () => {
           const check = !ms.every((m) => m.checked);
           setAll(() => ({ checked: check || undefined }));
@@ -7961,7 +8017,12 @@ export function App() {
     const mode = (pane === 'b' ? statsB : stats)?.mode;
     const count = o.doc.pages.length;
     const shared = !!studioDocOf(o.file.id);
-    const pageOps = shared || busyPages;
+    const fixedFile = !hasFacet(o.store, 'fileSteps');
+    const pageOps = shared || busyPages || fixedFile;
+    const usable = (t: ToolEntry) => {
+      const facet = facetOfCommand(`tool.${t.tool}`);
+      return !facet || hasFacet(o.store, facet);
+    };
     const geo = geoAt(o.store.allGeoRegions(), page, pt);
     // While a polylength or area is being drawn, its next segment can be made a 3-point arc.
     const arcOn = c.tools.getState().arc !== 'off';
@@ -7969,8 +8030,8 @@ export function App() {
     return [
       ...arcEntry,
       ...toolEntries(c.tools, MARKUP_TOOLS.filter((t) => t.tool === 'select')),
-      { label: msg('Markup'), disabled: ro, items: groupedToolEntries(c.tools, MARKUP_GROUPS, (t) => t.tool !== 'select') },
-      { label: msg('Measure'), disabled: ro, items: groupedToolEntries(c.tools, MEASURE_GROUPS) },
+      { label: msg('Markup'), disabled: ro, items: groupedToolEntries(c.tools, MARKUP_GROUPS, (t) => t.tool !== 'select' && usable(t)) },
+      ...(hasFacet(o.store, 'takeoff') ? [{ label: msg('Measure'), disabled: ro, items: groupedToolEntries(c.tools, MEASURE_GROUPS) }] : []),
       SEP,
       { label: msg('Paste'), shortcut: 'Ctrl+V', disabled: ro || !clipboard.current.length, onClick: () => c.tools.paste(clipboard.current, page, pt) },
       { label: msg('Select All Markups'), shortcut: 'Ctrl+A', onClick: () => c.tools.select(o.store.all().map((m) => m.id)) },
@@ -7998,7 +8059,7 @@ export function App() {
         ],
       },
       { label: msg('Insert Pages…'), disabled: pageOps, onClick: () => insertFileRef.current?.click() },
-      { label: msg('Extract Page…'), disabled: busyPages, onClick: () => void extractPages([page]) },
+      { label: msg('Extract Page…'), disabled: busyPages || fixedFile, onClick: () => void extractPages([page]) },
       {
         label: msg('Delete Page…'),
         disabled: pageOps || count < 2,
@@ -8007,8 +8068,8 @@ export function App() {
         },
       },
       SEP,
-      { label: msg('Page Labels from Region…'), disabled: ro, onClick: () => startLabelRegions(pane) },
-      { label: msg('Bulk Apply Page Scale…'), disabled: ro, onClick: () => startLabelRegions(pane, 'scale') },
+      { label: msg('Page Labels from Region…'), disabled: ro || !hasFacet(o.store, 'setup'), onClick: () => startLabelRegions(pane) },
+      { label: msg('Bulk Apply Page Scale…'), disabled: ro || !hasFacet(o.store, 'setup'), onClick: () => startLabelRegions(pane, 'scale') },
       { label: msg('Thumbnails'), onClick: () => showPanel('pages') },
       { label: msg('Properties'), onClick: () => showPanel('properties') },
     ];
@@ -8196,7 +8257,7 @@ export function App() {
       activateTab(pane, t);
       fn();
     };
-    const addable = sessions.filter((s) => s.canAddDocuments);
+    const addable = hasYjs(t.store) ? sessions.filter((s) => s.canAddDocuments) : [];
     return [
       { label: msg('Close'), onClick: () => void requestCloseTab(pane, t.file.id) },
       { label: msg('Close All'), onClick: () => closeMany(tabs) },
@@ -8206,7 +8267,7 @@ export function App() {
       SEP,
       { label: msg('Save'), shortcut: 'Ctrl+S', onClick: withTab(() => void saveDocument(false)) },
       { label: msg('Save As…'), shortcut: 'Ctrl+Shift+S', onClick: withTab(() => void saveDocument(true)) },
-      ...(desktop()?.detachDocument
+      ...(desktop()?.detachDocument && !isSynced(t.store)
         ? [{
             label: msg('Move to New Window'),
             onClick: () => void detachTab(pane, t),
@@ -8268,7 +8329,7 @@ export function App() {
     return (ia < 0 ? RAIL().length + RAIL().indexOf(a) : ia) - (ib < 0 ? RAIL().length + RAIL().indexOf(b) : ib);
   });
 
-  const visibleRail = orderedRail.filter(({ id }) => !ws.hiddenPanels.includes(id));
+  const visibleRail = orderedRail.filter(({ id }) => !ws.hiddenPanels.includes(id) && !panelUnavailable(id, activeOpen?.store));
   const leftRail = visibleRail.filter(({ id }) => panelSide(id) === 'left');
   const rightRail = visibleRail.filter(({ id }) => panelSide(id) === 'right');
   const rightShown = rightOpen && rightRail.some(({ id }) => id === rightTab);
@@ -8449,7 +8510,7 @@ export function App() {
   /** Copies pages of the active document, with their markups, to the page clipboard. */
   const copyPages = async (pages: number[]) => {
     const cur = activePaneRef.current === 'b' ? openBRef.current : openRef.current;
-    if (!cur || !ctl || !pages.length) return false;
+    if (!cur || !ctl || !pages.length || !hasFacet(cur.store, 'fileSteps')) return false;
     try {
       const clips = cur.store.copyPages(pages);
       pageClipboard.current = { bytes: await ctl.engine.extractPages(await readFile(cur.file.hash), pages), clips };
@@ -8505,7 +8566,7 @@ export function App() {
             if (ok) deletePages(hasMarkups);
           }),
       },
-      { label: msg('Copy Pages'), shortcut: 'Ctrl+C', disabled: none || !activeOpen, onClick: () => void copyPages(pages) },
+      { label: msg('Copy Pages'), shortcut: 'Ctrl+C', disabled: none || !activeOpen || !hasFacet(activeOpen.store, 'fileSteps'), onClick: () => void copyPages(pages) },
       run('document.copyPageSnapshot', msg('Copy Page to Snapshot'), undefined, true),
       {
         label: msg('Paste Pages'),
@@ -8830,12 +8891,14 @@ export function App() {
         pageWidthPt={size?.width ?? null}
         pageHeightPt={size?.height ?? null}
         scaleControl={
-          <ScaleControl
-            scale={sc[idx] ?? null}
-            disabled={!o}
-            onPreset={(scale) => o?.store.setScale([idx], withDefaultUnits(scale))}
-            onCustom={() => setCustomScalePane(which)}
-          />
+          o && !hasFacet(o.store, 'setup') ? null : (
+            <ScaleControl
+              scale={sc[idx] ?? null}
+              disabled={!o}
+              onPreset={(scale) => o?.store.setScale([idx], withDefaultUnits(scale))}
+              onCustom={() => setCustomScalePane(which)}
+            />
+          )
         }
         onFirst={() => viewer?.changePage(0)}
         onPrev={() => viewer?.prevPage()}
@@ -9646,7 +9709,7 @@ export function App() {
     }
   };
 
-  const commands = buildCommands(commandActions, {
+  const everyCommand = buildCommands(commandActions, {
     hasDocument: !!activeOpen,
     editable: !!activeOpen && !activeReadOnly,
     pagesEditable: !!activeOpen && pageCount > 0 && !busyPages,
@@ -9719,6 +9782,8 @@ export function App() {
     canSaveTemplate: !activeReadOnly && selectedMarkups.length === 1 && templateable(selectedMarkups[0]!),
     cutoutHint: cutoutBlocker(selectedMarkups, mayEditMarkup) ?? undefined,
   });
+  // Leaves out what the document in front cannot do (a server document has fewer facets).
+  const commands = applyFacetPolicy(everyCommand, activeOpen?.store);
   const commandMap = new Map(commands.map((c) => [c.id, c]));
   commandsRef.current = commandMap;
 
@@ -9798,7 +9863,7 @@ export function App() {
   /** The side panel on one side of the window, showing the panel picked on that side's rail. */
   const sidePanel = (side: DockSide) => {
     const tab = side === 'left' ? leftTab : rightTab;
-    if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side) return null;
+    if (!(side === 'left' ? leftOpen : rightOpen) || panelSide(tab) !== side || panelUnavailable(tab, activeOpen?.store)) return null;
     const width = side === 'left' ? shownWidths.left : shownWidths.right;
     const close = () => (side === 'left' ? setLeftOpen(false) : setRightOpen(false));
     return (
@@ -10239,7 +10304,7 @@ export function App() {
             activeDoc={activeStudioDoc}
             openDocs={new Set([...tabsA, ...tabsB].map((t) => studioDocOf(t.file.id)).filter((d) => !!d).map((d) => `${d!.sessionId}:${d!.docId}`))}
             localDocName={activeOpen && !activeStudioDoc ? activeOpen.file.name : null}
-            openFiles={[...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id)).map((t) => ({ id: t.file.id, name: t.file.name }))}
+            openFiles={[...tabsA, ...tabsB].filter((t) => !studioDocOf(t.file.id) && hasYjs(t.store)).map((t) => ({ id: t.file.id, name: t.file.name }))}
             library={library.map((f) => ({ id: f.id, name: f.name }))}
             oneDriveAvailable={oneDriveSharingEnabled}
             folderAvailable={folderSessionsAvailable()}
@@ -10394,9 +10459,9 @@ export function App() {
       onSelect={selectRowsFromList}
       onReply={onListReply}
       onRowMenu={onListRowMenu}
-      onManageColumns={onManageColumns}
+      onManageColumns={!activeOpen || hasFacet(activeOpen.store, 'setup') ? onManageColumns : undefined}
       onExport={onExportList}
-      onSync={() => setSyncOpen(true)}
+      onSync={!activeOpen || hasFacet(activeOpen.store, 'takeoff') ? () => setSyncOpen(true) : undefined}
       syncing={!!sheetSync.link}
       syncError={sheetSync.status.kind === 'error' ? sheetSync.status.message : sheetSync.issues.length ? `${sheetSync.issues.length} cell${sheetSync.issues.length === 1 ? ' is' : 's are'} paused: changed here and in Excel. Click to choose.` : null}
       onFiltered={setListKept}
@@ -10404,6 +10469,10 @@ export function App() {
       onToggleAllHidden={toggleAllMarkupsHidden}
     />
   );
+
+  // A document without sheet links has no Links tab to show.
+  const linksTab = !panelUnavailable('links', activeOpen?.store);
+  const dockTab = linksTab ? bottomTab : 'markups';
 
   // The Markups list sits beside the side panels, or spans the window below them.
   const bottomDock = !dockOpen ? (
@@ -10442,8 +10511,8 @@ export function App() {
           {!ws.markupsDocked && (
             <button
               role="tab"
-              aria-selected={bottomTab === 'markups'}
-              className={bottomTab === 'markups' ? 'active' : ''}
+              aria-selected={dockTab === 'markups'}
+              className={dockTab === 'markups' ? 'active' : ''}
               title={msg('Drag to a side of the window to dock the Markups list there')}
               draggable
               onDragStart={(e) => startPanelDrag(e, 'markups')}
@@ -10453,16 +10522,18 @@ export function App() {
               {msg('Markups')}
             </button>
           )}
-          <button
-            role="tab"
-            aria-selected={bottomTab === 'links'}
-            className={bottomTab === 'links' ? 'active' : ''}
-            onClick={() => setBottomTab('links')}
-          >
-            {msg('Links{value}', { value: links.some((l) => l.status === 'review') ? ' •' : '' })}
-          </button>
+          {linksTab && (
+            <button
+              role="tab"
+              aria-selected={dockTab === 'links'}
+              className={dockTab === 'links' ? 'active' : ''}
+              onClick={() => setBottomTab('links')}
+            >
+              {msg('Links{value}', { value: links.some((l) => l.status === 'review') ? ' •' : '' })}
+            </button>
+          )}
         </div>
-        {bottomTab === 'markups' && !markupsPopped && (
+        {dockTab === 'markups' && !markupsPopped && (
           <button type="button" className="drawer-popout" aria-label={msg('Open the Markups list in its own window')} title={msg('Open in its own window')} onClick={() => setMarkupsPopped(true)}>
             <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
               <path fill="none" stroke="currentColor" strokeWidth="1.5" d="M9 2h5v5M14 2 7.5 8.5M12 10v3.5a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5H6" />
@@ -10474,7 +10545,7 @@ export function App() {
         </button>
       </div>
       <div className="dock-body">
-        {bottomTab === 'links' ? (
+        {dockTab === 'links' ? (
           <LinksPanel
             links={links}
             sheets={sheets}
@@ -10608,7 +10679,7 @@ export function App() {
           enabled: !!activeOpen && !activeReadOnly,
           // Units & Scale shows while measuring: a measure tool is active, or measurements are selected.
           unitsScale:
-            activeOpen && (MEASURE_TOOLS.some((t) => t.tool === toolsState.tool) || selectedMarkups.some((m) => isMeasureKind(m.type)))
+            activeOpen && hasFacet(activeOpen.store, 'setup') && (MEASURE_TOOLS.some((t) => t.tool === toolsState.tool) || selectedMarkups.some((m) => isMeasureKind(m.type)))
               ? {
                   scale: scales[pageIndex] ?? null,
                   disabled: activeReadOnly,
@@ -10623,7 +10694,7 @@ export function App() {
                   },
                 }
               : null,
-          visibleTools: ws.toolbarTools,
+          visibleTools: toolsFor(activeOpen?.store, ws.toolbarTools, [...MARKUP_TOOLS, ...MEASURE_TOOLS].map((t) => t.tool)),
           author,
           onPlaceStamp: (s) => placeStamp(s),
           onNewStamp: () => {
@@ -10636,12 +10707,12 @@ export function App() {
           },
           onUndo: () => activeOpen?.store.undo(),
           onRedo: () => activeOpen?.store.redo(),
-          takeoffTemplates: activeOpen ? { document: estimating.templates, onUse: armTemplate } : null,
-          takeoffAssembly: activeOpen ? { assemblies, defaults: measureDefaults, onDefaults: setMeasureDefaults, onManage: () => setAssembliesOpen(true) } : null,
+          takeoffTemplates: activeOpen && hasFacet(activeOpen.store, 'takeoff') ? { document: estimating.templates, onUse: armTemplate } : null,
+          takeoffAssembly: activeOpen && hasFacet(activeOpen.store, 'takeoff') ? { assemblies, defaults: measureDefaults, onDefaults: setMeasureDefaults, onManage: () => setAssembliesOpen(true) } : null,
         };
         const displayMenu = <ToolbarDisplayMenu commands={commandMap} />;
         return ws.toolbarStyle === 'ribbon' ? (
-          <Ribbon commands={commandMap} toolbar={toolbarProps} collapsed={ws.ribbonCollapsed} onCollapsedChange={(ribbonCollapsed) => updateWorkspace((w) => ({ ...w, ribbonCollapsed }))} displayMenu={displayMenu} />
+          <Ribbon commands={commandMap} hiddenTabs={hiddenRibbonTabs(activeOpen?.store)} toolbar={toolbarProps} collapsed={ws.ribbonCollapsed} onCollapsedChange={(ribbonCollapsed) => updateWorkspace((w) => ({ ...w, ribbonCollapsed }))} displayMenu={displayMenu} />
         ) : (
           <ToolBar {...toolbarProps} toolbarMenu={displayMenu} />
         );
@@ -10713,6 +10784,7 @@ export function App() {
                       initialInviteToken={initialInviteToken}
                       onOpenLocal={() => openFromDisk()}
                       onNewLocal={() => setBlankPdf('new')}
+                      onOpenRevision={openServerRevision}
                     />
                   ) : (
                     <StartScreen
@@ -10725,6 +10797,7 @@ export function App() {
                     />
                   ))}
                 {open?.store.readOnly && <div className="readonly-banner">{readOnlyReason(open, snapshots)}</div>}
+                {activeOpen && isReviewDocument(activeOpen.store) && <SyncStatusBar key={activeOpen.file.id} doc={activeOpen.store} pageIndex={pageIndex} />}
                 {open && recoveredOnOpen.has(open.file.id) && !recoveredKept.has(open.file.id) && hasUnsavedChanges(open) && (
                   <RecoveredMarkupsBar onKeep={() => { recoveredKept.add(open.file.id); setSavedTick((n) => n + 1); }} onDiscard={() => void discardUnsavedChanges(open)} />
                 )}

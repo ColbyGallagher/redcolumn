@@ -4,6 +4,7 @@ import { DEFAULT_CHAINAGE_HINTS, DEFAULT_LINK_HINTS, detectChainageLinks, idTest
 import { stitchSet, type StitchPage } from '@nb/stitch';
 import { detectLinks, detectSheets, type PageText, type SheetInfo } from '@nb/sheets';
 import { findMarksOnPage, inked, marksToLinks, mayHoldMarks, type MarkHit, type TaughtMark } from './marks';
+import { hasLinks } from '../review/facets';
 import { searchIndex } from '../search/index/client';
 
 export interface IndexProgress {
@@ -370,9 +371,9 @@ function toBase64(bytes: Uint8Array): string {
 }
 
 /** Offline pass over the text layer. Fast and free; fills whatever the title blocks make readable. */
-export async function indexFromText(bytes: ArrayBuffer, store: MarkupDocument & LinkFacet, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, standard?: SetHints) {
+export async function indexFromText(bytes: ArrayBuffer, store: MarkupDocument, onProgress: (p: IndexProgress) => void, signal?: AbortSignal, standard?: SetHints) {
   const pages = await pageTexts(bytes, store, onProgress, signal);
   store.setDetectedSheets(detectSheets(pages, standard?.sheets).map((info, i) => [i, info] as [number, SheetInfo]));
   // Text is cached by now, so `bytes` (already handed to an engine) is not read again.
-  await linkFromText(async () => bytes, store, onProgress, signal, standard);
+  if (hasLinks(store)) await linkFromText(async () => bytes, store, onProgress, signal, standard);
 }
