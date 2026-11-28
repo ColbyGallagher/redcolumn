@@ -5,13 +5,15 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { MarkupStore, type Markup } from '@nb/markup';
 import { DEFAULT_SCALE } from '@nb/measure';
-import { FakeSyncServer, SyncDocument } from '@nb/sync';
+import { FakeSyncServer, MemorySyncPersistence, SyncDocument, type SyncPersistence } from '@nb/sync';
 import type { Command } from '../commands/appCommands.ts';
+import type { Tool } from '../markup/MarkupTools.ts';
 import { ServerClientError } from '../connect/client.ts';
-import { applyFacetPolicy, hiddenRibbonTabs, listedCommandIds, measureToolIds, panelUnavailable, toolsFor } from './facetUi.ts';
-import { hasFacet, hasFileSteps, hasYjs, isSynced, type FacetName } from './facets.ts';
+import { applyFacetPolicy, facetOfCommand, facetOfTool, hiddenRibbonTabs, listedCommandIds, panelUnavailable, toolsFor } from './facetUi.ts';
+import { hasFacet, hasFileSteps, hasYjs, isSynced, requireFileSteps, type FacetName } from './facets.ts';
 import { MissingFacetError, ReviewDocument, type ReviewTransport } from './ReviewDocument.ts';
 import { uploadPdf } from './upload.ts';
+import { claimWindowSlot, MAX_WINDOW_SLOTS, sendLeftoverChanges, slotKey, type LockManagerLike } from './windowSlots.ts';
 
 const FACETS: FacetName[] = ['takeoff', 'aiReview', 'portals', 'links', 'stitch', 'geo', 'import', 'fileSteps', 'yjs', 'setup'];
 
@@ -103,8 +105,59 @@ test('every command and measuring tool in the facet tables exists', () => {
     assert.equal(found, true, id);
   }
   const measureGroups = toolbar.slice(toolbar.indexOf('export const MEASURE_GROUPS'), toolbar.indexOf('export const MARKUP_TOOLS'));
-  const measureTools = [...measureGroups.matchAll(/tool: '(\w+)'/g)].map((m) => m[1]!);
-  assert.deepEqual(measureToolIds().sort(), measureTools.sort());
+  const measureTools = [...measureGroups.matchAll(/tool: '(\w+)'/g)].map((m) => m[1]! as Tool);
+  assert.ok(measureTools.length > 5);
+  // Measuring needs takeoff, and calibrating writes the shared scale.
+  for (const tool of measureTools) assert.equal(facetOfTool(tool), tool === 'calibrate' ? 'setup' : 'takeoff', tool);
+});
+
+test('a command that needs a facet arms a tool that needs one too, so it cannot stay armed', () => {
+  const source = readFileSync(new URL('../commands/appCommands.ts', import.meta.url), 'utf8');
+  const arming = [...source.matchAll(/cmd\('([\w.]+)',[^\n]*?a\.setTool\('(\w+)'\)/g)].map((m) => [m[1]!, m[2]! as Tool] as const);
+  const needing = arming.filter(([id]) => facetOfCommand(id) !== null);
+  assert.ok(needing.length >= 5, JSON.stringify(needing));
+  for (const [id, tool] of needing) assert.notEqual(facetOfTool(tool), null, `${id} arms ${tool}`);
+});
+
+test('every tool that changes the file, the scale or the takeoff is unusable on a server document', async () => {
+  const needing: [Tool, FacetName][] = [
+    ['eraseContent', 'fileSteps'],
+    ['cutContent', 'fileSteps'],
+    ['editText', 'fileSteps'],
+    ['formField', 'fileSteps'],
+    ['redaction', 'fileSteps'],
+    ['cropArea', 'fileSteps'],
+    ['viewport', 'setup'],
+    ['scaleLength', 'setup'],
+    ['labelRegion', 'setup'],
+    ['calibrate', 'setup'],
+    ['portalPolygon', 'portals'],
+    ['manual', 'takeoff'],
+    ['cutout', 'takeoff'],
+    ['dynamicFill', 'takeoff'],
+    ['visualSearch', 'takeoff'],
+    ['matchLine', 'stitch'],
+    ['stitchRegion', 'stitch'],
+    ['stitchPolygon', 'stitch'],
+    ['stitchMove', 'stitch'],
+  ];
+  const local = await MarkupStore.open('review-test-tools', { persist: false });
+  const { doc } = await serverDocument(new FakeSyncServer(), 'ada', 'project_admin');
+  for (const [tool, facet] of needing) {
+    assert.equal(facetOfTool(tool), facet, tool);
+    assert.equal(hasFacet(doc, facet), false, tool);
+    assert.equal(hasFacet(local, facet), true, tool);
+  }
+  for (const tool of ['select', 'rect', 'cloud', 'pen', 'snapshot', 'selectText', 'cropImage', 'move', 'painter', 'pan'] as const) {
+    assert.equal(facetOfTool(tool), null, tool);
+  }
+  assert.deepEqual(toolsFor(doc, ['rect', 'eraseContent', 'pen'], ['rect', 'eraseContent', 'pen']), ['rect', 'pen']);
+
+  // The check made before a changed file is written anywhere.
+  assert.throws(() => requireFileSteps(doc), /not available for documents on a server/);
+  assert.doesNotThrow(() => requireFileSteps(local));
+  await doc.destroy();
+  await local.destroy();
 });
 
 test('a server document refuses file changes instead of making them only here', async () => {
@@ -174,6 +227,222 @@ test('an undo that cannot happen is said, not skipped', async () => {
   await ada.doc.destroy();
 });
 
+/** `navigator.locks`, as far as taking a free lock goes. */
+function fakeLocks() {
+  const held = new Set<string>();
+  const locks: LockManagerLike = {
+    request: async (name, _options, callback) => {
+      if (held.has(name)) return callback(null);
+      held.add(name);
+      try {
+        await callback({ name });
+      } finally {
+        held.delete(name);
+      }
+    },
+  };
+  return { locks, held };
+}
+
+const WINDOW_KEY = 'https://review.example|ben|doc-1:revision-1';
+const released = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+/** One window on the revision: a slot of its own and a document saved there, not yet connected. */
+async function windowOn(server: FakeSyncServer, locks: LockManagerLike, persistence: SyncPersistence) {
+  const slot = await claimWindowSlot(WINDOW_KEY, locks, persistence);
+  assert.ok(slot);
+  const open = async (saved: SyncPersistence) => {
+    const actor = { userId: 'ben', partyId: null, groupId: null };
+    return SyncDocument.open({
+      key: WINDOW_KEY,
+      streamId: 'doc-1',
+      scopeId: 'scope-1',
+      revisionId: 'revision-1',
+      pages: ['page-1'],
+      actor,
+      context: { actor: { id: 'ben', name: 'ben' } },
+      transport: server.createTransport(actor),
+      persistence: saved,
+    });
+  };
+  const doc = await open(slot.persistence);
+  const close = async () => {
+    await doc.disconnect();
+    await doc.destroy();
+    slot.release();
+    await released();
+  };
+  return { doc, slot, open, close };
+}
+
+async function until(condition: () => boolean | Promise<boolean>, what: string): Promise<void> {
+  for (let i = 0; i < 400; i++) {
+    if (await condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.fail(`Timed out waiting for ${what}`);
+}
+
+test('two windows on one revision keep their offline changes apart, and both are sent', async () => {
+  const server = new FakeSyncServer();
+  const { locks, held } = fakeLocks();
+  const device = new MemorySyncPersistence();
+  const first = await windowOn(server, locks, device);
+  const second = await windowOn(server, locks, device);
+  assert.deepEqual([first.slot.slot, second.slot.slot], [0, 1]);
+
+  first.doc.add(rectangle('from-first', 'ben'));
+  second.doc.add(rectangle('from-second', 'ben'));
+  await first.doc.whenPersisted();
+  await second.doc.whenPersisted();
+  await first.close();
+  await second.close();
+  assert.equal(held.size, 0);
+
+  // One window comes back: it takes the first slot with unsent work, and sends the other's too.
+  const back = await windowOn(server, locks, device);
+  assert.equal(back.slot.slot, 0);
+  await back.doc.connect();
+  const leftovers = sendLeftoverChanges({
+    key: WINDOW_KEY,
+    ownSlot: back.slot.slot,
+    locks,
+    persistence: device,
+    open: async (saved) => {
+      const left = await back.open(saved);
+      await left.connect();
+      return left;
+    },
+    adopt: async (entries) => {
+      back.doc.adoptRejected(entries);
+      await back.doc.whenPersisted();
+    },
+    intervalMs: 20,
+  });
+  await until(async () => (await device.load(slotKey(WINDOW_KEY, 1))) === null, 'the other slot to be sent and emptied');
+  await until(() => !!back.doc.get('from-first') && !!back.doc.get('from-second'), 'both markups to arrive');
+  assert.deepEqual(Object.keys(server.state.markups).sort(), ['from-first', 'from-second']);
+  await leftovers.stop();
+  await back.close();
+  assert.equal(held.size, 0);
+});
+
+test('a window takes the slot a closed window left work in, and an open window is left alone', async () => {
+  const server = new FakeSyncServer();
+  const { locks, held } = fakeLocks();
+  const device = new MemorySyncPersistence();
+  const first = await windowOn(server, locks, device);
+  const second = await windowOn(server, locks, device);
+  second.doc.add(rectangle('from-second', 'ben'));
+  await second.doc.whenPersisted();
+  await second.close();
+
+  let opened = 0;
+  const watching = sendLeftoverChanges({
+    key: WINDOW_KEY,
+    // As if it held no slot: even then, the first window's lock keeps its slot from being touched.
+    ownSlot: -1,
+    locks,
+    persistence: device,
+    open: async (saved) => {
+      opened++;
+      return first.open(saved);
+    },
+    adopt: async () => {},
+  });
+  await until(() => opened === 1, 'the left slot to be opened');
+  // Offline, so nothing is sent: stopping leaves the work where it is.
+  await watching.stop();
+  await released();
+  assert.equal((await device.load(slotKey(WINDOW_KEY, 1)))?.pending.length, 2);
+
+  await first.close();
+  const next = await windowOn(server, locks, device);
+  assert.equal(next.slot.slot, 1);
+  assert.ok(next.doc.get('from-second'));
+  await next.close();
+  assert.equal(held.size, 0);
+});
+
+test('changes the server refused from a left slot join the open window\'s list', async () => {
+  const server = new FakeSyncServer();
+  const { locks } = fakeLocks();
+  const device = new MemorySyncPersistence();
+  const first = await windowOn(server, locks, device);
+  const second = await windowOn(server, locks, device);
+  second.doc.add(rectangle('refused', 'ben'));
+  await second.doc.whenPersisted();
+  await second.close();
+  server.setAuthorize(() => false);
+  await first.doc.connect();
+
+  const leftovers = sendLeftoverChanges({
+    key: WINDOW_KEY,
+    ownSlot: first.slot.slot,
+    locks,
+    persistence: device,
+    open: async (saved) => {
+      const left = await first.open(saved);
+      await left.connect();
+      return left;
+    },
+    adopt: async (entries) => {
+      first.doc.adoptRejected(entries);
+      await first.doc.whenPersisted();
+    },
+  });
+  await until(() => first.doc.sync.inbox.length === 1, 'the refusal to move here');
+  await until(async () => (await device.load(slotKey(WINDOW_KEY, 1))) === null, 'the left slot to be emptied');
+  assert.equal((await device.load(WINDOW_KEY))?.inbox.length, 1, 'and saved here');
+  await leftovers.stop();
+  await first.close();
+});
+
+test('an idle slot a closed window left is emptied, but the first one is kept', async () => {
+  const server = new FakeSyncServer();
+  const { locks, held } = fakeLocks();
+  const device = new MemorySyncPersistence();
+  const windows = [await windowOn(server, locks, device), await windowOn(server, locks, device)];
+  for (const each of windows) {
+    await each.doc.connect();
+    await until(() => each.doc.sync.connection === 'connected', 'the window to connect');
+    await each.doc.whenPersisted();
+    await each.close();
+  }
+  assert.ok(await device.load(WINDOW_KEY));
+  assert.ok(await device.load(slotKey(WINDOW_KEY, 1)));
+
+  const watching = sendLeftoverChanges({
+    key: WINDOW_KEY,
+    ownSlot: -1,
+    locks,
+    persistence: device,
+    open: async () => assert.fail('there is nothing to send'),
+    adopt: async () => {},
+  });
+  await until(async () => (await device.load(slotKey(WINDOW_KEY, 1))) === null, 'the idle slot to be emptied');
+  await watching.stop();
+  await released();
+  assert.ok(await device.load(WINDOW_KEY));
+  assert.equal(held.size, 0);
+});
+
+test('with every slot taken there is none to claim, and unreadable saved changes hold no lock', async () => {
+  const { locks, held } = fakeLocks();
+  const device = new MemorySyncPersistence();
+  const slots = [];
+  for (let i = 0; i < MAX_WINDOW_SLOTS; i++) slots.push((await claimWindowSlot(WINDOW_KEY, locks, device))!);
+  assert.equal(await claimWindowSlot(WINDOW_KEY, locks, device), null);
+  for (const slot of slots) slot.release();
+  await released();
+  assert.equal(held.size, 0);
+
+  const broken: SyncPersistence = { load: async () => { throw new Error('sealed'); }, save: async () => {}, clear: async () => {} };
+  await assert.rejects(claimWindowSlot(WINDOW_KEY, locks, broken), /sealed/);
+  await released();
+  assert.equal(held.size, 0);
+});
+
 /** A stand-in for the upload API that holds what it was sent and can drop the connection. */
 function uploadServer(options: { failChunks?: Set<number>; chunkSize?: number } = {}) {
   const received: number[] = [];
@@ -229,6 +498,20 @@ test('an upload that gave up carries on with the same attempt', async () => {
   assert.equal(result.revisionId, 'r1');
   assert.deepEqual(api.received, [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   assert.equal(api.created(), 1, 'the same upload session');
+});
+
+test('an edit the server cannot store is set aside, and later edits carry on', async () => {
+  const server = new FakeSyncServer();
+  const { doc } = await serverDocument(server, 'ben', 'reviewer');
+  // Half an emoji, as cutting text through the middle of one leaves.
+  doc.add(rectangle('broken', 'ben', { comment: 'cut \ud83d' }));
+  doc.add(rectangle('fine', 'ben'));
+  assert.equal(doc.sync.pendingCount, 0);
+  assert.equal(doc.sync.inbox.length, 1);
+  assert.equal(doc.sync.inbox[0]!.reason.code, 'invalid');
+  assert.equal(doc.get('broken'), undefined);
+  assert.deepEqual(Object.keys(server.state.markups), ['fine']);
+  await doc.destroy();
 });
 
 test('an upload the server refuses is not retried', async () => {

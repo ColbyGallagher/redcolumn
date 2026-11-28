@@ -7,12 +7,13 @@ import { openLocal, sealLocal } from '../storage/localCrypto';
 import { getOpenInfo, getRevisionFile, type RevisionOpenInfo, type RevisionTarget } from './documentsApi';
 import { ReviewDocument } from './ReviewDocument';
 import { sha256Hex } from './upload';
+import { claimWindowSlot, sendLeftoverChanges, type WindowSlot } from './windowSlots';
 
 /*
  * Opens a revision from the server for the viewer: its PDF from the server's blob store, and its
  * markups as a `SyncDocument` over a WebSocket to the same server. The PDF stays in memory while
  * the tab is open. Unsent changes are kept on this device (sealed when local encryption is on),
- * per server, user and revision, so they survive a reload.
+ * per server, user, revision and window, so they survive a reload.
  */
 
 /** A server revision's tab id: never a library file's. */
@@ -34,8 +35,8 @@ export interface OpenRevisionHooks {
 }
 
 /** One per document: closing a document closes its own connection, never another's. */
-function devicePersistence(): SyncPersistence | false {
-  if (typeof indexedDB === 'undefined') return false;
+function devicePersistence(): SyncPersistence | null {
+  if (typeof indexedDB === 'undefined') return null;
   return new IndexedDbSyncPersistence({ dbName: 'nb-server-docs', sealer: { seal: sealLocal, open: openLocal } });
 }
 
@@ -54,13 +55,27 @@ function socketUrl(location: Pick<Location, 'protocol' | 'host'>): string {
   return `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}/ws`;
 }
 
+function createTransport(): WsSyncTransport {
+  return new WsSyncTransport({
+    url: socketUrl(window.location),
+    checkSessionEnded: async () => (await fetch('/auth/me', { credentials: 'same-origin', cache: 'no-store' })).status === 401,
+  });
+}
+
+/** Connects `doc` over `transport`, and again whenever the transport says it is time. */
+function startSync(doc: SyncDocument, transport: WsSyncTransport): void {
+  transport.onReconnectDue(() => void doc.connect().catch((err: unknown) => console.warn('Reconnect failed:', err)));
+  void doc.connect(transport).catch((err: unknown) => console.warn('Could not connect:', err));
+}
+
 async function startDocument(info: RevisionOpenInfo, hooks: OpenRevisionHooks): Promise<ReviewDocument> {
   const names = new Map(info.members.map((m) => [m.userId, m.name]));
   names.set(info.user.id, info.user.name);
-  const transport = new WsSyncTransport({ url: socketUrl(window.location) });
+  const transport = createTransport();
   let review: ReviewDocument | null = null;
+  const key = `${window.location.origin}|${info.user.id}|${info.streamId}:${info.revision.id}`;
   const options: SyncDocumentOptions = {
-    key: `${window.location.origin}|${info.user.id}|${info.streamId}:${info.revision.id}`,
+    key,
     streamId: info.streamId,
     scopeId: info.scopeId,
     revisionId: info.revision.id,
@@ -74,19 +89,30 @@ async function startDocument(info: RevisionOpenInfo, hooks: OpenRevisionHooks): 
       },
     },
     resolveAuthor: (actor) => names.get(actor.userId) ?? msg('Unknown user'),
-    persistence: devicePersistence(),
+    persistence: false,
   };
+  const device = devicePersistence();
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks;
+  let slot: WindowSlot | null = null;
   let inner: SyncDocument;
-  let notKept = false;
+  /** Why unsent changes will not outlive the tab, when they will not. */
+  let notKept: string | null = null;
   try {
-    inner = await SyncDocument.open(options);
+    if (device && locks) {
+      slot = await claimWindowSlot(key, locks, device);
+      if (!slot) notKept = msg('This document is open in too many windows. Changes made in this one are only kept until it closes.');
+    } else if (device) {
+      // Without locks, two windows could overwrite each other's saved changes.
+      notKept = msg('This browser cannot keep unsent changes safely. New changes are only kept until the tab closes.');
+    }
+    inner = await SyncDocument.open({ ...options, persistence: slot?.persistence ?? false });
   } catch (err) {
     console.error('Could not read the changes kept on this device:', err);
-    notKept = true;
-    inner = await SyncDocument.open({ ...options, persistence: false });
+    notKept = msg('Changes kept on this device could not be read. New changes are only kept until the tab closes.');
+    slot?.release();
+    slot = null;
+    inner = await SyncDocument.open(options);
   }
-  // The transport is attached only now, by `connect`, so an attempt that failed to open never hears it.
-  transport.onReconnectDue(() => void inner.connect().catch((err: unknown) => console.warn('Reconnect failed:', err)));
   review = new ReviewDocument(
     inner,
     transport,
@@ -101,11 +127,37 @@ async function startDocument(info: RevisionOpenInfo, hooks: OpenRevisionHooks): 
     },
     names,
   );
-  if (notKept) review.report(msg('Changes kept on this device could not be read. New changes are only kept until the tab closes.'));
+  if (notKept) review.report(notKept);
   const online = () => transport.retryNow();
   window.addEventListener('online', online);
   review.onDestroy(() => window.removeEventListener('online', online));
-  void inner.connect(transport).catch((err: unknown) => console.warn('Could not connect:', err));
+  // The transport is attached only now, by `connect`, so an attempt that failed to open never hears it.
+  startSync(inner, transport);
+  let stopLeftovers: (() => Promise<void>) | null = null;
+  if (slot && device && locks) {
+    const leftovers = sendLeftoverChanges({
+      key,
+      ownSlot: slot.slot,
+      locks,
+      persistence: device,
+      open: async (persistence) => {
+        const left = await SyncDocument.open({ ...options, context: { actor: { id: info.user.id, name: info.user.name } }, persistence });
+        startSync(left, createTransport());
+        return left;
+      },
+      adopt: async (entries) => {
+        inner.adoptRejected(entries);
+        await inner.whenPersisted();
+      },
+    });
+    stopLeftovers = leftovers.stop;
+  }
+  // Runs once the document has saved for the last time: the other slots first, then this one.
+  review.onDestroy(async () => {
+    await stopLeftovers?.();
+    slot?.release();
+    await device?.close?.();
+  });
   return review;
 }
 

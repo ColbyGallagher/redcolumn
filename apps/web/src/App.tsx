@@ -258,8 +258,8 @@ import { installAssistant } from './desktop/installAssistant';
 import { AssistantConfirmDialog } from './components/AssistantConfirmDialog';
 import { UnsavedChangesDialog, askSaveChanges } from './components/UnsavedChangesDialog';
 import { setAssistantOn } from './desktop/assistantFlag';
-import { hasFacet, hasYjs, isSynced, type AppDocument } from './review/facets';
-import { applyFacetPolicy, facetOfCommand, hiddenRibbonTabs, panelUnavailable, toolsFor } from './review/facetUi';
+import { hasFacet, hasYjs, isSynced, requireFileSteps, type AppDocument } from './review/facets';
+import { applyFacetPolicy, facetOfCommand, facetOfTool, hiddenRibbonTabs, panelUnavailable, toolsFor } from './review/facetUi';
 import type { RevisionTarget } from './review/documentsApi';
 import type { ReviewDocument } from './review/ReviewDocument';
 import { SyncStatusBar } from './review/SyncStatusBar';
@@ -2625,6 +2625,8 @@ export function App() {
     async (cur: OpenFile, intoB: boolean, edited: ArrayBuffer, remap?: (file: StoredFile) => void, pageFor: (was: number) => number = (was) => was, label = 'Change document') => {
       const pane: Pane = intoB ? 'b' : 'a';
       if (!ctl || !ctlOf(pane)) return;
+      // Before anything is written: a server document's file must never be changed or copied here.
+      requireFileSteps(cur.store);
       if (settings.get().restrictSignedChanges) assertKeepsSignatures(await readFile(cur.file.hash), edited);
       // The contents before stay stored while undo can return to them.
       if (!studioDocOf(cur.file.id)) holdFor(cur.store, [cur.file.hash]);
@@ -2717,6 +2719,7 @@ export function App() {
    */
   const commitDocument = useCallback(
     async (cur: OpenFile, edited: ArrayBuffer, remap?: (file: StoredFile) => void, revisionNote?: string) => {
+      requireFileSteps(cur.store);
       if (revisionNote) await keepRevision(cur.file.id, revisionNote);
       if (tabsARef.current.includes(cur)) return swapDocument(cur, false, edited, remap, undefined, stepLabel(revisionNote));
       if (tabsBRef.current.includes(cur)) return swapDocument(cur, true, edited, remap, undefined, stepLabel(revisionNote));
@@ -3303,7 +3306,7 @@ export function App() {
   editTextRef.current = (pageIndex, at) => {
     const cur = activeOpen;
     const c = paneB ? ctlB : ctl;
-    if (!cur || !c || !ctl) return;
+    if (!cur || !c || !ctl || !hasFacet(cur.store, 'fileSteps')) return;
     if (studioDocOf(cur.file.id)) {
       setError(msg('A Live Session document is shared with others, so its content cannot be changed here.'));
       return;
@@ -3328,7 +3331,7 @@ export function App() {
   };
   eraseRef.current = (pageIndex, rect, polygon) => {
     const cur = activeOpen;
-    if (cur) void runRedact(cur, paneB, 'erase', [{ pageIndex, rect, ...(polygon ? { polygon } : {}) }]).catch((err) => setError(msg('Erase failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
+    if (cur && hasFacet(cur.store, 'fileSteps')) void runRedact(cur, paneB, 'erase', [{ pageIndex, rect, ...(polygon ? { polygon } : {}) }]).catch((err) => setError(msg('Erase failed: {value}', { value: err instanceof Error ? err.message : String(err) })));
   };
 
   /** Flatten, Unflatten, Repair, Reduce File Size and Colour Processing (Document menu). */
@@ -6384,11 +6387,15 @@ export function App() {
     }
   };
   const activeTools = paneB && ctlB ? ctlB.tools : ctl?.tools;
-  // A tool the document cannot use (a measuring tool picked in another tab, say) gives way to Select.
+  // A tool the document cannot use (one picked in another tab, say) gives way to Select, in both
+  // panes: a drag in the one not in front uses its tool too.
   useEffect(() => {
-    const facet = facetOfCommand(`tool.${toolsState.tool}`);
-    if (activeOpen && activeTools && facet && !hasFacet(activeOpen.store, facet)) activeTools.setTool('select');
-  }, [activeOpen, activeTools, toolsState.tool]);
+    for (const [doc, tools] of [[open, ctl?.tools], [openB, ctlB?.tools]] as const) {
+      if (!doc || !tools) continue;
+      const facet = facetOfTool(tools.getState().tool);
+      if (facet && !hasFacet(doc.store, facet)) tools.setTool('select');
+    }
+  }, [open, openB, ctl, ctlB, toolsState.tool]);
   const assistantHost = useRef<() => AssistantDocument[]>(() => []);
   assistantHost.current = () => {
     const pageFor = (t: OpenFile) => {

@@ -6,7 +6,7 @@
 //   3. E2E_SERVER_URL=http://127.0.0.1:3000 E2E_SERVER_EMAIL=... E2E_SERVER_PASSWORD=... \
 //        pnpm --filter @nb/e2e exec playwright test --project=web specs/server
 import { randomUUID } from 'node:crypto';
-import { expect, test, type Browser, type Page } from '@playwright/test';
+import { expect, test, type Browser, type BrowserContext, type Page, type WebSocketRoute } from '@playwright/test';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 
 const SERVER = process.env.E2E_SERVER_URL?.replace(/\/$/, '');
@@ -60,6 +60,43 @@ async function openFirstRevision(page: Page): Promise<void> {
   await page.waitForFunction(() => !!window.__nb.tools.store);
 }
 
+/** Lets a test cut this person's WebSockets, in every window of theirs, and let them back. */
+async function cuttableSockets(context: BrowserContext): Promise<(cut: boolean) => Promise<void>> {
+  let down = false;
+  const open = new Set<WebSocketRoute>();
+  await context.routeWebSocket(/\/ws$/,(socket) => {
+    if (down) return void socket.close({ code: 4000 });
+    socket.connectToServer();
+    open.add(socket);
+  });
+  return async (cut) => {
+    down = cut;
+    if (!cut) return;
+    await Promise.all([...open].map((socket) => socket.close({ code: 4000 })));
+    open.clear();
+  };
+}
+
+/** Another window of someone already signed in, on the same revision. */
+async function anotherWindow(context: BrowserContext, errors: string[], project: string): Promise<Page> {
+  const page = await context.newPage();
+  page.on('pageerror', (err) => errors.push(`second window: ${err.message}`));
+  await page.goto(`${SERVER}/`);
+  await openProjectDocuments(page, project);
+  await openFirstRevision(page);
+  return page;
+}
+
+const armedTool = (page: Page) => page.evaluate(() => window.__nb.tools.getState().tool);
+
+async function dragOnPage(page: Page, from: [number, number], to: [number, number]): Promise<void> {
+  const box = (await page.locator('.pane canvas').first().boundingBox())!;
+  await page.mouse.move(box.x + box.width * from[0], box.y + box.height * from[1]);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * to[0], box.y + box.height * to[1], { steps: 6 });
+  await page.mouse.up();
+}
+
 const commandState = (page: Page, id: string) =>
   page.evaluate((commandId) => {
     const c = window.__nb.commands().get(commandId) as { enabled: boolean; managed?: boolean } | undefined;
@@ -97,6 +134,7 @@ test('two people work on one server document', async ({ browser }, info) => {
 
   // The reviewer accepts the invitation and opens the same revision.
   const ben = await newPerson(browser, errors, 'reviewer');
+  const cutBen = await cuttableSockets(ben.context());
   const token = new URL(inviteUrl).pathname.split('/').pop()!;
   await ben.goto(`${SERVER}/#/invite/${token}`);
   await ben.getByLabel('Email').fill(reviewerEmail);
@@ -113,12 +151,7 @@ test('two people work on one server document', async ({ browser }, info) => {
 
   // The reviewer draws a rectangle with the mouse; the admin sees it appear.
   await ben.evaluate(() => window.__nb.tools.setTool('rect'));
-  const canvas = ben.locator('.pane canvas').first();
-  const box = (await canvas.boundingBox())!;
-  await ben.mouse.move(box.x + box.width * 0.35, box.y + box.height * 0.4);
-  await ben.mouse.down();
-  await ben.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.55, { steps: 6 });
-  await ben.mouse.up();
+  await dragOnPage(ben, [0.35, 0.4], [0.55, 0.55]);
   await expect.poll(async () => (await markups(ben)).length).toBe(1);
   await expect.poll(async () => (await markups(ada)).length).toBe(1);
   await expect(ben.locator('.sync-status[data-sync-state="synced"]')).toBeVisible();
@@ -158,6 +191,53 @@ test('two people work on one server document', async ({ browser }, info) => {
   await openFirstRevision(ben);
   await expect.poll(async () => (await markups(ben)).map((m) => [m.id, m.comment])).toEqual([[drawn!.id, 'Confirm the bolt grade']]);
   await ben.screenshot({ path: info.outputPath('server-document-reviewer.png') });
+
+  // Two windows of the reviewer's, both offline: each keeps its own unsent changes on the device.
+  const second = await anotherWindow(ben.context(), errors, project);
+  await cutBen(true);
+  for (const page of [ben, second]) {
+    await expect(page.locator('.sync-status[data-sync-state="synced"]')).toHaveCount(0);
+  }
+  await ben.evaluate((id) => window.__nb.tools.store.update(id, { comment: 'Changed in the first window' }), drawn!.id);
+  await second.evaluate(() => window.__nb.tools.setTool('rect'));
+  await dragOnPage(second, [0.6, 0.6], [0.75, 0.7]);
+  for (const page of [ben, second]) {
+    await expect(page.locator('.sync-status-main')).toContainText('pending');
+    // Time for the change to reach the device before the window goes.
+    await page.waitForTimeout(500);
+  }
+  await second.close();
+  await ben.reload();
+  expect((await markups(ada)).length).toBe(1);
+  await cutBen(false);
+  // One window comes back, and sends what both had.
+  await openProjectDocuments(ben, project);
+  await openFirstRevision(ben);
+  await expect.poll(async () => (await markups(ada)).length, { timeout: 30_000 }).toBe(2);
+  await expect.poll(async () => (await markups(ada)).find((m) => m.id === drawn!.id)?.comment).toBe('Changed in the first window');
+  await expect.poll(async () => (await markups(ben)).length).toBe(2);
+  await expect(ben.locator('.sync-status[data-sync-state="synced"]')).toBeVisible();
+  await expect(ben.locator('.sync-rejected-toggle')).toHaveCount(0);
+
+  // A tool that changes the file or measures, armed on a local file, is put down on coming to a
+  // server document.
+  const adaChooser = ada.waitForEvent('filechooser');
+  await ada.evaluate(() => void (window.__nb.commands().get('file.open') as unknown as { run: () => void }).run());
+  await (await adaChooser).setFiles({ name: 'site-notes.pdf', mimeType: 'application/pdf', buffer: await drawingPdf() });
+  const localTab = ada.locator('.doc-tab', { hasText: 'site-notes' });
+  const serverTab = ada.locator('.doc-tab', { hasText: 'S-101' });
+  await expect(localTab).toHaveAttribute('aria-selected', 'true');
+  for (const name of ['eraseContent', 'redaction', 'length'] as const) {
+    await localTab.click();
+    await expect.poll(() => commandState(ada, 'edit.eraseContent')).toEqual({ enabled: true, hidden: false });
+    await ada.evaluate((armed) => window.__nb.tools.setTool(armed), name);
+    expect(await armedTool(ada)).toBe(name);
+    await serverTab.click();
+    await expect.poll(() => armedTool(ada), name).toBe('select');
+  }
+  await dragOnPage(ada, [0.2, 0.2], [0.3, 0.3]);
+  expect((await markups(ada)).length).toBe(2);
+  await expect(ada.locator('.sync-status[data-sync-state="synced"]')).toBeVisible();
 
   // A local file opened in the same app keeps every command.
   await ben.keyboard.press('Control+w');

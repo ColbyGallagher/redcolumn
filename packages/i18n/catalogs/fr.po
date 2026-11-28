@@ -22995,6 +22995,10 @@ msgid "Uploading {name}"
 msgstr ""
 
 #: apps/web/src/review/ProjectDocumentsPanel.tsx
+msgid "Your role on this project does not let you add documents."
+msgstr ""
+
+#: apps/web/src/review/ProjectDocumentsPanel.tsx
 msgid "{count, plural, one {# page} other {# pages}}"
 msgstr ""
 
@@ -23114,7 +23118,7 @@ msgstr ""
 msgid "Statuses, ticks and replies are not available for documents on a server yet, so they were not saved."
 msgstr ""
 
-#: apps/web/src/review/ReviewDocument.ts
+#: apps/web/src/review/ReviewDocument.ts apps/web/src/review/facets.ts
 msgid "That is not available for documents on a server yet."
 msgstr ""
 
@@ -23183,7 +23187,15 @@ msgid "The server is still reading this PDF. Try again in a moment."
 msgstr ""
 
 #: apps/web/src/review/openRevision.ts
+msgid "This browser cannot keep unsent changes safely. New changes are only kept until the tab closes."
+msgstr ""
+
+#: apps/web/src/review/openRevision.ts
 msgid "This document is not available. You may no longer have access to it."
+msgstr ""
+
+#: apps/web/src/review/openRevision.ts
+msgid "This document is open in too many windows. Changes made in this one are only kept until it closes."
 msgstr ""
 
 #: apps/web/src/review/openRevision.ts

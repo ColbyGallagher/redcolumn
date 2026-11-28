@@ -25,6 +25,8 @@ function describeDocumentsError(err: unknown): string {
         return msg('The file is empty or larger than the server accepts.');
       case 'hash_mismatch':
         return msg('The file changed or was damaged on the way. Add it again.');
+      case 'forbidden':
+        return msg('Your role on this project does not let you add documents.');
       case 'not_found':
       case 'project_not_found':
         return msg('Project not found or you no longer have access.');

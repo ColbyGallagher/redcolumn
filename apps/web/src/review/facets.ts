@@ -1,3 +1,4 @@
+import { msg } from '@nb/i18n';
 import type {
   AiReviewFacet,
   EditRule,
@@ -80,6 +81,15 @@ export function hasFacet(doc: object, name: FacetName): boolean {
 }
 
 export const hasFileSteps = (doc: MarkupDocument): doc is MarkupDocument & FileStepFacet => hasFacet(doc, 'fileSteps');
+
+/**
+ * Stops a change to the file of a document that does not offer file changes. Call it before
+ * anything is written: the document's own refusal comes only at `fileStep`, after the new file has
+ * been saved.
+ */
+export function requireFileSteps(doc: object): void {
+  if (!hasFacet(doc, 'fileSteps')) throw new Error(msg('That is not available for documents on a server yet.'));
+}
 export const hasTakeoff = (doc: MarkupDocument): doc is MarkupDocument & TakeoffFacet => hasFacet(doc, 'takeoff');
 export const hasAiReview = (doc: MarkupDocument): doc is MarkupDocument & AiReviewFacet => hasFacet(doc, 'aiReview');
 export const hasPortals = (doc: MarkupDocument): doc is MarkupDocument & PortalFacet => hasFacet(doc, 'portals');
