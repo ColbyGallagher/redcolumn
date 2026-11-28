@@ -598,6 +598,24 @@ describe('project & member management (Postgres 17)', { skip: !DATABASE_URL ? 'D
     assert.deepEqual(await membership(project.id, ben), { role: 'viewer', state: 'active' });
   });
 
+  it('lets one of two invites a person accepts at the same moment win, and keeps that role', async () => {
+    const ada = await person('ada');
+    for (let round = 0; round < 20; round++) {
+      const ben = await person(`ben${round}`);
+      const project = await newProject(ada);
+      const asViewer = await invite(project.id, ada, { role: 'viewer' });
+      const asAdmin = await invite(project.id, ada, { role: 'project_admin' });
+
+      const [viewer, admin] = await Promise.all([accept(asViewer.token, ben.cookie), accept(asAdmin.token, ben.cookie)]);
+      assert.deepEqual([viewer.status, admin.status].sort(), [200, 409], `round ${round}`);
+      const loser = viewer.status === 409 ? viewer : admin;
+      assert.deepEqual(loser.body, { error: 'already_member' });
+      // The second accept never overwrites the role the first one gave.
+      const won = viewer.status === 200 ? 'viewer' : 'project_admin';
+      assert.deepEqual(await membership(project.id, ben), { role: won, state: 'active' });
+    }
+  });
+
   it('withdraws earlier invites made by or sent to a removed member', async () => {
     const ada = await person('ada');
     const eve = await person('eve');
